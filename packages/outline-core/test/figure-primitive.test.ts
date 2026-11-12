@@ -32,6 +32,8 @@ test("each kind with a primitive form draws its written rows as catalogue primit
     table: { headers: ["Bed", "Sown"], rows: [["North", "peas"], ["South", "beans"]], blocks: ["a1", null] },
     tabs: { tabs: [{ value: "todo", count: 2, headers: ["Chore"], rows: [["dig"], ["sow"]] }, { value: "done", count: 0, rows: [] }] },
     annotate: { code: "sow(peas)", lang: "js", notes: ["the call"] },
+    matrix: rows("matrix", "- north: peas=3 kale=1", "- south: beans=4"),
+    tree: { nodes: [{ label: "garden", children: [{ label: "beds", meta: 4 }, { label: "shed", accent: true }] }] },
   };
   expect(Object.keys(written).sort()).toEqual(Object.keys(FIGURE_PRIMITIVES).sort());
   for (const [kind, props] of Object.entries(written)) {
@@ -43,6 +45,9 @@ test("each kind with a primitive form draws its written rows as catalogue primit
   }
   expect(figurePrimitive("stat", written.stat!)).toEqual({ type: "row", children: [{ type: "stat", label: "beds", value: "4" }, { type: "stat", label: "sown", value: "3", tone: "accent" }] });
   expect(figurePrimitive("meter", written.meter!)).toMatchObject({ children: [{ type: "bar", label: "north", value: 3, max: 10 }, { type: "bar", value: 7 }] });
+  expect(figurePrimitive("meter", { title: "Water butt", value: 0.6 })).toEqual({ type: "bar", label: "Water butt", value: 0.6, max: 1 });
+  expect(figurePrimitive("matrix", written.matrix!)).toEqual({ type: "table", columns: ["", "peas", "kale", "beans"], rows: [["north", 3, 1, ""], ["south", "", "", 4]] });
+  expect(figurePrimitive("tree", written.tree!)).toEqual({ type: "stack", children: [{ type: "text", text: "garden" }, { type: "text", text: "    └ beds · 4" }, { type: "text", text: "    └ shed", tone: "accent" }] });
   expect(figurePrimitive("check", written.check!)).toEqual({ type: "checklist", items: [{ label: "dig the bed", done: true }, { label: "sow the peas — after the frost", done: false }] });
   expect(figurePrimitive("table", written.table!)).toEqual({ type: "table", columns: ["Bed", "Sown"], rows: [["North", "peas"], ["South", "beans"]], links: ["a1", null] });
 });

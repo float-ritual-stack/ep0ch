@@ -218,3 +218,39 @@ fn main_asks_whether_the_run_is_headless_the_way_that_answers_before_run() {
     assert!(!body.contains("headless_run()"), "main asks headless_run() before run, where it is always None");
     assert!(body.contains("rune::is_headless()"), "main asks rune::is_headless() whether to serve the control socket");
 }
+
+/// A page's parts have one drawer, the registry: a primitive is built by its type in `tiles/prim.rs`, and nothing
+/// under `tiles/` reads what a part was written as (a figure's kind, a component's name) to decide what to draw.
+#[test]
+fn a_primitive_is_built_by_the_registry_and_no_drawer_reads_what_a_part_was_written_as() {
+    none("a primitive built outside the tiles", strays("prim::build(", |path| path.starts_with("tiles/") || path.starts_with("tests/")));
+    none("a registry beside PRIMS", strays("&[Prim]", |path| path == "tiles/prim.rs"));
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    // The page drawer walks: the spike's own drawings of a component, a figure, the note and its chips are gone.
+    for gone in ["fn component(", "fn stat_tiles(", "fn note(", "fn chips(", "Part::", "Frame", "Markdown::new", "Badge::new"] {
+        assert!(!text("tiles/page.rs").contains(gone), "tiles/page.rs has `{gone}`: a part is drawn by the registry");
+    }
+    assert!(text("tiles/page.rs").contains("prim::build(part,") && text("tiles/page.rs").contains("parts::around(page)"), "the page drawer walks its parts through the registry");
+    // No builder and no drawer matches a figure's kind or a component's name: what to draw is the primitive's type.
+    // (`tiles/tree.rs` and `tiles/about.rs` are the list wave's to rewrite; `tiles/about.rs` still switches on kind names.)
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    for path in ["tiles/prim.rs", "tiles/page.rs", "parts.rs"] {
+        for read in ["[\"figure\"]", "\"graph-", "\"figure\")"] { assert!(!code(path).contains(read), "{path} reads `{read}`: a figure is the primitives the service lowered it to") }
+        for kind in ["stat", "meter", "rank", "spark", "check", "timeline", "decision", "tabs", "compare", "links", "fields", "view", "use", "box"] {
+            for read in [format!("[\"kind\"] == \"{kind}\""), format!("[\"name\"] == \"{kind}\""), format!("Some(\"{kind}\") =>")] {
+                // A primitive's own type is `stat` and `box` too, matched once, in the registry's table (`ty: "stat"`).
+                assert!(!code(path).contains(&read), "{path} has `{read}`: it decides by what a part was written as");
+            }
+        }
+    }
+    assert!(!code("tiles/prim.rs").contains("[\"kind\"]"), "a builder reads no part's kind");
+    // The wire of a press has one owner each way: the script noun asks, the store reads the call and answers it.
+    none("a button run asked outside its action", strays("\"scripts.sequence\"", |path| path == "actions/script.rs" || path.starts_with("tests/")));
+    none("a script's act answered outside the store", strays("\"scripts.answer\"", |path| path == "store.rs" || path.starts_with("tests/")));
+    none("the window registered outside the store", strays("\"events.subscribe\"", |path| path == "store.rs" || path.starts_with("tests/")));
+    // The renderer seam: the page's model and the script noun hold no Rune, so a second renderer draws the same walk.
+    for path in ["parts.rs", "page.rs", "actions/script.rs", "actline.rs", "screen.rs"] {
+        for word in ["rune::", "rune_kit", "use rune"] { assert!(!code(path).contains(word), "{path} names Rune (`{word}`): it is the model, drawn by tiles/") }
+    }
+}

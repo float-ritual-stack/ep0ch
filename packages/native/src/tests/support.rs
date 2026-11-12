@@ -123,6 +123,10 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
                 "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
                 _ => Ok(json!({ "generation": 0, "blocks": [{ "id": "beans", "title": "Water the beans", "updatedAt": "2026-03-01T09:30:00.000Z" }], "facets": [{ "key": "area", "count": 2, "values": [{ "value": "plot", "count": 2, "last": "" }] }] })),
             },
+            "events.subscribe" => Ok(json!({ "subscribed": true })),
+            // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
+            "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "done", "message": "swept the shed", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
+            "scripts.answer" => Ok(json!({ "accepted": true })),
             action => Err(("failed", format!("no action {action}"))),
         }
     });

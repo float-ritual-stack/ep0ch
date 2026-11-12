@@ -76,7 +76,10 @@ impl<'a> PrimCx<'a> {
     pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth } }
     fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1 } }
     fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1 } }
-    fn key(&self) -> String { self.tile.key(&self.key) }
+    /// The key of what is being built: a part's own view is `<part>/view`, under its frame; what it holds is keyed
+    /// under the part (`sub`), so a row of a part's list is `part/<n>/<id>`.
+    fn key(&self) -> String { if self.own.is_some() { self.sub("view") } else { self.tile.key(&self.key) } }
+    fn frame(&self) -> String { self.tile.key(&self.key) }
     fn sub(&self, part: impl std::fmt::Display) -> String { self.tile.key(format!("{}/{part}", self.key)) }
 }
 
@@ -343,7 +346,7 @@ fn picture(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let c = &k.c;
     let view = build(&prim["view"], &cx.view_of(prim), k);
-    let Some(name) = parts::text(prim, "name") else { return view };
+    let Some(name) = parts::text(prim, "name") else { return view.key(cx.frame()) };
     let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name).variant(BadgeVariant::Accent).build(k));
     if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }
     head = head.child(el().grow(1.0));
@@ -357,7 +360,7 @@ fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     } else if let Some(status) = parts::text(prim, "status") {
         head = head.child(text(status.to_string()).font(k.ty.small).color(c.text_faint));
     }
-    let mut out = col().key(cx.key()).w_full().padding(12.0).gap(6.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_muted).child(head);
+    let mut out = col().key(cx.frame()).w_full().padding(12.0).gap(6.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_muted).child(head);
     // The service's words on what is wrong, with whatever it could still answer under them.
     if let Some(e) = parts::text(prim, "error") { out = out.child(text(e.to_string()).key(cx.sub("error")).font(k.ty.small).color(c.danger.fg).wrap()) }
     out = out.child(view);

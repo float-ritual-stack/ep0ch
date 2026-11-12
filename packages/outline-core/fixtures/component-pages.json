@@ -1,0 +1,1748 @@
+{
+ "about": "Every built-in component's own example (its schema's) as the page `notes.page` answers of a note that holds it, on a scratch outline of made-up beds and chores. Made by the service; never edited by hand.",
+ "by": "packages/outliner/scripts/component-pages.ts",
+ "components": [
+  {
+   "id": "heading-style",
+   "title": "Heading styles",
+   "group": "layout",
+   "live": false,
+   "source": "## Your calls [heading::band]",
+   "page": {
+    "title": "Heading styles example",
+    "text": "Heading styles example\n## Your calls [heading::band]",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-001",
+      "span": {
+       "start": 23,
+       "end": 52
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "## Your calls [heading::band]"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "callout",
+   "title": "Callouts",
+   "group": "layout",
+   "live": false,
+   "source": "> [!tip]\n> Water the beds before nine.",
+   "page": {
+    "title": "Callouts example",
+    "text": "Callouts example\n> [!tip]\n> Water the beds before nine.",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-002",
+      "span": {
+       "start": 17,
+       "end": 55
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "> **✦ Tip**  \n> Water the beds before nine."
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "rule",
+   "title": "Rules",
+   "group": "layout",
+   "live": true,
+   "source": "Planning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions\nShip the shelf !!today!!\n\n- buy screws\n- paint it",
+   "page": {
+    "title": "Rules example",
+    "text": "Rules example\nPlanning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions\nShip the shelf !!today!!\n\n- buy screws\n- paint it",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-003",
+      "span": {
+       "start": 14,
+       "end": 139
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "Planning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions  \nShip the shelf !!today!!\n\n- buy screws  \n- paint it"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "note-mover",
+   "title": "Note mover",
+   "group": "site",
+   "live": true,
+   "source": "Pickled walnuts [type::recipe]\n\nBrine for a week.",
+   "page": {
+    "title": "Note mover example",
+    "text": "Note mover example\nPickled walnuts [type::recipe]\n\nBrine for a week.",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-004",
+      "span": {
+       "start": 19,
+       "end": 68
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "Pickled walnuts [type::recipe]\n\nBrine for a week."
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "view",
+   "title": "Views",
+   "group": "site",
+   "live": true,
+   "source": "::view{query=\"type=chore\" layout=table} ^garden",
+   "page": {
+    "title": "Views example",
+    "text": "Views example\n::view{query=\"type=chore\" layout=table} ^garden",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "view",
+      "block": "note-005",
+      "span": {
+       "start": 14,
+       "end": 61
+      },
+      "line": 1,
+      "name": "view",
+      "title": "Collection",
+      "query": "type=chore",
+      "status": "live · 2 results",
+      "view": {
+       "type": "list",
+       "rows": [
+        {
+         "id": "note-006",
+         "label": "Mend the net",
+         "cells": [
+          "Mend the net",
+          "Apr 1"
+         ],
+         "bind": "((note-006))",
+         "body": [],
+         "detail": "updated: Apr 1",
+         "preview": {
+          "block": "note-006"
+         },
+         "do": {
+          "open": "note-006"
+         }
+        },
+        {
+         "id": "note-007",
+         "label": "Turn the compost",
+         "cells": [
+          "Turn the compost",
+          "Apr 1"
+         ],
+         "bind": "((note-007))",
+         "body": [],
+         "detail": "updated: Apr 1",
+         "preview": {
+          "block": "note-007"
+         },
+         "do": {
+          "open": "note-007"
+         }
+        }
+       ],
+       "arrange": "table",
+       "size": "small",
+       "columns": [
+        "title",
+        "updated"
+       ],
+       "headers": [
+        "title",
+        "updated"
+       ],
+       "page": 200,
+       "empty": "No matching notes"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-meter",
+   "title": "Meter (::graph-meter)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-meter\n---\ntitle: Disk\nvalue: 0.6\n---\n::",
+   "page": {
+    "title": "Meter (::graph-meter) example",
+    "text": "Meter (::graph-meter) example\n::graph-meter\n---\ntitle: Disk\nvalue: 0.6\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-008",
+      "span": {
+       "start": 30,
+       "end": 77
+      },
+      "line": 1,
+      "name": "graph-meter",
+      "figure": "meter",
+      "title": "Disk",
+      "view": {
+       "type": "bar",
+       "label": "Disk",
+       "value": 0.6,
+       "max": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-spark",
+   "title": "Sparkline (::graph-spark)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-spark\n---\ntitle: Visits\ndata: [3, 5, 2, 8, 6, 9]\n---\n::",
+   "page": {
+    "title": "Sparkline (::graph-spark) example",
+    "text": "Sparkline (::graph-spark) example\n::graph-spark\n---\ntitle: Visits\ndata: [3, 5, 2, 8, 6, 9]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-009",
+      "span": {
+       "start": 34,
+       "end": 97
+      },
+      "line": 1,
+      "name": "graph-spark",
+      "figure": "spark",
+      "title": "Visits",
+      "view": {
+       "type": "sparkline",
+       "values": [
+        3,
+        5,
+        2,
+        8,
+        6,
+        9
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-stat",
+   "title": "Stat (::graph-stat)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-stat\n---\ntitle: this week\nitems: [{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }, { value: \"2\", label: drafts }]\n---\n::",
+   "page": {
+    "title": "Stat (::graph-stat) example",
+    "text": "Stat (::graph-stat) example\n::graph-stat\n---\ntitle: this week\nitems: [{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }, { value: \"2\", label: drafts }]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-010",
+      "span": {
+       "start": 28,
+       "end": 171
+      },
+      "line": 1,
+      "name": "graph-stat",
+      "figure": "stat",
+      "title": "this week",
+      "view": {
+       "type": "row",
+       "children": [
+        {
+         "type": "stat",
+         "label": "outbox",
+         "value": "18"
+        },
+        {
+         "type": "stat",
+         "label": "waiting",
+         "value": "8"
+        },
+        {
+         "type": "stat",
+         "label": "drafts",
+         "value": "2"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-rank",
+   "title": "Rank (::graph-rank)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-rank\n---\ntitle: where the work went\nitems: [{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]\n---\n::",
+   "page": {
+    "title": "Rank (::graph-rank) example",
+    "text": "Rank (::graph-rank) example\n::graph-rank\n---\ntitle: where the work went\nitems: [{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-011",
+      "span": {
+       "start": 28,
+       "end": 156
+      },
+      "line": 1,
+      "name": "graph-rank",
+      "figure": "rank",
+      "title": "where the work went",
+      "view": {
+       "type": "stack",
+       "children": [
+        {
+         "type": "bar",
+         "label": "docs",
+         "value": 12,
+         "max": 30
+        },
+        {
+         "type": "bar",
+         "label": "code",
+         "value": 30,
+         "max": 30,
+         "tone": "accent"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-tree",
+   "title": "Tree (::graph-tree)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-tree\n---\ntitle: the garden\nnodes: [{ label: garden, children: [{ label: beds, meta: 4 }, { label: shed, accent: true }] }]\n---\n::",
+   "page": {
+    "title": "Tree (::graph-tree) example",
+    "text": "Tree (::graph-tree) example\n::graph-tree\n---\ntitle: the garden\nnodes: [{ label: garden, children: [{ label: beds, meta: 4 }, { label: shed, accent: true }] }]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-012",
+      "span": {
+       "start": 28,
+       "end": 165
+      },
+      "line": 1,
+      "name": "graph-tree",
+      "figure": "tree",
+      "title": "the garden",
+      "view": {
+       "type": "stack",
+       "children": [
+        {
+         "type": "text",
+         "text": "garden"
+        },
+        {
+         "type": "text",
+         "text": "    └ beds · 4"
+        },
+        {
+         "type": "text",
+         "text": "    └ shed",
+         "tone": "accent"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-check",
+   "title": "Checklist (::graph-check)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-check\n---\ntitle: Saturday\n---\n- [x] Order the seed\n- [x] Dig the beds — before the frost\n- [ ] Water at nine\n- [ ] Cover the tomatoes\n::",
+   "page": {
+    "title": "Checklist (::graph-check) example",
+    "text": "Checklist (::graph-check) example\n::graph-check\n---\ntitle: Saturday\n---\n- [x] Order the seed\n- [x] Dig the beds — before the frost\n- [ ] Water at nine\n- [ ] Cover the tomatoes\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-013",
+      "span": {
+       "start": 34,
+       "end": 178
+      },
+      "line": 1,
+      "name": "graph-check",
+      "figure": "check",
+      "title": "Saturday",
+      "view": {
+       "type": "checklist",
+       "items": [
+        {
+         "label": "Order the seed",
+         "done": true
+        },
+        {
+         "label": "Dig the beds — before the frost",
+         "done": true
+        },
+        {
+         "label": "Water at nine",
+         "done": false
+        },
+        {
+         "label": "Cover the tomatoes",
+         "done": false
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-timeline",
+   "title": "Timeline (::graph-timeline)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-timeline\n---\ntitle: The garden year\n---\n- 2026-03: seeds sown\n- 2026-05: first flowers — early\n- **2026-08: the open garden**\n- *2026-10: seed collecting*\n::",
+   "page": {
+    "title": "Timeline (::graph-timeline) example",
+    "text": "Timeline (::graph-timeline) example\n::graph-timeline\n---\ntitle: The garden year\n---\n- 2026-03: seeds sown\n- 2026-05: first flowers — early\n- **2026-08: the open garden**\n- *2026-10: seed collecting*\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-014",
+      "span": {
+       "start": 36,
+       "end": 201
+      },
+      "line": 1,
+      "name": "graph-timeline",
+      "figure": "timeline",
+      "title": "The garden year",
+      "view": {
+       "type": "table",
+       "columns": [
+        "When",
+        "What",
+        ""
+       ],
+       "rows": [
+        [
+         "2026-03",
+         {
+          "text": "seeds sown"
+         },
+         ""
+        ],
+        [
+         "2026-05",
+         {
+          "text": "first flowers"
+         },
+         "early"
+        ],
+        [
+         "2026-08",
+         {
+          "text": "the open garden",
+          "tone": "accent"
+         },
+         "now"
+        ],
+        [
+         "2026-10",
+         {
+          "text": "seed collecting"
+         },
+         "next"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-table",
+   "title": "Table (::graph-table)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-table\n---\ntitle: what the research cost\nheaders: [Agent, Tokens, Time]\nrows: [[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]\nfooter: [Total, \"301,923\", 34m]\nalign: [left, right, right]\n---\n::",
+   "page": {
+    "title": "Table (::graph-table) example",
+    "text": "Table (::graph-table) example\n::graph-table\n---\ntitle: what the research cost\nheaders: [Agent, Tokens, Time]\nrows: [[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]\nfooter: [Total, \"301,923\", 34m]\nalign: [left, right, right]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-015",
+      "span": {
+       "start": 30,
+       "end": 234
+      },
+      "line": 1,
+      "name": "graph-table",
+      "figure": "table",
+      "title": "what the research cost",
+      "view": {
+       "type": "table",
+       "columns": [
+        "Agent",
+        "Tokens",
+        "Time"
+       ],
+       "rows": [
+        [
+         "Inks",
+         "115,207",
+         "16m"
+        ],
+        [
+         "Patterns",
+         "186,716",
+         "18m"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-tabs",
+   "title": "Tabs (::graph-tabs)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-tabs\n---\ntitle: Jobs by stage\nquery: type=task\ngroup: status\n---\n::",
+   "page": {
+    "title": "Tabs (::graph-tabs) example",
+    "text": "Tabs (::graph-tabs) example\n::graph-tabs\n---\ntitle: Jobs by stage\nquery: type=task\ngroup: status\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-016",
+      "span": {
+       "start": 28,
+       "end": 103
+      },
+      "line": 1,
+      "name": "graph-tabs",
+      "figure": "tabs",
+      "title": "Jobs by stage",
+      "query": "type=task",
+      "status": "live · 0 results",
+      "view": {
+       "type": "markdown",
+       "text": "**Results · Jobs by stage** · 0 groups, 0 rows · as of 2031-04-01 09:00 +09:00 · query: `type=task`\n"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-decision",
+   "title": "Decision (::graph-decision)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-decision\n---\ntitle: one repo\nstatus: decided\ndate: 2026-10-03\n---\n- **Bun workspaces** — one lockfile\n- *pnpm + turbo* — two tools\n- nx — not tried\n\nWe chose what we already run.\n::",
+   "page": {
+    "title": "Decision (::graph-decision) example",
+    "text": "Decision (::graph-decision) example\n::graph-decision\n---\ntitle: one repo\nstatus: decided\ndate: 2026-10-03\n---\n- **Bun workspaces** — one lockfile\n- *pnpm + turbo* — two tools\n- nx — not tried\n\nWe chose what we already run.\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-017",
+      "span": {
+       "start": 36,
+       "end": 225
+      },
+      "line": 1,
+      "name": "graph-decision",
+      "figure": "decision",
+      "title": "one repo",
+      "view": {
+       "type": "stack",
+       "children": [
+        {
+         "type": "table",
+         "columns": [
+          "",
+          "Option",
+          "Why"
+         ],
+         "rows": [
+          [
+           {
+            "text": "chosen",
+            "tone": "good"
+           },
+           "Bun workspaces",
+           "one lockfile"
+          ],
+          [
+           {
+            "text": "rejected",
+            "tone": "dim"
+           },
+           "pnpm + turbo",
+           "two tools"
+          ],
+          [
+           {
+            "text": "open"
+           },
+           "nx",
+           "not tried"
+          ]
+         ]
+        },
+        {
+         "type": "text",
+         "text": "We chose what we already run."
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-chat",
+   "title": "Chat (::graph-chat)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-chat\n---\ntitle: at the board\n---\n- shypht: did the backups run?\n- loki: yes, at 09:00\n- loki: fourteen snapshots\n- daddy: *goes to make tea*\n::",
+   "page": {
+    "title": "Chat (::graph-chat) example",
+    "text": "Chat (::graph-chat) example\n::graph-chat\n---\ntitle: at the board\n---\n- shypht: did the backups run?\n- loki: yes, at 09:00\n- loki: fourteen snapshots\n- daddy: *goes to make tea*\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-018",
+      "span": {
+       "start": 28,
+       "end": 179
+      },
+      "line": 1,
+      "name": "graph-chat",
+      "figure": "chat",
+      "title": "at the board",
+      "view": {
+       "type": "table",
+       "columns": [
+        "Who",
+        "Said"
+       ],
+       "rows": [
+        [
+         "shypht",
+         {
+          "text": "did the backups run?"
+         }
+        ],
+        [
+         "loki",
+         {
+          "text": "yes, at 09:00"
+         }
+        ],
+        [
+         "loki",
+         {
+          "text": "fourteen snapshots"
+         }
+        ],
+        [
+         "daddy",
+         {
+          "text": "goes to make tea",
+          "tone": "dim"
+         }
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-keys",
+   "title": "Keys (::graph-keys)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-keys\n---\ntitle: the reader\n---\n- **e: edit the note**\n- g then d: the desk\n- ctrl+k: the command palette\n::",
+   "page": {
+    "title": "Keys (::graph-keys) example",
+    "text": "Keys (::graph-keys) example\n::graph-keys\n---\ntitle: the reader\n---\n- **e: edit the note**\n- g then d: the desk\n- ctrl+k: the command palette\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-019",
+      "span": {
+       "start": 28,
+       "end": 143
+      },
+      "line": 1,
+      "name": "graph-keys",
+      "figure": "keys",
+      "title": "the reader",
+      "view": {
+       "type": "table",
+       "columns": [
+        "Keys",
+        "Does"
+       ],
+       "rows": [
+        [
+         {
+          "text": "e",
+          "tone": "accent"
+         },
+         "edit the note"
+        ],
+        [
+         {
+          "text": "g then d"
+         },
+         "the desk"
+        ],
+        [
+         {
+          "text": "ctrl+k"
+         },
+         "the command palette"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-props",
+   "title": "Properties (::graph-props)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-props\n---\ntitle: layout.move\n---\n- **to**: a tile — the tile it goes beside\n- where: left, right, up, down, tabs · right — which side of it\n- index: a number — with where=tabs, its place among the tabs (0 first)\n::",
+   "page": {
+    "title": "Properties (::graph-props) example",
+    "text": "Properties (::graph-props) example\n::graph-props\n---\ntitle: layout.move\n---\n- **to**: a tile — the tile it goes beside\n- where: left, right, up, down, tabs · right — which side of it\n- index: a number — with where=tabs, its place among the tabs (0 first)\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-020",
+      "span": {
+       "start": 35,
+       "end": 257
+      },
+      "line": 1,
+      "name": "graph-props",
+      "figure": "props",
+      "title": "layout.move",
+      "view": {
+       "type": "table",
+       "columns": [
+        "Name",
+        "Values",
+        "Default",
+        "Meaning"
+       ],
+       "rows": [
+        [
+         {
+          "text": "to",
+          "tone": "accent"
+         },
+         "a tile",
+         "",
+         "the tile it goes beside"
+        ],
+        [
+         {
+          "text": "where"
+         },
+         "left, right, up, down, tabs",
+         "right",
+         "which side of it"
+        ],
+        [
+         {
+          "text": "index"
+         },
+         "a number",
+         "",
+         "with where=tabs, its place among the tabs (0 first)"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-example",
+   "title": "Example (::graph-example)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-example\n---\ntitle: try it\nprompt: ep0ch act\n---\n- `layout.move tile=notes to=right` → puts the notes tile to the right of it\n- `bar.open scope=actions query=move` → lists the actions about moving (safe)\n::",
+   "page": {
+    "title": "Example (::graph-example) example",
+    "text": "Example (::graph-example) example\n::graph-example\n---\ntitle: try it\nprompt: ep0ch act\n---\n- `layout.move tile=notes to=right` → puts the notes tile to the right of it\n- `bar.open scope=actions query=move` → lists the actions about moving (safe)\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-021",
+      "span": {
+       "start": 34,
+       "end": 247
+      },
+      "line": 1,
+      "name": "graph-example",
+      "figure": "example",
+      "title": "try it",
+      "view": {
+       "type": "table",
+       "columns": [
+        "Act",
+        "Does",
+        ""
+       ],
+       "rows": [
+        [
+         "layout.move tile=notes to=right",
+         "puts the notes tile to the right of it",
+         ""
+        ],
+        [
+         "bar.open scope=actions query=move",
+         "lists the actions about moving",
+         "safe"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-uptime",
+   "title": "Uptime (::graph-uptime)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-uptime\n---\ntitle: backups\nfrom: 2026-09-01\nto: 2026-10-04\n---\n- ok*20 degraded ok*9 down ok*3\n::",
+   "page": {
+    "title": "Uptime (::graph-uptime) example",
+    "text": "Uptime (::graph-uptime) example\n::graph-uptime\n---\ntitle: backups\nfrom: 2026-09-01\nto: 2026-10-04\n---\n- ok*20 degraded ok*9 down ok*3\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-022",
+      "span": {
+       "start": 32,
+       "end": 136
+      },
+      "line": 1,
+      "name": "graph-uptime",
+      "figure": "uptime",
+      "title": "backups",
+      "view": {
+       "type": "source",
+       "text": "::graph-uptime\n---\ntitle: backups\nfrom: 2026-09-01\nto: 2026-10-04\n---\n- ok*20 degraded ok*9 down ok*3\n::"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-activity",
+   "title": "Activity (::graph-activity)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-activity\n---\ntitle: notes written\nto: 2026-03-15\n---\n- 2026-03-02: 0 1 4 2 0*3\n- 2026-03-09: 5 3 0 0 1 2 8\n::",
+   "page": {
+    "title": "Activity (::graph-activity) example",
+    "text": "Activity (::graph-activity) example\n::graph-activity\n---\ntitle: notes written\nto: 2026-03-15\n---\n- 2026-03-02: 0 1 4 2 0*3\n- 2026-03-09: 5 3 0 0 1 2 8\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-023",
+      "span": {
+       "start": 36,
+       "end": 153
+      },
+      "line": 1,
+      "name": "graph-activity",
+      "figure": "activity",
+      "title": "notes written",
+      "view": {
+       "type": "source",
+       "text": "::graph-activity\n---\ntitle: notes written\nto: 2026-03-15\n---\n- 2026-03-02: 0 1 4 2 0*3\n- 2026-03-09: 5 3 0 0 1 2 8\n::"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-calendar",
+   "title": "Calendar (::graph-calendar)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-calendar\n---\ntitle: Garden days\nyear: 2026\nmonth: 3\n---\n- 12: **launch**\n- 20: the plot committee\n::",
+   "page": {
+    "title": "Calendar (::graph-calendar) example",
+    "text": "Calendar (::graph-calendar) example\n::graph-calendar\n---\ntitle: Garden days\nyear: 2026\nmonth: 3\n---\n- 12: **launch**\n- 20: the plot committee\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-024",
+      "span": {
+       "start": 36,
+       "end": 144
+      },
+      "line": 1,
+      "name": "graph-calendar",
+      "figure": "calendar",
+      "title": "Garden days",
+      "view": {
+       "type": "source",
+       "text": "::graph-calendar\n---\ntitle: Garden days\nyear: 2026\nmonth: 3\n---\n- 12: **launch**\n- 20: the plot committee\n::"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-annotate",
+   "title": "Annotate (::graph-annotate)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-annotate\n---\ntitle: the snapshot\n---\n```sh\nsqlite3 \"$db\" \".backup '$stage'\"  # (1)\nrestic backup \"$stage\"            # (2)\n```\n1. a consistent copy, never the live file\n2. encrypted, to the storage box\n::",
+   "page": {
+    "title": "Annotate (::graph-annotate) example",
+    "text": "Annotate (::graph-annotate) example\n::graph-annotate\n---\ntitle: the snapshot\n---\n```sh\nsqlite3 \"$db\" \".backup '$stage'\"  # (1)\nrestic backup \"$stage\"            # (2)\n```\n1. a consistent copy, never the live file\n2. encrypted, to the storage box\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-025",
+      "span": {
+       "start": 36,
+       "end": 248
+      },
+      "line": 1,
+      "name": "graph-annotate",
+      "figure": "annotate",
+      "title": "the snapshot",
+      "view": {
+       "type": "stack",
+       "children": [
+        {
+         "type": "blockdown",
+         "text": "```sh\nsqlite3 \"$db\" \".backup '$stage'\"  # (1)\nrestic backup \"$stage\"            # (2)\n```"
+        },
+        {
+         "type": "text",
+         "text": "1. a consistent copy, never the live file"
+        },
+        {
+         "type": "text",
+         "text": "2. encrypted, to the storage box"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-quadrant",
+   "title": "Quadrant (::graph-quadrant)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-quadrant\n---\ntitle: bug classes\nxs: [cheap, costly]\nys: [prevents, helps, nothing]\n---\n- untyped wire: cheap, prevents\n- **identity by name: costly, nothing**\n- extra tests: cheap, helps\n::",
+   "page": {
+    "title": "Quadrant (::graph-quadrant) example",
+    "text": "Quadrant (::graph-quadrant) example\n::graph-quadrant\n---\ntitle: bug classes\nxs: [cheap, costly]\nys: [prevents, helps, nothing]\n---\n- untyped wire: cheap, prevents\n- **identity by name: costly, nothing**\n- extra tests: cheap, helps\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-026",
+      "span": {
+       "start": 36,
+       "end": 233
+      },
+      "line": 1,
+      "name": "graph-quadrant",
+      "figure": "quadrant",
+      "title": "bug classes",
+      "view": {
+       "type": "source",
+       "text": "::graph-quadrant\n---\ntitle: bug classes\nxs: [cheap, costly]\nys: [prevents, helps, nothing]\n---\n- untyped wire: cheap, prevents\n- **identity by name: costly, nothing**\n- extra tests: cheap, helps\n::"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-matrix",
+   "title": "Matrix (::graph-matrix)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-matrix\n---\ntitle: who catches what\n---\n- CodeRabbit: edges=80 identity=2\n- ultrareview: identity=4 parsers=1\n::",
+   "page": {
+    "title": "Matrix (::graph-matrix) example",
+    "text": "Matrix (::graph-matrix) example\n::graph-matrix\n---\ntitle: who catches what\n---\n- CodeRabbit: edges=80 identity=2\n- ultrareview: identity=4 parsers=1\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-027",
+      "span": {
+       "start": 32,
+       "end": 151
+      },
+      "line": 1,
+      "name": "graph-matrix",
+      "figure": "matrix",
+      "title": "who catches what",
+      "view": {
+       "type": "table",
+       "columns": [
+        "",
+        "edges",
+        "identity",
+        "parsers"
+       ],
+       "rows": [
+        [
+         "CodeRabbit",
+         80,
+         2,
+         ""
+        ],
+        [
+         "ultrareview",
+         "",
+         4,
+         1
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-compare",
+   "title": "Compare (::graph-compare)",
+   "group": "figures",
+   "live": false,
+   "source": "::graph-compare\n---\ntitle: beds\ncolumns: [Raised beds, Grow bags]\n---\n- cost: £60 of boards | £12 a bag\n- drainage: good on clay | fine\n- **lasts: ten years | two seasons**\n::",
+   "page": {
+    "title": "Compare (::graph-compare) example",
+    "text": "Compare (::graph-compare) example\n::graph-compare\n---\ntitle: beds\ncolumns: [Raised beds, Grow bags]\n---\n- cost: £60 of boards | £12 a bag\n- drainage: good on clay | fine\n- **lasts: ten years | two seasons**\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-028",
+      "span": {
+       "start": 34,
+       "end": 209
+      },
+      "line": 1,
+      "name": "graph-compare",
+      "figure": "compare",
+      "title": "beds",
+      "view": {
+       "type": "table",
+       "columns": [
+        "",
+        "Raised beds",
+        "Grow bags"
+       ],
+       "rows": [
+        [
+         {
+          "text": "cost"
+         },
+         "£60 of boards",
+         "£12 a bag"
+        ],
+        [
+         {
+          "text": "drainage"
+         },
+         "good on clay",
+         "fine"
+        ],
+        [
+         {
+          "text": "lasts",
+          "tone": "accent"
+         },
+         "ten years",
+         "two seasons"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "graph-flow",
+   "title": "Flow (::graph-flow)",
+   "group": "figures",
+   "live": true,
+   "source": "::graph-flow\n---\ntitle: the review's findings\n---\n- main → recorded: 5\n- main → fixed: 2\n- Effect → fixed: 4\n::",
+   "page": {
+    "title": "Flow (::graph-flow) example",
+    "text": "Flow (::graph-flow) example\n::graph-flow\n---\ntitle: the review's findings\n---\n- main → recorded: 5\n- main → fixed: 2\n- Effect → fixed: 4\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-029",
+      "span": {
+       "start": 28,
+       "end": 139
+      },
+      "line": 1,
+      "name": "graph-flow",
+      "figure": "flow",
+      "title": "the review's findings",
+      "view": {
+       "type": "source",
+       "text": "::graph-flow\n---\ntitle: the review's findings\n---\n- main → recorded: 5\n- main → fixed: 2\n- Effect → fixed: 4\n::"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "links",
+   "title": "Links (::links)",
+   "group": "links",
+   "live": true,
+   "source": "::links\n---\ntitle: Links\n---\n::",
+   "page": {
+    "title": "Links (::links) example",
+    "text": "Links (::links) example\n::links\n---\ntitle: Links\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "links",
+      "block": "note-030",
+      "span": {
+       "start": 24,
+       "end": 55
+      },
+      "line": 1,
+      "name": "links",
+      "title": "Links",
+      "status": "live · 0 links",
+      "view": {
+       "type": "list",
+       "rows": [],
+       "groups": [
+        {
+         "name": "Outlinks",
+         "label": "Outlinks",
+         "count": 0,
+         "note": "nothing here yet"
+        },
+        {
+         "name": "Resources",
+         "label": "Resources",
+         "count": 0,
+         "note": "nothing here yet"
+        },
+        {
+         "name": "Backlinks",
+         "label": "Backlinks",
+         "count": 0,
+         "note": "nothing here yet"
+        },
+        {
+         "name": "Children",
+         "label": "Children",
+         "count": 0,
+         "note": "nothing here yet"
+        }
+       ],
+       "filter": false,
+       "enter": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "outlinks",
+   "title": "Outlinks (::outlinks)",
+   "group": "links",
+   "live": false,
+   "source": "::outlinks\n---\ntitle: Outlinks\n---\n::",
+   "page": {
+    "title": "Outlinks (::outlinks) example",
+    "text": "Outlinks (::outlinks) example\n::outlinks\n---\ntitle: Outlinks\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "links",
+      "block": "note-031",
+      "span": {
+       "start": 30,
+       "end": 67
+      },
+      "line": 1,
+      "name": "outlinks",
+      "title": "Outlinks",
+      "status": "live · 0 links",
+      "view": {
+       "type": "list",
+       "rows": [],
+       "groups": [
+        {
+         "name": "Outlinks",
+         "label": "Outlinks",
+         "count": 0,
+         "note": "nothing here yet"
+        }
+       ],
+       "filter": false,
+       "enter": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "resources",
+   "title": "Resources (::resources)",
+   "group": "links",
+   "live": false,
+   "source": "::resources\n---\ntitle: Resources\n---\n::",
+   "page": {
+    "title": "Resources (::resources) example",
+    "text": "Resources (::resources) example\n::resources\n---\ntitle: Resources\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "links",
+      "block": "note-032",
+      "span": {
+       "start": 32,
+       "end": 71
+      },
+      "line": 1,
+      "name": "resources",
+      "title": "Resources",
+      "status": "live · 0 links",
+      "view": {
+       "type": "list",
+       "rows": [],
+       "groups": [
+        {
+         "name": "Resources",
+         "label": "Resources",
+         "count": 0,
+         "note": "nothing here yet"
+        }
+       ],
+       "filter": false,
+       "enter": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "backlinks",
+   "title": "Backlinks (::backlinks)",
+   "group": "links",
+   "live": false,
+   "source": "::backlinks\n---\ntitle: Backlinks\n---\n::",
+   "page": {
+    "title": "Backlinks (::backlinks) example",
+    "text": "Backlinks (::backlinks) example\n::backlinks\n---\ntitle: Backlinks\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "links",
+      "block": "note-033",
+      "span": {
+       "start": 32,
+       "end": 71
+      },
+      "line": 1,
+      "name": "backlinks",
+      "title": "Backlinks",
+      "status": "live · 0 links",
+      "view": {
+       "type": "list",
+       "rows": [],
+       "groups": [
+        {
+         "name": "Backlinks",
+         "label": "Backlinks",
+         "count": 0,
+         "note": "nothing here yet"
+        }
+       ],
+       "filter": false,
+       "enter": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "box",
+   "title": "Box (::box)",
+   "group": "layout",
+   "live": false,
+   "source": "::box{margin.x=0 pad.x=0 margin.y=0 pad.y=0 list.gap=1 list.zebra=false list.divider=none}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::",
+   "page": {
+    "title": "Box (::box) example",
+    "text": "Box (::box) example\n::box{margin.x=0 pad.x=0 margin.y=0 pad.y=0 list.gap=1 list.zebra=false list.divider=none}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "box",
+      "block": "note-034",
+      "span": {
+       "start": 20,
+       "end": 181
+      },
+      "line": 1,
+      "name": "box",
+      "view": {
+       "type": "box",
+       "children": [
+        {
+         "type": "part",
+         "kind": "prose",
+         "block": "note-034",
+         "span": {
+          "start": 111,
+          "end": 178
+         },
+         "line": 2,
+         "view": {
+          "type": "markdown",
+          "text": "- Water the beds before nine  \n- Cover the tomatoes  \n- Check the traps"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "image",
+   "title": "Images (the media line)",
+   "group": "media",
+   "live": false,
+   "source": "[img::shots/moth.png]",
+   "page": {
+    "title": "Images (the media line) example",
+    "text": "Images (the media line) example\n[img::shots/moth.png]",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "picture",
+      "block": "note-035",
+      "span": {
+       "start": 32,
+       "end": 53
+      },
+      "line": 1,
+      "view": {
+       "type": "picture",
+       "path": "shots/moth.png",
+       "width": "fit"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "hero-image",
+   "title": "Header image (layout hero)",
+   "group": "media",
+   "live": false,
+   "source": "[img::shots/moth.png] [layout::hero]",
+   "page": {
+    "title": "Header image (layout hero) example",
+    "text": "Header image (layout hero) example\n[img::shots/moth.png] [layout::hero]",
+    "chips": [],
+    "parts": [],
+    "hero": {
+     "path": "shots/moth.png",
+     "width": "fit"
+    }
+   }
+  },
+  {
+   "id": "header",
+   "title": "Reader header (header)",
+   "group": "layout",
+   "live": false,
+   "source": "Plot at a glance [header::none]\n\n::graph-stat\n---\nitems: [{ value: \"12\", label: beds }, { value: \"3\", label: sown this week }]\n---\n::",
+   "page": {
+    "title": "Reader header (header) example",
+    "text": "Reader header (header) example\nPlot at a glance [header::none]\n\n::graph-stat\n---\nitems: [{ value: \"12\", label: beds }, { value: \"3\", label: sown this week }]\n---\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-036",
+      "span": {
+       "start": 31,
+       "end": 62
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "Plot at a glance [header::none]"
+      }
+     },
+     {
+      "type": "part",
+      "kind": "figure",
+      "block": "note-036",
+      "span": {
+       "start": 64,
+       "end": 164
+      },
+      "line": 3,
+      "name": "graph-stat",
+      "figure": "stat",
+      "view": {
+       "type": "row",
+       "children": [
+        {
+         "type": "stat",
+         "label": "beds",
+         "value": "12"
+        },
+        {
+         "type": "stat",
+         "label": "sown this week",
+         "value": "3"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "artifact",
+   "title": "Artifacts (claude.ai's, in a note)",
+   "group": "media",
+   "live": false,
+   "source": "[artifact::artifacts/pulse-pad.jsx]",
+   "page": {
+    "title": "Artifacts (claude.ai's, in a note) example",
+    "text": "Artifacts (claude.ai's, in a note) example\n[artifact::artifacts/pulse-pad.jsx]",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-037",
+      "span": {
+       "start": 43,
+       "end": 78
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "[artifact::artifacts/pulse-pad.jsx]"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "embed",
+   "title": "Embeds and references",
+   "group": "links",
+   "live": false,
+   "source": "See ((note-038|the beds)) for the plan.",
+   "page": {
+    "title": "Embeds and references example",
+    "text": "Embeds and references example\nSee ((note-038|the beds)) for the plan.",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-039",
+      "span": {
+       "start": 30,
+       "end": 97
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "See [the beds](ep0ch:b/note-038) for the plan."
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "code-fence",
+   "title": "Code fences",
+   "group": "layout",
+   "live": false,
+   "source": "```sh\nmoths = 3  # [not::a property]\n```",
+   "page": {
+    "title": "Code fences example",
+    "text": "Code fences example\n```sh\nmoths = 3  # [not::a property]\n```",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-040",
+      "span": {
+       "start": 20,
+       "end": 60
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "```sh\nmoths = 3  # [not::a property]\n```"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "table",
+   "title": "Tables",
+   "group": "layout",
+   "live": false,
+   "source": "| item | cost |\n| --- | ---: |\n| bolts | 12 |\n| boards | 140 |",
+   "page": {
+    "title": "Tables example",
+    "text": "Tables example\n| item | cost |\n| --- | ---: |\n| bolts | 12 |\n| boards | 140 |",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "prose",
+      "block": "note-041",
+      "span": {
+       "start": 15,
+       "end": 77
+      },
+      "line": 1,
+      "view": {
+       "type": "markdown",
+       "text": "| item | cost |  \n| --- | ---: |  \n| bolts | 12 |  \n| boards | 140 |"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "fields",
+   "title": "Fields (::fields)",
+   "group": "site",
+   "live": false,
+   "source": "::fields{key=connectTo}",
+   "page": {
+    "title": "Fields (::fields) example",
+    "text": "Fields (::fields) example\n::fields{key=connectTo}",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "fields",
+      "block": "note-042",
+      "span": {
+       "start": 26,
+       "end": 49
+      },
+      "line": 1,
+      "name": "fields",
+      "title": "connectTo",
+      "status": "live · 0 occurrences",
+      "view": {
+       "type": "list",
+       "rows": [],
+       "filter": false,
+       "enter": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "if",
+   "title": "Only when (::if)",
+   "group": "site",
+   "live": true,
+   "source": "::if{where=\"status=active\"}\nShown only while the note matches.\n::",
+   "page": {
+    "title": "Only when (::if) example",
+    "text": "Only when (::if) example\n::if{where=\"status=active\"}\nShown only while the note matches.\n::",
+    "chips": [],
+    "parts": []
+   }
+  },
+  {
+   "id": "use",
+   "title": "Template (::use)",
+   "group": "site",
+   "live": false,
+   "source": "::use{of=[[meeting-template]]}",
+   "page": {
+    "title": "Template (::use) example",
+    "text": "Template (::use) example\n::use{of=[[meeting-template]]}",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "use",
+      "block": "note-043",
+      "span": {
+       "start": 25,
+       "end": 55
+      },
+      "line": 1,
+      "name": "use",
+      "error": "no page meeting-template",
+      "view": {
+       "type": "source",
+       "text": "::use{of=[[meeting-template]]}"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "button",
+   "title": "Button (::button)",
+   "group": "controls",
+   "live": false,
+   "source": "::button{label=\"Fold the bottom\"}\ntile.collapse on=true tile=links\ntile.collapse on=true tile=preview\n::",
+   "page": {
+    "title": "Button (::button) example",
+    "text": "Button (::button) example\n::button{label=\"Fold the bottom\"}\ntile.collapse on=true tile=links\ntile.collapse on=true tile=preview\n::",
+    "chips": [],
+    "parts": [
+     {
+      "type": "part",
+      "kind": "button",
+      "block": "note-044",
+      "span": {
+       "start": 26,
+       "end": 130
+      },
+      "line": 1,
+      "name": "button",
+      "sequence": true,
+      "view": {
+       "type": "button",
+       "label": "Fold the bottom",
+       "act": "tile.collapse on=true tile=links\ntile.collapse on=true tile=preview"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
