@@ -54,6 +54,29 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
     } finally { p.close(); }
   }, 40_000);
 
+  test("an undo after a spill brings the group back as it last stood, its tiles at the shares they had", async () => {
+    const p = await beanDesk(doors);
+    /** The group's own tiles with their widths, as layout.get has its layer. */
+    const inner = () => ((JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: { name: string; rect?: { cols: number } }[] }[]).filter(l => !l.drawer)[1]?.tiles ?? []).map(t => `${t.name} ${t.rect?.cols}`).join();
+    try {
+      await gather(p);
+      const gathered = inner();
+      // Gone in, the edit made wider inside the group; then out.
+      p.keys("C-w", "e");
+      await until(() => p.capture().includes("· in"), "in the group");
+      p.keys("C-w", ">");
+      await until(() => inner() !== gathered, "the edit wider inside").catch(e => { throw new Error(`${e.message}: ${inner()}`); });
+      p.keys("Escape", "C-]");
+      await until(() => !p.capture().includes("· in"), "out of the group");
+      const stood = inner();
+      p.keys("C-w", "G");
+      await until(() => widths(p)[0]?.startsWith("detail ") ?? false, "spilled").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      p.keys("C-w", "B");
+      await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group back").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      await until(() => inner() === stood, "its tiles as they last stood", 3000).catch(e => { throw new Error(`${e.message}: ${inner()}, was ${stood} (gathered ${gathered})`); });
+    } finally { p.close(); }
+  }, 40_000);
+
   test("an agent's open lands in the screen's reader after a gather and after ^W a from the group", async () => {
     const honey = await doors.create("Jar the honey\nwarm the jars"), wax = await doors.create("Render the wax\nstrain it twice");
     const p = await beanDesk(doors);
@@ -77,11 +100,27 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
       await until(() => widths(p).length === 2, "the preview beside");
       p.keys("C-w", "x");
       await until(() => widths(p).length === 1, "the reader closed");
+      // Its note stays on screen, in the preview; the bar says what happened in tile names, never a tile's id.
       const r = p.act("open", `id=${honey}`);
       expect([r.ok, r.out]).toEqual([true, expect.any(String)]);
       await until(() => p.capture().includes("Jar the honey"), "the open drawn").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
       // In the tile that's there, not a new one beside it.
       expect(widths(p)).toHaveLength(1);
+    } finally { p.close(); }
+  }, 40_000);
+
+  test("closing the preview a reader opens into says the wire dropped in tile names, never a tile's id", async () => {
+    const p = await doors.pane(await doors.create("Smoke the bees\ngently"), "Smoke the bees", 44, 30);
+    try {
+      p.keys("C-w", "v");
+      await until(() => widths(p).length === 2, "the preview beside");
+      p.keys("C-w", "l");
+      await Bun.sleep(150);
+      p.keys("C-w", "x");
+      await until(() => widths(p).length === 1, "the preview closed");
+      await until(() => p.capture().includes("wire dropped"), "the bar says so").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(p.capture()).toContain("detail: open wire dropped; detail-preview");
+      expect(p.capture()).not.toMatch(/\(t-[0-9a-f]/);
     } finally { p.close(); }
   }, 40_000);
 });
