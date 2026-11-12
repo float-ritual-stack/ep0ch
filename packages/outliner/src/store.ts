@@ -1908,7 +1908,7 @@ export class OutlinerStore {
       const stage = roadmapStageOf(text);
       if (stage !== null) return stage;
     }
-    const ownerId = row.length ? null : workIdOwner(this.database, workId), owner = ownerId ? this.getFromCurrentRead(ownerId) : null; return owner && !owner.effectiveDeletedRootId ? roadmapStageOf(owner.text) : null; // a chip written unpadded (PIE-1761)
+    const owner = row.length ? null : this.numberedOwnerFromCurrentRead(workId); return owner && !owner.effectiveDeletedRootId ? roadmapStageOf(owner.text) : null; // a chip written unpadded (PIE-1761)
   }
 
   /**
@@ -2346,6 +2346,7 @@ export class OutlinerStore {
     return pages;
   }
 
+  private numberedOwnerFromCurrentRead(workId: string): Block | null { const wanted = parseWorkId(workId), id = wanted && this.workIdAllocatorFromCurrentRead()?.prefix === wanted.prefix ? workIdOwner(this.database, wanted.workId) : null, reserved = id ? this.reservedWorkIdOwnerFromCurrentRead(wanted!.workId) : undefined; return id && (reserved === undefined || reserved === id) ? this.getFromCurrentRead(id) : null; } // `workId`'s note by its number, however its chip writes it, own prefix, a number no other note's reservation holds (PIE-1761): the resolver's and the stage follow's one answer
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
     if (!TICKET_KEY.test(normalized)) return null;
@@ -5680,8 +5681,7 @@ export class OutlinerStore {
   ): PageAddressResolution {
     const exact = this.resolvePageAddressFromCurrentRead(normalized);
     if (exact.status !== "missing") return exact;
-    const numbered = parseWorkId(normalized.displayAddress), ownerId = numbered && this.workIdAllocatorFromCurrentRead()?.prefix === numbered.prefix ? workIdOwner(this.database, numbered.workId) : null, reserved = ownerId ? this.reservedWorkIdOwnerFromCurrentRead(numbered!.workId) : undefined, owner = ownerId && (reserved === undefined || reserved === ownerId) ? this.getFromCurrentRead(ownerId) : null; // by its number, however its chip writes it, for the outline's own prefix and a number nobody else holds (PIE-1761)
-    if (owner) return { address: normalized.displayAddress, normalizedAddress: normalized.normalizedAddress, status: owner.effectiveDeletedRootId ? "deleted" : "resolved", registeredAddress: numbered!.workId, kind: "work-id", block: owner, ...(owner.effectiveDeletedRootId ? { deletionRootId: owner.effectiveDeletedRootId } : {}) };
+    const numbered = parseWorkId(normalized.displayAddress), owner = numbered ? this.numberedOwnerFromCurrentRead(numbered.workId) : null; if (owner) return { address: normalized.displayAddress, normalizedAddress: normalized.normalizedAddress, status: owner.effectiveDeletedRootId ? "deleted" : "resolved", registeredAddress: numbered!.workId, kind: "work-id", block: owner, ...(owner.effectiveDeletedRootId ? { deletionRootId: owner.effectiveDeletedRootId } : {}) };
     const allocator = this.workIdAllocatorFromCurrentRead();
     if (!allocator) return exact;
     const embeddedWorkIds = workIdReferences(normalized.displayAddress, allocator.prefix);

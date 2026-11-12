@@ -127,7 +127,7 @@ export async function wantedAgain(client: WorkJevClient, item: Block, since: Dat
   const out: Signal[] = [];
   // Nudged: a comment on it, by anyone but a loop.
   const under = (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=annotation OR type=annotation-reply", subtreeRootId: item.id, limit: 200 } })).blocks;
-  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" ") || c.text.split("\n")[0]!.replace(/\s*\[[^\]\n]*::[^\]\n]*\]/g, "").trim(), 160) }); // a one-line comment's words are its first line
+  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" ") || withoutChips(c.text.split("\n")[0]!), 160) }); // a one-line comment's words are its first line
   // Linked or named: the service's backlinks, which say each source's placement and stage (backlink-facets.ts).
   const back = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: item.id, limit: 100 } });
   const others = back.sources.filter(s => s.facets?.placement !== "self" && s.facets?.placement !== "descendant" && (after(s.createdAt) || after(s.updatedAt)));
@@ -186,6 +186,9 @@ export async function revive(client: WorkJevClient, o: LaterOptions = {}): Promi
   if (o.apply) await keepLater(client, report, o);
   return report;
 }
+
+/** A line's words with its property chips taken out, by the shared property parser (a code literal stays). */
+const withoutChips = (line: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(line)) { out += line.slice(at, p.start); at = p.end; } return (out + line.slice(at)).replace(/\s+/g, " ").trim(); };
 
 /**
  * A row's write, or, refused (the ticket is open in an edit with the cursor on its line, PIE-1760), the row says it

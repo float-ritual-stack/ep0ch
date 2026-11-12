@@ -1983,6 +1983,18 @@ Second paragraph`;
     expect(store.workIdAllocatorStatus().nextWorkId).toBe("PIE-201");
   });
 
+  test("a purged Work ID's number isn't taken by an unpadded chip, for its address or a ticket's stage (CodeRabbit on #1463)", () => {
+    const store = makeStore();
+    store.configureWorkIdPrefix("PIE");
+    const first = store.create("First owner [work-id::PIE-007]");
+    store.delete(first.id);
+    store.purge(first.id, "PIE-007");
+    const later = store.create("Later note [type::roadmap-item] [work-stage::doing] [work-id::PIE-7]");
+    expect(store.resolvePageAddress("PIE-7").block?.id).not.toBe(later.id);
+    const ask = store.create("Ask about it [type::request] [ticket::PIE-007]");
+    expect(store.require(ask.id).properties.find(p => p.key === "ticket-stage")).toBeUndefined();
+  });
+
   test("dirty Work-ID properties never block startup", () => {
     const store = makeStore();
     const directory = stores[stores.length - 1].directory;
