@@ -5894,12 +5894,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
     const r = this.ask({ op: "close", tile: t.id }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    if (nn?.clearsOnClose?.()) {
-      nn.clearContent!();
-      this.doorKeys.stopTyping(this, nn);
-      this.redraw();
-      return { ...this.tileAnswer(t.id), state: "empty" };
-    }
+    if (nn?.clearsOnClose?.()) { nn.clearContent!(); this.doorKeys.stopTyping(this, nn); this.redraw(); return { ...this.tileAnswer(t.id), state: "empty" }; }
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {
@@ -5909,8 +5904,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = this.panes.get(t.id)!.kind;
     const n = String(this.numberOf(t.id));
     // Retiring the source's peeks belongs to the same undo as closing the source.
-    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
-    TXN.run({ ...scope, txn }, () => { this.commit(r); this.tileLeaves(t.id, "end", actor); });
+    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`, closing = this.panes.get(t.id), shown = this.showing(closing);
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.handNote(r.answer.heir, closing, shown, actor); this.tileLeaves(t.id, "end", actor); });
     if (!scope?.txn) this.history.close(txn);
     // Where the person's keys went (the top float or the container's tile, home, or back to the tile it was opened from)
     // is the close's answer, applied as it was committed (`commit`).
@@ -5918,6 +5913,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...answer, pane: n, kind };
   }
 
+  /** The close's heir (landing.ts's closeHeir, PIE-1772) shows the closed reader's note `m`, placed as any open into it is, and takes its trail (back goes where it went). */
+  private handNote(heir: unknown, from: Pane | undefined, m: Msg | null, by: Actor) {
+    const id = typeof heir === "string" ? this.idNamed(heir) : undefined, to = id === undefined ? undefined : this.panes.get(id);
+    try { if (m && to instanceof ReaderPane && this.placeNote(m, { from: id!, to: id!, note: m.id, keys: false }, by) && from instanceof ReaderPane) to.surface.takeHistory(from.surface); } catch (e) { this.ctx.flash(`${this.nameOf(id!)} couldn't take ${subject(m!)}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
   private async closeNewNote(id: number, rd: ReaderPane) {
     if (this.entered.in(rd)) this.entered.clear();
@@ -8325,9 +8325,9 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
     args: { text: { type: "string", optional: true, about: "words to show; absent lists the tile's controls" }, for: { type: "string", optional: true, kind: "tile", about: "the tile to anchor beside" } },
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
-  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
+  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", reads: true, touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.never": def({ summary: "show this hint on the status line from now on", keys: "alt+N, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintNever(h.reader) }),
-  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
+  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", reads: true, touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
   "hints.set": def({ summary: "keep a hint as a card, a status line or off across restarts", keys: [{ keys: "c s o", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on a hint's setting" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: { id: { type: "string", about: "hint id from hints.list" }, to: { type: "string", about: "card, status or off" } }, examples: [{ act: "hints.set id=tile.collapse to=status", does: "keeps folding hints on the status line" }], run: (a, h) => h.d.hintsSet(a.id, a.to as HintSetting) }),
   "hints.reset": def({ summary: "reset all personal hint settings to their defaults", keys: [{ keys: "R", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on reset" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintsReset() }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
@@ -8361,7 +8361,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "screen.spec": def({
     summary: "the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind), key map, hint, band and where opens land: the data a screen note holds. Nothing on screen moves; layout.get says how it's laid out now",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return { spec: specData(d.spec) }; },
   }),
@@ -8388,7 +8388,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "search": def({
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the power bar in its notes scope (bar.open scope=notes), where ⏎ opens the hit (`open`) and alt+⏎ opens it in a new detail",
     keys: [{ keys: "/", does: "search", says: "search for notes by their words" }, { keys: "g", does: "in a river column" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     examples: [
       { act: "search query=\"seed swap\"", does: "answers the notes that match seed swap, numbered, with ids; nothing moves" },

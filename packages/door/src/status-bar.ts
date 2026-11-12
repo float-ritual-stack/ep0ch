@@ -308,7 +308,7 @@ interface StatusOn {
 export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   "status.bar.items": def({
     summary: "describe the status bar's declared items, their current text, place, click and alternate ActionDefs, and visible hit boxes, and the message up now (`message`: its whole words, `cut` when the bar drew less); ids also name the built-ins in your [status-bar::true] note",
-    touches: "nothing", replay: "safe", args: {},
+    reads: true, touches: "nothing", replay: "safe", args: {},
     run(_, on) { return on.items(); },
   }),
   "status.bar.edit": def({

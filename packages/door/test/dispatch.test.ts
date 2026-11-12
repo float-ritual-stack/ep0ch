@@ -74,6 +74,8 @@ describe("the actor rule, for every action (PIE-514)", () => {
       expect({ action: `${set.scope}:${name}`, touches: kinds.includes(def.touches), replay: def.replay === "safe" || def.replay === "ask" }).toEqual({ action: `${set.scope}:${name}`, touches: true, replay: true });
       if (def.while) expect({ action: name, while: def.touches }).toEqual({ action: name, while: "tile" });
       if (def.draft) expect({ action: name, draft: def.touches }).toEqual({ action: name, draft: "draft" });
+      // A read (PIE-1772: an agent's run isn't said on screen) changes nothing of the person's and may always run again.
+      if (def.reads) expect({ action: `${set.scope}:${name}`, touches: def.touches, varies: !!def.touchesWith, replay: def.replay, says: !!def.says }).toEqual({ action: `${set.scope}:${name}`, touches: "nothing", varies: false, replay: "safe", says: false });
       // An action that writes to the outline or reaches outside the door isn't run again by itself after a restart.
       if (def.touches === "draft" && (def.draft === "write" || def.draft === "replace")) expect({ action: name, replay: def.replay }).toEqual({ action: name, replay: "ask" });
     }

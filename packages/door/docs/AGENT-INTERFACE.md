@@ -5,7 +5,9 @@ An agent sees what the person sees, live, and can change anything except where t
 - **Commands are the only way the UI changes.** Every change is a named action in an `ActionSet`: the person's
   keys, clicks and drags call it, and so does an agent over the control socket (`act`). The same code runs
   either way, and an agent's run is always said on screen ("an agent (claude-7) moved draft below tree").
-- **Reads:** `layout.get` and `view.get` say what's on screen, as JSON.
+- **Reads:** `layout.get` and `view.get` say what's on screen, as JSON. A read changes nothing, so it says nothing on
+  the person's screen (PIE-1772): its `ActionDef` declares `reads`, and `actions` lists it as `reads: true`. A read by an
+  agent standing as the person (yolo) runs as their press (search opens the power bar) and is said.
 - **A live feed:** `subscribe` pushes every change to what the person sees as it happens: focus, what each
   tile has in view, cursors and selections, the layout, and marks.
 - **Agents never take the cursor.** One rule, in one place (PIE-514): every action declares what it touches,
@@ -626,7 +628,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id. An agent's never resizes the tile the person is typing in |
 | `layout.even`, `layout.swap` | `to` | an agent's even-out is refused when it would resize the tile the person is typing in; a swap never moves it |
 | `tile.open` | `kind` (`reader`; `detail` reads as a reader, or a pinned one with `page=`), `mode` (`pinned`; `held` is every reader now and reads as left out), `page`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
-| `tile.close` | `tile` | never the person's tile, never a running program |
+| `tile.close` | `tile` | never the person's tile, never a running program. A reader whose opens land in an empty detail here hands it its note and its back and forward (PIE-1772, landing.ts's `closeHeir`), so the note stays on screen |
 | `tile.focus` | `tile`, `dir` (left, right, up, down: the tile that way; in a flow, the column before or after) | refused while the person is typing, and within 2s of their last key |
 | `tile.link` | `tile`, `to`, `role` (`preview` follows the source's selection; `target` takes only opens) | |
 | `tile.dock` | `tile`, `on` (true: docked to an edge, in a dock that stays on this screen; false: undocked, back in the layout; a float goes straight into a dock, one step), `edge` (left, right, up, down: the dock slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new dock starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |

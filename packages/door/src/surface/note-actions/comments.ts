@@ -213,7 +213,7 @@ export const COMMENT_DEFS = {
   }),
   "passage.choices": def({
     summary: "list what can be done with a passage here: comment, ask and explain (when an agent answers in threads) and each extension's passage action, with its key after a",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { surface }) {
       return { choices: surface.passageChoices(), agents: threadAgents().map(a => a.name) };

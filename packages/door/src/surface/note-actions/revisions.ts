@@ -122,7 +122,7 @@ export const REVISION_DEFS = {
   "revisions": def({
     summary: "the note's history (PIE-621, PIE-1433): the current revision, then the earlier texts the service keeps, newest first, each with when it was saved, by whom, its size and first line. The person's lists them over the screen (the tile menu's history); choosing one opens it beside how the note is now (revision.compare). An agent gets the list; revision.restore puts one into the edit",
     keys: [{ via: "the tile menu's \"history\"" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     menu: noteRow("history", ""),
     args: {},
     async run(_, { surface, host, standing }) {

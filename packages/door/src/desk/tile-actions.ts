@@ -139,7 +139,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.get": def({
     answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree and tiles" }, brief: { type: "string", about: "said when tiles are described in brief (no full=true)" }, tree: { type: "object", about: "the screen layout tree" } },
     summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, path, source, note, link, wires, dock state and rect, as its kind describes itself in brief; full=true adds each tile's whole description (a tree's rows, a facets tile's lists, a group's own layout)",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: { full: { type: "boolean", optional: true, about: "each tile's whole description too (a tree's rows, a facets tile's lists): large on a busy desk" } },
     examples: [
       { act: "layout.get", does: "the tiles, their names, kinds, rects and wires, each in brief" },
@@ -150,7 +150,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.list": def({
     summary: "the layouts this screen can be laid out as: the built-ins and the screens people made (screen notes)",
     keys: "^W r",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return d.layouts(); },
   }),
@@ -654,7 +654,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "open this tile's menu",
     summary: "tile=<tile>'s menu (PIE-492): every action its sets offer there (the tile operations, its kind's, a reader's note actions, a board's lane actions), each with its arguments, label, group, key and, when it would be refused now, why. An agent's answers the rows (rows=) and draws nothing; the person's opens the menu over the screen, under the tile's ⋯ or at at=<col,row>, where one click, ⏎ or a row's own key runs it as theirs",
     keys: "^W .; a right-click in a tile (not where its program asked for the mouse, or on a step's box)",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {
       at: { type: "string", optional: true, about: "col,row: the screen cell (from 0) the person's menu opens at; default under the tile's ⋯" },
       q: { type: "string", optional: true, about: "what typing in the menu does (PIE-879): only the rows that match it, by label, group and key (the power bar's matcher), `of` saying how many there are; the person's menu opens with it typed" },
@@ -669,7 +669,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     answer: { tile: { type: "string", kind: "tile", about: "the tile's stable id" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "what it shows" } },
     summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them). With card=true (^W ,, the tile menu's row) the person's shows it in a card by the tile, with copy id and copy reference on it",
     keys: [{ keys: "^W ,", does: "about this tile" }, { via: "the tile menu's \"about this tile\"" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
     hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
     args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },
@@ -738,7 +738,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "view.get": def({
     summary: "what each tile has in view: a reader's note and its lines in view (first, last) with the scroll; the outline's selected row; a terminal's screen, and for nvim its cursor, lines in view and file; tile=<tile> for one",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d, reader }) { return d.viewGet(reader); },
   }),
@@ -789,7 +789,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "marks.list": def({
     summary: "every mark in the outline (the service's, PIE-1237): its number, block or file and line, reason (an attention mark) or none (a pocket mark), who made it, when, where, and this door's tiles showing it",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return d.marks(); },
   }),

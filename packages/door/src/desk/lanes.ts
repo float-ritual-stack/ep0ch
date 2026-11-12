@@ -1758,7 +1758,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "steps": def({
     summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     menu: { label: "the selected card's steps", group: BOARD, key: "s", now: cardRow },
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     examples: [

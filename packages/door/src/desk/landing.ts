@@ -169,3 +169,18 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
   return took.d;
 }
 const narrowWhy = (name: string, r: Rect, needs: { cols: number; rows: number }) => `beside ${name} it is ${r.cols}×${r.rows}, under the ${needs.cols}×${needs.rows} a tile reads at`;
+
+/**
+ * What a close leaves of the note tile `id` shows (PIE-1772): when no other tile shows it and its opens land in a reader
+ * here that shows nothing (the empty detail ^W v put beside it), that reader takes it (screen-layout's close answers it
+ * as `heir`, the desk shows it there), so the note stays on screen. A reader showing a note keeps its own; a pinned one,
+ * one holding an edit or work, or a follower is never handed one.
+ */
+export function closeHeir<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, tiles: readonly I[], facts: (id: I) => TileFacts): I | undefined {
+  const f = facts(id), note = f.showing;
+  if (!f.notes || !note || tiles.some(x => x !== id && facts(x).showing === note)) return undefined;
+  const route = landing(s, id, "open", f, facts), to = route && "to" in route ? route.to : undefined;
+  if (to === undefined || to === id || !tiles.includes(to)) return undefined;
+  const g = facts(to);
+  return g.notes && !g.showing && !g.pinned && !g.editing && !g.holds && !g.follower && g.available !== false ? to : undefined;
+}

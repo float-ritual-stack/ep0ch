@@ -625,8 +625,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "preview", need: "follow a tile's selection or a file in a reader", part: "the preview tile: the note surface with a source, tile:<name> or file:<path> (re-read on save)", files: "src/desk/preview.ts",
-    aside: "tile.preview (O in the reader, ^W v beside, ^W V below): a detail opens beside the reader on the right, linked, so a link followed there lands in it and the reader keeps the notebook; again, it shows that one · the preview of the tree (the tile between the outline and the notebook) has no frame: a tinted ground joined to the tree (border=joined, PIE-886; border=line frames it again)",
+    key: "preview", need: "follow a tile's selection or a file in a reader", part: "the preview tile: the note surface with a source, tile:<name> or file:<path> (re-read on save); what a close leaves (screen-layout's heirOf: the empty detail a closed reader's opens land in takes its note, Desk.handNote shows it); an agent's read said nothing (ActionDef.reads, Dispatcher.reads)", files: "src/desk/preview.ts, src/desk/screen-layout.ts, src/desk/desk.ts, src/surface/dispatch.ts",
+    aside: "tile.preview (O in the reader, ^W v beside, ^W V below): a detail opens beside the reader on the right, linked, so a link followed there lands in it and the reader keeps the notebook; again, it shows that one · ^W x on the reader while that detail is still empty: the detail takes the notebook, back and all, so it stays on screen (PIE-1772) · act layout.get --as fern reads the layout and says nothing on screen (a read: actions lists it reads: true); act tile.title tile=tree text=pines --as fern is said, with fern's name · the preview of the tree (the tile between the outline and the notebook) has no frame: a tinted ground joined to the tree (border=joined, PIE-886; border=line frames it again)",
     stage(n, show) {
       // The reader on the right is held on the notebook (p), so the outline's selection doesn't move it.
       const tree = new TreePane(), p = new PreviewPane({ tile: "tree" }), r = new ReaderPane(true);

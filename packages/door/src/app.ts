@@ -1312,7 +1312,8 @@ export class App implements Ctx {
 
   /**
    * An agent acts (`ep0ch-door act`), through the App's dispatcher. Never silent: the status bar names the agent and
-   * the action before it runs, a refusal says why, and anything it says while it lands is "an agent (<id>) · …".
+   * the action before it runs, a refusal says why, and anything it says while it lands is "an agent (<id>) · …". A read
+   * (ActionDef.reads: layout.get, view.get) changes nothing, so it says nothing unless it fails (PIE-1772).
    */
   async act(req: ActRequest): Promise<unknown> {
     this.pace.actedAt = Date.now();
@@ -1322,7 +1323,7 @@ export class App implements Ctx {
       try {
         req = asScriptRun(req, name => this.dispatch.has(name));
         if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
-        this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
+        if (!this.dispatch.reads(req, actor)) this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);
         this.redraw();
         return r;

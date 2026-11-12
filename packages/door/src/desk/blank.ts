@@ -80,7 +80,7 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
   "blank.screens": def({
     summary: "the screens to open from a blank screen: the ones people made (screen notes), then the built-ins. The person's opens the picker (⏎ opens one with screen.open, x x deletes one they made); an agent's answers them (screen.open opens one)",
     keys: "o in the blank tile, or a click on its row",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     menu: { label: "open a screen…", group: START, key: "o" },
     args: {},
     run(_, { desk }, actor) {

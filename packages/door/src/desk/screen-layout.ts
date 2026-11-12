@@ -1,5 +1,5 @@
 import { wrapReturn, type ReturnShell } from "./return-place";
-import { besideAttempt, landing } from "./landing";
+import { besideAttempt, closeHeir, landing } from "./landing";
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
@@ -1318,8 +1318,8 @@ class Step<I> {
       if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "close it"));
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
-    if (!f.clearsOnClose) this.lift(id);
-    this.d.answer = { tile: name, ...this.wentAnswer() };
+    const heir = gone || f.clearsOnClose ? undefined : closeHeir(this.d, id, this.all(), x => this.facts(x)); if (!f.clearsOnClose) this.lift(id);   // asked while its wires are there (PIE-1772)
+    this.d.answer = { tile: name, ...(heir !== undefined ? { heir: this.name(heir), note: f.showing } : {}), ...this.wentAnswer() };
   }
   /**
    * A new tile takes tile `id`'s place, and `id` goes (the blank tile's rows: an outline, a reader, a terminal where it

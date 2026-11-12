@@ -499,6 +499,22 @@ export class Dispatcher {
     return def ? { ...def, keys: withBound(name, def.keys, effective(this.host.bindings?.() ?? [])) } : def;
   }
 
+  /**
+   * Whether `req` only reads (ActionDef.reads, PIE-1772): the def of the set that would run it, as `refusedNow` finds it
+   * (a tile kind's, a mounted screen's), declares it. An agent's run of a read isn't said on the person's screen. One
+   * standing as the person (yolo) runs it as their press would (search opens the power bar, revisions its list): said.
+   */
+  reads(req: ActRequest, actor: Actor): boolean {
+    if (this.standing(actor)) return false;
+    try {
+      req = this.mountedRequest(this.pointed(rewritten(req, actor), actor));
+      const r = this.owner(req, actor);
+      if (!r) return false;
+      if (!("set" in r)) { const d = r.delegate(req); return !!d?.reads(r.request ? r.request(req) : req, actor); }
+      return r.set.def(req.action)?.reads === true;
+    } catch { return false; }
+  }
+
   unknownAction(name: string): string {
     // An action something not installed here would answer (an extension's `ext.form.fill`, a kit's script): its name and install.
     const missing = notInstalled(name);
