@@ -1,0 +1,2 @@
+# The bar on a query, in the views' grammar.
+bar.open scope=query query=type=letter

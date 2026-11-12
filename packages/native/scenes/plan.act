@@ -1,0 +1,3 @@
+# A note of the showcase outline, found by its title and opened, the way the bar does.
+bar.open scope=notes query="Plan for Saturday"
+bar.pick n=1
