@@ -13,7 +13,7 @@
 use serde_json::{Value, json};
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
-use super::{Action, Actor, App, Outcome, Said, word};
+use super::{Action, Actor, App, Outcome, Said, About};
 use crate::actline::{self, Args};
 use crate::parts;
 use crate::store::{Call, OutlineAt, Reply};
@@ -27,10 +27,10 @@ static PRESS: ActionRow = ActionRow::new("button.press", Touches::Nothing, "pres
     .keys(&[KeyRow::via("a press on the button, where the note shows it")])
     .examples(&[Example { act: "button.press label=\"Sow the peas\"", does: "presses the open note's button labelled Sow the peas", safe: None }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &PRESS, run: press }];
+pub static ACTIONS: &[Action] = &[Action { row: &PRESS, run: press, about: About::Notes }];
 
 fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    let Some(tile) = app.aimed.clone().or_else(|| app.reader()) else { return Outcome::refused("no tile here shows a note to press a button in") };
+    let Some(tile) = app.about() else { return Outcome::refused("no tile here shows a note to press a button in") };
     let name = app.layout.name(&tile);
     let Some(page) = app.shown_of(&tile) else { return Outcome::refused(format!("{name} shows no note yet")) };
     if let Some(note) = args.text("note").filter(|note| *note != page.id) { return Outcome::refused(format!("{name} shows another note ({}), not {note}: open it there first", page.id)) }
@@ -49,10 +49,10 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     let read = actline::parse(&act).ok();
     let here = part["sequence"] != true && read.as_ref().is_some_and(|req| super::find(&req.action).is_some());
-    if here {
-        // Its act line, aimed at the tile it was pressed in unless it names one itself.
-        let aimed = if read.is_some_and(|req| req.tile.is_some()) { act.clone() } else { format!("{act} tile={}", word(&name)) };
-        let outcome = app.act(&aimed, by.clone());
+    if let Some(request) = read.filter(|_| here) {
+        // Its act line as the request it reads as, from the tile it was pressed in: about that tile when its action
+        // acts in a tile of that sort, unless it names one itself (`App::act_from`).
+        let outcome = app.act_from(request, &name, by.clone());
         let did = if outcome.ok { format!("{label} ran {act}{}, as {}", if outcome.said.is_empty() { String::new() } else { format!(": {}", outcome.said) }, by.label()) } else { format!("{label} didn't run {act}: {}", outcome.said) };
         say(app, &tile, &block, line, did, outcome.ok);
         return Outcome { answer: json!({ "ran": "here", "act": act, "ok": outcome.ok, "answer": outcome.answer }), ..outcome };
@@ -113,18 +113,22 @@ pub(in crate::actions) fn ended(app: &mut App, run: &str, reason: &str, message:
 /// A run the person's press started acts as the person (their press is the consent); any other acts as the script.
 pub(in crate::actions) fn called(app: &mut App, at: &OutlineAt, call: &Call) {
     let by = if call.pressed { Actor::Person } else { Actor::Agent(call.script.clone()) };
-    // A value that is no word of an act line (a list, an object) is the script's mistake, said back to it.
-    let mut words = serde_json::Map::new();
+    // The call is a request already: it goes to the dispatcher as one (as the control socket's does), never written
+    // as a line and read again. A value that is no argument of an act (a list, an object) is the script's mistake,
+    // said back to it.
+    let mut args = serde_json::Map::new();
     for (key, value) in &call.args {
         match value {
-            Value::String(_) | Value::Number(_) | Value::Bool(_) => { words.insert(key.clone(), value.clone()); }
+            Value::String(_) | Value::Number(_) | Value::Bool(_) => { args.insert(key.clone(), value.clone()); }
             Value::Null => {}
             _ => return app.store.answer(at, &call.request, Err(format!("{} {key}= takes one value here, not a list or an object", call.action))),
         }
     }
-    let mut line = actline::line_of(&call.action, &words);
-    if let Some(tile) = call.tile.as_deref().filter(|_| !words.contains_key("tile")) { line = format!("{line} tile={}", word(tile)) }
-    let outcome = app.act(&line, by);
+    // `tile` among its arguments names the tile, as `tile=` on a line does.
+    let named = args.remove("tile").and_then(|tile| tile.as_str().map(str::to_string));
+    // The tile the run was pressed in is where the call comes from, not a tile it names (`App::act_from`).
+    let request = actline::Request { action: call.action.clone(), tile: named, by: None, args };
+    let outcome = match &call.tile { Some(from) => app.act_from(request, from, by), None => app.act_request(request, by) };
     app.st.agent_said = Some(if outcome.ok { format!("{} · {}", call.script, call.action) } else { format!("{} · {} refused: {}", call.script, call.action, outcome.said) });
     app.store.answer(at, &call.request, if outcome.ok { Ok(outcome.answer) } else { Err(outcome.said) });
 }

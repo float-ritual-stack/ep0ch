@@ -76,6 +76,39 @@ fn a_button_whose_act_line_this_window_has_runs_here_as_whoever_pressed_and_says
     assert!(app.ui(&app.reader().unwrap()).said.as_ref().unwrap().words.ends_with("as an agent (compost-agent)"));
 }
 
+/// A press comes from its tile; it doesn't name it. A note's button whose act is about another sort of tile (a
+/// tree's fold, a list's sort) runs where the same line typed in the bar would (the one rule, `App::target`), never
+/// refused for the reader it was pressed in. A line that names a tile itself is still held to it, and an act about
+/// a note runs in the reader the button is in, whichever tile has the keys.
+#[test]
+fn a_button_s_act_about_another_sort_of_tile_runs_where_the_one_rule_says_not_refused_for_the_reader_it_is_in() {
+    let button = |line: u64, label: &str, act: &str| part("example", "button", line, json!({ "name": "button" }), json!({ "type": "button", "label": label, "act": act }));
+    let mut rt = example_window(&json!({ "page": { "title": "Rota", "text": "Rota", "chips": [], "hero": null, "parts": [
+        button(1, "Unfold the plot", "tree.fold id=example open=true"),
+        button(2, "Sort the outline", "list.sort by=title"),
+        button(3, "Sort the reader", "list.sort by=title tile=reader"),
+        button(4, "Write it", "edit"),
+    ] } }));
+    let tree = rt.state.layout.named("tree").expect("the desk has a tree");
+    let pressed = |rt: &mut rune::Runtime<crate::actions::App>, label: &str| { let line = format!("button.press label=\"{label}\""); let mut out = None; rt.update(|s, _| out = Some(s.act(&line, crate::actions::Actor::Person))); rest(rt); out.unwrap() };
+    let folded = pressed(&mut rt, "Unfold the plot");
+    assert!(folded.ok && rt.state.ui(&tree).unfolded.contains("example"), "a fold pressed in a note unfolds the tree: {}", folded.said);
+    let sorted = pressed(&mut rt, "Sort the outline");
+    assert!(sorted.ok && rt.state.ui(&tree).chosen.get("sort").map(String::as_str) == Some("title"), "a sort pressed in a note sorts the list the one rule finds: {}", sorted.said);
+    // The step is the act as it ran: it named no tile, and none was written into it.
+    let step = rt.state.steps.iter().rev().find(|step| step.action == "list.sort").unwrap();
+    assert_eq!(step.line(), "list.sort by=title");
+    // A tile the line names itself is the one it runs in, or it is refused: never swapped.
+    let wrong = pressed(&mut rt, "Sort the reader");
+    assert!(!wrong.ok && wrong.said.contains("reader is no list"), "{}", wrong.said);
+    // An act about a note runs in the reader the button is in, though the tree has the keys.
+    rt.update(|s, _| { s.act("tile.focus tile=tree", crate::actions::Actor::Person); });
+    let edited = pressed(&mut rt, "Write it");
+    assert!(edited.ok, "{}", edited.said);
+    assert_eq!(rt.state.editing.as_ref().map(|e| rt.state.layout.name(&e.tile)).as_deref(), Some("reader"));
+    assert_eq!(rt.state.steps.iter().rev().find(|step| step.action == "edit").unwrap().line(), "edit tile=reader");
+}
+
 #[test]
 fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_window_is_run_and_answered() {
     let Garden { app, asked, said, .. } = garden(ok());
@@ -163,6 +196,45 @@ fn peek_lists_the_parts_written_inside_a_box_with_the_line_a_press_names_each_by
     assert_eq!(listed, [("box", 2, ""), ("prose", 3, ""), ("button", 4, "Mend the net")], "the box, then what is written inside it");
 }
 
+/// One list, drawn once: a `list` on a page (a view, a note's links) is drawn by the list drawer, as a list tile
+/// draws the same rows. Groups that list their rows by id hold them, a row that names no group sits beside the
+/// declared groups, a long list builds only the rows in view, and a pick runs the act line the service wrote,
+/// whatever it holds.
+#[test]
+fn a_list_on_a_page_is_the_list_a_tile_draws_and_a_pick_runs_the_row_s_own_act_line() {
+    let row = |id: &str, more: Value| { let mut row = json!({ "id": id, "label": format!("Bed {id}"), "do": { "open": id }, "act": format!("open id=\"{id}\"") }); for (k, v) in more.as_object().unwrap() { row[k] = v.clone() } row };
+    let mut rt = example_window(&json!({ "page": { "title": "Beds", "text": "Beds", "chips": [], "hero": null, "parts": [
+        // Groups that list their rows by id (a view grouped by a property): a row may be in two.
+        part("example", "view", 1, json!({ "name": "view", "title": "By season" }), json!({ "type": "list", "rows": [row("peas", json!({})), row("leeks", json!({})), row("garlic", json!({}))],
+            "groups": [{ "name": "spring", "label": "Spring", "count": 2, "ids": ["leeks", "peas"] }, { "name": "autumn", "label": "Autumn", "count": 1, "ids": ["garlic"] }] })),
+        // A row that names no group, beside declared groups; a group only a row names; a row that runs an action.
+        part("example", "links", 4, json!({ "name": "links" }), json!({ "type": "list", "rows": [
+            row("shed", json!({})), row("beans", json!({ "group": "sown" })), row("thyme", json!({ "group": "herbs" })),
+            { "id": "ask", "label": "Beds by path", "group": "sown", "do": { "run": { "action": "bar.open", "args": { "scope": "query", "query": "path=beds\\north" } } }, "act": "bar.open scope=\"query\" query=\"path=beds\\\\north\"" },
+            { "id": "copy", "label": "Copy the seed order", "group": "sown", "do": { "copy": "12 packets" } },
+        ], "groups": [{ "name": "sown", "label": "Sown", "count": 3 }, { "name": "planned", "label": "Planned", "count": 0, "note": "Nothing planned yet." }] })),
+        // A long list: only the rows in view are built.
+        part("example", "view", 9, json!({ "name": "view", "title": "Every packet" }), json!({ "type": "list", "rows": (0..800).map(|i| row(&format!("seed{i}"), json!({}))).collect::<Vec<_>>() })),
+    ] } }));
+    let has = |rt: &rune::Runtime<crate::actions::App>, key: &str| rt.find(key).is_some();
+    for key in ["tile/reader/part/0/group/spring", "tile/reader/part/0/leeks", "tile/reader/part/0/peas", "tile/reader/part/0/group/autumn", "tile/reader/part/0/garlic"] { assert!(has(&rt, key), "{key}: groups that list their rows by id hold them on a page") }
+    for key in ["tile/reader/part/1/shed", "tile/reader/part/1/group/sown", "tile/reader/part/1/beans", "tile/reader/part/1/group/planned", "tile/reader/part/1/group/herbs", "tile/reader/part/1/thyme", "tile/reader/part/1/copy"] { assert!(has(&rt, key), "{key}: every row and every header a list tile draws is on the page") }
+    let built = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("tile/reader/part/2/seed"))).count();
+    assert!(built > 0 && built < 200, "a long list on a page builds the rows in view, not all 800: {built}");
+    // A pick runs the row's own act line, from the page's tile: a backslash in its argument is the one the service wrote.
+    press(&mut rt, "tile/reader/part/1/ask");
+    assert_eq!((rt.state.bar.open, rt.state.bar.edit.words()), (true, "path=beds\\north"));
+    let step = rt.state.steps.last().unwrap();
+    assert_eq!((step.action.as_str(), step.tile.as_deref(), step.args["query"].as_str()), ("bar.open", Some("reader"), Some("path=beds\\north")));
+    // A row that only copies has no act line: it is words here, as it is in a list tile, and a press runs nothing.
+    let before = rt.state.steps.len();
+    rt.update(|s, _| { s.act("bar.close", crate::actions::Actor::Person); });
+    rest(&mut rt);
+    press(&mut rt, "tile/reader/part/1/copy");
+    let ran: Vec<&str> = rt.state.steps[before..].iter().map(|step| step.action.as_str()).filter(|action| *action != "tile.focus").collect();
+    assert_eq!(ran, ["bar.close"], "the press ran no act of the row's (the tile it is in may take the keys)");
+}
+
 // ── the coverage table ──────────────────────────────────────────────────────────────────────────────────────
 
 /// A window on one note: the page the service answered of a component's own example.
@@ -173,7 +245,7 @@ fn example_window(component: &Value) -> rune::Runtime<crate::actions::App> {
         "ping" => Ok(json!({ "status": "ready", "protocolVersion": crate::client::PROTOCOL, "location": { "machine": "box" }, "outline": { "name": "garden" } })),
         // The outline is the one note, as its tree lists it; the lists about it are empty.
         "lists.read" => Ok(match ask["from"].as_str().unwrap_or("") {
-            "sources" => json!({ "from": "sources", "list": { "type": "list", "rows": served()["sources"] }, "anyChange": true }),
+            "sources" => json!({ "from": "sources", "list": { "type": "list", "rows": [] }, "sources": served()["sources"], "anyChange": true }),
             "children" => json!({ "from": "children", "list": { "type": "list", "arrange": "tree", "rows": [{ "id": "example", "label": page["title"], "act": "open id=\"example\"" }] }, "open": [], "anyChange": true }),
             from => json!({ "from": from, "list": { "type": "list", "rows": [] }, "anyChange": true }),
         }),

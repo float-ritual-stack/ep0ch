@@ -24,11 +24,15 @@ pub trait Link {
     /// Waits until the answer to `id` has arrived (left for `take`), the link is lost, or `timeout` passes.
     fn wait(&mut self, id: &str, timeout: Duration);
     /// Called from another thread whenever a line arrives, so an idle window wakes to take it.
-    fn set_waker(&mut self, _waker: rune::Waker) {}
+    fn set_waker(&mut self, _waker: Waker) {}
 }
 
+/// What wakes an idle window: called from any thread when there is something for it to take. (The shape a
+/// renderer's own waker has; named here so the link and the store name no renderer.)
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
 type Inbox = Arc<(Mutex<VecDeque<Value>>, Condvar)>;
-type Wake = Arc<Mutex<Option<rune::Waker>>>;
+type Wake = Arc<Mutex<Option<Waker>>>;
 
 /// A connection to an outline host's socket. A reader thread queues the host's lines and wakes the window.
 pub struct Socket {
@@ -92,7 +96,7 @@ impl Link for Socket {
         }
     }
 
-    fn set_waker(&mut self, waker: rune::Waker) { *self.wake.lock().unwrap() = Some(waker) }
+    fn set_waker(&mut self, waker: Waker) { *self.wake.lock().unwrap() = Some(waker) }
 }
 
 /// A link that is only ever lost: what the window has when no outline could be named, so it can say why.

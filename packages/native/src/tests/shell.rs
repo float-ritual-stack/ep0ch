@@ -132,8 +132,8 @@ fn every_kind_a_shipped_screen_names_resolves_and_its_toolbar_is_act_lines() {
             // What it names by name is in its layout.
             if let Some(source) = spec.text("source").and_then(|s| s.strip_prefix("tile:")) { assert!(layout.named(source).is_some(), "{}: {} follows {source}, which it hasn't", screen.name, layout.name(&id)) }
         }
-        if let Some(lands) = screen.lands() { assert!(layout.named(lands).is_some(), "{}: opens land in {lands}", screen.name) }
-        for line in screen.toolbar() { assert!(crate::actions::find(line.split_whitespace().next().unwrap()).is_some(), "{}: {line} is an action", screen.name) }
+        if let Some(lands) = screen.read().and_then(|spec| spec.lands()) { assert!(layout.named(lands).is_some(), "{}: opens land in {lands}", screen.name) }
+        for line in screen.read().map(|spec| spec.toolbar()).unwrap_or_default() { assert!(crate::actions::find(line.split_whitespace().next().unwrap()).is_some(), "{}: {line} is an action", screen.name) }
         // It is the door's saved form: what it reads to saves back to a layout that reads the same.
         assert_eq!(crate::layout::Layout::read(&layout.save()).save(), layout.save(), "{}", screen.name);
     }
@@ -179,13 +179,13 @@ fn an_agent_s_open_lands_without_the_person_s_keys_and_beside_a_reader_that_hold
     let outcome = opened(&mut rt, "open id=shed", Actor::Agent("seedling-agent".into()));
     assert_eq!((outcome.ok, outcome.answer["tile"].as_str(), rt.state.layout.focus.as_str()), (true, Some("bed"), before.as_str()), "the first reader takes it; the keys stay");
     // The person edits in that reader: the agent's next open is given a reader of its own beside it, and says why.
-    rt.update(|s, _| { s.act("edit tile=bed", Actor::Person); s.field(crate::actions::Field::Draft).replace_text("Shed, rewritten"); });
+    rt.update(|s, _| { s.act("edit tile=bed", Actor::Person); s.field(crate::actions::Field::Draft).replace("Shed, rewritten"); });
     rest(&mut rt);
     let outcome = opened(&mut rt, "open id=beans tile=bed", Actor::Agent("seedling-agent".into()));
     assert!(!outcome.ok && outcome.said.contains("the person is in an edit on bed"), "aimed at the tile they type in, it is refused: {}", outcome.said);
     let outcome = opened(&mut rt, "open id=beans", Actor::Agent("seedling-agent".into()));
     assert_eq!((outcome.ok, outcome.answer["tile"].as_str()), (true, Some("seeds")), "named no tile, it lands in the reader that is free: {}", outcome.said);
-    assert_eq!((rt.state.editor.text.as_str(), rt.state.layout.focus.as_str()), ("Shed, rewritten", before.as_str()));
+    assert_eq!((rt.state.editor.words(), rt.state.layout.focus.as_str()), ("Shed, rewritten", before.as_str()));
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     let sent = asked.borrow().iter().rev().find(|a| a["action"] == "screens.save").cloned().expect("the screen was saved");
     assert_eq!((sent["spec"]["name"].as_str(), sent["spec"]["title"].as_str(), sent["base"].is_null(), sent["mutation"]["author"].as_str()), (Some("Garden work"), Some("Garden work"), true, Some("user")));
     assert_eq!(sent["spec"]["layout"], rt.state.layout.save(), "its layout is the arrangement, in the door's saved form");
-    assert_eq!(sent["spec"]["toolbar"], json!(rt.state.screens().iter().find(|s| s.starts()).unwrap().toolbar()), "and the screen's own fields stay");
+    assert_eq!(sent["spec"]["toolbar"], json!(rt.state.screens().iter().find(|s| s.starts()).unwrap().read().unwrap().toolbar()), "and the screen's own fields stay");
     assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.contains("every door on this outline opens it")), "{:?}", rt.state.notice);
     assert_eq!(rt.state.screen.note(), Some(("screen-note", 1)), "the arrangement is that note's screen now");
 

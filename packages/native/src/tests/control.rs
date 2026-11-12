@@ -77,9 +77,9 @@ fn an_agent_s_act_is_attributed_to_it_and_takes_no_focus_and_no_selection() {
     assert!(d.rt.find("status").is_some());
 
     // Nothing of the person's moved: their keys, the bar they have open, its words and lit row, the note they read.
-    assert_eq!((d.rt.state.person(), d.rt.state.bar.cursor, d.rt.state.bar.edit.text.as_str(), d.rt.state.bar.edit.focused, d.rt.state.subject()), (person, cursor, "sh", true, note));
+    assert_eq!((d.rt.state.person(), d.rt.state.bar.cursor, d.rt.state.bar.edit.words(), d.rt.state.bar.edit.takes_keys(), d.rt.state.subject()), (person, cursor, "sh", true, note));
     typed(&mut d.rt, "ed");
-    assert_eq!(d.rt.state.bar.edit.text, "shed", "the bar's line still has the keys");
+    assert_eq!(d.rt.state.bar.edit.words(), "shed", "the bar's line still has the keys");
 
     // With no note named it is the open one, as the person's is: the same action, another actor.
     let answer = d.ask(json!({ "cmd": "act", "action": "note.trash" }));
@@ -94,7 +94,7 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     let mut d = door("refusals");
     d.rt.update(|s, _| { s.act("edit", Actor::Person); });
     rest(&mut d.rt);
-    d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace_text("Plot, half written"));
+    d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace("Plot, half written"));
     let before = d.asked.borrow().len();
     for (request, why) in [
         // An open aimed at the reader that holds their draft is the actor rule's no.
@@ -114,15 +114,17 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
         let answer = d.ask(request.clone());
         assert!(answer["ok"] == false && answer["error"].as_str().unwrap().contains(why), "{request}: {answer}");
     }
-    assert_eq!((d.asked.borrow().len(), d.rt.state.editor.text.as_str(), d.rt.state.editor.focused, d.rt.state.subject().as_deref()), (before, "Plot, half written", true, Some("plot")), "nothing was written and nothing of theirs moved");
+    assert_eq!((d.asked.borrow().len(), d.rt.state.editor.words(), d.rt.state.editor.takes_keys(), d.rt.state.subject().as_deref()), (before, "Plot, half written", true, Some("plot")), "nothing was written and nothing of theirs moved");
     assert!(d.rt.state.agent_said.as_deref().unwrap().contains("refused"), "a refusal is said too: {:?}", d.rt.state.agent_said);
     // An open that names no tile is the layout's to place, as the door places one from outside: the screen's
     // landing reader holds their draft, so it gets a reader of its own beside, and nothing of theirs moves.
-    for request in [json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "beans" } })] {
+    for request in [json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } })] {
         let answer = d.ask(request.clone());
-        assert!(answer["ok"] == true && answer["result"]["tile"].as_str().is_some_and(|tile| tile != "reader"), "{request}: {answer}");
+        // (A pick answers what its row ran and what that answered: the open's own answer is inside it.)
+        let landed = if answer["result"]["ran"].is_string() { &answer["result"]["answer"] } else { &answer["result"] };
+        assert!(answer["ok"] == true && landed["tile"].as_str().is_some_and(|tile| tile != "reader"), "{request}: {answer}");
     }
-    assert_eq!((d.rt.state.editor.text.as_str(), d.rt.state.editor.focused, d.rt.state.note_of("reader").as_deref(), d.rt.state.layout.focus.as_str()), ("Plot, half written", true, Some("plot"), "reader"), "the draft, its reader and the keys are where they were");
+    assert_eq!((d.rt.state.editor.words(), d.rt.state.editor.takes_keys(), d.rt.state.note_of("reader").as_deref(), d.rt.state.layout.focus.as_str()), ("Plot, half written", true, Some("plot"), "reader"), "the draft, its reader and the keys are where they were");
     // A request that is itself wrong says so in the door's kinds.
     let answer = d.ask(json!({ "cmd": "act", "action": "note.bin" }));
     assert_eq!((answer["ok"].as_bool(), answer["kind"].as_str()), (Some(false), Some("invalid")));

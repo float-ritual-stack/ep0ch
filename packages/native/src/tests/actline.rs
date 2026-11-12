@@ -110,3 +110,27 @@ fn a_tile_is_one_of_five_kinds_of_address() {
         assert_eq!(Address::parse(tile).json(tile), case["address"], "tile={tile}");
     }
 }
+
+/// One writer of a line here (`actline::word`, which `line_of`, a step's line and a correction all use), held to
+/// outline-core's `actionLine` by what that wrote down: each of its lines reads as its request, and the same request
+/// written here reads back as itself. A backslash, either kind of quote, a line break and nothing at all stay in the value.
+#[test]
+fn a_request_written_as_a_line_reads_back_as_the_request_it_was() {
+    let written = fixture("core-contract.json");
+    let rows = written["written"].as_array().unwrap();
+    assert!(rows.len() > 8);
+    for case in rows {
+        let (action, tile) = (case["request"]["action"].as_str().unwrap(), case["request"]["tile"].as_str());
+        // Every value as a line holds it: its words.
+        let args: serde_json::Map<String, Value> = case["request"]["args"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), json!(v.as_str().map_or_else(|| v.to_string(), str::to_string)))).collect();
+        let theirs = actline::parse(case["line"].as_str().unwrap()).unwrap_or_else(|e| panic!("{}: {}", case["line"], e.0));
+        assert_eq!((theirs.action.as_str(), &theirs.args, theirs.tile.as_deref()), (action, &args, tile), "outline-core's line {} reads as its request", case["line"]);
+        let ours = actline::Request { action: action.to_string(), tile: tile.map(str::to_string), by: None, args: case["request"]["args"].as_object().cloned().unwrap_or_default() }.line();
+        let read = actline::parse(&ours).unwrap_or_else(|e| panic!("{ours:?}: {}", e.0));
+        assert_eq!((read.action.as_str(), &read.args, read.tile.as_deref()), (action, &args, tile), "this window's line {ours:?} reads as the request it was written from");
+    }
+    // A value that needs no quotes is written bare, so a line a person reads stays short.
+    assert_eq!(actline::line_of("open", json!({ "id": "north-bed" }).as_object().unwrap()), "open id=north-bed");
+    assert_eq!(actline::line_of("bar.open", json!({ "query": "a\\d" }).as_object().unwrap()), "bar.open query=\"a\\\\d\"");
+    assert_eq!(actline::word(""), "\"\"");
+}

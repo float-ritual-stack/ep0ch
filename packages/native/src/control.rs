@@ -103,7 +103,7 @@ pub fn answer(s: &mut App, tx: &mut Tx, request: &Value) -> Value {
             // An act over the socket is an agent's, always: the person's keys are in the window.
             let by = Actor::Agent(request["as"].as_str().map(str::trim).filter(|id| !id.is_empty()).unwrap_or(AGENT).to_string());
             let outcome = s.act_request(req, by);
-            s.effects(tx);
+            crate::keys::effects(s, tx);
             if outcome.ok { json!({ "ok": true, "result": outcome.answer }) } else { json!({ "ok": false, "error": outcome.said, "kind": outcome.kind.unwrap_or("failed") }) }
         }
         other => json!({ "ok": false, "error": format!("unknown command {other}; try peek, actions or act"), "kind": "invalid" }),
@@ -123,7 +123,7 @@ pub fn peek(s: &App) -> Value {
     if s.bar.open {
         let rows = bar::rows(s);
         tiles.push(json!({ "id": "bar", "name": "bar", "kind": "bar", "asks": s.store().asks_of("bar"),
-            "facts": { "scope": s.bar.scope, "query": s.bar.edit.text, "lit": s.bar.cursor + 1, "sources": bar::sources(s).iter().map(|source| json!({ "id": source.id, "about": source.about, "served": source.served, "main": source.main })).collect::<Vec<_>>(),
+            "facts": { "scope": s.bar.scope, "query": s.bar.edit.words(), "lit": s.bar.cursor + 1, "sources": bar::sources(s).iter().map(|source| json!({ "id": source.id, "about": source.about, "served": source.served, "main": source.main })).collect::<Vec<_>>(),
                 "rows": bar::described(&rows) } }));
     }
     let page = s.shown();
@@ -133,7 +133,7 @@ pub fn peek(s: &App) -> Value {
     text.extend(s.tree().iter().map(|row| format!("{}{} {}", "  ".repeat(row.depth), if s.subject().as_deref() == Some(row.id.as_str()) { ">" } else { " " }, row.label)));
     if let Some(page) = page {
         text.push(String::new());
-        text.extend(if s.editing.is_some() { s.editor.text.lines().map(str::to_string).collect::<Vec<_>>() } else { page.text.lines().map(str::to_string).collect() });
+        text.extend(if s.editing.is_some() { s.editor.words().lines().map(str::to_string).collect::<Vec<_>>() } else { page.text.lines().map(str::to_string).collect() });
     }
     json!({
         "screen": {

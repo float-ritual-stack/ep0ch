@@ -67,6 +67,8 @@ impl ListRow {
     }
 }
 
+fn yes() -> bool { true }
+
 /// A named run of a list's rows (outline-core's `ListGroup`): a section, or a lane.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct ListGroup {
@@ -77,11 +79,17 @@ pub struct ListGroup {
     pub glyph: Option<String>,
     #[serde(default)]
     pub count: u64,
+    /// The list said how many it holds (a group only a row names says none).
+    #[serde(skip, default = "yes")]
+    pub counted: bool,
     #[serde(default)]
     pub note: Option<String>,
     /// The rows in it, in order, when the list says so by id (a row may be in several); else a row names its group.
     #[serde(default)]
     pub ids: Option<Vec<String>>,
+    /// The groups inside it, when it has some: each a section of its own, named by the way to it.
+    #[serde(default)]
+    pub groups: Vec<ListGroup>,
 }
 
 /// The list primitive (outline-core's `ListPrimitive`): rows, how they are arranged, a table's columns, the groups.
@@ -110,11 +118,22 @@ pub struct ListView {
 pub struct Section { pub head: Option<ListGroup>, pub rows: Vec<usize> }
 
 impl ListView {
-    /// The rows in the sections they are drawn in, as outline-core's `listSections` orders them: by the groups' own
-    /// ids when they give them, else the rows that name no group, each declared group's, then groups only a row names.
+    /// The rows in the sections they are drawn in, every renderer's order (outline-core's `listSections`, and the one
+    /// copy of it here: `fixtures/core-contract.json` holds what that answers, and `tests/contract.rs` asks every row).
+    /// Groups that list their rows by id hold them in that order, a group inside a group a section named by the way
+    /// to it; else the rows that name no group, each declared group's, then the groups only a row names.
     pub fn sections(&self) -> Vec<Section> {
         if self.groups.iter().any(|g| g.ids.is_some()) {
-            return self.groups.iter().map(|g| Section { head: Some(g.clone()), rows: g.ids.iter().flatten().filter_map(|id| self.rows.iter().position(|r| r.id == *id)).collect() }).collect();
+            fn listed(view: &ListView, groups: &[ListGroup], prefix: &str, out: &mut Vec<Section>) {
+                for g in groups {
+                    if !g.groups.is_empty() { listed(view, &g.groups, &format!("{prefix}{} / ", g.label), out); continue }
+                    let head = ListGroup { label: format!("{prefix}{}", g.label), ..g.clone() };
+                    out.push(Section { head: Some(head), rows: g.ids.iter().flatten().filter_map(|id| view.rows.iter().position(|r| r.id == *id)).collect() });
+                }
+            }
+            let mut out = Vec::new();
+            listed(self, &self.groups, "", &mut out);
+            return out;
         }
         let mut out: Vec<Section> = Vec::new();
         let bare: Vec<usize> = self.rows.iter().enumerate().filter(|(_, r)| r.group.is_none()).map(|(i, _)| i).collect();
@@ -123,10 +142,34 @@ impl ListView {
         for g in &self.groups { out.push(Section { head: Some(g.clone()), rows: of(&g.name) }) }
         let mut named: Vec<&str> = Vec::new();
         for r in &self.rows { if let Some(g) = r.group.as_deref() && !self.groups.iter().any(|x| x.name == g) && !named.contains(&g) { named.push(g) } }
-        for g in named { out.push(Section { head: Some(ListGroup { name: g.to_string(), label: g.to_string(), count: of(g).len() as u64, ..ListGroup::default() }), rows: of(g) }) }
+        // A group only a row names has no count of its own: its header is its name.
+        for g in named { out.push(Section { head: Some(ListGroup { name: g.to_string(), label: g.to_string(), counted: false, ..ListGroup::default() }), rows: of(g) }) }
         out
     }
 }
+
+/// A list source as it says of itself (outline-core's `ListSource`, `lists.read from=sources`): its name, what it
+/// lists, the parameters it reads, and whether a command bar lists it.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct SourceRow {
+    pub from: String,
+    #[serde(default)]
+    pub about: String,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub params: Vec<SourceParam>,
+    /// A command bar lists it.
+    #[serde(default)]
+    pub bar: Option<SourceBar>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct SourceParam { pub name: String, #[serde(default)] pub about: String, /* It can't list without it. */ #[serde(default)] pub required: bool }
+
+/// How a bar lists a source: on its main list, and whether its answer carries facets (a facet picked is a term of its question).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct SourceBar { #[serde(default)] pub main: bool, #[serde(default)] pub facets: bool }
 
 /// `lists.read`'s answer (outline-core's `ListAnswer`): one list, whatever it is of.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -151,6 +194,9 @@ pub struct ListAnswer {
     pub sort: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
+    /// `from: sources`: each source as it says of itself.
+    #[serde(default)]
+    pub sources: Vec<SourceRow>,
 }
 
 /// A picture a note shows (outline-core's `PagePicture`): a file the host reads (`path`), or an svg fence's own text.
@@ -218,8 +264,9 @@ pub struct Page {
     pub hero: Option<Picture>,
     #[serde(default)]
     pub ancestors: Vec<NoteRow>,
+    /// The notes under it as the one list (outline-core's `NotePage.under`): a `list` primitive, drawn as any is.
     #[serde(default)]
-    pub children: Vec<NoteRow>,
+    pub under: Option<Value>,
 }
 
 /// A property key the matches of a query carry, with the values it takes among them (`blocks.query` with `facets`).

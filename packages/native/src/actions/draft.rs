@@ -1,11 +1,10 @@
 //! Editing the open note: its whole Blockdown source in the editor, saved at the revision read. Capture comes
 //! first: a save never ends editing, a refusal keeps the text in front of the person, and nothing drops unsaved
 //! text but closing with `discard=true`, asked for by name.
-use rune::TextEdit;
 use serde_json::json;
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Editing, Notice, Outcome, Tone};
+use super::{Action, Actor, App, Editing, Notice, Outcome, Tone, About};
 use crate::actline::Args;
 use crate::keys;
 use crate::store::Reply;
@@ -27,14 +26,10 @@ static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "close th
     ])
     .examples(&[Example { act: "edit.close discard=true", does: "leaves the editor and drops what it holds unsaved", safe: None }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &EDIT, run: edit }, Action { row: &SAVE, run: save }, Action { row: &CLOSE, run: close }];
+pub static ACTIONS: &[Action] = &[Action { row: &EDIT, run: edit, about: About::Notes }, Action { row: &SAVE, run: save, about: About::Notes }, Action { row: &CLOSE, run: close, about: About::Notes }];
 
 /// A field that takes the keyboard when it appears, the caret at its end.
-pub(super) fn focused(text: &str) -> TextEdit {
-    let mut edit = TextEdit::new(text);
-    edit.focused = true;
-    edit
-}
+pub(super) fn focused(text: &str) -> crate::keys::Text { crate::keys::Text::focused(text) }
 
 impl App {
     /// A draft opens on `tile`, for the person: the editor holds `text` as the service has it at `revision`, and
@@ -53,7 +48,7 @@ fn theirs(by: &Actor, what: &str) -> Option<Outcome> {
 
 fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(no) = theirs(by, "open") { return no }
-    let Some(tile) = app.reader() else { return Outcome::refused("there is no reader to edit a note in") };
+    let Some(tile) = app.about() else { return Outcome::refused("there is no reader to edit a note in") };
     let Some(page) = app.page_of(&tile) else { return Outcome::refused("the open note's page hasn't come yet") };
     if app.editing.is_some() { return Outcome::refused("the note is already open for editing") }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
@@ -65,7 +60,7 @@ fn save(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(no) = theirs(by, "save from") { return no }
     let Some(e) = &app.editing else { return Outcome::refused("no note is open for editing") };
     if app.saving() { return Outcome::refused("a save is already on its way") }
-    let (note, sent) = (e.note.clone(), app.editor.text.clone());
+    let (note, sent) = (e.note.clone(), app.editor.words().to_string());
     let request = json!({ "blockId": note, "text": sent, "expectedRevision": e.revision });
     let at = app.at.clone();
     app.store.write(&at, "update", request, by, saved, json!({ "note": note, "sent": sent }));

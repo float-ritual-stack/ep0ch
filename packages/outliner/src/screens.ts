@@ -52,7 +52,14 @@ export interface ScreenRow {
  * A tile kind an extension serves, as a screen's reader needs it: the name tiles carry, what it is, the drawer that draws
  * it and the fields a tile of it starts with, and the names it serves in place of. The row a client finds its drawer by.
  */
-export interface ScreenKind { kind: string; extension: string; name: string; about?: string; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; replaces?: readonly string[] }
+export interface ScreenKind {
+  kind: string; extension: string; name: string; about?: string; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; replaces?: readonly string[];
+  /**
+   * The names it serves in place of now: of the names it `replaces`, the ones no later kind took. A screen that writes
+   * one of them gets this kind, so a client that makes a tile by that name makes one of this kind and asks no map.
+   */
+  serves?: readonly string[];
+}
 
 export interface ScreensList {
   screens: ScreenRow[];
@@ -127,6 +134,10 @@ function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>, 
     const role = roles.get(leaf.kind);
     if (role && (typeof leaf.role !== "string" || !leaf.role)) leaf.role = role;
   }
+  // A new-note rule names kinds as its screen wrote them: each is the kind its tiles are served as, so a client asks
+  // the rule (outline-core's `newNoteRule`) with the kind a tile carries and maps no name.
+  const resolved = (names: string[] | undefined) => names?.map(name => { const kind = canonKind(name); return replaced.get(kind) ?? kind; });
+  if (served.newNote) served.newNote = served.newNote.map(rule => ({ ...rule, ...(rule.only ? { only: resolved(rule.only)! } : {}), ...(rule.unless ? { unless: resolved(rule.unless)! } : {}) }));
   return served;
 }
 
@@ -171,6 +182,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
   const kindRows: ScreenKind[] = served.map(k => ({
     kind: k.kind, extension: k.extension, name: k.name, ...(k.description ? { about: k.description } : {}),
     ...(k.drawer ? { drawer: k.drawer } : {}), ...(k.fields ? { fields: k.fields } : {}), ...(k.replaces?.length ? { replaces: k.replaces } : {}),
+    ...(k.replaces?.some(old => replaced.get(old) === k.kind) ? { serves: k.replaces.filter(old => replaced.get(old) === k.kind) } : {}),
   }));
   return { screens: rows, kinds: kindRows, problems, anyChange: true };
 }

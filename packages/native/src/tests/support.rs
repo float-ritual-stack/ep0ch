@@ -64,15 +64,17 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
         "parts": [
             part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
             part(id, "links", 3, json!({ "name": "links", "title": "On the plot", "query": "type=chore", "status": "live · 1 match" }),
-              json!({ "type": "list", "groups": [{ "name": "Matches", "label": "Matches", "count": 1 }], "rows": [{ "id": "0.0", "label": "Water the beans", "group": "Matches", "do": { "open": "beans" } }] })),
+              json!({ "type": "list", "groups": [{ "name": "Matches", "label": "Matches", "count": 1 }], "rows": [{ "id": "beans", "label": "Water the beans", "group": "Matches", "do": { "open": "beans" }, "act": opens("beans") }] })),
             part(id, "figure", 6, json!({ "name": "graph-stat", "figure": "stat", "title": "Chores", "status": "live" }),
               json!({ "type": "row", "children": [{ "type": "stat", "label": "to do", "value": "2" }, { "type": "stat", "label": "done", "value": "5", "tone": "accent" }] })),
             part(id, "view", 9, json!({ "name": "view", "title": "Every chore" }), json!({ "type": "list", "headers": ["state"],
-              "rows": [{ "id": "fork", "label": "Take the fork", "cells": ["todo", { "text": "plot" }], "do": { "open": "fork" } }] })),
+              "rows": [{ "id": "fork", "label": "Take the fork", "cells": ["todo", { "text": "plot" }], "do": { "open": "fork" }, "act": opens("fork") }] })),
             part(id, "button", 12, json!({ "name": "button" }), json!({ "type": "button", "label": "Sow the peas", "act": "note.new" })),
             part(id, "button", 13, json!({ "name": "button", "sequence": true }), json!({ "type": "button", "label": "Tidy the shed", "act": "tidy" })),
         ],
         "children": [{ "id": "fork", "title": "Take the fork" }],
+        // The notes under it, as the one list (outline-core's `NotePage.under`): a row says the act line a pick runs.
+        "under": { "type": "list", "title": "Under this note · 1", "rows": [{ "id": "fork", "label": "Take the fork", "do": { "open": "fork" }, "act": opens("fork") }], "filter": false, "enter": false },
     })
 }
 
@@ -103,7 +105,8 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
     let note = |id: &str, label: &str, detail: &str| json!({ "id": id, "label": label, "detail": detail, "do": { "open": id }, "act": opens(id) });
     let answer = |list: Value| Ok(json!({ "from": from, "list": list, "anyChange": true }));
     match from {
-        "sources" => answer(json!({ "type": "list", "arrange": "table", "rows": served()["sources"] })),
+        // Each source as it says of itself (the outliner's own test wrote them down): what a window reads.
+        "sources" => Ok(json!({ "from": from, "list": { "type": "list", "arrange": "table", "rows": [] }, "sources": served()["sources"], "anyChange": true })),
         "children" => {
             let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
             fn walk(parent: Option<&str>, depth: usize, open: &[&str], rows: &mut Vec<Value>, answered: &mut Vec<String>) {
@@ -290,7 +293,7 @@ pub fn changed(app: &mut App, said: &Said, key: &str, generation: u64) {
 pub fn window(app: App) -> Runtime<App> {
     let mut rt = Runtime::new(app, view, (1180.0, 760.0), Env { system_dark: false, scale: 1.0 });
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
-    rt.poll = Some(|s, _, tx| { let landed = s.take(); s.effects(tx) | crate::keys::follow(s, tx) | landed });
+    rt.poll = Some(|s, _, tx| { let landed = s.take(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
     rt.on_key = Some(crate::keys::press);
     // The tiles' area is measured on the first frame, and the tiles sit in it from the next.
     for _ in 0..3 { rt.frame(0.0); }

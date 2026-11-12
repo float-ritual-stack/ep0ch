@@ -52,5 +52,10 @@ const plan = await create([
   "::",
 ].join("\n"));
 for (const bed of ["North bed [type::bed] [crop::peas]", "South bed [type::bed] [crop::beans]", "Cold frame [type::bed] [crop::kale]"]) await create(bed, plan.id);
+// The note the `links` scene opens: a `::links` of every group a note has (what it links to, what links to it, what
+// is under it), so a list on a page and the links tile beside it show the same rows under the same headers.
+const shed = await create(["Potting shed [type::place]", `Where the trays wait. The ((${plan.id})) says what goes in them.`, "", "::links", "::"].join("\n"));
+for (const tray of ["Pea trays [type::tray]", "Kale trays [type::tray]"]) await create(tray, shed.id);
+await create(`Frost watch\nCover what is in the ((${shed.id})) on a cold night.`);
 console.log(plan.id);
 process.exit(0);

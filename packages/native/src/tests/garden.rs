@@ -5,7 +5,8 @@ use std::cell::RefCell;
 use serde_json::{Value, json};
 
 use super::support::*;
-use crate::actions::{Actor, App, Field, Shown, Tone};
+use crate::actions::{Actor, App, Field, Tone};
+use crate::tiles::picture::Shown;
 use crate::bar;
 use crate::client::PROTOCOL;
 
@@ -81,7 +82,7 @@ fn an_answer_only_lands_in_the_slot_of_its_own_ask() {
     assert_eq!(app.page().unwrap().id, "shed");
     // The same for the bar: words typed on before the first answer came.
     app.act("bar.open scope=search query=on", Actor::Person);
-    app.field(Field::Bar).replace_text("onions");
+    app.field(Field::Bar).replace("onions");
     app.typed(Field::Bar);
     app.settle();
     assert_eq!(bar::rows(&app)[0].label, "found for onions");
@@ -117,14 +118,14 @@ fn saving_names_the_revision_read_and_never_ends_editing() {
     act(&mut app, "open id=onions");
     act(&mut app, "edit");
     assert!(!app.unsaved());
-    app.field(Field::Draft).replace_text("Lift the onions [type::chore]\nTake the fork.");
+    app.field(Field::Draft).replace("Lift the onions [type::chore]\nTake the fork.");
     app.act("edit.save", Actor::Person);
     let sent = last(&asked);
     assert_eq!((sent["action"].as_str(), sent["expectedRevision"].as_u64(), sent["text"].as_str(), sent["mutation"]["author"].as_str(), sent["mutation"]["actorId"].as_str()),
         (Some("update"), Some(3), Some("Lift the onions [type::chore]\nTake the fork."), Some("user"), Some("ep0ch-native:box")));
     assert!(app.saving());
     // Typed on while the save is out, and after it lands: the editor is still there for every key.
-    app.field(Field::Draft).replace_text("Lift the onions [type::chore]\nTake the fork. And the trug.");
+    app.field(Field::Draft).replace("Lift the onions [type::chore]\nTake the fork. And the trug.");
     app.settle();
     let editing = app.editing.as_ref().expect("a save doesn't close the editor");
     assert_eq!((editing.revision, app.unsaved(), app.saving()), (4, true, false));
@@ -146,25 +147,25 @@ fn nothing_drops_unsaved_text_but_discard() {
     let Garden { mut app, .. } = garden(saves.clone());
     act(&mut app, "open id=onions");
     act(&mut app, "edit");
-    app.field(Field::Draft).replace_text("Mine, typed for a while");
+    app.field(Field::Draft).replace("Mine, typed for a while");
     // The service refuses the save: the text stays, and the notice says what to do.
     *saves.borrow_mut() = Err(("stale-revision", "Block changed since editing began: onions".into()));
     act(&mut app, "edit.save");
     assert!(problem(&app, "changed since you opened it"));
-    assert_eq!((app.editor.text.as_str(), app.saving()), ("Mine, typed for a while", false));
+    assert_eq!((app.editor.words(), app.saving()), ("Mine, typed for a while", false));
     // Leaving doesn't drop it, and neither does going back, a new note or the Trash.
     assert!(!act(&mut app, "edit.close").ok);
     assert!(app.editing.is_some() && problem(&app, "Unsaved text"));
     for line in ["back", "note.new", "note.trash"] {
         assert!(!act(&mut app, line).ok, "{line} is refused over unsaved text");
-        assert_eq!((open_note(&app).as_deref(), app.editor.text.as_str()), (Some("onions"), "Mine, typed for a while"), "after {line}");
+        assert_eq!((open_note(&app).as_deref(), app.editor.words()), (Some("onions"), "Mine, typed for a while"), "after {line}");
     }
     // Opening another note doesn't either: the layout opens it in a reader of its own beside the one that holds the
     // draft (the door's rule for a tile that holds an edit), and the draft stays where it is.
     // The keys stay where the person types.
     for line in ["open id=shed", "link.follow ref=ep0ch:b/beans tile=reader"] {
         assert!(act(&mut app, line).ok, "{line} opens beside the draft");
-        assert_eq!((app.layout.name(&app.layout.focus).as_str(), app.editing.as_ref().map(|e| (e.tile.as_str(), e.note.as_str())), app.editor.text.as_str()), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
+        assert_eq!((app.layout.name(&app.layout.focus).as_str(), app.editing.as_ref().map(|e| (e.tile.as_str(), e.note.as_str())), app.editor.words()), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
         assert_eq!(app.note_of("reader").as_deref(), Some("onions"), "the draft's reader still shows its note");
     }
     assert_eq!((app.note_of("reader2").as_deref(), app.note_of("reader3").as_deref()), (Some("shed"), Some("beans")));
@@ -217,8 +218,8 @@ fn a_query_is_a_watched_read_its_facets_narrow_it_and_a_refusal_is_the_service_s
     app.act("bar.narrow key=area value=plot", Actor::Person);
     assert_eq!(last(&asked)["query"], "type=chore area=plot");
     app.act("bar.narrow key=area value=plot", Actor::Person);
-    assert_eq!(app.bar.edit.text, "type=chore area=plot", "picked twice is still once");
-    app.field(Field::Bar).replace_text("type!=chore");
+    assert_eq!(app.bar.edit.words(), "type=chore area=plot", "picked twice is still once");
+    app.field(Field::Bar).replace("type!=chore");
     app.typed(Field::Bar);
     app.settle();
     assert_eq!(bar::hint(&app).as_deref(), Some("There is no != ; put NOT before the clause."));

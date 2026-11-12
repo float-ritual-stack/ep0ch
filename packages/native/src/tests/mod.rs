@@ -14,6 +14,7 @@
 //! - `control.rs`: an agent over the control socket.
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
 //! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
+//! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -28,4 +29,5 @@ mod parts;
 mod shell;
 mod store;
 mod support;
+mod sweep2;
 mod window;

@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
-use super::{Action, Actor, App, Notice, Outcome};
+use super::{Action, Actor, App, Notice, Outcome, About};
 use crate::actline::Args;
 use crate::screen::{From, Screen};
 use crate::store::Reply;
@@ -24,7 +24,7 @@ static RESET: ActionRow = ActionRow::new("screen.reset", Touches::Screen, "put t
     .keys(&[KeyRow::keys("mod+shift+r", "put the arrangement back as its screen has it")])
     .menu(&[MenuRow::new("Reset screen", "Window", Some("mod+shift+r"))]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &SAVE, run: save }, Action { row: &RESET, run: reset }];
+pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open, about: About::Nothing }, Action { row: &SAVE, run: save, about: About::Nothing }, Action { row: &RESET, run: reset, about: About::Nothing }];
 
 /// The window is laid out as `screen`: the layout's rules are asked first whether another arrangement may take this one's place.
 pub(super) fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
@@ -39,6 +39,7 @@ pub(super) fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
     // What was there is one step back: the arrangement, and the screen it was of when this opens another (a reset
     // is the same screen, read again).
     let was = std::mem::replace(&mut app.st.screen, screen);
+    app.seen();
     // A window's first screen has nothing before it to go back to.
     let first = was.is_nowhere();
     let left = Some(was).filter(|was| was.name != app.st.screen.name);
@@ -54,15 +55,11 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(mut screen) = screens.iter().find(|s| s.name == name).cloned() else {
         return Outcome::refused(format!("no screen named {name} · the screens here: {}", screens.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")));
     };
-    // What it opens on: the tile and field its spec says a target fills carry the words (outline-core's `targetFilled`).
+    // What it opens on: the tile and field its spec says a target fills carry the words (`Spec::filled`, outline-core's
+    // `targetFilled`). This window's one argument for it is `target`, whatever the spec calls the argument it fills.
     if let Some(words) = args.text("target").map(str::trim).filter(|words| !words.is_empty()) {
-        let Some((tile, field)) = screen.target().map(|(tile, field)| (tile.to_string(), field.to_string())) else { return Outcome::refused(format!("the screen {name} opens on no target: its spec names none")) };
-        fn fill(node: &mut Value, tile: &str, field: &str, words: &str) {
-            if node["t"] == "leaf" && node["name"] == tile { node[field] = json!(words) }
-            for key in ["kids", "tabs"] { if let Some(kids) = node.get_mut(key).and_then(Value::as_array_mut) { for kid in kids { fill(kid, tile, field, words) } } }
-            if let Some(kid) = node.get_mut("kid") { fill(kid, tile, field, words) }
-        }
-        if let Some(root) = screen.spec.as_mut().and_then(|spec| spec.get_mut("layout")).and_then(|layout| layout.get_mut("root")) { fill(root, &tile, &field, words) }
+        let Some(arg) = screen.read().and_then(|spec| spec.target()).map(|(arg, _)| arg.to_string()) else { return Outcome::refused(format!("the screen {name} opens on no target: its spec names none")) };
+        screen.spec = screen.read().map(|spec| spec.filled(&arg, words));
     }
     lay_out(app, screen, by)
 }
@@ -79,7 +76,8 @@ fn save(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if named.is_none() && let From::Extension(theirs) = &app.screen.from { return Outcome::refused(format!("{} is the {theirs} extension's screen: a screen you make takes a name of its own · screen.save name=<a name>", app.screen.name)) }
     if app.screen.is_nowhere() { return Outcome::refused("no screen is open yet: there is no arrangement to save") }
     // The screen's own fields stay; its layout is the arrangement as it stands.
-    let mut spec = app.screen.spec.clone().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    // (What the screen says of itself now, as the service lists it: a save never writes back a copy grown old.)
+    let mut spec = app.spec_now().map(|spec| spec.0.clone()).filter(Value::is_object).unwrap_or_else(|| json!({}));
     match &named { Some(typed) => { spec["name"] = json!(typed); spec["title"] = json!(typed) } None => { spec["name"] = json!(app.screen.name); spec["title"] = json!(app.screen.title) } }
     spec["layout"] = app.layout.save();
     let base = app.screen.note().filter(|_| named.is_none()).map(|(id, revision)| json!({ "id": id, "revision": revision }));
@@ -97,6 +95,8 @@ fn saved(app: &mut App, reply: Reply) {
         spec["name"] = json!(name);
         spec["title"] = result["title"].clone();
         app.st.screen = Screen { name: name.clone(), title: result["title"].as_str().unwrap_or(&name).to_string(), from: From::Note { id: id.clone(), revision: result["revision"].as_u64().unwrap_or(0) }, spec: Some(spec), problems: Vec::new() };
+        // The list of screens moves next because of this save: the arrangement is of the screen as it is listed then.
+        app.st.screen_wrote = true;
         app.keep();
     }
     let ask = app.screens_ask();

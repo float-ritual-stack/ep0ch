@@ -73,8 +73,8 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
 
         // This window writes: saved at the revision it read, and the page it shows is the saved one.
         act(&mut app, "edit");
-        let text = format!("{}\n\nBring the trug.", app.editor.text);
-        app.field(Field::Draft).replace_text(text);
+        let text = format!("{}\n\nBring the trug.", app.editor.words());
+        app.field(Field::Draft).replace(text);
         act(&mut app, "edit.save");
         assert!(!app.unsaved() && app.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said.starts_with("Saved")), "{:?}", app.notice);
         assert!(app.page().unwrap().text.ends_with("Bring the trug."));
@@ -149,7 +149,7 @@ fn live_a_screen_is_saved_as_a_note_listed_broken_and_reset_over_the_socket() {
         assert_eq!((listed.title.as_str(), listed.problems.len()), ("Garden work", 0), "{:?}", listed.problems);
         // (Each tile's kind as the service's row names it: the list serves a kind resolved, with its role.)
         fn resolved(app: &App, node: &mut Value) {
-            if node["t"] == "leaf" { if let Some(row) = node["kind"].as_str().and_then(|kind| app.kind_row(kind)) { node["kind"] = json!(row.kind); node["role"] = json!(row.saved()) } }
+            if node["t"] == "leaf" { if let Some(row) = node["kind"].as_str().and_then(|kind| app.kind_row(kind)) { node["kind"] = json!(row.kind); node["role"] = json!(row.written()) } }
             for key in ["kids", "tabs"] { if let Some(kids) = node.get_mut(key).and_then(Value::as_array_mut) { for kid in kids { resolved(app, kid) } } }
             if let Some(kid) = node.get_mut("kid") { resolved(app, kid) }
         }
@@ -185,7 +185,7 @@ fn live_a_screen_is_saved_as_a_note_listed_broken_and_reset_over_the_socket() {
         for _ in 0..200 { std::thread::sleep(Duration::from_millis(50)); app.take(); if said(&app).is_empty() { break } }
         let mut app = app.blocking(true);
         assert!(act(&mut app, "screen.reset").ok);
-        assert_eq!((app.kind_of("reader2").map(|row| row.saved()), app.problems_of("reader2").len()), (Some("reader"), 0));
+        assert_eq!((app.kind_of("reader2").map(|row| row.written()), app.problems_of("reader2").len()), (Some("reader"), 0));
         // Saved again, it is the same note, written over at the revision read.
         assert!(act(&mut app, "tile.close tile=reader2").ok);
         assert!(act(&mut app, "screen.save").ok);
@@ -249,8 +249,8 @@ fn live_a_button_runs_here_and_one_with_steps_is_run_by_the_service_and_answered
         assert!(outcome.ok && outcome.answer["ran"] == "here", "{} {}", outcome.said, outcome.answer);
         app.settle();
         assert_eq!(said(&app), Some(("Sow the peas ran note.new text=Peas, as an agent (compost-agent)".to_string(), true)));
-        for _ in 0..100 { if app.page().is_some_and(|page| !page.children.is_empty()) { break } std::thread::sleep(Duration::from_millis(50)); app.take(); }
-        let made = app.page().unwrap().children.first().expect("the note it made is under the plan").id.clone();
+        for _ in 0..100 { if app.page().is_some_and(|page| page.under.is_some()) { break } std::thread::sleep(Duration::from_millis(50)); app.take(); }
+        let made = app.page().unwrap().under.as_ref().and_then(|under| under["rows"][0]["id"].as_str()).expect("the note it made is under the plan").to_string();
         let record = ask(json!({ "id": "d", "action": "blocks.records", "outline": "scratch", "ids": [made] }));
         assert_eq!((record["records"][0]["author"].as_str(), record["records"][0]["actor"].as_str()), (Some("agent"), Some("compost-agent")), "{record}");
 

@@ -127,16 +127,27 @@ test("search: notes by the words typed, ranked by the one search, each saying wh
   expect((await list("search", { query: "  " })).list).toMatchObject({ rows: [], empty: "Type to search." });
 });
 
-test("links: the notes that link to a note, and by linkGroups the notes under it and the ones it links to", async () => {
-  const { list, client, north, seeds, rows } = await setup();
-  const back = await list("links", { of: north.id });
+test("links: a note's groups as a page's ::links reads them, every group when none is named, and the ones linkGroups names", async () => {
+  const { list, client, create, north, seeds, rows } = await setup();
+  // Nobody chose: every group the note has, as a links tile shows (outline-core's ALL_LINK_GROUPS), each under its own label.
+  const every = await list("links", { of: north.id });
+  expect(every.list.groups!.map(g => [g.name, g.label, g.glyph, g.count])).toEqual([["outlinks", "Outlinks", "→", 0], ["resources", "Resources", "♦", 0], ["backlinks", "Backlinks", "←", 1], ["children", "Children", "↓", 1]]);
+  expect(every.list.rows.map(r => [r.group, r.id, r.label, r.act])).toEqual([["backlinks", seeds.id, "Seed list", `open id="${seeds.id}"`], ["children", rows.id, "First row", `open id="${rows.id}"`]]);
+  expect(every.list.groups!.find(g => g.name === "outlinks")!.note).toBe("nothing here yet");
+  expect((await list("links", { of: north.id, linkGroups: "all" })).list).toEqual(every.list);
+  const back = await list("links", { of: north.id, linkGroups: "backlinks" });
   expect(back.list.rows.map(r => [r.id, r.label, r.act])).toEqual([[seeds.id, "Seed list", `open id="${seeds.id}"`]]);
-  expect(back.list.title).toBe("Linked from · 1");
+  expect(back.list.title).toBe("Backlinks · 1");
   expect((await list("links", { of: north.id, linkGroups: "children" })).list.rows.map(r => r.id)).toEqual([rows.id]);
   expect((await list("links", { of: seeds.id, linkGroups: "outlinks" })).list.rows.map(r => r.id)).toEqual([north.id]);
-  const every = await list("links", { of: north.id, linkGroups: "all" });
-  expect(every.list.groups!.map(g => [g.name, g.count])).toEqual([["outlinks", 0], ["backlinks", 1], ["children", 1]]);
-  expect(every.list.rows.map(r => [r.group, r.label])).toEqual([["backlinks", "Seed list"], ["children", "First row"]]);
+  // A screen saved in the door with `linkGroups: resources,backlinks` reads here too: the groups are one list's.
+  const saved = await list("links", { of: north.id, linkGroups: "resources,backlinks" });
+  expect(saved.list.groups!.map(g => g.name)).toEqual(["resources", "backlinks"]);
+  // A note in two groups is two rows, each with an id of its own; a link that leads nowhere is words that open nothing.
+  const lost = await create(`Compost\nSee ((${north.id})) and ((00000000-0000-4000-8000-000000000000)).`, north.id);
+  const both = await list("links", { of: north.id });
+  expect(both.list.rows.filter(r => r.label === "Compost").map(r => [r.group, r.id])).toEqual([["backlinks", lost.id], ["children", `children:${lost.id}`]]);
+  expect((await list("links", { of: lost.id, linkGroups: "outlinks" })).list.rows.map(r => [r.id, r.act ?? null])).toEqual([[north.id, `open id="${north.id}"`], ["outlinks:1", null]]);
   await expect(client.request({ action: "lists.read", from: "links" } as never)).rejects.toThrow("of=<a block id>");
   await expect(client.request({ action: "lists.read", from: "links", of: north.id, linkGroups: "cousins" } as never)).rejects.toThrow("cousins isn't a group");
 });
@@ -181,13 +192,20 @@ test("screens: the screens there are to open, each a pick that lays the window o
   expect(found.list.rows[1]).toMatchObject({ tone: "warn" });
   expect(found.list.rows[1]!.detail).toContain("no tile kind wheelbarrow");
   expect((await list("screens", { query: "swap" })).list.rows.map(r => r.id)).toEqual(["seed-swap"]);
+  // Words leave the rows the one matcher leaves (outline-core's listRowMatches, which forgives punctuation and a typo
+  // in a longer word): what a filter typed over any list in a door leaves, not a second matcher's substrings.
+  expect((await list("screens", { query: "seed—swap" })).list.rows.map(r => r.id)).toEqual(["seed-swap"]);
+  expect((await list("screens", { query: "gardn" })).list.rows.map(r => r.id)).toEqual(["garden-work"]);
+  expect((await list("screens", { query: "garden-work" })).list.rows.map(r => r.id)).toEqual(["garden-work"]);
 });
 
 test("sources: the producers say what they are, so a bar's sources and an agent's question come from one place", async () => {
   const { list, client } = await setup();
   const said = await list("sources");
   expect(said.list.rows.map(r => r.id)).toEqual(listSources().map(s => s.from));
-  expect(said.list.rows.filter(r => r.group === "bar").map(r => [r.id, r.label, r.mark ?? ""])).toEqual([["search", "Notes", "main"], ["query", "Query", ""], ["screens", "Screens", ""]]);
+  // What a client reads is each source as it says of itself: which a bar lists, which is on its main list, which carries facets.
+  expect(said.sources).toEqual(listSources());
+  expect(said.sources!.filter(s => s.bar).map(s => [s.from, s.about, s.bar])).toEqual([["search", "Notes", { main: true }], ["query", "Query", { facets: true }], ["screens", "Screens", {}]]);
   // Every producer is asked for by its row's name, and a name none has is refused with the ones there are.
   await expect(client.request({ action: "lists.read", from: "wheelbarrows" } as never)).rejects.toThrow("lists.read lists children, search, query");
 });

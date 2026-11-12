@@ -97,6 +97,8 @@ fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_per
         opened: extra.get("opened").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), texts(v, "ids"), text(v, "active"))).collect()).unwrap_or_default(),
         own: extra.get("self").map(|s| (text(s, "name").unwrap_or_default(), text(s, "chip"), text(s, "covered"))),
         home: text(extra, "home"), screen: extra.get("screen").map(|s| s.as_str().map(str::to_string)), outward: text(extra, "outward"), fresh_action: text(extra, "freshAction"),
+        // (The door's own: an open makes a `reader`.)
+        sprout: Some("reader".into()),
     }
 }
 
@@ -231,4 +233,73 @@ fn every_address_names_the_tile_the_door_s_resolver_names() {
         assert_eq!(said, (kind, want), "{case}");
     }
     assert_eq!(kinds.into_iter().collect::<Vec<_>>(), ["name", "none", "refused", "tile"], "every kind of answer is asked");
+}
+
+// ── outline-core's own rules, as this window ports them: every row of `core-contract.json` ─────────────────────────
+
+/// What outline-core's `listSections` answers, asked of the one copy of it here (`ListView::sections`): the same
+/// sections, in the same order, with the same rows and headers. The list drawer draws these for a tile and a page.
+#[test]
+fn every_list_s_sections_are_the_ones_every_renderer_draws() {
+    let rows = table("core-contract")["sections"].as_array().unwrap().clone();
+    assert!(rows.len() >= 6);
+    for case in &rows {
+        let view: crate::page::ListView = serde_json::from_value(case["list"].clone()).unwrap_or_else(|e| panic!("{}: {e}", case["name"]));
+        let got: Vec<Value> = view.sections().into_iter().map(|section| {
+            let head = section.head.map(|g| {
+                let mut head = json!({ "name": g.name, "label": g.label });
+                if let Some(glyph) = g.glyph { head["glyph"] = json!(glyph) }
+                if g.counted { head["count"] = json!(g.count) }
+                if let Some(note) = g.note { head["note"] = json!(note) }
+                head
+            });
+            json!({ "head": head, "rows": section.rows.iter().map(|at| view.rows[*at].id.clone()).collect::<Vec<_>>() })
+        }).collect();
+        // (A header says what a renderer reads of it: its name, label, glyph, count and note.)
+        let want: Vec<Value> = case["sections"].as_array().unwrap().iter().map(|section| {
+            let head = section["head"].as_object().map(|head| Value::Object(head.iter().filter(|(k, _)| ["name", "label", "glyph", "count", "note"].contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()));
+            json!({ "head": head, "rows": section["rows"] })
+        }).collect();
+        assert_eq!(json!(got), json!(want), "{}", case["name"]);
+    }
+}
+
+/// Which of a screen's new-note rules applies is outline-core's `newNoteRule`, asked of `Spec::new_note` with the
+/// kind a tile carries (or none): the same rule, by its place, for every row.
+#[test]
+fn every_new_note_rule_is_the_one_outline_core_picks() {
+    let rows = table("core-contract")["newNote"].as_array().unwrap().clone();
+    assert!(rows.len() >= 8);
+    for case in &rows {
+        let spec = if case["newNote"].is_null() { json!({}) } else { json!({ "newNote": case["newNote"] }) };
+        let picked = crate::screen::Spec(&spec).new_note(case["kind"].as_str());
+        let at = picked.and_then(|rule| case["newNote"].as_array().unwrap().iter().position(|r| r == rule));
+        assert_eq!(json!(at), case["rule"], "{}", case["name"]);
+    }
+}
+
+/// A screen opened on a target is outline-core's `targetFilled`, asked of `Spec::filled`: a tile in the tree, in a
+/// tab set or among the floats carries the words; a blank argument, another argument's name or a tile the layout
+/// hasn't leave the spec as it is.
+#[test]
+fn every_screen_opened_on_a_target_is_filled_as_outline_core_fills_it() {
+    let rows = table("core-contract")["targets"].as_array().unwrap().clone();
+    assert!(rows.len() >= 6);
+    for case in &rows {
+        let mut filled = case["spec"].clone();
+        for (arg, words) in case["args"].as_object().into_iter().flatten() { filled = crate::screen::Spec(&filled).filled(arg, words.as_str().unwrap_or("")); }
+        assert_eq!(filled, case["filled"], "{}", case["name"]);
+    }
+}
+
+/// A question narrowed by picked values is outline-core's `selectionQuery` (the door's facets write a selection
+/// with it), asked of `query::narrowed`: the same words, quotes and groups for every row.
+#[test]
+fn every_question_narrowed_by_picks_is_written_as_outline_core_writes_it() {
+    let rows = table("core-contract")["terms"].as_array().unwrap().clone();
+    assert!(rows.len() >= 8);
+    for case in &rows {
+        let picks: Vec<(String, String)> = case["picks"].as_array().unwrap().iter().map(|pick| (pick[0].as_str().unwrap().to_string(), pick[1].as_str().unwrap().to_string())).collect();
+        assert_eq!(json!(crate::query::narrowed(case["raw"].as_str().unwrap(), &picks)), case["query"], "{} narrowed by {:?}", case["raw"], picks);
+    }
 }

@@ -6,8 +6,9 @@
 //! print) and the function that builds it. A drawer hands a primitive to `build` and reads none of it itself: no
 //! figure name, no component name, no property key is matched anywhere under `tiles/`.
 //!
-//! A builder speaks as a drawer does, by act lines: a primitive's `act` runs through the dispatcher, a `link` or a
-//! row's `do.open` is an open, and a note's own button is `button.press` (its steps may be the service's to run).
+//! A builder speaks as a drawer does, by act lines: a primitive's `act` (the service's word on what a press runs:
+//! a row's, a card's, a cell's, a text's) runs through the dispatcher from the page's tile, and a note's own button
+//! is `button.press` (its steps may be the service's to run). No builder reads an activation or writes a line for one.
 //! A type nobody has a builder for is drawn as its data, never hidden; nothing here panics on a shape it didn't
 //! expect: a missing field is an empty one.
 use rune::{El, SurfaceFit, TextStyle, col, el, row, text};
@@ -15,7 +16,8 @@ use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Kit, Markdown};
 use serde_json::Value;
 
 use super::TileCx;
-use crate::actions::{Actor, App, CELL, Shown, word};
+use super::picture::Shown;
+use crate::actions::{Actor, App, CELL, word};
 use crate::keys;
 use crate::page::Picture;
 use crate::parts::{self, list, words};
@@ -50,7 +52,7 @@ pub static PRIMS: &[Prim] = &[
     Prim { ty: "row", describe: "its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own", fills: true, build: beside },
     Prim { ty: "band", describe: "a heading, sized by its level; the glyph tracks of a heading style aren't drawn", fills: true, build: band },
     Prim { ty: "track", describe: "a ruled line; a heading style's glyph pattern isn't drawn", fills: true, build: track },
-    Prim { ty: "list", describe: "rows under their group headers: a row that opens a note or runs an act line is a press, its cells as badges, its detail quiet after it; no filter, selection or preview pane here", fills: true, build: rows },
+    Prim { ty: "list", describe: "the one list, drawn as a list tile draws it: rows under their group headers (a table's as cells under its columns, lanes side by side), built only where they are in view; a row with an act line is a press, its cells as badges, its chips questions for the bar, its detail under it; no filter, selection or preview pane here", fills: true, build: listed },
 ];
 
 pub fn find(ty: &str) -> Option<&'static Prim> { PRIMS.iter().find(|prim| prim.ty == ty) }
@@ -103,20 +105,16 @@ fn stood(prim: &Value, built: El) -> El { if find(parts::ty(prim)).is_none_or(|e
 
 fn sized(base: TextStyle, size: f32, line: f32) -> TextStyle { TextStyle { size, line_height: line, ..base } }
 fn quiet(said: &str, k: &Kit) -> El { text(said.to_string()).font(k.ty.small).color(k.c.text_faint).wrap() }
-fn section(title: &str, k: &Kit) -> El { text(title.to_uppercase()).font(k.ty.text_xsmall_medium).color(k.c.text_faint) }
 
 /// A tone's colour: a theme role, never a colour of its own.
 fn tone(v: &Value, k: &Kit) -> rune::Color {
     match v["tone"].as_str() { Some("good") => k.c.success.fg, Some("warn") => k.c.warning.fg, Some("bad") => k.c.danger.fg, Some("dim") => k.c.text_faint, Some("accent") => k.c.text_accent, _ => k.c.text_base }
 }
 
-/// What a press on `v` does, when it does anything, as the act line it is: the note it opens, else the line it runs.
-fn press_of(v: &Value) -> Option<String> { parts::opens(v).map(|id| TileCx::says("open", id)).or_else(|| parts::runs(v)) }
-
-/// `shown` as a press, when `v` says what a press does.
+/// `shown` as a press, when `v` carries the act line a press runs.
 fn pressable(shown: El, v: &Value, cx: &PrimCx, k: &Kit) -> El {
-    match press_of(v) {
-        Some(line) => k.interactive(shown).role(if parts::opens(v).is_some() { "link" } else { "button" }).focusable(true).on_press(cx.tile.act(line)),
+    match parts::act(v) {
+        Some(line) => k.interactive(shown).role("button").focusable(true).on_press(cx.tile.act(line)),
         None => shown,
     }
 }
@@ -140,7 +138,7 @@ fn words_el(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 fn badge(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let variant = if prim["tone"] == "accent" { BadgeVariant::Accent } else { BadgeVariant::Subtle };
     let shown = Badge::new(parts::text(prim, "label").unwrap_or("")).variant(variant).standard().build(k).key(cx.key());
-    match parts::runs(prim) { Some(line) => pressable(shown, prim, cx, k).help(line), None => shown }
+    match parts::act(prim) { Some(line) => pressable(shown, prim, cx, k).help(line.to_string()), None => shown }
 }
 
 /// A labelled press. A note's own button is pressed by its line (`button.press`): the dispatcher runs its act line
@@ -189,9 +187,8 @@ fn table(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
             let shown = text(words(cell)).font(k.ty.ui).color(tone(cell, k)).truncate();
             line = line.child(el().w_frac(share).child(if cell.is_object() { pressable(shown.key(cx.sub(format!("{n}/{c}"))), cell, cx, k) } else { shown }));
         }
-        // The row's own press: the note its `links` names, else the act line its `acts` does.
-        let whole = match (prim["links"][n].as_str(), prim["acts"][n].as_str()) { (Some(id), _) => serde_json::json!({ "link": id }), (None, Some(act)) => serde_json::json!({ "act": act }), _ => Value::Null };
-        out = out.child(pressable(line, &whole, cx, k));
+        // The row's own press: the act line the table says for it (`acts`).
+        out = out.child(pressable(line, &serde_json::json!({ "act": prim["acts"][n] }), cx, k));
     }
     out
 }
@@ -252,45 +249,9 @@ fn band(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 
 fn track(_: &Value, cx: &PrimCx, k: &Kit) -> El { el().key(cx.key()).w_full().h(1.0).fill(k.c.border_muted) }
 
-/// A row that opens a note when it names one, runs an act line when it carries one, and is plain words otherwise.
-pub fn line(cx: &TileCx, said: &str, id: Option<&str>, trailing: Vec<String>, detail: Option<&str>, key: String, k: &Kit) -> El {
-    let c = &k.c;
-    let mut shown = row().w_full().gap(8.0).center_y().child(text(said.to_string()).font(k.ty.ui).color(if id.is_some() { c.text_base } else { c.text_muted }).truncate().grow(1.0));
-    for cell in trailing.into_iter().filter(|cell| !cell.is_empty()) { shown = shown.child(Badge::new(cell).variant(BadgeVariant::Subtle).build(k)) }
-    if let Some(q) = detail.filter(|q| !q.is_empty()) { shown = shown.child(text(q.to_string()).font(k.ty.small).color(c.text_faint).truncate()) }
-    let shown = shown.px(10.0).py(6.0).radius(k.radius.sm).key(key);
-    match id {
-        Some(id) => k.interactive(shown).role("link").focusable(true).on_press(cx.emit("open", id)),
-        None => shown,
-    }
-}
-
-fn rows(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
-    let (all, groups) = (list(prim, "rows"), list(prim, "groups"));
-    let mut out = col().key(cx.key()).w_full().gap(2.0);
-    if let Some(title) = parts::text(prim, "title") { out = out.child(section(title, k)) }
-    let headers = if list(prim, "headers").is_empty() { list(prim, "columns") } else { list(prim, "headers") };
-    if !headers.is_empty() && !all.is_empty() { out = out.child(text(headers.iter().map(words).collect::<Vec<_>>().join(" · ")).font(k.ty.text_xsmall_medium).color(k.c.text_faint).px(10.0)) }
-    let one = |r: &Value| {
-        // A row's key is the note it opens when it opens one: what a test, a script and an agent press it by.
-        let key = cx.sub(parts::opens(r).or(parts::text(r, "id")).unwrap_or("row"));
-        let cells = list(r, "cells").iter().map(words).collect();
-        let shown = line(cx.tile, &words(&r["label"]), parts::opens(r), cells, parts::text(r, "detail"), key, k);
-        if parts::opens(r).is_none() && parts::runs(r).is_some() { pressable(shown, r, cx, k) } else { shown }
-    };
-    if groups.is_empty() {
-        if all.is_empty() { out = out.child(quiet(parts::text(prim, "empty").unwrap_or("Nothing here yet."), k).px(10.0)) }
-        return all.iter().fold(out, |out, r| out.child(one(r)));
-    }
-    for group in groups {
-        let name = &group["name"];
-        let held: Vec<&Value> = all.iter().filter(|r| r["group"] == *name).collect();
-        if groups.len() > 1 { out = out.child(section(&words(&group["label"]), k).px(10.0)) }
-        if held.is_empty() { out = out.child(quiet(parts::text(group, "note").unwrap_or("Nothing here yet."), k).px(10.0)) }
-        out = held.into_iter().fold(out, |out, r| out.child(one(r)));
-    }
-    out
-}
+/// A list: the list drawer's own (`tiles/list.rs`), so a view in a note, its links and the notes under it draw as
+/// a list tile draws the same rows.
+fn listed(prim: &Value, cx: &PrimCx, k: &Kit) -> El { super::list::on_page(prim, cx.tile, cx.key(), &cx.key, k) }
 
 /// A terminal row in points: a note gives a picture's height in rows, as the door reads it.
 const ROW_POINTS: f32 = 20.0;
@@ -354,12 +315,13 @@ fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }
     head = head.child(el().grow(1.0));
     if let Some(q) = parts::text(prim, "query") {
-        head = head.child(
-            k.interactive(text(q.to_string()).font(k.ty.mono).color(c.text_muted).truncate())
-                .key(cx.sub("query"))
-                .help("Open this query")
-                .on_press(cx.tile.act(format!("bar.open scope=query query={}", word(q)))),
-        );
+        // The question it asks, opened in the bar on the source the service says takes one (`bar::questions`); with
+        // none listed it is words.
+        let shown = text(q.to_string()).font(k.ty.mono).color(c.text_muted).truncate();
+        head = head.child(match crate::bar::questions(cx.tile.app) {
+            Some(source) => k.interactive(shown).key(cx.sub("query")).help(format!("Open this in {}", source.about)).on_press(cx.tile.act(format!("bar.open scope={} query={}", word(&source.id), word(q)))),
+            None => shown.key(cx.sub("query")),
+        });
     } else if let Some(status) = parts::text(prim, "status") {
         head = head.child(text(status.to_string()).font(k.ty.small).color(c.text_faint));
     }

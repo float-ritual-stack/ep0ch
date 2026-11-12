@@ -1,6 +1,6 @@
 //! Going to a note: opening one, going back, following a link in prose.
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
-use super::{Action, Actor, App, Notice, Outcome};
+use super::{Action, Actor, App, Notice, Outcome, About};
 use serde_json::json;
 
 use crate::actline::Args;
@@ -24,10 +24,9 @@ static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow 
     .keys(&[KeyRow::via("a press on a link in a note's prose")])
     .examples(&[Example { act: "link.follow ref=ep0ch:b/7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens the note the link names", safe: None }]);
 
-/// An action whose note is placed by the layout: aimed at no tile, it is about none until it lands.
-pub(super) fn placed(row: &ActionRow) -> bool { std::ptr::eq(row, &OPEN) }
-
-pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &BACK, run: back }, Action { row: &FOLLOW, run: follow }];
+// (An open's note is placed by the layout: aimed at no tile, it is about none until it lands. A link is followed
+// in the note it is written in: it is about that reader, as going back is.)
+pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open, about: About::Placed }, Action { row: &BACK, run: back, about: About::Notes }, Action { row: &FOLLOW, run: follow, about: About::Notes }];
 
 /// The note `id` opens. This says only who asks and from where: from the tile the act is aimed at, else (the
 /// person's) the tile with their keys; an agent's that names no tile comes from outside every tile. Where it lands is
@@ -43,7 +42,7 @@ pub(super) fn go(app: &mut App, id: &str, by: &Actor, remember: bool) -> Outcome
 pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) -> Outcome {
     let id = request.note.clone();
     // A tile made for it is named, and its name is its id: a tile of the kind the service says reads notes.
-    let Some(kind) = app.note_kind().map(|row| row.saved().to_string()) else { return Outcome::refused("no tile kind here reads notes: the service lists none") };
+    let Some(kind) = app.note_kind().map(|row| row.written().to_string()) else { return Outcome::refused("no tile kind here reads notes: the service lists none") };
     let sprout = TileSpec::new(app.layout.auto_name(&kind, &[]), kind);
     let landing = app.asked(by, |ctx| layout::place(&app.layout, &request, &sprout, ctx));
     let (name, why) = (landing.tile.clone(), landing.why.clone());
@@ -69,7 +68,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome { go(app, args.text("
 
 fn back(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let steps = args.number("steps").map_or(1, |n| n.max(1.0) as usize);
-    let Some(reader) = app.reader() else { return Outcome::refused("there is no reader to go back in") };
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader to go back in") };
     let history = app.ui(&reader).history.clone();
     let Some(at) = history.len().checked_sub(steps) else { return Outcome::refused("there is nowhere to go back to") };
     let id = history[at].clone();

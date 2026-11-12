@@ -10,16 +10,21 @@
  * - **Properties are open.** `group`, `sort` and `columns` are property names as the asker wrote them, handed to the
  *   views' own question (`blocks.query`); nothing here lists which keys a list may be grouped, sorted or filtered by.
  * - **The service asks itself** (`own`) for every read, the same reads any client makes: the tree's levels
- *   (`blocks.read`), the views' matcher (`blocks.query`), the one search (`tree.search`), the backlink relation
- *   (`references.backlinks`). No second matcher, ranker or title reading lives here.
+ *   (`blocks.read`), the views' matcher (`blocks.query`), the one search (`tree.search`), a note's links as a page's
+ *   `::links` reads them (publish-live's `readLinks`). No second matcher or ranker lives here: words over rows are
+ *   outline-core's `listRowMatches`, a group's label and the groups there are its `link-blocks`, a picked value as a
+ *   term of a question its `clauseText`.
  *
  * Watched as `notes.page` is (`watch: "later"`): answered now and again on each pass that reaches it.
  */
-import { LINK_GROUPS, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
-import { actOf, LIST_MAX_ROWS, type Activation, type ListAnswer, type ListGroup, type ListPrimitive, type ListRow, type ListSource } from "@ep0ch/outline-core/list-row";
+import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, linkGroupsNamed } from "@ep0ch/outline-core/link-blocks";
+import { actOf, LIST_MAX_ROWS, listRowMatches, type Activation, type ListAnswer, type ListGroup, type ListPrimitive, type ListRow, type ListSource } from "@ep0ch/outline-core/list-row";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { QuestionFacet, QuestionGroup } from "@ep0ch/outline-core/protocol";
+import { clauseText } from "@ep0ch/outline-core/query-clauses";
 import { Refusal } from "@ep0ch/outline-core/refusal";
+import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
+import { readLinks, type LiveHost } from "./publish-live";
 import type { ScreensList } from "./screens";
 
 /** What a client asks a list of. Declared here, beside the producers: types.ts names it once in the request union. */
@@ -120,6 +125,9 @@ function cell(note: Listed, column: string): string {
 const facetsOf = (found: Found) => found.facets?.length ? { facets: found.facets.map(f => ({ key: f.key, count: f.count, values: f.values.map(v => ({ value: v.value, count: v.count })), ...(f.more ? { more: f.more } : {}) })) } : {};
 const countOf = (found: Found) => found.completeness.kind === "truncated" ? { truncated: true, ...(found.completeness.matched !== undefined ? { total: found.completeness.matched } : {}) } : {};
 
+/** How a question's matches may be arranged when the asker says (the list primitive's own words, bar a tree's). */
+const ARRANGED = ["rows", "table", "lanes", "grid"] as const;
+
 /** The most property columns a table has when its asker names none. */
 const TABLE_COLUMNS = 6;
 
@@ -132,7 +140,7 @@ async function matches(own: Own, request: ListsRequest, lanes = false): Promise<
   if (lanes && !request.group?.trim()) throw new Refusal("invalid", "lists.read from=lanes groups its matches into lanes: name the property with group=<a property name>");
   const found = await asked(own, request, { facets: true });
   const named = names(request.columns);
-  const arrange = lanes ? "lanes" : (["rows", "table", "lanes", "grid"] as const).find(a => a === request.arrange) ?? (named.length ? "table" : "rows");
+  const arrange = lanes ? "lanes" : ARRANGED.find(a => a === request.arrange) ?? (named.length ? "table" : "rows");
   // A table nobody named columns for shows the title and the properties its matches carry (the facets' keys, as counted): no list of keys is kept here.
   const columns = named.length || arrange !== "table" ? named : ["title", ...(found.facets ?? []).slice(0, TABLE_COLUMNS).map(f => f.key)];
   const rows = found.blocks.map(note => row({
@@ -178,48 +186,33 @@ function subject(request: ListsRequest): string {
   return request.of;
 }
 
-const LINKS: readonly LinkGroupName[] = ["outlinks", "backlinks", "children"];
-const LINK_LABELS: Record<string, string> = { outlinks: "Links to", backlinks: "Linked from", children: "Under it" };
-
 /**
- * A note's links (`of`), a group a relation: the notes it links to, the notes that link to it and the notes under it.
- * `linkGroups` names some (as a links tile saves them); left out, the notes that link to it.
+ * A note's links (`of`), a group a relation, read as a page's `::links` reads them (`readLinks`: the one reading of a
+ * note's outlinks, resources, backlinks and children). `linkGroups` names some (as a links tile saves them); left
+ * out, every group the note has (outline-core's `ALL_LINK_GROUPS`), as a links tile shows when nobody chose.
  */
 async function links(own: Own, request: ListsRequest): Promise<Answered> {
   const of = subject(request);
-  const askedFor = names(request.linkGroups).map(n => n.toLowerCase());
-  const bad = askedFor.find(n => n !== "all" && !LINKS.includes(n as LinkGroupName));
-  if (bad) throw new Refusal("invalid", `${bad} isn't a group this list has; its groups are ${LINKS.join(", ")} (or all)`);
-  const wanted = !askedFor.length ? ["backlinks"] : askedFor.includes("all") ? [...LINKS] : LINKS.filter(g => askedFor.includes(g));
-  const glyph = (group: string) => LINK_GROUPS.find(g => g.group === group)?.glyph;
-  const listed = async (ids: readonly string[]): Promise<Listed[]> => {
-    if (!ids.length) return [];
-    const read = (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: [...NOTE_FIELDS] })).blocks;
-    return ids.flatMap(id => read.filter(b => b.id === id));
-  };
+  const wanted = linkGroupsNamed(names(request.linkGroups));
+  if ("bad" in wanted) throw new Refusal("invalid", `${wanted.bad} isn't a group this list has; its groups are ${ALL_LINK_GROUPS.join(", ")} (or all)`);
+  const titles = async (ids: readonly string[]) => new Map(ids.length ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: [...NOTE_FIELDS] })).blocks.map(b => [b.id, b.title ?? ""] as const) : []);
+  const host: LiveHost = { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id };
+  const read = await readLinks(host, { kind: "links", of: null, filter: "", title: null, groups: wanted, query: null, preview: "none", stages: null }, of);
+  if (read.problem) throw new Refusal("invalid", read.problem);
   const rows: ListRow[] = [], groups: ListGroup[] = [], seen = new Set<string>();
-  // A note in two groups is two rows: the second is keyed by its group too, so every row's id is its own.
-  const add = (group: string, id: string, label: string, detail?: string) => {
-    rows.push(row({ id: seen.has(id) ? `${group}:${id}` : id, label, ...(detail ? { detail } : {}), ...(wanted.length > 1 ? { group } : {}), do: opens(id) }));
-    seen.add(id);
-  };
-  for (const group of wanted) {
-    const before = rows.length;
-    if (group === "backlinks") {
-      const back = await own.request<{ sources: { blockId: string; title: string; parentContext: string }[] }>({ action: "references.backlinks", query: { targetBlockId: of, limit: 200 } });
-      for (const s of back.sources) if (s.blockId !== of) add(group, s.blockId, titled(s.title), s.parentContext);
-    } else if (group === "children") {
-      for (const note of await level(own, of)) add(group, note.id, titled(note.title));
-    } else {
-      const { records } = await own.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [of] });
-      const targets = (records[0]?.links ?? []).flatMap(link => link.target ? [link.target] : []);
-      for (const note of await listed(targets)) add(group, note.id, titled(note.title));
+  for (const [at, g] of read.groups.entries()) {
+    const group = wanted[at]!;
+    for (const [n, r] of g.rows.entries()) {
+      // A note in two groups is two rows: the second is keyed by its group too, so every row's id is its own. A row
+      // that stands for no note (a link that leads nowhere, a Resource nobody registered) opens nothing: it is words.
+      const id = r.id === null ? `${group}:${n}` : seen.has(r.id) ? `${group}:${r.id}` : r.id;
+      if (r.id !== null) seen.add(r.id);
+      rows.push(row({ id, label: titled(r.text), ...(r.note ? { detail: r.note } : {}), ...(wanted.length > 1 ? { group } : {}), ...(r.id !== null ? { do: opens(r.id) } : {}) }));
     }
-    const g = glyph(group);
-    groups.push({ name: group, label: LINK_LABELS[group] ?? group, ...(g ? { glyph: g } : {}), count: rows.length - before });
+    groups.push({ name: group, label: LINK_GROUP_LABELS[group], glyph: g.glyph, count: g.rows.length, ...(g.rows.length ? {} : { note: g.note }) });
   }
-  const one = wanted.length === 1 ? wanted[0]! : null;
-  return { list: { type: "list", arrange: "rows", rows, ...(one ? { title: `${LINK_LABELS[one]} · ${rows.length}` } : { groups }), empty: one === "backlinks" ? "No note links here." : one === "children" ? "Nothing is under it." : "It links to no note." } };
+  const one = wanted.length === 1 ? groups[0]! : null;
+  return { list: { type: "list", arrange: "rows", rows, ...(one ? { title: `${one.label} · ${rows.length}` } : { groups }), empty: one?.note ?? "This note has no links." } };
 }
 
 /** A note's properties (`of`), a row a value, then its record: a table of two columns, each value a question to open. */
@@ -230,7 +223,7 @@ async function properties(own: Own, request: ListsRequest): Promise<Answered> {
   if (!record) throw new Refusal("not-found", `no note ${of}`);
   const rows: ListRow[] = record.properties.flatMap(p => p.values.map((value, i) => row({
     id: `${p.key}=${value}#${i}`, label: p.key, detail: value, cells: [p.key, value], group: "properties", chips: [{ key: p.key, value }],
-    do: runs("bar.open", { scope: "query", query: `${p.key}=${/[\s"']/.test(value) ? JSON.stringify(value) : value}` }),
+    do: runs("bar.open", { scope: QUESTIONS, query: clauseText({ key: p.key, value, mode: "include" }) }),
   })));
   const fact = (label: string, value: string | undefined) => value ? [row({ id: `record:${label}`, label, detail: value, cells: [label, value], group: "record", do: { copy: value } })] : [];
   rows.push(...fact("revision", String(record.revision)), ...fact("updated", record.updated?.slice(0, 16).replace("T", " ")), ...fact("by", record.actor ?? record.author), ...fact("id", record.id));
@@ -263,24 +256,27 @@ async function clients(own: Own): Promise<Answered> {
 /** The screens there are to open (`screens.list`'s rows): a pick lays the window out as one. What is wrong with one is said on its row. */
 async function screens(own: Own, request: ListsRequest): Promise<Answered> {
   const listed = await own.request<ScreensList>({ action: "screens.list", ...(request.kinds ? { kinds: request.kinds } : {}), ...(request.drawers ? { drawers: request.drawers } : {}) });
-  const words = (request.query ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = listed.screens.filter(s => s.spec).filter(s => words.every(w => `${s.name} ${s.title}`.toLowerCase().includes(w))).map(s => row({
+  // Words leave the rows the one matcher leaves (`listRowMatches`: a quoted phrase, a folded accent), over what a row shows; its name is its mark.
+  const words = prepareSearchQuery(request.query ?? "");
+  const rows = listed.screens.filter(s => s.spec).map(s => ({ name: s.name, shown: row({
     id: s.name, label: s.title || s.name, detail: [s.from === "extension" ? `the ${s.extension} extension's` : "a screen note", ...s.problems.map(p => p.said)].join(" · "),
     ...(s.problems.length ? { tone: "warn" as const } : {}), do: runs("screen.open", { name: s.name }),
-  }));
+  }) })).filter(s => listRowMatches({ label: s.shown.label, detail: s.shown.detail, mark: s.name }, words)).map(s => s.shown);
   return { list: { type: "list", arrange: "rows", rows, empty: "No screens here: the screens extension adds the ones every door ships (extensions.install id=screens)." }, ...(listed.problems.length ? { hint: listed.problems.join(" · ") } : {}) };
 }
 
+/** The source a question in the views' grammar is asked of: what a row that opens one names (`bar.open scope=`). */
+const QUESTIONS = "query";
 const QUERY = { name: "query", about: "a question in the views' grammar (type=bed NOT stage=done): any property" };
 const LIMIT = { name: "limit", about: "the most rows" };
 
 const PRODUCERS: readonly Producer[] = [
   { row: { from: "children", about: "The outline", params: [{ name: "of", about: "the note at its top (left out: the outline's top level)" }, { name: "open", about: "the folders whose notes are listed under them" }, LIMIT] }, read: tree },
   { row: { from: "search", about: "Notes", placeholder: "Words in a title or a note", params: [{ name: "query", about: "words in a title or a note", required: true }, LIMIT], bar: { main: true } }, read: search },
-  { row: { from: "query", about: "Query", placeholder: "type=letter mail=waiting · any property, as views read it", params: [QUERY, { name: "sort", about: "a property name, or created, updated, title; then asc or desc" }, { name: "group", about: "a property name: its values are the list's sections" }, { name: "columns", about: "the property names a table shows" }, { name: "arrange", about: "rows, table, lanes or grid" }, LIMIT], bar: {} }, read: (own, request) => matches(own, request) },
+  { row: { from: QUESTIONS, about: "Query", placeholder: "type=letter mail=waiting · any property, as views read it", params: [QUERY, { name: "sort", about: "a property name, or created, updated, title; then asc or desc" }, { name: "group", about: "a property name: its values are the list's sections" }, { name: "columns", about: "the property names a table shows" }, { name: "arrange", about: `${ARRANGED.join(", ")}` }, LIMIT], bar: { facets: true } }, read: (own, request) => matches(own, request) },
   { row: { from: "lanes", about: "Lanes", params: [QUERY, { name: "group", about: "the property name whose values are the lanes", required: true }, { name: "sort", about: "the order in each lane" }, LIMIT] }, read: (own, request) => matches(own, request, true) },
   { row: { from: "facets", about: "Facets", params: [QUERY] }, read: facets },
-  { row: { from: "links", about: "Links", params: [{ name: "of", about: "the note", required: true }, { name: "linkGroups", about: `which relations: ${LINKS.join(", ")} or all (left out: backlinks)` }] }, read: links },
+  { row: { from: "links", about: "Links", params: [{ name: "of", about: "the note", required: true }, { name: "linkGroups", about: `which relations: ${ALL_LINK_GROUPS.join(", ")} or all (left out: all)` }] }, read: links },
   { row: { from: "properties", about: "Properties", params: [{ name: "of", about: "the note", required: true }] }, read: properties },
   { row: { from: "activity", about: "Last callers", params: [LIMIT] }, read: activity },
   { row: { from: "clients", about: "Who's here", params: [] }, read: own => clients(own) },
@@ -293,9 +289,9 @@ function sources(): Answered {
     id: s.from, label: s.about, ...(s.placeholder ? { detail: s.placeholder } : {}), cells: [s.from, s.params.map(p => `${p.name}${p.required ? "" : "?"}`).join(" ")],
     // What it reads, a chip a parameter: a client hands a list its tile's fields by these names, and keeps no list of them.
     chips: s.params.map(p => ({ key: p.name, value: p.about })),
-    ...(s.bar ? { group: "bar", ...(s.bar.main ? { mark: "main" } : {}) } : {}),
   }));
-  return { list: { type: "list", arrange: "table", columns: ["from", "params"], headers: ["from", "params"], rows } };
+  // The rows are for a person to read; `sources` is each source as it says of itself, which a client reads.
+  return { list: { type: "list", arrange: "table", columns: ["from", "params"], headers: ["from", "params"], rows }, sources: listSources() };
 }
 
 /** Every list source as it says of itself. */

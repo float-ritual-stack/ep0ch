@@ -156,7 +156,8 @@
          },
          "do": {
           "open": "note-006"
-         }
+         },
+         "act": "open id=\"note-006\""
         },
         {
          "id": "note-007",
@@ -173,7 +174,8 @@
          },
          "do": {
           "open": "note-007"
-         }
+         },
+         "act": "open id=\"note-007\""
         }
        ],
        "arrange": "table",
@@ -1228,24 +1230,28 @@
         {
          "name": "Outlinks",
          "label": "Outlinks",
+         "glyph": "→",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Resources",
          "label": "Resources",
+         "glyph": "♦",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Backlinks",
          "label": "Backlinks",
+         "glyph": "←",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Children",
          "label": "Children",
+         "glyph": "↓",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1287,6 +1293,7 @@
         {
          "name": "Outlinks",
          "label": "Outlinks",
+         "glyph": "→",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1328,6 +1335,7 @@
         {
          "name": "Resources",
          "label": "Resources",
+         "glyph": "♦",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1369,6 +1377,7 @@
         {
          "name": "Backlinks",
          "label": "Backlinks",
+         "glyph": "←",
          "count": 0,
          "note": "nothing here yet"
         }

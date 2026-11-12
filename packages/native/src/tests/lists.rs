@@ -102,7 +102,7 @@ fn a_table_s_columns_are_the_list_s_and_a_header_sorts_by_its_property() {
     rest(&mut rt);
     assert!(rt.find("tile/props/column/property").is_some() && rt.find("tile/props/group/record").is_some());
     press(&mut rt, "tile/props/row/room=north#0");
-    assert_eq!((rt.state.bar.open, rt.state.bar.scope.as_str(), rt.state.bar.edit.text.as_str()), (true, "query", "room=north"));
+    assert_eq!((rt.state.bar.open, rt.state.bar.scope.as_str(), rt.state.bar.edit.words()), (true, "query", "room=north"));
 }
 
 #[test]

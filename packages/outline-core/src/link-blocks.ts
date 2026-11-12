@@ -17,6 +17,18 @@ export const LINK_GROUPS: readonly { group: LinkGroupName; glyph: string }[] = [
 /** A block's own groups, in order: what a links tile shows when nobody chose (a query's matches are an inline block's). */
 export const ALL_LINK_GROUPS: readonly LinkGroupName[] = ["outlinks", "resources", "backlinks", "children"];
 export const isLinkGroup = (s: string): s is LinkGroupName => LINK_GROUPS.some(g => g.group === s);
+/** What each group is called over its rows: a page's `::links`, a links tile's and a served list's headers read these. */
+export const LINK_GROUP_LABELS: Readonly<Record<LinkGroupName, string>> = { outlinks: "Outlinks", resources: "Resources", backlinks: "Backlinks", children: "Children", matches: "Matches" };
+/**
+ * The groups a links list names (`linkGroups`, as a links tile saves them: names, comma- or space-separated, or
+ * `all`), in the model's order; none named is every group of the block. A name no group has is answered as `bad`.
+ */
+export function linkGroupsNamed(names: readonly string[]): LinkGroupName[] | { bad: string } {
+  const asked = names.map(n => n.trim().toLowerCase()).filter(Boolean);
+  const bad = asked.find(n => n !== "all" && !(ALL_LINK_GROUPS as readonly string[]).includes(n));
+  if (bad !== undefined) return { bad };
+  return !asked.length || asked.includes("all") ? [...ALL_LINK_GROUPS] : ALL_LINK_GROUPS.filter(g => asked.includes(g));
+}
 
 /** The inline component's names: every group, or one. */
 export const LINK_BLOCK_KINDS = ["links", "outlinks", "resources", "backlinks"] as const;

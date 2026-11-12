@@ -114,8 +114,11 @@ export interface ListSource {
   placeholder?: string;
   /** The parameters it reads, each with what it means. */
   params: { name: string; about: string; required?: true }[];
-  /** A command bar lists it: under `all` when `main`, alone by its name. */
-  bar?: { main?: true };
+  /**
+   * A command bar lists it: under `all` when `main`, alone by its name. `facets`: its answer carries the facets its
+   * matches have, so a facet picked anywhere is a term of its question (the bar opens on it).
+   */
+  bar?: { main?: true; facets?: true };
 }
 
 /**
@@ -137,6 +140,8 @@ export interface ListAnswer {
   /** The property the rows are sorted and grouped by, as asked: names, never a list a client keeps. */
   sort?: string;
   group?: string;
+  /** `from: "sources"`: the sources as they say of themselves, a row of the list each (what a client reads; the rows are for a person). */
+  sources?: ListSource[];
   /** A watched answer hears every change. */
   anyChange: true;
 }

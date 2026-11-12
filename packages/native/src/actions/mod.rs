@@ -26,10 +26,11 @@ mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, CELL, Editing, Field, Notice, Said, Shown, TileUi, Tone};
+pub use app::{App, CELL, Editing, Field, Notice, Said, TileUi, Tone};
 pub use row::ActionRow;
 
 use crate::actline::{self, Args};
+pub use crate::actline::word;
 use crate::keys::Whereabouts;
 use crate::store::Reply;
 use row::{Touches, While};
@@ -80,17 +81,42 @@ pub struct Step {
 
 impl Step {
     /// The act line it was, with its arguments as the action's row typed them.
-    pub fn line(&self) -> String { let line = actline::line_of(&self.action, &self.args); match &self.tile { Some(tile) => format!("{line} tile={}", word(tile)), None => line } }
+    pub fn line(&self) -> String { actline::Request { action: self.action.clone(), tile: self.tile.clone(), by: None, args: self.args.clone() }.line() }
     pub fn json(&self) -> Value { json!({ "line": self.line(), "action": self.action, "args": self.args, "tile": self.tile, "by": self.by.id(), "ok": self.ok, "said": self.said }) }
 }
 
 /// What goes on from a write's or a one-off read's answer.
 pub type Then = fn(&mut App, Reply);
 
-/// An action: what it says about itself, and what runs.
+/// What an act is about when it names no tile: the sort of tile its action acts in. `App::target` is the one
+/// place that finds the tile; the dispatcher asks it for every act, checks the actor against that tile, and the
+/// action runs in it (`App::about`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum About {
+    /// No tile: the window, the bar, the screen.
+    Nothing,
+    /// Whichever tile: the one named, else the one with the keys.
+    Any,
+    /// A tile that reads notes: the open note's.
+    Notes,
+    /// A list tile.
+    Lists,
+    /// A list tile whose list is a tree.
+    Tree,
+    /// A note the layout places: about no tile until it lands, unless it names the one it comes from.
+    Placed,
+}
+
+impl About {
+    /// How a refusal says the sort: "tree is no tile that reads notes".
+    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", _ => "tile" } }
+}
+
+/// An action: what it says about itself, what runs, and the sort of tile it is about.
 pub struct Action {
     pub row: &'static ActionRow,
     pub run: fn(&mut App, &Args, &Actor) -> Outcome,
+    pub about: About,
 }
 
 static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS];
@@ -160,16 +186,25 @@ impl App {
                 Err(why) => { step.said = why; return self.invalid(step) }
             },
         };
-        // The tile a tile-touching act is about: the one it names, else the reader. An open that names none is about
-        // no tile yet: where it lands is the layout's to say, and the layout's rule keeps it off the person's tile.
-        let about = aimed.clone().or_else(|| if nav::placed(action.row) { None } else { self.reader() }).map(|tile| self.layout.name(&tile)).unwrap_or_default();
-        if let Err(why) = rule(action.row, &by, &self.person(), &about) {
+        // A tile named for an act about a sort of tile is one of that sort, or the act is refused: it never runs in
+        // another tile than the one it named.
+        if let Some(named) = aimed.as_ref().filter(|named| !self.is_a(named, action.about)) {
+            step.said = format!("{} is no {}: {} acts in one · name it with tile=, or leave tile= out", self.layout.name(named), action.about.said(), action.row.id);
+            return self.invalid(step);
+        }
+        // The tile the act is about, found once (`App::target`): the one it names, else the nearest of the sort its
+        // action wants. The actor is checked against this tile and the action runs in it. (An open that names none
+        // is about no tile yet: where it lands is the layout's to say, and its rule keeps it off the person's tile.)
+        let outer = (std::mem::replace(&mut self.st.aimed, aimed), self.st.about.take());
+        let about = self.target(action.about);
+        if let Err(why) = rule(action.row, &by, &self.person(), &about.as_ref().map(|tile| self.layout.name(tile)).unwrap_or_default()) {
+            (self.st.aimed, self.st.about) = outer;
             step.said = why;
             return self.record(step);
         }
-        let outer = std::mem::replace(&mut self.st.aimed, aimed);
+        self.st.about = about;
         let outcome = (action.run)(self, &args, &by);
-        self.st.aimed = outer;
+        (self.st.aimed, self.st.about) = outer;
         // A border's drag is a run of resizes; anything else ends it.
         if !layout::resizes(action.row) { self.st.dragging = None }
         step.ok = outcome.ok;
@@ -178,6 +213,21 @@ impl App {
         self.steps_mut().push(step);
         self.pump();
         outcome
+    }
+
+    /// Runs a request that comes from a tile and may name none: a button pressed in a note, a row picked in a list, a
+    /// script's call, a press a drawer drew. A tile it names itself is the one it runs in (`act_request` holds it to
+    /// that). Naming none, it is about the tile it comes from when its action acts in a tile of that sort (a note's
+    /// button that edits, a tree's row that opens); else it names none, and is about the tile the one rule finds
+    /// (`App::target`), as the same line typed in the bar would be: where a press happened is no name for a tile.
+    pub fn act_from(&mut self, mut req: actline::Request, from: &str, by: Actor) -> Outcome {
+        if req.tile.is_none() && let Some(action) = find(&req.action) && self.layout.named(from).is_some_and(|tile| self.is_a(&tile, action.about)) { req.tile = Some(from.to_string()) }
+        self.act_request(req, by)
+    }
+
+    /// Runs a line pressed in a tile, as `act_from` runs a request: what a drawer's press is.
+    pub fn act_in(&mut self, line: &str, from: &str, by: Actor) -> Outcome {
+        match actline::parse(line) { Ok(req) => self.act_from(req, from, by), Err(_) => self.act(line, by) }
     }
 
     /// The tile an address names in this window, as `by` says it (`^` is from the tile with the person's keys):
@@ -217,5 +267,3 @@ pub fn label(line: &str) -> String {
     action.row.menu.iter().filter(fits).max_by_key(|menu| menu.args().0.len()).map_or(req.action, |menu| menu.label.to_string())
 }
 
-/// An argument's value as an act line's word.
-pub fn word(value: &str) -> String { if !value.is_empty() && !value.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'' || c == '\\') { value.to_string() } else { json!(value).to_string() } }

@@ -1,6 +1,6 @@
 //! The window's own notice, above its tiles.
 use super::row::{ActionRow, KeyRow, MenuRow, Touches};
-use super::{Action, Actor, App, Outcome};
+use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 
 static DISMISS: ActionRow = ActionRow::new("notice.dismiss", Touches::Nothing, "take away the notice above the tiles. The person's: an agent's own notices go when the person has read them")
@@ -8,7 +8,7 @@ static DISMISS: ActionRow = ActionRow::new("notice.dismiss", Touches::Nothing, "
     .keys(&[KeyRow::on("escape", "tile", "dismiss the notice")])
     .menu(&[MenuRow::new("Dismiss", "Window", Some("escape"))]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &DISMISS, run: dismiss }];
+pub static ACTIONS: &[Action] = &[Action { row: &DISMISS, run: dismiss, about: About::Nothing }];
 
 fn dismiss(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     if app.notice.is_none() { return Outcome::refused("there is no notice to dismiss") }

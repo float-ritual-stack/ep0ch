@@ -5,7 +5,7 @@
 use serde_json::json;
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
-use super::{Action, Actor, App, Outcome, word};
+use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 
 static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks")
@@ -33,27 +33,48 @@ static NARROW: ActionRow = ActionRow::new("facets.set", Touches::Nothing, "narro
     .keys(&[KeyRow::via("a press on a facet's row, or on a chip of a list")])
     .examples(&[Example { act: "facets.set key=stage value=sown tile=beds", does: "keeps the beds whose stage is sown", safe: Some(true) }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &PICK, run: pick }, Action { row: &SORT, run: sort }, Action { row: &GROUP, run: group }, Action { row: &LAYOUT, run: layout }, Action { row: &NARROW, run: narrow }];
+pub static ACTIONS: &[Action] = &[Action { row: &PICK, run: pick, about: About::Lists }, Action { row: &SORT, run: sort, about: About::Lists }, Action { row: &GROUP, run: group, about: About::Lists }, Action { row: &LAYOUT, run: layout, about: About::Lists }, Action { row: &NARROW, run: narrow, about: About::Lists }];
 
-/// The list tile an act is about: the one it is aimed at, else the one with the keys, when a list drawer draws it.
-fn target(app: &App) -> Result<String, Outcome> {
-    let tile = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
-    if app.drawer_of(&tile).is_some_and(|drawer| drawer.lists) { Ok(tile) } else { Err(Outcome::refused(format!("{} is no list: name a list tile with tile=", app.layout.name(&tile)))) }
-}
+/// The list tile an act is about: the one the dispatcher found for it (`App::target`: the one aimed at, else the one
+/// with the keys when it lists, else the first that does).
+fn target(app: &App) -> Result<String, Outcome> { app.about().ok_or_else(|| Outcome::refused("this screen has no list: name a list tile with tile=")) }
 
-fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+/// A folder's row, in a list whose folders unfold: what the list's own source says (it reads which are open).
+fn unfolds(app: &App, tile: &str, row: &crate::page::ListRow) -> bool { row.folds && app.unfolds(tile) }
+
+/// The one pick of a row, whatever the list is of: a press on a row, `list.pick` and the door's name for it in a
+/// tree (`tree.pick`). It runs the row's own act line from the list's tile, as whoever picks. In a list whose
+/// folders unfold, the person's pick of the row already open folds or unfolds it instead, and a folder they open
+/// unfolds: that is the row's own word (`folds`), read here and nowhere else.
+pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
     let rows = app.rows_of(&tile);
     let row = match (args.text("id"), args.number("n")) {
         (Some(id), _) => rows.iter().find(|row| row.id == id),
         (None, Some(n)) => rows.get((n.max(1.0) as usize) - 1),
-        (None, None) => return Outcome::refused("list.pick names a row: id= or n="),
+        (None, None) => return Outcome::refused("a pick names a row: id= or n="),
     };
-    let Some(row) = row else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
+    let Some(row) = row.cloned() else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
     let Some(line) = row.act.clone() else { return Outcome::refused(format!("the row {} runs nothing when picked", row.label)) };
-    // The row's own act line, from this tile: where a note lands is the layout's to say, and who may run it the dispatcher's.
-    let ran = app.act(&format!("{line} tile={}", word(&app.layout.name(&tile))), by.clone());
+    let folder = by.is_person() && unfolds(app, &tile, &row);
+    if folder && app.selected_in(&tile).as_deref() == Some(row.id.as_str()) {
+        fold(app, &tile, &row.id, None);
+        return Outcome::done();
+    }
+    // The row's own act line, as the request it reads as, from this tile: where a note lands is the layout's to
+    // say, and who may run it the dispatcher's.
+    let request = match crate::actline::parse(&line) { Ok(request) => request, Err(why) => return Outcome::refused(format!("the row {} runs a line that doesn't read: {}", row.label, why.0)) };
+    let ran = app.act_from(request, &app.layout.name(&tile), by.clone());
+    if ran.ok && folder { fold(app, &tile, &row.id, Some(true)) }
     Outcome { answer: json!({ "ran": line, "answer": ran.answer }), ..ran }
+}
+
+/// A folder of a list opened (`open: true`), folded, or the other way: the tile's own state, asked of the service next.
+pub(super) fn fold(app: &mut App, tile: &str, id: &str, open: Option<bool>) {
+    let open = open.unwrap_or(!app.ui(tile).unfolded.contains(id));
+    let ui = app.ui_mut(tile);
+    if open { ui.unfolded.insert(id.to_string()); } else { ui.unfolded.remove(id); }
+    app.keep();
 }
 
 /// What the person chose for a list's parameter here: kept by the parameter's name, dropped when it is empty.

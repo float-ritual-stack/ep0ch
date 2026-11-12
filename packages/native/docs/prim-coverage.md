@@ -82,4 +82,4 @@ Each primitive type and how this window draws it (`tiles/prim.rs`, `PRIMS`: the 
 | `row` | its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own |
 | `band` | a heading, sized by its level; the glyph tracks of a heading style aren't drawn |
 | `track` | a ruled line; a heading style's glyph pattern isn't drawn |
-| `list` | rows under their group headers: a row that opens a note or runs an act line is a press, its cells as badges, its detail quiet after it; no filter, selection or preview pane here |
+| `list` | the one list, drawn as a list tile draws it: rows under their group headers (a table's as cells under its columns, lanes side by side), built only where they are in view; a row with an act line is a press, its cells as badges, its chips questions for the bar, its detail under it; no filter, selection or preview pane here |
