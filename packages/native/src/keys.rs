@@ -203,7 +203,7 @@ pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
     match find(layer, &seq, tx) {
         Found::Run(bind) => {
             s.act(&bind.line, Actor::Person);
-            s.effects(tx);
+            effects(s, tx);
             true
         }
         Found::Wait => { s.held().seq = seq; true }
@@ -242,7 +242,7 @@ pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
     let echo = s.held().asked.as_ref().and_then(|(key, _)| tile_of(key, &names));
     let pressed = now.as_deref().filter(|_| moved && !s.bar.open).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
     // The caret is in a draft whose tile hasn't the keys: a press put it there.
-    let drafted = s.editing.as_ref().filter(|e| s.editor.focused && e.tile != s.layout.focus && !s.bar.open).map(|e| s.layout.name(&e.tile));
+    let drafted = s.editing.as_ref().filter(|e| s.editor.takes_keys() && e.tile != s.layout.focus && !s.bar.open).map(|e| s.layout.name(&e.tile));
     let Some(tile) = drafted.or(pressed) else { return false };
     let changed = s.act(&format!("tile.focus tile={}", word(&tile)), Actor::Person).ok;
     if let Some(asked) = wanted(s, &names) { ask(s, asked, tx); }
@@ -277,11 +277,37 @@ fn table_first(field: Field, lines: bool) -> impl Fn(&mut App, &KeyEvent, &mut T
 }
 
 /// A one-line field over `field`'s text: the kit's input, its keys through the table.
-pub fn input(edit: &TextEdit, field: Field) -> TextInput {
-    TextInput::new(edit).on_edit(move |s: &mut App| s.field(field)).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, false))
+pub fn input(text: &Text, field: Field) -> TextInput {
+    TextInput::new(&text.0).on_edit(move |s: &mut App| &mut s.field(field).0).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, false))
 }
 
 /// A field of lines over `field`'s text: the kit's text area, its keys through the table.
-pub fn area(edit: &TextEdit, field: Field) -> TextArea {
-    TextArea::new(edit).on_edit(move |s: &mut App| s.field(field)).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, true))
+pub fn area(text: &Text, field: Field) -> TextArea {
+    TextArea::new(&text.0).on_edit(move |s: &mut App| &mut s.field(field).0).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, true))
+}
+
+/// A field's text as its editor holds it (the kit's `TextEdit`: the words, the caret, the selection, the way back),
+/// kept behind this file: the window's state holds one for the bar and one for a note's source and names no
+/// renderer's type. The model reads its words, sets them, and says whether the field takes what is typed; only the
+/// two field builders above reach the editor itself.
+#[derive(Clone, Default, PartialEq, Hash)]
+pub struct Text(TextEdit);
+
+impl Text {
+    pub fn new(words: &str) -> Text { Text(TextEdit::new(words)) }
+    /// A field that takes the keyboard when it appears, the caret at its end.
+    pub fn focused(words: &str) -> Text { let mut edit = TextEdit::new(words); edit.focused = true; Text(edit) }
+    pub fn words(&self) -> &str { &self.0.text }
+    /// The field takes what is typed.
+    pub fn takes_keys(&self) -> bool { self.0.focused }
+    pub fn give_keys(&mut self, on: bool) { self.0.focused = on }
+    /// Words typed where the caret is.
+    pub fn insert(&mut self, words: &str) { self.0.insert(words) }
+    /// Every word replaced, as a paste over everything would.
+    pub fn replace(&mut self, words: impl Into<String>) { self.0.replace_text(words) }
+}
+
+/// What an act asked of the next frame, done: an element brought into view. True when something moved.
+pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
+    match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }

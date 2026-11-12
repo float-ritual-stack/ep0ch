@@ -19,6 +19,7 @@ mod layout;
 mod list;
 mod page;
 mod parts;
+mod query;
 mod screen;
 mod shell;
 mod store;
@@ -73,7 +74,7 @@ fn setup(s: &mut App, waker: rune::Waker) { s.set_waker(waker) }
 
 fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     let landed = s.take();
-    let moved = s.effects(tx) | keys::follow(s, tx);
+    let moved = keys::effects(s, tx) | keys::follow(s, tx);
     // A lost link is made again, now and every two seconds until the host answers.
     if !s.online && !s.blocking {
         s.reconnect();

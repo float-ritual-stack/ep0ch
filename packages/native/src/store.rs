@@ -258,7 +258,7 @@ impl Store {
         }
     }
 
-    pub fn set_waker(&mut self, waker: rune::Waker) { for wire in self.wires.values_mut() { wire.link.set_waker(waker.clone()) } }
+    pub fn set_waker(&mut self, waker: crate::client::Waker) { for wire in self.wires.values_mut() { wire.link.set_waker(waker.clone()) } }
 
     /// Who the person's writes are recorded as (`ep0ch-native:<the host's machine>`).
     pub fn set_person(&mut self, actor_id: String) { self.person = actor_id }
