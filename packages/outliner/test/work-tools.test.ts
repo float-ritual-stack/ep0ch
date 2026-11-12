@@ -134,6 +134,11 @@ test("a Work ID nobody has is refused with the words show says, and both exit 1"
     expect(staged.error).toBe(`error: ${(h.store.lookupBlockRef(address, "note") as { message: string }).message}\nkind: not-found`);
   }
   expect((await h.run(["work", "stage", "OTHER-7", "doing"])).error).toContain("no Work ID starts OTHER- here (this outline has PIE)");
+  // The outliner's read of a note that isn't there exits 1 too, its JSON still naming it unavailable.
+  const missing = "00000000-0000-4000-8000-000000000000", read = await h.run(["read", missing]);
+  expect(read.exitCode).toBe(1);
+  expect(JSON.parse(read.stdout).unavailable).toEqual([{ id: missing, status: "missing" }]);
+  expect(read.error).toBe(`error: no note ${missing} in this outline`);
 }, 30_000);
 
 // PIE-1761: a Work ID typed without its padding finds the ticket, whichever way its chip writes it.

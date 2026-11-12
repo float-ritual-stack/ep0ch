@@ -95,7 +95,7 @@ export interface DeskApi {
   /** The ask the answer tile beside reader `r` shows, if one is there. */
   shownAsk?(r: ReaderPane): string | undefined;
   /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
-  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null;
+  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null | undefined;
   selectionSource?(p: ReaderPane): Pane | null;
   hasWiredPreview?(p: ReaderPane): boolean;
   /**

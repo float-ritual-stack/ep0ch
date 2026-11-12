@@ -1560,3 +1560,9 @@ if (command === "capture") {
     for (const warning of await referenceWarningsFor(client, written, undefined, self)) console.error(`warning: ${warning}`);
   }
 }
+// A note that isn't there exits 1 (PIE-1767), as `ep0ch show` and `work stage` do; the JSON above still lists it.
+if (command === "read") {
+  const missing = (result as { unavailable?: Array<{ id: string; status: string }> }).unavailable ?? [];
+  for (const read of missing) console.error(`error: no note ${read.id} in this outline${read.status === "trashed" ? " (it is in Trash)" : ""}`);
+  if (missing.length) process.exit(1);
+}

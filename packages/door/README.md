@@ -85,9 +85,11 @@ Gather the reader into a group or put it in the drawer with the edit still open,
 the answer beside it there; one left behind on the screen it moved from closes, as a comment's tile does when its reader goes. The `asks` showcase demonstrates this with `@planter`.
 Where the answer tile opens is the desk's one placement (`besideAttempt`, PIE-1757): on the side last chosen while halving leaves
 the reader the 28 columns a tile reads at, else below it, so a 44-column edit keeps its width; when every place beside would cut an edit
-under 28×11 (or under what it has, in a smaller tile: a 44-column door 7 to 12 rows tall), a tab behind it, the edit still shown. The ask's row says where: `beside ▸`, `below ▾` or `in a tab`. An ask
+under 28×11 (or under what it has, in a smaller tile: a 44-column door 7 to 12 rows tall), a tab behind it, the edit still shown. The ask's row says where: `beside ▸`, `below ▾` or `in a tab`; with no tile open (closed, or gone with a gather or the
+drawer) `show ▸`, which a click on the row does; a float, which takes no tile, names no side (PIE-1758). An ask
 longer than the edit wraps; one ↑ up its wrap counts as leaving it, and it's sent. An edit put aside mid-ask leaves its tile
-saying the saved ask's answer, never that its ask is gone.
+saying the saved ask's answer, never that its ask is gone; an ask never saved says the edit put aside keeps it, and `e`
+brings it back.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
 default to read-only; `[effects::write]` declares writes and door actions. Runs are attributed to
