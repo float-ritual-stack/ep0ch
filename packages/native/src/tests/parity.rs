@@ -147,3 +147,12 @@ fn every_chord_in_the_table_reads_and_none_is_bound_twice_where_the_person_can_b
         }
     }
 }
+
+/// The README's table of keys is the key table, row for row: written out for a person, kept true here.
+#[test]
+fn the_readme_s_keys_are_the_table() {
+    let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    let written: Vec<&str> = readme.split("<!-- keys").nth(1).and_then(|rest| rest.split("<!-- /keys -->").next()).expect("the README has its keys table").lines().filter(|line| line.starts_with("| `")).collect();
+    let table: Vec<String> = keys::table().iter().map(|bind| format!("| `{}` | `{}` | {} | {} |", bind.spec, bind.line, bind.layer.map_or("everywhere", keys::Layer::name), bind.does)).collect();
+    assert_eq!(written, table, "the README's keys, and the table's:\n{}", table.join("\n"));
+}

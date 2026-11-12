@@ -55,6 +55,14 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
         assert_eq!(todo(&app), ["Lift the onions"]);
         assert!(matches!(&page.parts[0], crate::page::Part::Prose { markdown } if markdown.contains(&format!("[Shed](ep0ch:b/{})", shed["id"].as_str().unwrap()))));
 
+        // The bar's notes are the service's search: what a word typed costs, said for the record (DESIGN.md §7).
+        let asked = std::time::Instant::now();
+        act(&mut app, "bar.open scope=notes query=onions");
+        let rows = crate::bar::rows(&app);
+        eprintln!("the bar's search for one word answered {} row(s) in {:.1} ms, over the socket", rows.len(), asked.elapsed().as_secs_f64() * 1000.0);
+        assert!(rows.iter().any(|row| row.label == "Lift the onions" && row.line == format!("open id={}", chore["id"].as_str().unwrap())), "{rows:?}");
+        act(&mut app, "bar.close");
+
         // This window writes: saved at the revision it read, and the page it shows is the saved one.
         act(&mut app, "edit");
         let text = format!("{}\n\nBring the trug.", app.editor.text);
