@@ -666,9 +666,8 @@ impl App {
     /// The open screen as the service lists it now, in a word: its name and a mark of its spec.
     fn seen_of(&self) -> Option<(String, String)> {
         let spec = self.served_row()?.get("spec").filter(|spec| spec.is_object())?;
-        // (FNV-1a over the spec as the service wrote it: the same words, the same mark, in every run.)
-        let mark = spec.to_string().bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
-        Some((self.screen.name.clone(), format!("{mark:016x}")))
+        // (The spec as the service wrote it: the same words, the same mark, in every run.)
+        Some((self.screen.name.clone(), crate::draft::version(&spec.to_string())))
     }
 
     /// The arrangement is of the screen as the service lists it now: what a later change is measured against.

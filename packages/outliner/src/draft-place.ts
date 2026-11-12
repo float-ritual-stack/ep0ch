@@ -23,6 +23,9 @@ const PLACE_TRIES = 3;
 /** How many patches placed in drafts are kept to take back (a patch that didn't apply everywhere, an undo). */
 const PLACED_KEPT = 200;
 
+/** What the person is told when a patch placed in their draft is taken back out of it. */
+const TAKEN_BACK = "An edit that didn't land everywhere was taken back out of your draft";
+
 const heldDraft = (answer: DraftHolderAnswer): HeldDraft | undefined => "draft" in answer ? answer.draft : undefined;
 
 /**
@@ -46,7 +49,7 @@ export function placingFor(ask: AskHolder): AskHolder {
         const patched = placed.get(request.patchId);
         const spans = patched && revertSpans(held.text, patched);
         if (!spans) return { reverted: false };
-        const answer = await ask(hold, { kind: "place", patchId: request.patchId, version: held.version, spans, revert: true });
+        const answer = await ask(hold, { kind: "place", patchId: request.patchId, version: held.version, spans, revert: true, did: TAKEN_BACK });
         if ("applied" in answer && answer.applied) { placed.delete(request.patchId); return { reverted: true }; }
         draft = heldDraft(answer);
         if (!draft) return { reverted: false };

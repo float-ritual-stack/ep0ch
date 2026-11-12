@@ -145,7 +145,8 @@ fn a_draft_is_held_on_the_service_answers_what_it_asks_and_takes_a_placed_patch_
     service_asks(&mut app, &said, "revert", "r6", json!({ "patchId": "p2" }));
     assert_eq!((answered(&asked, "r6")["answer"]["reverted"].as_bool(), answered(&asked, "r6")["answer"]["draft"]["text"].as_str()), (Some(false), Some(words(&app))));
     let now = draft(&app).unwrap().stands(false);
-    service_asks(&mut app, &said, "place", "r7", json!({ "patchId": "p2", "version": now["version"], "revert": true, "spans": [{ "start": 0, "end": 8, "replacement": "Plot" }] }));
+    service_asks(&mut app, &said, "place", "r7", json!({ "patchId": "p2", "version": now["version"], "revert": true, "did": "An edit that didn't land everywhere was taken back out of your draft", "spans": [{ "start": 0, "end": 8, "replacement": "Plot" }] }));
+    assert_eq!(draft(&app).unwrap().told.as_ref().map(|told| told.line()).as_deref(), Some("An edit that didn't land everywhere was taken back out of your draft"), "what happened is the service's word, said as sent");
     assert_eq!((answered(&asked, "r7")["answer"]["applied"].as_bool(), words(&app)), (Some(true), patched));
 
     // A patch the saved note took too (an agent's property stamp): the draft stands on that revision, and the hold says so.
@@ -165,6 +166,29 @@ fn a_draft_is_held_on_the_service_answers_what_it_asks_and_takes_a_placed_patch_
     assert!(act(&mut app, "edit.close discard=true").ok);
     assert_eq!(sent(&asked, "drafts.release").map(|release| release["holdId"].clone()), Some(json!("hold-plot")));
     assert!(draft(&app).is_none());
+}
+
+/// Time asks two things of a held draft, and `beat` is where: its hold renewed before the lease runs out, and the
+/// service told the person typed once the keys have gone quiet (it reads the draft back then, and runs a request
+/// line written there). Nothing is told while they type.
+#[test]
+fn a_held_draft_is_renewed_and_the_service_is_told_once_the_keys_go_quiet() {
+    let Garden { mut app, asked, .. } = garden(ok());
+    assert_eq!(app.beat(), None, "nothing is held: nothing to ask again for");
+    assert!(act(&mut app, "edit").ok);
+    assert_eq!(app.beat(), Some(draft::BEAT));
+    assert!(act(&mut app, "draft.paste text=\" Sow\"").ok);
+    assert_eq!((app.beat(), sent(&asked, "drafts.touch")), (Some(draft::QUIET / 2), None), "typed just now: asked again soon, and nothing told yet");
+    std::thread::sleep(draft::QUIET + std::time::Duration::from_millis(50));
+    assert_eq!(app.beat(), Some(draft::BEAT));
+    assert_eq!(sent(&asked, "drafts.touch").map(|touch| touch["holdId"].clone()), Some(json!("hold-plot")));
+    assert!(sent(&asked, "drafts.heartbeat").is_none(), "the lease is renewed when it is due, not before");
+    // A link made again ended every hold with the old one: each draft is held again.
+    let holds = || asked.borrow().iter().filter(|a| a["action"] == "drafts.hold").count();
+    let before = holds();
+    app.start();
+    app.settle();
+    assert_eq!((holds(), draft(&app).unwrap().hold_id()), (before + 1, Some("hold-plot")));
 }
 
 /// An agent's way into a draft is the service's `draft.patch`, sent from here as the agent: recorded as its own, and

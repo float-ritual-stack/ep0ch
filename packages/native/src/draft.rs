@@ -108,7 +108,7 @@ pub fn byte_of(text: &str, utf16: usize) -> Option<usize> {
     (units == utf16).then_some(text.len())
 }
 
-/// What names a text between two asks of the service: the same words, the same name (FNV-1a).
+/// What names a text between two asks of the service, or between two runs: the same words, the same name (FNV-1a).
 pub fn version(text: &str) -> String { format!("{:016x}", text.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))) }
 
 /// What a placed span does to an offset beside it (outline-core's `PlacedSpan.caret`).
@@ -229,11 +229,8 @@ impl DraftSession {
             self.stood.insert(patch, (self.revision, std::mem::replace(&mut self.base, base.to_string())));
             self.revision = revision;
         }
-        self.told = match (ask["revert"] == true, ask["did"].as_str()) {
-            (true, _) => Some(Told { who: String::new(), did: "An edit that didn't land everywhere was taken back out of your draft".into() }),
-            (false, Some(did)) => Some(Told { who: who.unwrap_or_default(), did: did.to_string() }),
-            (false, None) => None,
-        };
+        // What it did is the service's word (`did`), by whoever it is recorded as: said as sent, and nothing when it sends none.
+        self.told = ask["did"].as_str().map(|did| Told { who: who.unwrap_or_default(), did: did.to_string() });
         Ok(self.told.clone())
     }
 }
