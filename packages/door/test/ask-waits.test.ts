@@ -78,6 +78,30 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     } finally { p.close(); }
   }, 45_000);
 
+  // loki on #1445: the answer tile beside the line says what the line says while an answered ask is being retyped, never
+  // "its ask is gone" beside a line that says it will ask.
+  test("one character typed on an answered ask: the line and the answer tile beside it both say it asks once you leave", async () => {
+    const title = "Potting";
+    const ask = "@tally the trays";
+    const id = await create(`${title}\n${ask}`);
+    await untilAsync(async () => (await board.get(id))!.text.includes("@tally answered"), "the first answer", 15_000);
+    const p = await pane(id, title, 44, 16);
+    /** The answer tile's words: each row's part between the tile's side borders. */
+    const tile = () => p.capture().split("\n").map(l => l.split("│")[1] ?? "").join(" ").replace(/\s+/g, " ");
+    /** The edit's words, the same way: between its side borders. */
+    const edit = () => p.capture().split("\n").map(l => l.split("║")[1] ?? "").join(" ").replace(/\s+/g, " ");
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("editing"), "the edit");
+      p.keys("C-Home", "Down", "End");
+      await until(() => tile().includes("counted: the trays"), "the answer tile beside the ask", 10_000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      p.type(" n");
+      await until(() => edit().includes("asks once you leave the line or save"), "the line saying it waits", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      await until(() => tile().includes("asks once you leave the line or save"), "the answer tile saying the same", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(tile()).not.toContain("gone");
+    } finally { p.close(); }
+  }, 45_000);
+
   test("a click on another line leaves the ask's line: it is sent", async () => {
     const title = "Cold frame";
     const id = await create(`${title}\nprop the lid open`);

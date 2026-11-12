@@ -194,7 +194,17 @@ export class Draft {
   /** An ask's place in `asks`: its text, and its `nth` (from 0) among the lines saying it exactly. */
   static askKey(line: string, nth = 0) { return nth ? `${line}\u0000${nth}` : line; }
   /** Take an ask's progress, as the service sends it. */
-  progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) { this.asks.set(Draft.askKey(ask.line, ask.nth), ask); }
+  progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) {
+    this.asks.set(Draft.askKey(ask.line, ask.nth), ask);
+    // The ask on the cursor's line said something new of itself (typed on, its words are another ask now): the answer
+    // tile already beside an ask follows it, so the two say the same (loki on #1445: "its ask is gone" beside "asks once
+    // you leave"). A first ask opens none before its answer, as before.
+    if (this.selectedAsk !== null && ask.line === this.lines[this.row] && ask.line !== this.selectedAsk) this.selectAsk();
+  }
+  /** What the service last said of the ask `line` while this draft is open (its progress), if anything. */
+  liveAsk(line: string, nth = 0) { return this.asks.get(Draft.askKey(line, nth)); }
+  /** The ask the cursor last selected (`selectAsk`): the one the answer tile beside the note follows. */
+  private selectedAsk: string | null = null;
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
   /** The answers opened by hand (their fold row, the answer tile's `f`, fold.toggle): open until shut by hand (`answerOpen`). */
@@ -1448,6 +1458,7 @@ export class Draft {
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
     if (!answer && !this.asks.has(this.line)) return;
+    this.selectedAsk = this.line;
     this.onAskSelected?.(this.line, answer?.key);
   }
 
