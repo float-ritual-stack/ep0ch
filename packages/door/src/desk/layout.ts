@@ -16,97 +16,17 @@
 // splits by weight: a move beside a tile inside a split along the same axis joins that split instead of
 // nesting a new pair.
 import type { Rect } from "../canvas";
-import { isAgentLevel, type AgentLevel } from "../surface/agent-level";
+import { cells, isDir, policyOf, type AgentLevel, type AltRule, type Axis, type BinaryForm, type Dir, type NaryForm, type OpenRule, type Policy, type Spines } from "@ep0ch/outline-core/screen-spec";
+// The layout's words (its axes and edges, a container's policy, the open rules) and its saved forms are outline-core's
+// (screen-spec.ts): every client that reads a saved layout shares them. What follows is the door's tree arithmetic.
+export {
+  ALT_RULES, canonKind, isDir, OPEN_RULES, policyOf, POLICY_KEYS, SPINES,
+  type AltRule, type Axis, type BinaryForm, type ColumnsForm, type Dir, type DockForm, type FlowForm, type HostMode, type NaryForm, type OpenRule, type Policy, type Spines, type TabsForm,
+} from "@ep0ch/outline-core/screen-spec";
 import { columnOf, placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
 
-export type Dir = "left" | "right" | "up" | "down";
-/** row: kids side by side; col: one over another. */
-export type Axis = "row" | "col";
-/**
- * What a container allows (PIE-505), saved with the screen. Left out, a field is what the container around it
- * says (the screen's policy is the outermost); `locked` anywhere above locks everything under it.
- */
-export type Spines = "book" | "start" | "end" | "centre" | "invoker";
-export const SPINES: readonly Spines[] = ["book", "start", "end", "centre", "invoker"];
-
-export interface Policy {
-  /** Screen spacing, in cells: between tiles and inside its outer edge. */
-  gap?: number;
-  inset?: number;
-  /** Where automatically folded pages gather; hand folds stay where they are. */
-  spines?: Spines;
-  /** Least width of an open page before the least recently touched one folds; 0 keeps all open. */
-  "min-width"?: number;
-  /** Its tiles can be dragged out (layout.move, layout.swap). */
-  draggable?: boolean;
-  /** It takes tiles moved or opened into it. */
-  droppable?: boolean;
-  /** Its tiles close (tile.close, ^W x); off, they stay (the board's preview and lanes: they fold to a spine instead). */
-  closable?: boolean;
-  /** The tile kinds it takes (any when left out): a locked board's columns take only query tiles. */
-  accepts?: string[];
-  /** Its borders move (a drag, layout.resize, tile.resize, layout.even). */
-  resizable?: boolean;
-  /** Its size along its parent's axis, in cells: at least `min`, at most `max`, or exactly `fixed`. */
-  min?: number; max?: number; fixed?: number;
-  /** A dock can slide shut (to its handle on the hint row). */
-  collapsible?: boolean;
-  /** A dock slides over the others (true, the default) or takes its room while open (false). */
-  overlay?: boolean;
-  /** An open dock stays open when the keys leave it (the board's backlinks: read a source, the list stays); it shuts by its key. */
-  stays?: boolean;
-  /** Task mode: the shape is fixed, the contents stay live. Unlocking is a click on its ▣ chip, the power bar's row or `layout.lock` (no key: PIE-1346). */
-  locked?: boolean;
-  /**
-   * Where opens from its tiles land when a tile has no link of its own: a tile's name, or a container's key (the
-   * board's readers row, PIE-515): a tile opened into it holds the note. An open lands in the one last opened (or
-   * given the keys) there; a fresh one (alt+⏎), or one when that holds an edit, opens another (see `readable`).
-   */
-  opensInto?: string;
-  /**
-   * Growth by room (PIE-794): the width in cells a reader opened beside others still gets. A new one opens beside while
-   * it does; past it, the earliest readers in its row (never the first) fold to spines. In a flow (the river) it is a
-   * full column's width, the rest squeezed to peeks and spines. 0: nothing folds. Left out, `READABLE` (a flow: about
-   * four tenths of its width).
-   */
-  readable?: number;
-  /**
-   * Closing a tile in it shuts the dock it's in instead (pinned, it goes back into a dock first): the board's
-   * outline and backlinks, whose lists stay theirs.
-   */
-  shuts?: boolean;
-  /**
-   * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
-   * opens-into says: the first reader that isn't pinned (`reader`, the default, PIE-1207), a new column right after the
-   * tile's own in its flow (`next`, a flow's own rule when it says none), or a reader beside the tile, which stays on its
-   * own note (`beside`, PIE-515: a pinned page, the brief), or the tile itself (`self`, PIE-1516: in place, a list showing the
-   * note where it was, ← back returning to it). A saved `current` (the hidden current note, gone) reads as the default.
-   */
-  opens?: OpenRule;
-  altOpens?: AltRule;
-  /**
-   * A screen's own (its outermost policy, PIE-513): where the host layer (the agent, the admin outline, terminals,
-   * above every screen) may appear over it: `beside` it (the screen narrower), `over` it (a dock, the default),
-   * or `none` (a full-screen screen: the host layer stays put away while it's shown).
-   */
-  host?: HostMode;
-  /**
-   * What an agent may do to the tiles under it (PIE-639): the screen's default, or a container's. A tile has its own
-   * (`LayoutState.agents`), which wins. Left out, `free`. The person's own keys are never limited by it.
-   */
-  agents?: AgentLevel;
-}
-/** Where the host layer may appear over a screen. */
-export type HostMode = "beside" | "over" | "none";
-/** Where an alt-open lands: beside, a tab, the wired tile itself, or the first reader that isn't pinned (`first-unheld`). */
-export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
-export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
-/** Where opens land after a tile's wire and its container's opensInto. */
-export const OPEN_RULES = ["reader", "next", "beside", "float", "full", "self"] as const;
-export type OpenRule = typeof OPEN_RULES[number];
 /** Each open rule in a few words: ^W P, tile.open's and layout.policy's docs read them. */
 export const OPEN_RULE_WORDS: Record<OpenRule, string> = { reader: "the first reader not pinned", next: "a new column after it", beside: "a reader beside it", float: "a follower floating over it", full: "the opened reader zoomed", self: "in place: it replaces what the tile shows, ← back returns" };
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width", "gap", "inset"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
 
@@ -275,8 +195,6 @@ export function share<I>(root: LNode<I>, target: I | { key: string }): number | 
 
 // ── placing ──────────────────────────────────────────────────────────────────
 
-/** A size in cells from a policy, or undefined when it isn't one. */
-const cells = (x: unknown): number | undefined => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.round(x) : undefined);
 
 /**
  * Lay the tree out in `r`. Along each split's axis a fixed kid (a spine) takes its cells; the others share
@@ -1032,52 +950,12 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
 
 // ── saved forms ──────────────────────────────────────────────────────────────
 
-/** The desk.json form before PIE-412: binary splits by ratio. The desk still writes it (it only makes pairs). */
-export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
-export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; pair?: true; id?: string; policy?: Policy } | TabsForm<L> | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
-/**
- * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
- * full, the one read before, the held ones, and each column's way back (`from`) and forward (`ahead`).
- */
-export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; held?: number[]; recent?: number[]; sides?: { col: number; side: "left" | "right" }[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
-/** Columns as saved (PIE-511): its tiles as they were last filled, its weights, and where its tiles come from. */
-export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: number[]; source?: string; key?: string; id?: string; policy?: Policy };
-/** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
-export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string; policy?: Policy };
-/** A dock as saved (PIE-505): what it holds, its edge, open or shut. */
-export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; view?: number[]; id?: string; policy?: Policy; keeps?: true };
 const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.id as string } : {}), ...savedPolicy(x?.policy) });
-const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** The glyph a dock's header, its handle and a drop into it show for the edge it slides from. */
 export const EDGE_GLYPH: Record<Dir, string> = { left: "\u2190", right: "\u2192", up: "\u2191", down: "\u2193" }; // left, right, up and down arrows
 /** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
-/** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */
-/** A kind as a saved layout or policy names it: `detail` and `pinned` are readers now (the other retired names resolve in the registry). */
-export const canonKind = (kind: string): string => (kind === "detail" || kind === "pinned" ? "reader" : kind);
-export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
-/**
- * A policy as saved or as an agent gave it, kept to the fields and types it has (a hand-edited save's
- * strays dropped). Empty: none.
- */
-export function policyOf(x: unknown): Policy {
-  const out: Policy = {};
-  if (!x || typeof x !== "object") return out;
-  const o = x as Record<string, unknown>;
-  for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
-  for (const k of ["min", "max", "fixed", "readable", "min-width", "gap", "inset"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
-  if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
-  if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
-  if (OPEN_RULES.includes(o.opens as OpenRule)) out.opens = o.opens as OpenRule;
-  // The open rule before PIE-1207 (the hidden current note) is the first reader not pinned now.
-  else if (o.opens === "current") out.opens = "reader";
-  if (SPINES.includes(o.spines as Spines)) out.spines = o.spines as Spines;
-  if (ALT_RULES.includes(o.altOpens as AltRule)) out.altOpens = o.altOpens as AltRule;
-  if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
-  if (isAgentLevel(o.agents)) out.agents = o.agents;
-  return out;
-}
 const savedPolicy = (x: unknown) => { const p = policyOf(x); return Object.keys(p).length ? { policy: p } : {}; };
 
 /** Read a saved tree (`kids weights`, or the binary `ratio a b` saves written before October 2026), making each leaf with `leafOf`. */

@@ -365,10 +365,10 @@
     {
       "id": "door.actions", "name": "Action registry", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": [],
       "does": "An action: a name, typed arguments, an actor, a refusal with a reason. The same code for the person's key, a click and an agent's act.",
-      "built": "ActionDef and ActionSet in surface/actions.ts. ActionDef.keys is rows of keys and what each does (KeyRow, PIE-1048); the key tables (^W, the modes', hyper) and the person's keymap file (surface/keymap.ts, keybindings.json) bind keys to actions, and the keys window (desk/keys-window.ts) lists them all; keys matched in code still exist (the reader's), followed by the App's keymap layer. Each def declares what it touches of the person's (touches: nothing, tile, shape, draft, screen; person: the person's only) and whether a restarted door may run it again (replay: safe or ask), and what an agent's run says (says) (PIE-514).",
+      "built": "ActionDef and ActionSet in surface/actions.ts. ActionDef.keys is rows of keys and what each does (KeyRow, PIE-1048); the key tables (^W, the modes', hyper) and the person's keymap file (surface/keymap.ts, keybindings.json) bind keys to actions, and the keys window (desk/keys-window.ts) lists them all; keys matched in code still exist (the reader's), followed by the App's keymap layer. Each def declares what it touches of the person's (touches: nothing, tile, shape, draft, screen; person: the person's only) and whether a restarted door may run it again (replay: safe or ask), and what an agent's run says (says) (PIE-514). The description half of a def (summary, args, touches, keys, while, menu, examples, answer) is outline-core's ActionDescription (action-row.ts), which ActionDef extends; packages/outline-core/fixtures/action-rows.json holds every action's row.",
       "refs": [
         { "r": "door", "p": "src/surface/actions.ts", "l": 122, "m": "export interface ActionDef" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 87, "m": "export type Touches" },
+        { "r": "door", "p": "src/surface/actions.ts", "l": 26, "m": "export { actionRow, isKeyName, keysText, type ActionDescription" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 137, "m": "keys?: Keys" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 295, "m": "export class ActionSet" }
       ],
@@ -396,9 +396,9 @@
     {
       "id": "door.tile-address", "name": "Tile addresses and roles", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": ["door.dispatch", "door.layout", "door.drawer"],
       "does": "One grammar for naming a tile beyond the screen asking (PIE-1286; ui-router's named views): an exact id (or 8+ characters of it), a role (a property of the tile, saved with it: the drawer's program is role:agent), a slot on a screen (the place, whatever fills it), ^ (the tile that opened this one) and, last, a name. No match is refused with why and what to type; nothing falls back to the focused tile.",
-      "built": "tile-address.ts parses an address and resolves it over the tiles a desk lists (AddressCandidate); Desk.resolveTile answers it for the whole family (screen, mounts, drawer) and the host layer asks it for every screen host. The tile registry (tile-registry.ts) is the one place a tile's id, role, opener and copy lineage live, saved on its leaf, so a restart, a handover or a restore keeps them; a pane the host gives fills its slot. Keys, clicks and menu rows address by t-<uuid> through the path an act string takes, and the parity walk replays each targeted action by id and by role.",
+      "built": "tile-address.ts parses an address and resolves it over the tiles a desk lists (AddressCandidate); Desk.resolveTile answers it for the whole family (screen, mounts, drawer) and the host layer asks it for every screen host. The tile registry (tile-registry.ts) is the one place a tile's id, role, opener and copy lineage live, saved on its leaf, so a restart, a handover or a restore keeps them; a pane the host gives fills its slot. Keys, clicks and menu rows address by t-<uuid> through the path an act string takes, and the parity walk replays each targeted action by id and by role. The grammar and the resolver live in outline-core (screen-spec.ts); the door's module re-exports them.",
       "refs": [
-        { "r": "door", "p": "src/desk/tile-address.ts", "l": 46, "m": "export function parseTileAddress" },
+        { "r": "door", "p": "src/desk/tile-address.ts", "l": 17, "m": "export { AGENT_ALIAS, matches, MIN_ID_PREFIX, parseTileAddress" },
         { "r": "door", "p": "src/desk/tile-registry.ts", "l": 38, "m": "export const tileRegistry" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1433, "m": "  addressable(" },
         { "r": "door", "p": "src/drawer.ts", "l": 1203, "m": "private ownPane(" }
@@ -481,7 +481,7 @@
     {
       "id": "door.layout", "name": "The screen-layout module", "group": "door", "chapter": "layout", "ladder": "shared", "dependsOn": [],
       "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, docks, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
-      "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, placement); landing.ts owns where a list opens; layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
+      "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, placement); landing.ts owns where a list opens; layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them. The layout's words, its policy and its saved forms are outline-core's (screen-spec.ts); what apply and placement answer is written down as contract tables (packages/outline-core/fixtures/layout-contract.json and place-contract.json, made by scripts/layout-contract.ts and kept true by test/layout-contract.test.ts).",
       "refs": [
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 387, "m": "export function apply" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 65, "m": "export interface LayoutState" },
@@ -492,7 +492,7 @@
         { "r": "door", "p": "src/desk/layout.ts", "l": 139, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 131, "m": "export type Columns" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 154, "m": "export type Flow" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 32, "m": "export interface Policy" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 831, "m": "export interface Effective" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 909, "m": "export function effective" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 36, "m": "export function squeeze" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 93, "m": "export function placeFlow" },
@@ -546,9 +546,9 @@
     {
       "id": "door.layouts", "name": "Layout descriptions", "group": "door", "chapter": "layout", "ladder": "accidental", "dependsOn": ["door.layout", "door.identity"],
       "does": "A layout saved by name (daily, river, your own), restored with its tiles, links and ids.",
-      "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, a screen spec's layout (screen-spec.ts, plain data), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
+      "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, a screen spec's layout (screen-spec.ts, plain data), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored. TileSpec and LayoutSpec are outline-core's (screen-spec.ts).",
       "refs": [
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 134, "m": "export interface LayoutSpec" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 111, "m": "export function builtin" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 245, "m": "export function layoutNamed" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 136, "m": "interface SavedDesk" },
         { "r": "door", "p": "src/river/column.ts", "l": 1100, "m": "saves: \"river.json\"" }
@@ -712,9 +712,9 @@
     {
       "id": "door.presets", "name": "Screen specs", "group": "door", "chapter": "screens", "ladder": "provisional", "tree": "on", "dependsOn": ["door.desk", "door.layouts", "door.tilekinds"],
       "does": "A screen as data on the one screen host, the desk: its containers and tiles by kind, a key map naming actions, a hint, a band drawn by a tile kind, where opens land. The desk, the welcome, the brief, Waiting and a pinned page are specs; what each does beyond layout is its tiles' kinds'.",
-      "built": "ScreenSpec (plain data: specData writes it, readSpec reads it back checked) and the built-in screens registered by name (openScreen). The desk is final: nothing subclasses it. The welcome's list kind is its model and draws its band; the brief's and a pinned page's kinds open beside by policy (opens: beside).",
+      "built": "ScreenSpec (plain data: specData writes it, readSpec reads it back checked) and the built-in screens registered by name (openScreen). The desk is final: nothing subclasses it. The welcome's list kind is its model and draws its band; the brief's and a pinned page's kinds open beside by policy (opens: beside). ScreenSpec and its check (readSpec) are outline-core's (screen-spec.ts); the door adds the check against its tile kinds and the registry of screens by name.",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 62, "m": "export interface ScreenSpec" },
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 99, "m": "export function registerScreen" },
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 120, "m": "export function readSpec" },
         { "r": "door", "p": "src/desk/screen-specs.ts", "l": 72, "m": "export function openScreen" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 156, "m": "export function deskSpec" },
