@@ -1230,24 +1230,28 @@
         {
          "name": "Outlinks",
          "label": "Outlinks",
+         "glyph": "→",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Resources",
          "label": "Resources",
+         "glyph": "♦",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Backlinks",
          "label": "Backlinks",
+         "glyph": "←",
          "count": 0,
          "note": "nothing here yet"
         },
         {
          "name": "Children",
          "label": "Children",
+         "glyph": "↓",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1289,6 +1293,7 @@
         {
          "name": "Outlinks",
          "label": "Outlinks",
+         "glyph": "→",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1330,6 +1335,7 @@
         {
          "name": "Resources",
          "label": "Resources",
+         "glyph": "♦",
          "count": 0,
          "note": "nothing here yet"
         }
@@ -1371,6 +1377,7 @@
         {
          "name": "Backlinks",
          "label": "Backlinks",
+         "glyph": "←",
          "count": 0,
          "note": "nothing here yet"
         }

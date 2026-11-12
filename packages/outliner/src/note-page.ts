@@ -130,7 +130,7 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
         const flat = read.groups.flatMap((g, at) => g.rows.map((r, n) => ({ ...r, opens: r.id, group: g.name, place: `${at}.${n}` })));
         const ids = keyed(flat, r => r.place);
         const rows: ListRow[] = flat.map((r, n): ListRow => ({ id: ids[n]!, label: r.text, group: r.group, ...(r.note ? { detail: r.note } : {}), ...(r.id ? { do: { open: r.id } } : {}) }));
-        const groups: ListGroup[] = read.groups.map(g => ({ name: g.name, label: g.name, count: g.rows.length, ...(g.note && !g.rows.length ? { note: g.note } : {}) }));
+        const groups: ListGroup[] = read.groups.map(g => ({ name: g.name, label: g.name, glyph: g.glyph, count: g.rows.length, ...(g.note && !g.rows.length ? { note: g.note } : {}) }));
         return part("links", i, end, { type: "list", rows, groups, filter: false, enter: false }, { name: spec.kind, title: read.title, ...(spec.query ? { query: spec.query } : {}), ...(read.status ? { status: read.status } : {}), ...(error ? { error } : {}) });
       }
       case "figure": {

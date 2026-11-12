@@ -119,7 +119,7 @@ test("a page is the title, the chips and the body in order: prose as Markdown, e
   // A `::links` query: the matches, each the note it opens.
   const plot = part(p, "links", "On the plot"), list0 = view(plot, "list");
   expect(plot).toMatchObject({ name: "links", query: "type=chore area=plot", status: "live · 2 matches" });
-  expect(list0.groups).toEqual([{ name: "Matches", label: "Matches", count: 2 }]);
+  expect(list0.groups).toEqual([{ name: "Matches", label: "Matches", glyph: "≡", count: 2 }]);
   expect(list0.rows.map(r => [r.group, r.label]).sort()).toEqual([["Matches", "Lift the onions"], ["Matches", "Water the beans"]]);
   expect(list0.rows.find(r => r.label === "Lift the onions")!.do).toEqual({ open: onions.id });
   // Every row says the act line a pick runs, by the one rule (outline-core's actOf), and is keyed by the note it opens:

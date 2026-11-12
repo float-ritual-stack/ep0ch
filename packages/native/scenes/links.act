@@ -1,0 +1,5 @@
+# A note's links, twice: the `::links` in the note (a list on a page) and the links tile in the dock beside it
+# are one list, drawn by one drawer, with the groups and their names the service gives (scenes/parts.seed.ts
+# writes the note into a scratch outline).
+bar.open scope=search query="Potting shed"
+bar.pick n=1
