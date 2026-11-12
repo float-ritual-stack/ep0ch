@@ -178,7 +178,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
  */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
+  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" }; /** The saved note took the same change as this revision and text (PIE-1756): the draft stands on it. */ standsOn?: { revision: number; text: string } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
 export type DraftAnswer = { text: string; revision: number; cursorLine?: number } | { applied: true; inverse?: { before: string; text: string; revision: number } } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
@@ -189,6 +189,8 @@ export interface DraftHoldHandle {
 }
 /** How often ongoing typing reaches the service (ms); its quiet timer settles each ask independently. */
 export const DRAFT_TOUCH_MS = 1000;
+/** DRAFT_TOUCH_MS, or a test's shorter EP0CH_DRAFT_TOUCH_MS (beside its host's OUTLINER_AGENT_QUIET_MS). */
+const draftTouchMs = () => { const ms = Number(process.env.EP0CH_DRAFT_TOUCH_MS); return process.env.EP0CH_DRAFT_TOUCH_MS && Number.isFinite(ms) && ms >= 0 ? ms : DRAFT_TOUCH_MS; };
 /** Lease and heartbeat of a draft hold (ms): a door that dies loses its holds within the lease. */
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
@@ -1662,7 +1664,7 @@ export class SocketBoard implements Board {
       release: () => this.letGo(h),
       touched: () => {
         if (h.gone || h.touch) return;
-        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS));
+        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, draftTouchMs()));
         (h.touch as { unref?: () => void }).unref?.();
       },
     };

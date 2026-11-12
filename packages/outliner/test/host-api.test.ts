@@ -217,13 +217,14 @@ test("script asks run from a person's line and an agent's line by default", asyn
   await client.request({ action: "extensions.list", reload: true });
   const ask = await client.request<{ id: string }>({ action: "create", text: "Seed plan\n@count-seeds", author: "user" });
   const deadline = Date.now() + 4000;
-  while (store.agentRequests(ask.id)[0]?.status !== "replied" && Date.now() < deadline) await Bun.sleep(20);
-  expect(store.agentRequests(ask.id)[0]?.reply).toBe("Seeds counted");
+  // A script that writes nothing says its words on the line, with no reply under it (PIE-1737).
+  const answered = (id: string) => !["waiting", "running", undefined].includes(store.agentRequests(id)[0]?.status);
+  while (!answered(ask.id) && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(ask.id)[0]).toMatchObject({ status: "nothing", message: "Seeds counted", reply: null, requestedBy: "user" });
   expect(store.get(ask.id)?.text).toContain("@count-seeds");
   const automatic = await client.request<{ id: string }>({ action: "create", text: "Another plan\n@count-seeds", author: "agent", provenance: { actorId: "seed-helper" } });
-  while (store.agentRequests(automatic.id)[0]?.status === "running" && Date.now() < deadline) await Bun.sleep(20);
-  expect(store.agentRequests(automatic.id)[0]).toMatchObject({ status: "replied", requestedBy: "agent:seed-helper" });
-  expect(store.agentRequests(automatic.id)[0]?.reply).toBe("Seeds counted");
+  while (!answered(automatic.id) && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(automatic.id)[0]).toMatchObject({ status: "nothing", message: "Seeds counted", reply: null, requestedBy: "agent:seed-helper" });
   expect(store.children(source.id)).toEqual([]);
 }, 10_000);
 

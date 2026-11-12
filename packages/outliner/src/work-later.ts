@@ -16,6 +16,7 @@
 // how a parked item that shipped gets its comment for the verifier.
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
 import { askNouls, board, chips, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
@@ -50,7 +51,8 @@ export function parkedAt(item: Pick<Block, "properties">): Date | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(at.getTime() + DAY) : at;
 }
 
-export type LaterOutcome = "parked" | "kept" | "restored" | "misparked" | "stays";
+/** `waits`: the write was refused, nothing written (the ticket is open in an edit and the cursor is on its line): the next run tries again. */
+export type LaterOutcome = "parked" | "kept" | "restored" | "misparked" | "stays" | "waits";
 export interface LaterRow {
   ticket: string;
   id: string;
@@ -82,7 +84,7 @@ export interface LaterOptions extends JevOptions {
 
 const who = (o: Pick<LaterOptions, "actor">) => ({ author: "agent" as const, actorId: o.actor ?? `jev/${LOOP}` });
 const countsOf = (rows: readonly LaterRow[]) => {
-  const counts = { parked: 0, kept: 0, restored: 0, misparked: 0, stays: 0 } as Record<LaterOutcome, number>;
+  const counts = { parked: 0, kept: 0, restored: 0, misparked: 0, stays: 0, waits: 0 } as Record<LaterOutcome, number>;
   for (const r of rows) counts[r.outcome]++;
   return counts;
 };
@@ -100,11 +102,12 @@ export async function park(client: WorkJevClient, o: LaterOptions = {}): Promise
   for (const item of items) {
     const ticket = workIdOf(item) ?? item.id.slice(0, 8), title = itemTitle(item), kept = keptBecause(item, now);
     if (kept) { rows.push({ ticket, id: item.id, title, outcome: "kept", why: kept, by: "code" }); continue; }
-    rows.push({ ticket, id: item.id, title, outcome: "parked", why: `untouched since ${item.updatedAt.slice(0, 10)}`, by: "code" });
+    const row: LaterRow = { ticket, id: item.id, title, outcome: "parked", why: `untouched since ${item.updatedAt.slice(0, 10)}`, by: "code" };
+    rows.push(row);
     if (!o.apply) continue;
     const fresh = await client.request<Block>({ action: "get", blockId: item.id });
-    await client.request<Block>({ action: "properties.patch", blockId: item.id, expectedRevision: fresh.revision, mutation: who(o),
-      operations: [propertyTransition(fresh, "work-stage", "later"), propertyTransition(fresh, "wreckage", day), propertyTransition(fresh, "parked-at", now.toISOString())] });
+    await waitsIfRefused(row, () => client.request<Block>({ action: "properties.patch", blockId: item.id, expectedRevision: fresh.revision, mutation: who(o),
+      operations: [propertyTransition(fresh, "work-stage", "later"), propertyTransition(fresh, "wreckage", day), propertyTransition(fresh, "parked-at", now.toISOString())] }));
   }
   const report: LaterReport = { mode: "park", rows, counts: countsOf(rows), tokens: 0, cost: costOf(0), jev: "not asked", applied: !!o.apply };
   if (o.apply) await keepLater(client, report, o);
@@ -124,7 +127,7 @@ export async function wantedAgain(client: WorkJevClient, item: Block, since: Dat
   const out: Signal[] = [];
   // Nudged: a comment on it, by anyone but a loop.
   const under = (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=annotation OR type=annotation-reply", subtreeRootId: item.id, limit: 200 } })).blocks;
-  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" "), 160) });
+  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" ") || withoutChips(c.text.split("\n")[0]!), 160) }); // a one-line comment's words are its first line
   // Linked or named: the service's backlinks, which say each source's placement and stage (backlink-facets.ts).
   const back = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: item.id, limit: 100 } });
   const others = back.sources.filter(s => s.facets?.placement !== "self" && s.facets?.placement !== "descendant" && (after(s.createdAt) || after(s.updatedAt)));
@@ -178,24 +181,41 @@ export async function revive(client: WorkJevClient, o: LaterOptions = {}): Promi
     const best = signals.map((s, i) => ({ s, p: noul(asked.answers, `wanted::${i}`) ?? 0 })).sort((a, b) => b.p - a.p)[0]!;
     rows.push(best.p >= YES ? row("restored", `${say(best.s)} (Jev ${best.p.toFixed(2)})`, "jev", best.s.note.id) : row("stays", `only cited: ${say(best.s)} (Jev ${best.p.toFixed(2)})`, "jev", best.s.note.id));
   }
-  if (o.apply) for (const r of rows.filter(r => r.outcome === "restored")) await restore(client, r.id, r.why, r.source, o);
+  if (o.apply) for (const r of rows.filter(r => r.outcome === "restored")) await waitsIfRefused(r, () => restore(client, r.id, r.why, r.source, o));
   const report: LaterReport = { mode: "revive", rows, counts: countsOf(rows), tokens, cost: costOf(tokens), jev, ...(reading ? { reading: { ...reading, usage: { input: tokens, output: 0 } } } : {}), applied: !!o.apply };
   if (o.apply) await keepLater(client, report, o);
   return report;
 }
 
+/** A line's words with its property chips taken out, by the shared property parser (a code literal stays). */
+const withoutChips = (line: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(line)) { out += line.slice(at, p.start); at = p.end; } return (out + line.slice(at)).replace(/\s+/g, " ").trim(); };
+
+/**
+ * A row's write, or, refused (the ticket is open in an edit with the cursor on its line, PIE-1760), the row says it
+ * waits, with why: nothing was written, and the run goes on to the next.
+ */
+async function waitsIfRefused(row: LaterRow, write: () => Promise<unknown>): Promise<void> {
+  try { await write(); } catch (error) {
+    if (!["conflict", "busy", "stale-revision"].includes(refusalKindOf(error))) throw error;
+    row.outcome = "waits";
+    row.why = `not changed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 /**
  * One parked item back to queued, as the Oct 25 audit restored them: `[restored::<day>: why]` in place of the
  * wreckage marks (so `wreckage` still means "parked now"), and a line saying why in full, linking the note that asked.
+ * One write (PIE-1760): the line is the patch's `line`, so a ticket open in an edit takes both through its draft.
  */
 export async function restore(client: WorkJevClient, id: string, why: string, source: string | undefined, o: Pick<LaterOptions, "actor" | "now"> = {}): Promise<Block> {
   const day = (o.now ?? new Date()).toISOString().slice(0, 10), kind = why.split(/[,:]/)[0]!;
   const item = await client.request<Block>({ action: "get", blockId: id });
   const marks = parsePropertyRecords(item.text).filter(p => p.scope === "block" && (p.key === "wreckage" || p.key === "parked-at"));
-  const patched = await client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
-    operations: [propertyTransition(item, "work-stage", "queued"), ...marks.map(p => ({ op: "remove" as const, ordinal: p.ordinal })), { op: "append" as const, key: "restored", value: `${day}: ${kind}, ${o.actor ?? LOOP}` }] });
-  const line = `**Back from later, ${day}:** ${why}${source ? ` ((${source}))` : ""}`;
-  return client.request<Block>({ action: "update", blockId: id, text: `${patched.text.trimEnd()}\n\n${line}`, expectedRevision: patched.revision, mutation: who(o) });
+  // A labelled link to the note that asked: its words are in `why` already, so the reference doesn't draw them again (PIE-1765).
+  // A `·` before it, so drawn flat (a capture, a phone) the label doesn't run on from the words (PIE-1767).
+  const line = `**Back from later, ${day}:** ${why.replace(/\s*\n\s*/g, " ")}${source ? ` · ((${source}|${kind === "nudged" ? "the comment" : "the note"}))` : ""}`;
+  return client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
+    operations: [propertyTransition(item, "work-stage", "queued"), ...marks.map(p => ({ op: "remove" as const, ordinal: p.ordinal })), { op: "append" as const, key: "restored", value: `${day}: ${kind}, ${o.actor ?? LOOP}` }, { op: "line" as const, text: line }] });
 }
 
 /** A `groom-later` record per item that moved or was kept, and the pass's `jev-run`. */
@@ -214,10 +234,10 @@ export function laterSummary(report: LaterReport): string {
     ? `${report.rows.length} stale items · ${c.parked} ${report.applied ? "parked" : "would park"} · ${c.kept} kept`
     : `${report.rows.length} parked items · ${c.restored} ${report.applied ? "came back" : "would come back"} · ${c.misparked} parked against the keep rule · ${c.stays} stay`;
   const lines = [head, ...(report.mode === "revive" ? [`Jev: ${report.jev} · ${report.tokens} tokens in · $${report.cost}`] : [])];
-  for (const outcome of ["restored", "misparked", "kept", "parked"] as const) {
+  for (const outcome of ["restored", "misparked", "kept", "parked", "waits"] as const) {
     const rows = report.rows.filter(r => r.outcome === outcome);
     if (!rows.length) continue;
-    lines.push("", `${outcome === "restored" ? "back to queued" : outcome === "misparked" ? "parked against the keep rule (high, new or decided; restore what's still wanted)" : outcome}:`);
+    lines.push("", `${outcome === "restored" ? "back to queued" : outcome === "misparked" ? "parked against the keep rule (high, new or decided; restore what's still wanted)" : outcome === "waits" ? "open in an edit, not changed (the next run tries again)" : outcome}:`);
     for (const r of rows) lines.push(`  ${r.ticket} ${clip(r.title, 70)} · ${clip(r.why, 140)}`);
   }
   if (!report.applied && (c.restored || c.parked)) lines.push("", "read only: --apply writes it");

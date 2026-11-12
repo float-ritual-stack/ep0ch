@@ -3,7 +3,9 @@ import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
-import { wholeTextSpan } from "./extension-writes";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { chipSpans, followSpan, wholeTextSpan } from "./extension-writes";
+import { checkPropertyPatch, keyedPropertyOps, patchLines, patchPropertyText, withLines } from "./properties";
 /**
  * Where a `draft.patch` goes (PIE-501). Routing is the service's job, not the
  * agent's: a note a door holds a live draft of is patched in that draft (the
@@ -56,12 +58,14 @@ import {
   type DraftProposal,
   type DraftProposalStatus,
   type DraftGroup,
+  type PropertiesPatched,
+  type DraftStandsOn,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
-import type { ChecklistIdentityChange, MutationProvenance } from "./types";
+import type { ChecklistIdentityChange, MutationProvenance, PropertyPatchOperation } from "./types";
 import { removedListItemIds } from "./checklist-items";
 import { fragmentAnchors } from "./fragments";
 import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
@@ -69,7 +73,7 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 /** What a request to a holding door carries besides its ids, which the server fills in. */
 export type DraftHolderAsk =
   | { kind: "read" }
-  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal }
+  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal; standsOn?: DraftStandsOn }
   | { kind: "revert"; patchId: string };
 
 export interface DraftPatchRouterDeps {
@@ -138,6 +142,8 @@ interface RunOptions {
   proposal?: DraftHolderProposal;
   /** Writes that land with the saved notes, in their transaction (a write group's blocks made, moved and ordered). */
   alongside?: () => void;
+  /** The saved note takes the patch's change too, in `alongside` (a property stamp, PIE-1756): the draft stands on it. */
+  standsOn?: DraftStandsOn;
   /** `<copy>:<target>^<anchor>`, what a write group's netmail tells (PIE-829): that copy's link to that anchor stays. */
   told?: ReadonlySet<string>;
   /** The texts the whole patch leaves its saved notes with, which the guard judges links by (set by `run`). */
@@ -304,6 +310,68 @@ export class DraftPatchRouter {
       }
     }
     return { blockId, route: "saved", text: saved.text, revision: saved.revision };
+  }
+
+  /**
+   * A `properties.patch` on a note a door holds a live draft of, whoever writes it (an agent, the person from another
+   * shell, a scheduled restore: PIE-1756, PIE-1760): the saved note and the draft take it in one run, and the draft
+   * stands on the new revision. Nothing waits in the draft (a discard or a crash keeps it), the answer and the board
+   * are the saved note, and the event that follows is no news to the draft. The door goes first: one that refuses it
+   * (an agent's on the line being typed on, a save under way) or doesn't answer leaves both as they were. Chips are
+   * sent chip-sized, so words typed beside them on the same line stay; a `line` goes at the draft's end, below the
+   * cursor. Null when nobody holds the note, or the writer is neither a person nor an agent: the store alone writes it.
+   */
+  async patchProperties(input: { blockId: string; expectedRevision?: number; operations: PropertyPatchOperation[]; mutation: MutationProvenance; keepUpdated?: boolean }): Promise<PropertiesPatched | null> {
+    const { store } = this.deps;
+    const saved = store.requireActive(input.blockId);
+    checkPropertyPatch(saved, input.expectedRevision, input.operations);
+    if ((input.mutation.author !== "agent" && input.mutation.author !== "user") || !this.isHeld(saved.id)) return null;
+    const draft = await this.read(saved.id);
+    if (draft.route !== "draft") {
+      if (this.isHeld(saved.id)) throw new Refusal("busy", `not applied: the door holding a draft of ${saved.id} didn't answer; nothing was written, try again once it does`);
+      return null;
+    }
+    const now = store.requireActive(saved.id);
+    checkPropertyPatch(now, input.expectedRevision, input.operations);
+    const lines = patchLines(input.operations);
+    const chips = patchPropertyText(now.text, keyedPropertyOps(now.text, input.operations.filter(op => op.op !== "line")));
+    const text = lines.length ? withLines(chips, lines) : chips;
+    if (text === now.text) return { ...now, draft: { holder: draft.holder!, text: draft.text } };
+    // The draft's chips for each chip the saved note changes, found near where the saved note has them. A note empty as
+    // saved has nothing to find: its chips go on a first line of their own (CodeRabbit on #1461).
+    // Each chip the saved note changes, followed through the draft's edits since the revision it stands on to the one
+    // place it is now, and still that chip there (Codex on #1462). A note empty as saved has nothing to follow: its
+    // chips go on a first line of their own (CodeRabbit on #1461).
+    // What the writer does next (PIE-1765): the person at his shell saves or puts the edit aside; an agent reads again.
+    const next = input.mutation.author === "user" ? "save the edit open on it, or put it aside, then run this again" : "read it again";
+    if (draft.revision !== now.revision) throw new Refusal("stale-revision", `not applied: the draft is on revision ${draft.revision} and the note on ${now.revision}; ${input.mutation.author === "user" ? next : "save or reload it first"}`);
+    const savedChips = parsePropertyRecords(now.text);
+    const patches: DraftPatchSpan[] = !now.text.trim() ? [{ observed: "", replacement: `${chips}${draft.text ? "\n" : ""}`, range: { start: 0, end: 0 } }] : chipSpans(now.text, chips).map(span => {
+      const was = savedChips.find(r => r.start === span.range!.start && r.end === span.range!.end);
+      const at = followSpan(now.text, draft.text, { start: span.range!.start, end: span.range!.end, observed: span.observed }, was);
+      if ("reason" in at) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (${at.reason}); ${next}`);
+      return { ...span, range: at };
+    });
+    // A line goes at the draft's end, a paragraph of its own, the way the saved note takes it: the draft's trailing
+    // blank lines give way to it, as withLines trims the saved note's (CodeRabbit on #1461).
+    if (lines.length) {
+      const tail = draft.text.length - draft.text.trimEnd().length;
+      patches.push({ observed: draft.text.slice(draft.text.length - tail), replacement: `${draft.text.trim() ? "\n\n" : ""}${lines.join("\n\n")}`, ...(tail ? { range: { start: draft.text.length - tail, end: draft.text.length } } : {}) });
+    }
+    let written: ReturnType<OutlinerStore["patchProperties"]> | undefined;
+    const outcome = await this.run([{ blockId: saved.id, revision: draft.revision, patches }], {
+      mutation: input.mutation, policy: "edit", standsOn: { revision: now.revision + 1, text },
+      alongside: () => {
+        written = store.patchProperties(saved.id, input.expectedRevision, input.operations, input.mutation, input.keepUpdated === true);
+        // Someone saved it between: the draft would stand on a text that isn't the note's. Taken back, both.
+        if (written.revision !== now.revision + 1 || written.text !== text) throw new Refusal("stale-revision", `the note was saved while the change went in; ${input.mutation.author === "user" ? "run this again" : "read it again"}`);
+      },
+    });
+    if (!outcome.ok) throw new DraftPatchRefusal(input.mutation.author === "user" ? `${outcome.reason}; ${next}` : outcome.reason, outcome.kind ?? "conflict");
+    // The draft as the door has it now; a door that took the patch and then didn't answer the read is said so, never
+    // given the saved text as its draft's (CodeRabbit on #1458).
+    const after = await this.read(saved.id);
+    return { ...written!, draft: { holder: draft.holder!, ...(after.route === "draft" ? { text: after.text } : {}) } };
   }
 
   /** Only the output planner sets output: it has checked the region belongs to its producer. */
@@ -773,6 +841,7 @@ export class DraftPatchRouter {
           ...(options.output ? { output: true } : {}),
           ...(options.force ? { force: true } : {}),
           ...(options.proposal ? { proposal: options.proposal } : {}),
+          ...(options.standsOn ? { standsOn: options.standsOn } : {}),
         });
       } catch (error) {
         // A slow door may still apply it after the service stopped waiting: take it back there too.

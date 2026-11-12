@@ -95,7 +95,7 @@ export interface DeskApi {
   /** The ask the answer tile beside reader `r` shows, if one is there. */
   shownAsk?(r: ReaderPane): string | undefined;
   /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
-  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null;
+  answerAt?(r: ReaderPane): import("../edit").AnswerPlace | undefined;
   selectionSource?(p: ReaderPane): Pane | null;
   hasWiredPreview?(p: ReaderPane): boolean;
   /**
@@ -681,7 +681,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       ...(desk.shownAsk ? { shownAsk: () => desk.shownAsk!(this) } : {}),
-      ...(desk.answerSide ? { answerSide: () => desk.answerSide!(this) } : {}),
+      ...(desk.answerAt ? { answerAt: () => desk.answerAt!(this) } : {}),
       // Where it is now (PIE-1716): the desk's one owner of where a tile is (the host layer's resolveTile) names the desk
       // holding it after a move into a group or the drawer; still here, nothing (the host the caller has stands).
       current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : undefined; },
@@ -893,6 +893,10 @@ export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi,
 export function sessionName(p: ReaderPane): string {
   const s = p.surface;
   const what = s.sessionWord() ?? "property panel";
+  // Whose it is, as its session says (PIE-1758): the person's own edit stays theirs when an agent typed a row in it
+  // (an answer under their ask), and an agent's is theirs from its first key.
+  const opened = s.draftSession()?.openedBy;
+  if (opened) return opened.kind === "agent" ? `an agent's (${opened.id}) ${what}` : `the ${what}`;
   const typed = s.draft?.writers ?? s.session?.composer?.writers ?? [];
   const agents = [...new Set(typed.filter(w => w.kind === "agent").map(w => (w as { id: string }).id))];
   return agents.length ? `an agent's (${agents.join(", ")}) ${what}` : `the ${what}`;

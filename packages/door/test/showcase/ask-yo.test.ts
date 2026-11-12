@@ -1,5 +1,5 @@
 // The "ask yo" section (PIE-1585): asks, presses and undoes on the seeded outline, through the real extension with no model.
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { until, untilAsync } from "../scratch";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
@@ -9,6 +9,12 @@ import { ReaderPane } from "../../src/desk/panes";
 
 describe("showcase: ask yo (PIE-1585)", () => {
   const h = useShowcaseScreen(120);
+  // Every ask here waits out the person's quiet: the door's touch (1 s) and the service's (1.5 s) made each send 2.5 s
+  // (PIE-1762). The order they settle in is what's tested, so a tenth of each; the sleeps proving an ask isn't sent
+  // stay longer than both together.
+  h.scratch.hostEnv.OUTLINER_AGENT_QUIET_MS = "150";
+  beforeAll(() => { process.env.EP0CH_DRAFT_TOUCH_MS = "100"; });
+  afterAll(() => { delete process.env.EP0CH_DRAFT_TOUCH_MS; });
   const note = () => h.seeded.notes.askYo;
   const read = async () => (await h.board.get(note().id))!;
   const say = async (line: string) => { const m = await read(); await h.board.update(m.id, `${m.text.trimEnd()}\n\n${line}\n`, m.revision!, USER); };
@@ -1060,7 +1066,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       await until(() => shows(`zoom the shed ${tag}`), `one answer tile beside the reader in the ${move}, on the new ask`, 30_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(answers())}`); });
       // Opened there, it is placed by the desk's one placement too (PIE-1757): a pair with the reader, or a tab behind it.
       // Gathered with its reader, it stays where the gather put it.
-      if (move !== "group with its answer") expect([move, holder().answerSide(pane)]).toEqual([move, expect.stringMatching(/^(right|left|down|up|tab)$/)]);
+      if (move !== "group with its answer") expect([move, holder().answerAt(pane)?.side]).toEqual([move, expect.stringMatching(/^(right|left|down|up|tab)$/)]);
       // The caret back on the first ask selects it there, with no refusal.
       const row = draft()!.text.split("\n").findIndex(l => l.startsWith(`@yo fold the shed ${tag}`));
       while (draft()!.row > row) h.press({ kind: "up" });

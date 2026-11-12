@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "./board-view";
-import type { ReaderPane } from "../src/desk/panes";
+import { sessionName, type ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SCROLL_ROWS } from "../src/scroll";
 import { SocketBoard } from "../src/socket";
@@ -300,6 +300,23 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(p.surface.render(80, head + 1).scroll).toMatchObject({ room: 1 });
   });
 
+  // PIE-1758: after a gather the person's own edit read "e/⏎ enter an agent's (ext:yo) edit", because yo typed its row.
+  test("whose edit it is comes from who opened it: the person's stays theirs when an agent types a line in it", async () => {
+    await fresh();
+    await mine("edit", {}, "preview");
+    const p = B().preview as ReaderPane;
+    // An agent's line lands at the end of the person's draft, as a draft.patch of yo's answer row splices it in.
+    const end = p.draft!.text.length;
+    p.draft!.splice(end, end, "\nOil the hinge first", {}, { kind: "agent", id: AS });
+    expect(p.draft!.writers.some(w => w.kind === "agent")).toBe(true);
+    expect(sessionName(p)).toBe("the edit");
+    await mine("edit.close", { discard: true }, "preview");
+    expect(p.draft).toBeNull();
+    await act("edit", {}, "preview");
+    expect(sessionName(p)).toBe(`an agent's (${AS}) edit`);
+    expect(await act("edit.close", { discard: true }, "preview")).toBeDefined();
+  });
+
   test("an agent's edit in the preview while the person is in the lanes doesn't take their keys", async () => {
     await fresh();
     expect(BV.where(b)).toBe("lanes");
@@ -315,7 +332,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // Tab to it: the frame and hints say whose it is and how to get in; j scrolls, doesn't type.
     key({ kind: "tab" });
     expect(BV.where(b)).toBe("preview");
-    expect(hints()).toContain("preview · editing · e/⏎ enter the edit");
+    expect(hints()).toContain("preview · editing · e/⏎ enter an agent's (test-agent-411) edit");
     expect(frame()[rect("preview").row]).toMatch(/editing.*\(e enters\)/);
     key(char("j")); key(char("x"));
     expect(p.draft!.text).toBe(text);

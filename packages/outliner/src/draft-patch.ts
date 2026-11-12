@@ -26,7 +26,7 @@ import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import type { MutationProvenance } from "./types";
+import type { Block, MutationProvenance } from "./types";
 import { actorName } from "@ep0ch/outline-core/attribution";
 import { valueOf } from "@ep0ch/outline-core/block-record";
 
@@ -129,6 +129,13 @@ export interface DraftProposalsBeside {
 
 export type DraftPatchResult = DraftPatchApplied | DraftPatchProposed;
 
+/**
+ * A `properties.patch` answer (PIE-1756): the note as saved, and, when a door holds a live draft of it, `draft`: the
+ * change landed there too, in the same step (`holder` the door, `text` the draft as it is now, typing and all, when the
+ * door said so after).
+ */
+export type PropertiesPatched = Block & { draft?: { holder: string; text?: string } };
+
 /** What the service asks the door holding a draft; the door answers with `drafts.answer`. */
 /** The proposal a patch sent to a holding door settles: `apply` (apply anyway) or `dismiss` (an older proposal's embed line out). */
 export interface DraftHolderProposal { id: string; op: "apply" | "dismiss" }
@@ -141,8 +148,17 @@ export type DraftHolderRequest =
       replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean;
       /** Set when the patch applies or dismisses a proposal, so the door says which it was, not guessing from the patch. */
       proposal?: DraftHolderProposal;
+      /**
+       * The saved note takes the same change in the same step, as `revision` with `text` (an agent's property stamp,
+       * PIE-1756): applied, the draft stands on it (its base, its unchanged text and its properties), so the event
+       * that follows is no news; reverted, it stands where it stood before.
+       */
+      standsOn?: DraftStandsOn;
     }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string };
+
+/** What a draft stands on once a patch the saved note also took has landed (PIE-1756). */
+export interface DraftStandsOn { revision: number; text: string }
 
 export type DraftHolderAnswer =
   /** `cursorLine`: the line of `text` the person's cursor is on (PIE-1743), so an ask being written waits for them. */

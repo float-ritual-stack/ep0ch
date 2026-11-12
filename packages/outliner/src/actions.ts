@@ -309,7 +309,7 @@ export const ACTIONS = {
   "ping": { read: true },
   "properties.catalog": { ext: "read", whole: true },
   "properties.inventory": { ext: "read", whole: true },
-  "properties.patch": { event: onBlock },
+  "properties.patch": { ext: "write", event: ifChanged }, // landed in a held draft (PIE-1756): nothing stored, no event
   "properties.preview": { ext: "read" },
   "proposals.outcomes": { ext: "read" },
   "query.matches": { read: true, watch: true, whole: true },

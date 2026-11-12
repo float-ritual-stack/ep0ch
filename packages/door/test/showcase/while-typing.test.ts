@@ -1,6 +1,7 @@
 // PIE-1294: the showcase's while-typing section, its demo and its end-to-end test. The person is in an edit in the
 // left reader; an agent opens, follows a link, comments and asks for what's the person's alone, through `act`, and
-// every refusal is the owner's words (the actor rule, holdsEdit), never a screen's own. Scratch services only.
+// every refusal is the owner's words (the actor rule, holdsEdit), never a screen's own; a stamp lands in the edit
+// (PIE-1756). Scratch services only.
 import { describe, expect, test } from "bun:test";
 import type { Desk } from "../../src/desk/desk";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -52,6 +53,19 @@ describe.skipIf(!outliner)("the showcase: an agent works while the person types 
     await expect(fern("agents.yolo", { on: true })).rejects.toThrow("yolo is the person's to hand over");
     // Why the edited reader keeps its note, as every screen asks it: the one answer and its one wording.
     expect(left!.keepsOff(right!.msg)).toBe(holdsEdit("the reader"));
+
+    // A stamp (properties.patch set/add, an extension's or an agent's) is saved and lands in the edit beside the typing,
+    // lit with who: the edit stands on the new revision, so the event that follows is no "changed elsewhere" (PIE-1756).
+    const savedRevision = (await h.board.get(editing))!.revision!;
+    const stamped = await h.board.request("properties.patch", { blockId: editing, operations: [{ op: "add", key: "visits", by: 1 }], mutation: { author: "agent", actorId: "fern" } });
+    expect(stamped).toMatchObject({ revision: savedRevision + 1 });
+    expect(stamped.text).toContain("[room::kitchen] [visits::1]");
+    expect(stamped.draft?.text).toContain("[room::kitchen] [visits::1]");
+    expect(left!.draft!.text).toContain("[room::kitchen] [visits::1]");
+    expect(left!.draft!.base).toBe(stamped.revision);
+    // The event reached this door (its reader's note is the new revision), and the edit says nothing of it.
+    await until(() => left!.msg?.revision === stamped.revision, "the stamp's event in the door");
+    expect(h.screen()).not.toContain("changed elsewhere");
 
     const after = keys();
     expect({ focus: after.focus, typingIn: after.typingIn }).toEqual({ focus: before.focus, typingIn: before.typingIn });

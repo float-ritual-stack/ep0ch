@@ -42,7 +42,7 @@ import type { CompletionRowsResult, ExtensionBarResult, ExtensionSettings, Exten
 import type { Picks } from "@ep0ch/outline-core/completion-source";
 import type { artifactDns, backfillArtifacts, deployArtifact, deployNote } from "./artifact-deploy";
 import type { putPacket, takePackets } from "./echonet-mail";
-import type { DraftPatchResult } from "./draft-patch";
+import type { DraftPatchResult, PropertiesPatched } from "./draft-patch";
 import type { DraftPatchRouter } from "./draft-patch-router";
 import type { placeOutput } from "./place";
 import type { ComputedExecutionResult, MutationProvenance, NoteAddress, QuoteReceipt, RenderedNote, ResourceProviderCommandResult } from "./types";
@@ -265,7 +265,7 @@ export interface WireAnswers {
   "ping": { host?: OutlinerHostStatus | undefined; outline?: { name: string; } | undefined; status: string; protocolVersion: number; grammarVersion: number; outlineInstanceId: string; location: { hostname: string; machine: string; workspaceRoot: string; database: string; stateDirectory: string; }; };
   "properties.catalog": PropertyCatalogItem[];
   "properties.inventory": PropertyInventory;
-  "properties.patch": Block;
+  "properties.patch": PropertiesPatched;
   "properties.preview": PropertyParsePreview;
   "proposals.outcomes": ProposalOutcomesPage;
   "query.matches": { blockIds: string[]; };

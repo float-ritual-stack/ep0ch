@@ -109,6 +109,8 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     ...(f.context ?? []),
     ...(f.bare ? [] : [rule(w)]),
   ];
+  // A short tile gives its text a second row before it draws the rule (PIE-1758: at 44×9 the header left the text one).
+  if (!f.bare && h - top.length - (d.snippet ? 1 : 0) < 2) top.pop();
   if (d.snippet) {
     let text = `slot ${d.snippet.index + 1}/${d.snippet.slots.length} `;
     for (const action of ["snippet.previous", "snippet.next", "snippet.end"] as const) {
