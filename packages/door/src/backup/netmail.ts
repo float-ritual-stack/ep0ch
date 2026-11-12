@@ -5,7 +5,7 @@
 //                              state, beside when that machine was last seen online, for doctor, status and the alert
 //   on a home machine          with EP0CH_MCP_HUB set, a pull: its queued writes taken from the hub over ssh, applied to
 //                              its own outlines, and what each became told back
-import { type BackupState, type NetmailState } from "./alert";
+import { type BackupState, followedCopies, type NetmailState } from "./alert";
 import { backupConfig, type BackupConfig, type Env } from "./config";
 import { takeLock } from "./jobs";
 import { netmailFile, pullNetmail, readSummaries, type PullResult } from "../mcp-netmail";
@@ -17,7 +17,12 @@ type Say = (line: string) => void;
 /** The queues this machine holds for others, read into the job's state. */
 export function readQueues(c: BackupConfig): NetmailState["queues"] {
   const queues: NonNullable<NetmailState["queues"]> = {};
-  for (const q of readSummaries(netmailFile(c.env))) queues[q.machine] = { waiting: q.waiting, oldest: q.oldest, lastPull: q.lastPull, lastSeen: q.lastPull };
+  // A sign the machine was online: its last pull, or the newest range a follower here took from it.
+  const follows = followedCopies(c.mirrorsDir);
+  for (const q of readSummaries(netmailFile(c.env))) {
+    const seen = [q.lastPull, ...follows.filter(f => f.key.endsWith(`@${q.machine}`)).map(f => f.copiedAt)].filter((x): x is string => !!x).sort().at(-1) ?? null;
+    queues[q.machine] = { waiting: q.waiting, oldest: q.oldest, lastPull: q.lastPull, lastSeen: seen };
+  }
   return queues;
 }
 

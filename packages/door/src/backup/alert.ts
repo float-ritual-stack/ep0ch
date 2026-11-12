@@ -7,7 +7,7 @@
 // keeps showing it until it clears; the push and `herdr notification` go out when it starts), with the command that
 // fixes it.
 import { age } from "@ep0ch/outline-core/age";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeState } from "../state";
 import { plainFailure } from "./plain";
@@ -44,10 +44,15 @@ export interface OutlineState {
   relayed?: { via: string; at: string; why: string; uploaded: boolean; uploadError?: string };
 }
 
-export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; pruned?: boolean; cleared?: string }
+export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; cleared?: string }
 
 /** Forget failing this many runs in a row is an incident: one failure is a live lock the next run waits out. */
 export const FORGET_FAILS = 2;
+/** The prune runs once a day; after one fails, again this long after. */
+export const PRUNE_EVERY_MS = 24 * 3_600_000;
+/** A run that uploads nothing still forgets when none did for this long: KEEP's windows move on without new snapshots. */
+export const FORGET_EVERY_MS = 6 * 3_600_000;
+export const PRUNE_RETRY_MS = 3 * 3_600_000;
 
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
 export interface Drill { at: string; ok: boolean; detail: string; via?: string }
@@ -72,6 +77,8 @@ export interface BackupState {
    * it failed since when, with restic's reason (a lock: who holds it). `cleared`: a stale lock it removed first.
    */
   forget?: ForgetState;
+  /** The last daily prune (its own step since PIE-1755), in the same shape: `lastPrune` is when one last finished. */
+  prune?: ForgetState;
   drill?: Drill;
   /** A drill that was due and couldn't run (the repository out of reach, and the hub too): since when, and why. */
   drillWaiting?: { since: string; why: string };
@@ -86,7 +93,31 @@ export interface BackupState {
    * the outlines, so a run that knows none yet still fails, and cleared by a run the host answers.
    */
   host?: { failingSince: string; error: string; fix: string };
+  /** What each follower here said of its copy at the last run (the alert's `follow:` incidents). */
+  follows?: FollowedCopy[];
 }
+
+/** A follower's word on its copy (outliner outline-follower.ts writes `<mirrors>/<machine>/.follow/<outline>.json`). */
+export interface FollowedCopy { key: string; cursor: number; copiedAt: string | null; stale: { since: string | null; why: string } | null }
+
+/** Each follower's own word on its copy, read from the status files the owner writes. */
+export function followedCopies(mirrors: string): FollowedCopy[] {
+  const out: FollowedCopy[] = [];
+  let machines: string[] = [];
+  try { machines = readdirSync(mirrors).filter(m => !m.startsWith(".")); } catch { return out; }
+  for (const machine of machines.sort()) {
+    let files: string[] = [];
+    try { files = readdirSync(join(mirrors, machine, ".follow")).filter(f => f.endsWith(".json")); } catch { continue; }
+    for (const f of files.sort()) {
+      try {
+        const st = JSON.parse(readFileSync(join(mirrors, machine, ".follow", f), "utf8")) as { cursor?: number; copiedAt?: string | null; stale?: { since: string | null; why: string } | null };
+        out.push({ key: `${f.slice(0, -5)}@${machine}`, cursor: st.cursor ?? 0, copiedAt: st.copiedAt ?? null, stale: st.stale ?? null });
+      } catch { /* a status file mid-write: the next look reads it */ }
+    }
+  }
+  return out;
+}
+
 
 export interface Incident { key: string; title: string; detail: string; fix: string; since: string }
 export interface Alert {
@@ -137,6 +168,12 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
       detail: `restic forget has failed ${f.failures} runs in a row since ${hhmm(f.since ?? f.at)}: ${f.error ?? "?"}; new snapshots still land, but none are let go, so the repository grows`,
       fix: `${cmd.run}   (it clears a stale lock itself; a lock that stays is held by a live restic, named above; its log: ${cmd.log})` });
   }
+  const p = s.prune;
+  if (p && !p.ok && p.failures >= FORGET_FAILS) {
+    out.push({ key: `prune:${machine}`, since: p.since ?? p.at, title: `the backups' space on ${machine} isn't freed`,
+      detail: `restic prune has failed ${p.failures} times in a row since ${hhmm(p.since ?? p.at)}: ${p.error ?? "?"}; old snapshots are let go, but the space they held isn't given back`,
+      fix: `${cmd.run}   (it tries the prune again ${PRUNE_RETRY_MS / 3_600_000} hours after a failure; EP0CH_BACKUP_PRUNE_MINUTES in ~/.config/ep0ch/backup.env gives it longer; its log: ${cmd.log})` });
+  }
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
     if (!q.waiting || !q.oldest || now - Date.parse(q.oldest) < NETMAIL_LATE_MS || !q.lastSeen || q.lastSeen <= q.oldest) continue;
     out.push({ key: `netmail:${m}`, since: q.oldest, title: `${m}'s queued MCP writes waiting`,
@@ -148,6 +185,13 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
     out.push({ key: `netmail-pull:${pull.hub}`, since: pull.failingSince!, title: `pulling queued MCP writes from ${pull.hub} fails`,
       detail: `${machine} hasn't pulled its queued writes from ${pull.hub} since ${hhmm(pull.failingSince!)}: ${pull.detail}`,
       fix: `ep0ch mcp pull   (it says why; ssh ${pull.hub} ep0ch mcp queue status shows what waits)` });
+  }
+  // A copy followed here (pie's on float-box) that stopped taking its home's log: the off-machine copy is falling behind.
+  for (const f of s.follows ?? []) {
+    if (!f.stale?.since || !late(f.stale.since)) continue;
+    out.push({ key: `follow:${machine}/${f.key}`, since: f.stale.since, title: `${f.key}'s copy on ${machine} stopped following`,
+      detail: `the copy holds entry ${f.cursor}, last taken ${hhmm(f.stale.since)}: ${f.stale.why}`,
+      fix: "ep0ch backup follow --once   (it says what the home machine answers)" });
   }
   if (s.drill && !s.drill.ok) {
     out.push({ key: `drill:${machine}`, since: s.drill.at, title: `restore drill failed on ${machine}`, detail: s.drill.detail,

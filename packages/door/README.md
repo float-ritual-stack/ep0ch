@@ -83,6 +83,11 @@ the fold (in the edit while one is open, else the reader's callout; its hint row
 the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone.
 Gather the reader into a group or put it in the drawer with the edit still open, and the next ask (or the caret on one) opens
 the answer beside it there; one left behind on the screen it moved from closes, as a comment's tile does when its reader goes. The `asks` showcase demonstrates this with `@planter`.
+Where the answer tile opens is the desk's one placement (`besideAttempt`, PIE-1757): on the side last chosen while halving leaves
+the reader the 28 columns a tile reads at, else below it, so a 44-column edit keeps its width; when below would leave an edit
+fewer than 11 rows, a tab behind it, the edit still shown. The ask's row says where: `beside ▸`, `below ▾` or `in a tab`. An ask
+longer than the edit wraps; one ↑ up its wrap counts as leaving it, and it's sent. An edit put aside mid-ask leaves its tile
+saying the saved ask's answer, never that its ask is gone.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
 default to read-only; `[effects::write]` declares writes and door actions. Runs are attributed to

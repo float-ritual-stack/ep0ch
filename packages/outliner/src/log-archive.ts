@@ -82,14 +82,17 @@ export function writeSegment(root: string, outline: string, ranges: readonly Log
 export interface Replayed { logId: string; lsn: number; at: string | null; rows: Record<string, number> }
 
 /**
- * A restore (ADR 0009 §6): the newest log in an outline's archive (folder `root`, as restic put it back), replayed from
+ * A restore (ADR 0009 §6): the log `logId` in an outline's archive (folder `root`, as restic put it back; else the
+ * one written to last), replayed from
  * its newest genesis at this build's schema up to `until` (an entry's time; default all of it) into `out`, a new file.
  * The result is an outline of its own: a new log id, recorded as forked from the old at the last entry it holds.
  */
-export function replayArchive(root: string, outline: string, out: string, o: { until?: number } = {}): Replayed {
+export function replayArchive(root: string, outline: string, out: string, o: { until?: number; logId?: string } = {}): Replayed {
   if (existsSync(out)) throw new Error(`${out} already exists; not overwritten`);
-  const log = logsOf(root, outline)[0];
-  if (!log) throw new Error(`the archive at ${join(root, outline)} holds no log of ${outline}`);
+  // The log the snapshot says it holds; without one (a hand-made archive), the one written to last.
+  const logs = logsOf(root, outline);
+  const log = o.logId ? logs.find(l => l.logId === o.logId) : logs[0];
+  if (!log) throw new Error(`the archive at ${join(root, outline)} holds no log ${o.logId ? `${o.logId} ` : ""}of ${outline}`);
   const all: LogEntry[] = segments(log.dir).flatMap(s => readSegment(s.file).flatMap(r => r.entries));
   const until = o.until ?? Number.POSITIVE_INFINITY;
   const upTo = all.filter(e => Date.parse(e.at) <= until);

@@ -20,11 +20,11 @@ import type { LogRange } from "@ep0ch/outliner/change-log";
 import { archivedCursor, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
-import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
-import type { BackupConfig } from "./config";
+import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
+import { type BackupConfig, RUN_LIMIT_MS } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { failedLine, moment, relayedLine } from "./verdict";
-import { backupFolder, complaint, forget, LOCKED, lockHolder, NO_REPO, restoreArchive, runRestic, snapshots } from "./restic";
+import { backupFolder, complaint, forget, LOCKED, lockHolder, NO_REPO, prune, type Ran, restoreArchive, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
 /** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
@@ -135,7 +135,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   }
   delete s.host;
   // Archives are the repository's: another repository (or machine name) starts every outline over.
-  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; delete s.forget; }
+  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; delete s.forget; delete s.prune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   const note = (line: string) => { if (o.verbose) say(line); };
@@ -166,9 +166,10 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     if (!why) {
       o.step?.(`${x.name}: uploading its archive to restic`);
       const began = Date.now();
-      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema);
+      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema, c.machine, x.logId);
       if ("error" in r) { why = direct = r.error; note(`${x.name}: direct upload to ${repoHost(repo)} failed after ${((Date.now() - began) / 1000).toFixed(1)}s: ${r.error}`); }
       else {
+        if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
         Object.assign(st, { seq: x.lsn, logId: x.logId, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
         // Uploaded: what came before the newest genesis is in the repository's earlier snapshots, and goes from here.
         trimArchive(archiveRoot(c, c.machine), x.name, x.logId);
@@ -197,25 +198,69 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     failed.push(x.name);
     say(failedLine(x.name, st.error!, { repo, hub: c.hub }));
   }
-  if (uploaded.length) {
-    // Retention after each upload; the prune that frees space, once a day.
-    const prune = !s.lastPrune || now() - Date.parse(s.lastPrune) >= 24 * 3_600_000;
-    const r = await forget(c, repo, prune);
-    const at = new Date(now()).toISOString();
-    if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
-    if (r.code === 0) {
-      if (prune) s.lastPrune = at;
-      s.forget = { at, ok: true, failures: 0, pruned: prune, ...(r.cleared ? { cleared: r.cleared } : {}) };
-      say(`✓ old snapshots let go${prune ? ", and pruned" : ""}`);
-    } else {
-      // Counted, so a forget that keeps failing is an incident (alert.ts), not only a journal line.
-      const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
-      const was = s.forget?.ok === false ? s.forget : undefined;
-      s.forget = { at, ok: false, failures: (was?.failures ?? 0) + 1, since: was?.since ?? at, error };
-      say(`restic forget failed (the archives are safe; the next run tries again): ${error}`);
-    }
-  }
   return { uploaded, failed, relayed };
+}
+
+/** What a run stopped before its forget or prune returned (systemd's limit, a reboot, a deploy) leaves on record. */
+export const INTERRUPTED = "stopped before it finished (the run's time limit, a reboot or a deploy)";
+/** Room the run keeps after its prune for what follows it, and the least time a prune is started with. */
+const AFTER_PRUNE_MS = 2 * 60_000, LEAST_PRUNE_MS = 5 * 60_000;
+
+/** How long a prune may run now: its own limit, inside what's left before `deadline`; null when that's too little. */
+export function pruneBudget(limitMs: number, deadline: number, nowMs = Date.now()): number | null {
+  const ms = Math.min(limitMs, deadline - nowMs - AFTER_PRUNE_MS);
+  return ms >= Math.min(limitMs, LEAST_PRUNE_MS) ? ms : null;
+}
+
+/**
+ * The repository's upkeep, decided every run on its own (PIE-1755): forget (KEEP) when this run uploaded, when the last
+ * forget failed, or when none ran for 6 hours; once a day the prune that frees the space, a few hours after one that
+ * failed, inside what's left of the run's time (`deadline`). Each attempt is saved as a failure before it starts and
+ * replaced by how it went, so a run stopped mid-way (systemd's limit, a reboot) still counts, and still waits its hours.
+ * Each counted, so one that keeps failing is an incident (alert.ts), not only a journal line.
+ */
+export async function maintain(c: BackupConfig, s: BackupState, o: { uploaded: boolean; now?: () => number; say?: Say; step?: Step; deadline?: number }): Promise<void> {
+  const now = o.now ?? Date.now, say = o.say ?? (() => {});
+  const repo = c.repoOf(c.machine);
+  const iso = () => new Date(now()).toISOString();
+  const f = s.forget;
+  if (o.uploaded || !f || !f.ok || now() - Date.parse(f.at) >= FORGET_EVERY_MS) {
+    o.step?.("letting old snapshots go (restic forget)");
+    const at = iso();
+    s.forget = pending(f, at); writeBackupState(c.state, s);
+    const r = await forget(c, repo);
+    if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
+    s.forget = counted(f, r, at);
+    if (!s.forget.ok) { say(`restic forget failed (the snapshots are safe; the next run tries again): ${s.forget.error}`); return; }
+    say("✓ old snapshots let go");
+  }
+  // Once a day; after a failure, a few hours on, so a prune that can't finish doesn't take every run.
+  const p = s.prune, last = p?.at ?? s.lastPrune;
+  if (last && now() - Date.parse(last) < (p && !p.ok ? PRUNE_RETRY_MS : PRUNE_EVERY_MS)) return;
+  const budget = pruneBudget(c.pruneTimeoutMs, o.deadline ?? Infinity);
+  if (budget === null) { say("· the prune waits for a run with time for it (this one is near its limit)"); return; }
+  o.step?.("freeing the space (restic prune)");
+  const at = iso();
+  s.prune = pending(p, at); writeBackupState(c.state, s);
+  const r = await prune(c, repo, budget);
+  if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
+  s.prune = counted(p, r, at);
+  if (s.prune.ok) { s.lastPrune = iso(); say("✓ pruned: the space old snapshots held is freed"); }
+  else say(`restic prune failed (old snapshots are let go; the space comes back with the next prune): ${s.prune.error}`);
+}
+
+/** An attempt starting, kept as the failure it is until it returns. */
+function pending(was: ForgetState | undefined, at: string): ForgetState {
+  const failing = was?.ok === false ? was : undefined;
+  return { at, ok: false, failures: (failing?.failures ?? 0) + 1, since: failing?.since ?? at, error: INTERRUPTED };
+}
+
+/** A forget's or a prune's result, with the failures in a row before it. */
+function counted(was: ForgetState | undefined, r: Ran & { cleared?: string; unlockError?: string }, at: string): ForgetState {
+  if (r.code === 0) return { at, ok: true, failures: 0, ...(r.cleared ? { cleared: r.cleared } : {}) };
+  const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
+  const failing = was?.ok === false ? was : undefined;
+  return { at, ok: false, failures: (failing?.failures ?? 0) + 1, since: failing?.since ?? at, error };
 }
 
 /** Each outline's newest archive (this machine's repository) restored into a temp folder, replayed and checked. */
@@ -237,7 +282,7 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
       let verdict: string, blocks: number | null = null;
       if ("error" in got) verdict = got.error;
       else {
-        try { const r = replayArchive(got.root, snap.outline, out); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
+        try { const r = replayArchive(got.root, snap.outline, out, snap.logId ? { logId: snap.logId } : {}); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
         catch (e) { verdict = (e as Error).message; }
       }
       const line = verdict === "ok" ? `${snap.outline} ok (${blocks ?? "?"} blocks, entry ${snap.seq ?? "?"}, ${hhmm(snap.time)})` : `${snap.outline} FAILED: ${verdict}`;
@@ -318,8 +363,10 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
 }
 
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
-export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; step?: Step; drill?: boolean; verbose?: boolean; announce?: (i: Incident[]) => Promise<void>; heartbeat?: (c: BackupConfig) => Promise<void>; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ ok: boolean; alert: Alert }> {
+export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; step?: Step; drill?: boolean; verbose?: boolean; announce?: (i: Incident[]) => Promise<void>; heartbeat?: (c: BackupConfig) => Promise<void>; probe?: (repo: string) => Promise<string | null>; deadline?: number } = {}): Promise<{ ok: boolean; alert: Alert }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
+  // When systemd stops this run (the unit's TimeoutStartSec): the prune is fitted inside it.
+  const deadline = o.deadline ?? Date.now() + RUN_LIMIT_MS;
   const release = takeLock(c);
   if (typeof release === "string") {
     say(release);
@@ -329,6 +376,8 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     const s = readBackupState(c.state);
     // Another machine's outlines are followed now (ADR 0009): a state file the restic mirrors wrote keeps nothing of them.
     for (const old of ["mirrors", "sources", "guard"]) delete (s as unknown as Record<string, unknown>)[old];
+    // The followers' word on their copies, for the alert (a copy that stopped following is an incident).
+    s.follows = followedCopies(c.mirrorsDir);
     // Each part stands alone: one failing never stops the others.
     const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
     writeBackupState(c.state, s);
@@ -351,6 +400,15 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
         say(`${d.drill.ok ? "✓" : "✗"} restore drill: ${d.drill.detail}`);
       }
     }
+    // The repository's upkeep, every run on its own, when there's something to keep in a repository that answers: not
+    // when this run couldn't upload (the repository or the host failing is an incident of its own), nor before any
+    // snapshot is there, nor while the repository is out of reach (sent through the hub, or a quick look at it fails).
+    const kept = snap.uploaded.length > 0 || Object.values(s.outlines).some(x => x.snapshot);
+    const away = !kept || (snap.failed.length && !snap.uploaded.length) ? "" : snap.relayed.length && !snap.uploaded.length ? "the repository is out of reach"
+      : !snap.uploaded.length && c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(c.repoOf(c.machine)) : null;
+    if (away) say(`· old snapshots wait for the repository: ${away}`);
+    else if (away === null) await maintain(c, s, { uploaded: snap.uploaded.length > 0, now, say, deadline, ...(o.step ? { step: o.step } : {}) }).catch(e => say(`✗ restic upkeep: ${(e as Error).message}`));
+    writeBackupState(c.state, s);
     // How the newest backups got there: through the hub while the repository is out of reach, else straight (status).
     if (snap.relayed.length && !snap.uploaded.length) {
       const why = snap.relayed.map(n => s.outlines[n]?.relayed?.why).find(Boolean) ?? "the repository didn't answer";

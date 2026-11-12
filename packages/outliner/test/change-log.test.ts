@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
-import { archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
+import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 
@@ -249,4 +249,51 @@ test("an archive keeps what follows its newest genesis here, and still replays t
   home.close();
   replayArchive(archive, "home", join(dir, "restored.sqlite"));
   expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+});
+
+test("an archive refuses ranges that skip entries between them, and a relay from a trimmed sender restarts at its genesis", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const archive = join(dir, "archive");
+  const all = home.log.range(0, 20_000);
+  const cut = all.entries.findIndex((e, i) => i > 0 && e.txn !== all.entries[i - 1]!.txn);
+  const first = { ...all, entries: all.entries.slice(0, cut), complete: false };
+  const gapped = { ...all, after: all.entries[cut + 3]!.lsn, prev: "0".repeat(64), entries: all.entries.slice(cut + 4) };
+  expect(() => writeSegment(archive, "home", [first, gapped])).toThrow("don't follow each other");
+  writeSegment(archive, "home", [first]);
+  // The sender went on, compacted, and kept only what follows its newest genesis: this archive meets none of it.
+  const crate = home.create("Crate of plums", shelf.id);
+  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+    const now = home.get(crate.id)!;
+    home.update(crate.id, `Crate of plums [count::${i}]`, now.revision, { author: "user" });
+  }
+  home.update(crate.id, "Crate of plums [count::done]", home.get(crate.id)!.revision, { author: "user" });
+  const sent: LogRange[] = [];
+  for (let at = 0; ;) { const r = home.log.range(at, 500); sent.push(r); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+  const logId = home.log.cursor().logId;
+  const took = appendToArchive(archive, "home", sent);
+  expect(took.lsn).toBe(home.log.cursor().lsn);
+  expect(readdirSync(join(archive, "home"))).toContain(`${logId}~${first.entries.at(-1)!.lsn}`);
+  home.close();
+  replayArchive(archive, "home", join(dir, "restored.sqlite"), { logId });
+  expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+});
+
+test("a genesis carries AUTOINCREMENT's high-water marks: an id given out once is never given again after a restore", () => {
+  const dir = root();
+  const { home, jar } = busyHome(dir);
+  const top = (db: Database) => (db.query("SELECT seq FROM sqlite_sequence WHERE name = 'block_edit_activity'").get() as { seq: number } | null)?.seq ?? 0;
+  const before = top(home.database);
+  // The newest activity rows go (a purge takes them), then a genesis is written without them.
+  home.database.query("DELETE FROM block_edit_activity WHERE block_id = ?").run(jar.id);
+  home.log.compact(0);
+  const archive = join(dir, "archive");
+  const ranges: LogRange[] = [];
+  for (let at = 0; ;) { const r = home.log.range(at, 500); ranges.push(r); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+  writeSegment(archive, "home", ranges);
+  home.close();
+  replayArchive(archive, "home", join(dir, "restored.sqlite"));
+  const restored = new Database(join(dir, "restored.sqlite"), { readonly: true });
+  expect(top(restored)).toBe(before);
+  restored.close();
 });

@@ -7,7 +7,7 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { drill, drillHere, hostCopy, hostStartCommand, integrity, runAll, snapshot, takeLock } from "./jobs";
+import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock } from "./jobs";
 import { replayArchive, type Replayed } from "@ep0ch/outliner/log-archive";
 import { hostUnitCommands } from "@ep0ch/outliner/schema";
 import { restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
@@ -57,6 +57,7 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
     case "snapshot": {
       const s = readBackupState(c.state);
       const r = await snapshot(c, s, { say, force: args.includes("--force"), ...(args.includes("--verbose") ? { verbose: true } : {}) });
+      if (r.uploaded.length) await maintain(c, s, { uploaded: true, say });
       writeBackupState(c.state, s);
       return r.failed.length ? 1 : 0;
     }
@@ -200,7 +201,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
         const live = join(c.outlines, `${outline}.sqlite`);
         const { stop, start } = hostUnitCommands(process.platform);
         io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere and swap it in with the host stopped:\n`
-          + `  ep0ch backup restore ${outline} --to /tmp/${outline}.sqlite\n  ${stop}\n  mv ${live} ~/backups/ && rm -f ${live}-wal ${live}-shm && cp /tmp/${outline}.sqlite ${live}\n  ${start}`);
+          + `  ep0ch backup restore ${outline} --to /tmp/${outline}.sqlite\n  ${stop}\n  mkdir -p ~/backups/${outline}-before-restore && mv ${live}* ~/backups/${outline}-before-restore/ && cp /tmp/${outline}.sqlite ${live}\n  ${start}`);
         return 2;
       }
       const when = at === undefined ? null : parseAt(at);
@@ -216,13 +217,14 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       // that appeared meanwhile.
       const stage = mkdtempSync(join(dirname(dest), ".restore-"));
       let replayed: Replayed | null = null, snap = list.at(-1)!, why = "";
+      const skipped: string[] = [];
       try {
         for (const candidate of [...list].reverse()) {
           const tmp = join(stage, `${candidate.id}.sqlite`);
           const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
-          if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; continue; }
-          try { replayed = replayArchive(got.root, outline, tmp, when === null ? {} : { until: when }); snap = candidate; }
-          catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; continue; }
+          if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; skipped.push(why); continue; }
+          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(candidate.logId ? { logId: candidate.logId } : {}) }); snap = candidate; }
+          catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; skipped.push(why); continue; }
           const verdict = integrity(tmp);
           if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
           try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
@@ -231,6 +233,8 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
         if (!replayed) { io.err(`ep0ch backup: ${why}`); return 1; }
       } finally { rmSync(stage, { recursive: true, force: true }); }
       say(`✓ ${outline} from ${machine}'s archive ${snap.id.slice(0, 8)}, replayed to entry ${replayed.lsn}${replayed.at ? ` (${hhmm(replayed.at)})` : ""}, ${replayed.rows.blocks ?? "?"} blocks → ${dest}; integrity ok`);
+      // Not the newest: said, with how far it reaches, so a restore that falls short of --at never reads as complete.
+      if (skipped.length) say(`! ${skipped.length} newer archive${skipped.length === 1 ? "" : "s"} couldn't be used (${skipped.join("; ")}): this one was taken ${hhmm(snap.time)}${when !== null && Date.parse(snap.time) < when ? `, before --at ${hhmm(when)}, so the changes after it are not in this copy` : ""}`);
       return 0;
     }
     default:

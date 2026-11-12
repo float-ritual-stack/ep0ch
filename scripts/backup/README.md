@@ -34,14 +34,24 @@ answer means nothing is archived that run, said with the command that starts it.
    `seq=<newest entry>`, `schema=<version>`. Only new segments travel. Each run stands alone: a failed upload, a gap
    or an offline night leaves nothing to repair; the next run uploads what's archived. A repository that isn't there
    yet is made (`restic init`).
-3. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day. forget takes the repository exclusively, so a lock
-   left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
+3. **Retention**, decided every run on its own (after an upload, after a failed forget, or 6 hours since the last; not
+   while the repository is out of reach): `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
+   --keep-daily 30 --keep-weekly 12`, never with `--prune`: every snapshot of the 48 hours before the newest,
+   and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that changes rarely
+   keeps older history, since only hours and days with a snapshot count). forget takes the repository exclusively, so a
+   lock left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
    (restic's exit 11), the job runs `restic unlock` (stale locks only, never `--remove-all`) and tries once more with
-   `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an
-   incident (`forget:<machine>`), with the lock's holder. Here, the archive keeps the segments from the one
-   holding the newest genesis on (a compaction writes one when the log outgrows the outline 4 times), so it stays
-   about one outline and its recent changes in size; the earlier segments are in the repository's earlier snapshots.
+   `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an incident (`forget:<machine>`), with the lock's holder.
+3b. **Prune**, once a day after a forget, as its own step: `restic prune --max-repack-size 1G`, stopped after
+   `EP0CH_BACKUP_PRUNE_MINUTES` (40; the unit allows 50). The bound lets a backlog finish over a few days instead of
+   starting over every run and being stopped at the limit; a stopped one is said as `timed out after 40 min` and tried
+   again 3 hours on. It clears a stale lock the same way. Failing twice in a row is an incident (`prune:<machine>`).
+   Its limit is fitted inside what's left of the run's 50 minutes (the unit's `TimeoutStartSec`, `RUN_LIMIT_MS`), and
+   each forget and prune is saved as a failure before it starts, so a run systemd stops mid-prune still counts and
+   still waits its hours. Uploads clear a stale lock too: a hard-killed prune's exclusive lock refuses them otherwise.
+   Here, the archive keeps the segments from the one holding the newest genesis on (a compaction writes one when the
+   log outgrows the outline 4 times), so it stays about one outline and its recent changes in size; the earlier
+   segments are in the repository's earlier snapshots.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the
    outline's archived log goes to the hub instead. It travels on the stdin of an ssh command, the path the netmail pull
@@ -98,7 +108,7 @@ recorded as forked from the old one, so a follower of the old outline rebuilds r
 then swap it in with the host stopped:
 
     systemctl --user stop outliner-host.service
-    mv ~/outlines/float-hub.sqlite ~/backups/ && rm -f ~/outlines/float-hub.sqlite-wal ~/outlines/float-hub.sqlite-shm
+    mkdir -p ~/backups/float-hub-before-restore && mv ~/outlines/float-hub.sqlite* ~/backups/float-hub-before-restore/
     cp /tmp/float-hub.sqlite ~/outlines/float-hub.sqlite
     systemctl --user start outliner-host.service
 

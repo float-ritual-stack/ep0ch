@@ -94,6 +94,8 @@ export interface DeskApi {
   answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
   /** The ask the answer tile beside reader `r` shows, if one is there. */
   shownAsk?(r: ReaderPane): string | undefined;
+  /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
+  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null;
   selectionSource?(p: ReaderPane): Pane | null;
   hasWiredPreview?(p: ReaderPane): boolean;
   /**
@@ -679,6 +681,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       ...(desk.shownAsk ? { shownAsk: () => desk.shownAsk!(this) } : {}),
+      ...(desk.answerSide ? { answerSide: () => desk.answerSide!(this) } : {}),
       // Where it is now (PIE-1716): the desk's one owner of where a tile is (the host layer's resolveTile) names the desk
       // holding it after a move into a group or the drawer; still here, nothing (the host the caller has stands).
       current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : undefined; },

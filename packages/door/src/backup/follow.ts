@@ -14,13 +14,16 @@ export async function followCommand(c: BackupConfig, io: { out: (s: string) => v
   const config = mirrorsConfig({ ...fromFile, ...(o.env ?? c.env) });
   if ("error" in config) { io.err(`ep0ch backup follow: ${config.error}`); return 2; }
   if (!config.mirrors.length) { io.err(`ep0ch backup follow: nothing to follow; EP0CH_MCP_MIRRORS=<outline>@<machine>[,…] in ${c.file} names what this machine follows`); return 2; }
-  const followers = config.mirrors.map(m => new OutlineFollower(m.outline, m.machine, config.folder, line => io.out(line)));
+  const followers = config.mirrors.map(m => new OutlineFollower(m.outline, m.machine, config.folder, line => io.out(line), Date.now, { outlines: c.outlines }));
   const report = async () => {
     let ok = true;
     for (const f of followers) {
       const r = await f.read();
       if ("error" in r) { ok = false; io.out(`✗ ${f.outline}@${f.machine}: ${r.error}`); }
-      else io.out(`${r.stale ? "!" : "✓"} ${f.outline}@${f.machine}: entry ${r.copy.cursor}, newest change ${r.asOf}${r.stale ? `; stale: ${r.stale.why}` : ""}`);
+      else {
+        if (r.stale) ok = false;
+        io.out(`${r.stale ? "!" : "✓"} ${f.outline}@${f.machine}: entry ${r.copy.cursor}, newest change ${r.asOf}${r.stale ? `; stale: ${r.stale.why}` : ""}`);
+      }
     }
     return ok;
   };

@@ -6,11 +6,11 @@
 // never values), and the job's own state and alert.
 import { ageSince } from "@ep0ch/outline-core/age";
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
-import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
+import { type Alert, type BackupState, followedCopies, type FollowedCopy, readAlert, readBackupState } from "./alert";
 import { plainReason } from "./plain";
 import { verdict } from "./verdict";
 import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
@@ -48,7 +48,9 @@ export interface BackupSetupFacts {
   /** The settings name outlines to follow here (EP0CH_MCP_MIRRORS), so the followers' unit is written and run. */
   follow?: boolean;
   /** What each follower here says of its copy (`<mirrors>/<machine>/.follow/<outline>.json`, outliner outline-follower.ts). */
-  followed?: { key: string; cursor: number; copiedAt: string | null; stale: { since: string | null; why: string } | null }[];
+  followed?: FollowedCopy[];
+  /** The outlines the settings name to follow here (`<outline>@<machine>`), with a status file or not. */
+  following?: string[];
 }
 
 /** A template with its {{NAME}}s filled. */
@@ -111,28 +113,11 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
     stateDir: "error" in c ? "" : c.state,
     ...(follow ? { follow } : {}),
     followed: "error" in c ? [] : followedCopies(c.mirrorsDir),
+    following: (env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim() || "").split(",").map(x => x.trim()).filter(Boolean),
   };
 }
 
 /** What install does for the backups: commands a person could type, and the files it writes. */
-/** Each follower's own word on its copy, read from the status files the owner writes. */
-export function followedCopies(mirrors: string): NonNullable<BackupSetupFacts["followed"]> {
-  const out: NonNullable<BackupSetupFacts["followed"]> = [];
-  let machines: string[] = [];
-  try { machines = readdirSync(mirrors).filter(m => !m.startsWith(".")); } catch { return out; }
-  for (const machine of machines.sort()) {
-    let files: string[] = [];
-    try { files = readdirSync(join(mirrors, machine, ".follow")).filter(f => f.endsWith(".json")); } catch { continue; }
-    for (const f of files.sort()) {
-      try {
-        const st = JSON.parse(readFileSync(join(mirrors, machine, ".follow", f), "utf8")) as { cursor?: number; copiedAt?: string | null; stale?: { since: string | null; why: string } | null };
-        out.push({ key: `${f.slice(0, -5)}@${machine}`, cursor: st.cursor ?? 0, copiedAt: st.copiedAt ?? null, stale: st.stale ?? null });
-      } catch { /* a status file mid-write: the next look reads it */ }
-    }
-  }
-  return out;
-}
-
 export interface BackupPlan {
   status: "do" | "skip" | "manual";
   why: string;
@@ -250,6 +235,10 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
     const newest = o.at ? `newest ${o.relayed ? "backup" : "archive"} ${ago(o.at)} (log entry ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never archived";
     out.push(inc ? { name: `restic ${name}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `restic ${name}`, status: "ok", detail: `${newest}${o.pendingSince ? `; changes since ${ago(o.pendingSince)} upload with the next run${o.error ? ` (the last try: ${o.error})` : ""}` : ", as the outline"}` });
+  }
+  // One the settings name that has never written a word here: nothing follows it (no gateway, no follow unit running).
+  for (const key of (f.following ?? []).filter(k => !(f.followed ?? []).some(x => x.key === k))) {
+    out.push({ name: `follow ${key}`, status: "missing", detail: "named in EP0CH_MCP_MIRRORS, but no copy has been followed here yet", fix: f.platform === "linux" ? "systemctl --user status ep0ch-follow.service; ep0ch backup follow --once" : "ep0ch backup follow --once" });
   }
   for (const x of f.followed ?? []) {
     out.push(x.stale

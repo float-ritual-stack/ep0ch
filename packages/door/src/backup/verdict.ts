@@ -4,7 +4,7 @@
 // progress lines and the doctor's backup line say the same thing, and tests describe a history instead of living it.
 // `--json` keeps everything and `--verbose` keeps the raw reasons: nothing here deletes them, it only stops leading with them.
 import { plainFailure, plainReason, SILENT } from "./plain";
-import { type Alert, alertMark, type BackupState, FORGET_FAILS, hhmm, type OutlineState } from "./alert";
+import { type Alert, alertMark, type BackupState, FORGET_FAILS, hhmm, type OutlineState, PRUNE_RETRY_MS } from "./alert";
 
 export type Level = "ok" | "warn" | "bad";
 export interface Problem { level: Level; text: string; fix: string }
@@ -126,10 +126,12 @@ export function renderStatus(o: {
   // History: what happened, not what is wrong.
   const hist: string[] = [];
   if (s.lastRun) hist.push(`last run ${moment(s.lastRun.at)} (${o.age(now - Date.parse(s.lastRun.at))} ago): ${s.lastRun.ok ? "ok" : "failed"}, ${s.lastRun.detail}`);
-  // Retention (PIE-1755): what the last forget did; failing twice in a row is a problem above (alert.ts).
-  const f = s.forget;
-  if (f?.ok) hist.push(`old snapshots let go ${moment(f.at)}${f.pruned ? ", and pruned" : ""}${f.cleared ? ` (after clearing a stale lock: ${f.cleared})` : ""}${s.lastPrune && !f.pruned ? `; last prune ${moment(s.lastPrune)}` : ""}`);
+  // Retention (PIE-1755): what the last forget and prune did; failing twice in a row is a problem above (alert.ts).
+  const f = s.forget, p = s.prune;
+  if (f?.ok) hist.push(`old snapshots let go ${moment(f.at)}${f.cleared ? ` (after clearing a stale lock: ${f.cleared})` : ""}`);
   else if (f && f.failures < FORGET_FAILS) hist.push(`restic forget failed ${moment(f.at)} (${f.failures} run${f.failures === 1 ? "" : "s"} in a row): ${f.error ?? "?"}`);
+  if (p && !p.ok && p.failures < FORGET_FAILS) hist.push(`restic prune failed ${moment(p.at)}: ${p.error ?? "?"}; tried again ${PRUNE_RETRY_MS / 3_600_000} hours on${s.lastPrune ? `; last prune ${moment(s.lastPrune)}` : ""}`);
+  else if (s.lastPrune && (!p || p.ok)) hist.push(`last prune ${moment(s.lastPrune)}`);
   for (const name of names) {
     const r = s.outlines[name]!.relayed;
     if (r?.uploaded) hist.push(`${name}'s last upload went through ${r.via} at ${moment(r.at)} because ${plainReason(r.why, { repo: o.repo, hub: r.via }).replace(/ \(probably.*\)$/, "")} then`);

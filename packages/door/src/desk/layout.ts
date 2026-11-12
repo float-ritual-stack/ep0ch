@@ -630,12 +630,20 @@ export function placeScreen<I>(s: ScreenLayout<I>, r: Rect, opts: PlaceOpts<I> =
  * `pair`: beside the target in a pair of their own (Split.pair), taking `weight` of the target's room (default half); the
  * target's room comes back to it whole when the tile goes (a comment beside its reader, PIE-846).
  */
-export type Place<I> = { kind: "split"; target: I; dir: Dir; pair?: true; weight?: number } | { kind: "tabs"; target: I; index?: number } | { kind: "edge"; dir: Dir };
+/** Where a tile goes. Into a tab set, `behind` keeps the tab shown as it was (an answer tile behind its edit, PIE-1757). */
+export type Place<I> = { kind: "split"; target: I; dir: Dir; pair?: true; weight?: number } | { kind: "tabs"; target: I; index?: number; behind?: true } | { kind: "edge"; dir: Dir };
 
 const axisOf = (d: Dir): Axis => (d === "left" || d === "right" ? "row" : "col");
 const before = (d: Dir) => d === "left" || d === "up";
 
 /** The tab set holding `id`, if it is in one. */
+/** Which side of the pair it makes with its tile `id` is on, or `tab` in a tab set; null otherwise (an answer tile's, PIE-1757). */
+export function pairSide<I>(root: LNode<I>, id: I): Dir | "tab" | null {
+  if (tabsOf(root, id)) return "tab";
+  const p = parentOf(root, id);
+  if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
+  return p.parent.dir === "row" ? (p.i === 0 ? "left" : "right") : (p.i === 0 ? "up" : "down");
+}
 export function tabsOf<I>(n: LNode<I>, id: I): Tabs<I> | null {
   if (n.t === "leaf") return null;
   if (n.t === "tabs") return n.ids.includes(id) ? n : null;
@@ -673,12 +681,13 @@ export function besideSlot<I>(root: LNode<I>, target: I, add: LNode<I>, dir: Dir
 }
 
 /** Put `add` into `target`'s tabs at `index` (default after the tab shown), and show it. A lone tile becomes a tab set. */
-export function tabInto<I>(root: LNode<I>, target: I, add: I, index?: number): LNode<I> {
+export function tabInto<I>(root: LNode<I>, target: I, add: I, index?: number, behind = false): LNode<I> {
   return mapSlot(root, target, slot => {
     const ids = slot.t === "tabs" ? slot.ids.filter(x => x !== add) : [target];
+    const shown = slot.t === "tabs" ? slot.ids[slot.active] : target;
     const at = Math.max(0, Math.min(ids.length, index ?? (slot.t === "tabs" ? Math.min(slot.active, ids.length - 1) + 1 : 1)));
     ids.splice(at, 0, add);
-    return { t: "tabs", ids, active: at, ...(slot.t === "tabs" ? idOf(slot) : {}) } as Tabs<I>;
+    return { t: "tabs", ids, active: behind && shown !== undefined && shown !== add ? ids.indexOf(shown) : at, ...(slot.t === "tabs" ? idOf(slot) : {}) } as Tabs<I>;
   });
 }
 
