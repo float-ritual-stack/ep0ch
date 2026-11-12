@@ -3,6 +3,8 @@
 // saved again with a revision check; a built-in's name and a name two notes share refused; deleted to the Trash. And
 // the empty tiles that say what they're for. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { forgetScreenNotes, loadScreenNotes, readScreenNote, screenNoteProblems, screenNoteText } from "../src/desk/screen-notes";
@@ -217,5 +219,21 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     await until(() => top().name === "seed-bench", "seed-bench opened");
     expect(get().tiles.map(t => t.name)).toEqual(["tree", "reader", "roots"]);
     expect(get().tiles.find(t => t.name === "roots").kind).toBe("backlinks");
+  });
+
+  test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {
+    // The spec as the native window sends it: its shipped screen's own fields, named as the person typed it.
+    const shipped = JSON.parse(readFileSync(join(import.meta.dir, "../../native/screens/desk.json"), "utf8"));
+    const saved = await board.request("screens.save", { spec: { ...shipped, name: "Potting bench", title: "Potting bench" }, mutation: { author: "user" } });
+    expect(saved).toMatchObject({ name: "potting-bench", title: "Potting bench", created: true });
+    await until(() => screenNames().includes("potting-bench"), "the door registered the native window's screen");
+    expect(screenNoteProblems().filter(p => p.includes("potting-bench"))).toEqual([]);
+    await app.dispatch.act({ action: "screen.open", args: { name: "potting-bench" } }, { kind: "user" });
+    await until(() => top().name === "potting-bench", "potting-bench opened");
+    const tiles = get().tiles;
+    expect(tiles.map(t => t.name)).toEqual(["tree", "reader", "props", "backlinks"]);
+    // props is the native window's kind: the door keeps its spec and says the kind isn't one it has; the rest draw.
+    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "props"], ["backlinks", null]]);
+    expect(() => render()).not.toThrow();
   });
 });
