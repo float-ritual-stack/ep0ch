@@ -207,6 +207,28 @@ fn fared(component: &Value) -> (&'static str, String, String) {
     (["draws", "partly", "problem"][worst as usize], drew.join("; "), why.join("; "))
 }
 
+/// The service's word on a button is said over it either way. A look word it doesn't read stops no press (the door
+/// runs that button too); a slot its line leaves empty is what the part says it needs, and a press runs nothing.
+#[test]
+fn a_button_with_a_look_it_does_not_read_still_runs_and_one_with_an_empty_slot_runs_nothing() {
+    let look = "the button doesn't read tone=sparkly (quiet, primary, danger)";
+    let mut rt = example_window(&json!({ "page": { "title": "Shed jobs", "text": "Shed jobs", "chips": [], "hero": null, "parts": [
+        part("example", "button", 1, json!({ "name": "button", "error": look }), json!({ "type": "button", "label": "Fold the side away", "act": "dock.toggle side=right" })),
+        part("example", "button", 3, json!({ "name": "button", "needs": ["bed"], "error": "no bed yet: write bed= on its line" }), json!({ "type": "button", "label": "Open a bed", "act": "open id={bed}" })),
+    ] } }));
+    let reader = rt.state.reader().unwrap();
+    let said = |app: &crate::actions::App| app.ui(&reader).said.clone().map(|said| (said.words, said.ok));
+    press(&mut rt, "tile/reader/part/0/view");
+    assert_eq!(said(&rt.state), Some(("Fold the side away ran dock.toggle side=right, as you".to_string(), true)), "a look word is no reason not to run");
+    assert!(rt.find("tile/reader/part/0/error").is_some(), "and what the service says of its look is still over it");
+
+    let from = rt.state.steps.len();
+    let outcome = act(&mut rt.state, "button.press line=3");
+    assert_eq!((outcome.ok, outcome.said.as_str()), (false, "Open a bed can't run as written: no bed yet: write bed= on its line"));
+    assert_eq!(said(&rt.state), Some(("Open a bed: no bed yet: write bed= on its line".to_string(), false)));
+    assert!(rt.state.steps[from..].iter().all(|step| step.action != "open"), "nothing of its line ran");
+}
+
 #[test]
 fn every_component_s_own_example_is_drawn_and_the_coverage_table_says_how_each_fared() {
     let pages = fixture("component-pages.json");

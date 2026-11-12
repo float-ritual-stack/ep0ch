@@ -153,6 +153,25 @@ test("a page is the title, the chips and the body in order: prose as Markdown, e
   expect(part(p, "component")).toMatchObject({ name: "trellis", view: { type: "source", text: "::trellis\nnobody answers this\n::" } });
 });
 
+test("the service's word on a button: a look it doesn't read stops no press, a slot left empty is what it needs", async () => {
+  const { create, page } = await setup();
+  const note = await create([
+    "Shed jobs [type::plan]",
+    "::button{label=\"Fold\" act=\"dock.toggle side=right\" tone=sparkly}",
+    "",
+    "::button{label=\"Open a bed\" act=\"open id={bed}\" bed=}",
+    "",
+    "::button{label=\"Open another\" act=\"open id={bed}\" bed= tone=sparkly}",
+  ].join("\n"));
+  const [look, slot, both] = (await page(note.id)).parts;
+  // The look is said and the button is still a press: the door runs it too (its `runPress` stops only a button that names nothing).
+  expect(look).toMatchObject({ kind: "button", error: expect.stringContaining("tone=sparkly"), view: { type: "button", label: "Fold", act: "dock.toggle side=right" } });
+  expect(look).not.toHaveProperty("needs");
+  // An empty slot is what a press has nothing to fill: the part names it, and says what to write first.
+  expect(slot).toMatchObject({ kind: "button", needs: ["bed"], error: "no bed yet: write bed= on its line", view: { type: "button", label: "Open a bed" } });
+  expect(both).toMatchObject({ needs: ["bed"], error: expect.stringMatching(/^no bed yet: write bed= on its line · the button doesn't read tone=sparkly/) });
+});
+
 test("a note with no body has no parts; one in Trash is refused; the request needs its note", async () => {
   const { client, create, page } = await setup();
   const bare = await create("Just a title [type::stub]");
