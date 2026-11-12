@@ -1,0 +1,174 @@
+# Native ep0ch: one catalogue, one layout, one dispatcher
+
+**Base:** interaction-first (hands first, `TileCx`, `App::person`, `one_owner.rs`, per-tile memo). **Grafted:** grammar-first's saved-tree shape, one list over `site.answer` and the forkability check; service-first's `ActionRow`, served validation, shipped screens as one extension and `PRIMS` by primitive type.
+
+**The claim, bounded.** A new screen, or a tile over an existing source, is a note. A new list source is one host producer, written once for every client. A new drawer is Rust, and there are four.
+
+**Basis.** The maps and judges, plus spot reads of `desk/layout.ts:1036-1045`, `desk/tiles.ts`, `desk/screen-specs.ts`, `surface/keymap.ts` and the Waiting manifest. Nothing was built or run.
+
+## 1. Primitives
+
+| Primitive | Owns | Describes itself as |
+|---|---|---|
+| **Store** | every read, watch, re-ask, stale `last()`, the 64-slot budget; one `Link` per outline and machine | the `Ask`; `peek` lists slots, their tiles and `n/64` |
+| **Action** | every state change; the dispatcher checks the actor against `touches` and records the step | `ActionRow` in outline-core: `id, summary, args, touches, keys, while, menu, examples, answer` |
+| **Key table** | chord to act line, per whereabouts layer | rows `{chord, line, layer, from}` |
+| **Layout** | arrangement, focus, wires, policy, floats, folds; `place` | the door's saved tree; `Landing {tile, why}` |
+| **Kind row** | what a tile kind is: a drawer, a source, its fields | the `extensions.list` `tileKinds` row: `{kind, about, args, drawer \| render \| view \| command}` |
+| **Drawer** | drawing one answer shape: `page`, `list`, `view`, `pty` | `{id, takes, facts}` |
+| **Primitive registry** | one `El` builder per catalogue primitive type | `components.schemas` |
+| **Draft** | one editor and lifecycle (block, comment, card); held by the App, shown by a tile or a float | `{target, base_rev, holder, status}` |
+| **Screen** | a named layout with keys, lands, menu | `ScreenSpec` as `screens.list` answers it, with `problems` |
+
+```rust
+// store.rs
+struct Ask { at: OutlineAt, action: String, params: Value, watch: bool }  // equal asks share one slot
+struct Store { links: HashMap<OutlineAt, Box<dyn Link>>, slots: HashMap<AskKey, Slot<Value>>, users: HashMap<AskKey, HashSet<TileId>> }
+// actions/mod.rs: the row is data; `run` is Rust
+struct Action { row: &'static ActionRow, run: fn(&mut App, &Args, &Actor) -> Outcome }
+impl App { fn act(&mut self, line: &str, by: Actor) -> Outcome }
+// layout.rs: no Rune, no socket
+enum Node { Leaf(TileSpec), Split{dir, weights, kids}, Tabs{active, kids}, Columns{kids}, Flow{anchor, kids}, Dock{side, open, kid} }
+fn apply(l: &Layout, op: Op, by: &Actor) -> Result<Layout, Refusal>;
+fn place(l: &Layout, req: &OpenRequest) -> Landing;
+// tiles/mod.rs
+struct Drawer { id: &'static str, asks: fn(&TileSpec, &KindRow) -> Vec<Ask>, draw: fn(&TileCx) -> El, facts: fn(&TileCx) -> Value, takes_keys: bool }
+// prim.rs
+static PRIMS: &[(&str, fn(&Prim, &TileCx) -> El)];
+// draft.rs
+struct DraftSession { target: Target, base_rev: u64, buf: TextEdit, hold: Lease }
+```
+
+`TileCx` hands a drawer the store (read-only), its `TileSpec`, its `TileUi`, `cx.act(line)` and `cx.emit(verb, subject)`: no `&mut Layout`, no socket. `Node` reads both of the door's saved forms (`ratio, a, b` and `weights, kids`) and saves `kids`.
+
+Not primitives: an Attachment (it is a follower tile), a presets folder, a figure-name registry. The terminal is the `pty` drawer behind a cargo feature.
+
+## 2. A screen is a note
+
+A `[type::screen]` note in the outline: two bodies, one spec. The door's JSON fence stays. New: child blocks, where nesting is the tree and properties are the door's flat `TileSpec` fields. `screens.list` lowers both to one validated `ScreenSpec`; `screen.save` writes the block form.
+
+```text
+Garden work [type::screen] [screen::garden-work] [lands::reader] [focus::beds]
+- split row [ratio::0.3]
+  - tile query [name::beds] [query::type=bed NOT stage=done] [select::reader]
+  - tabs
+    - tile reader [name::reader]
+    - tile backlinks [name::links] [source::tile:reader] [subject::follows]
+- keys
+  - mod+l [action::bar.open source=query]
+```
+
+Lowered, in the door's saved shape:
+
+```json
+{"name":"garden-work","lands":"reader","keys":[{"key":"mod+l","action":"bar.open","args":{"source":"query"}}],
+ "layout":{"focus":"beds","root":{"t":"split","dir":"row","weights":[0.3,0.7],"kids":[
+  {"t":"leaf","kind":"query","name":"beds","query":"type=bed NOT stage=done","wires":[{"verb":"select","to":"reader"}]},
+  {"t":"tabs","kids":[{"t":"leaf","kind":"reader","name":"reader"},
+   {"t":"leaf","kind":"backlinks","name":"links","source":"tile:reader","subject":"follows"}]}]}}}
+```
+
+- **Shipped screens and kinds:** `screens[]` and `tiles[]` of one extension, `packages/outliner/extensions/screens/`, served by `extensions.list` and read through the same `screens.list` (bb: core uses the path it exposes). The door's literals for them are deleted in the same wave.
+- **Kinds:** extension tile rows already come in three shapes, each bound to a drawer with no client code: `render` to `view`, `view` query to `list`, `command` to `pty`. One new field, `drawer`, names a client-drawn kind (`reader`).
+- **The live arrangement:** a state file per window in native's state dir, as the door keeps `desk.json`. No machinery note until the door moves too.
+
+| Spike | Becomes |
+|---|---|
+| tree | kind `tree`: `list` drawer, `from: children`, `arrange: tree`, select wired to the reader |
+| note | kind `reader`: `page` drawer over `notes.page` |
+| find, query | bar sources over `from: search` and a query; the same `query` kind docks as a tile |
+| edit | `draft.begin` on the reader's block |
+| inspector | `props` and `backlinks` tiles with `subject: follows`, in a dock |
+| toolbar | the spec's `menu`; label and keycap from the row |
+| scenes | `scenes/*.act` |
+
+## 3. Service and client
+
+**Outline-core gains** (pure moves, merged to main early): `screen-spec.ts` (types, validator, tile address), `screen-note.ts` (block-form lowering), `action-row.ts` (the door's `ActionDef extends ActionRow`) and `fixtures/` (`layout-contract`, `act-lines`, `action-rows`, `screens`).
+
+**Wire, one PROTOCOL bump at the final rebase:**
+- `screens.list` (watched): notes and extension screens, validated, addresses resolved, `problems[]`. The door's `screen-notes.ts` switches to it.
+- `site.answer` view `from:` producers (`children`, `search`, `backlinks`, `properties`, `facets`, `clients`, `activity`, `threads`, `proposals`, `revisions`, `sessions`), each a `ListPrimitive`. `arrange: tree` joins `list-row.ts`: rows carry depth and child count, `state.open` says which levels are answered.
+- `notes.page`: gets its `watch` flag and joins `WATCHABLE_ACTIONS`; parts carry block id and UTF-16 span; figure, button, box and extension parts carry `view: Primitive` where the service has a builder, else today's Markdown. Script parts are cached by script, props and deps.
+- `completion.rows` takes `{text, cursor}` and answers the token with its rows; the host runs `completionTargetAtCursor`.
+- `draft.patch` for a native holder: the holder sends its buffer in `drafts.answer`, the host places the patch and returns resolved ranges.
+- `events.subscribe` takes client kind `native`; `door.act` and `script` events reach its dispatcher.
+
+**Client-side:** layout, ops, placement, focus, the key table, cursor and scroll, the draft buffer, drawing, picture decode, cells, windows, the arrangement file, the control socket.
+
+## 4. One owner each
+
+| Decision | Owner |
+|---|---|
+| Who acts, and whether | `App::act`: actor against the row's `touches` |
+| Who a write is recorded as | `Store::write` stamps `mutation.actorId` |
+| Which tile has focus | `Layout.focus`, changed only by `Op::Focus` in `apply`; an agent's act never issues it |
+| Who has the keys | `App::person() -> Whereabouts` (bar, float, draft, `takes_keys` tile, tile) |
+| Which keys mean what | `keys.rs`: row defaults, the spec's `keys`, then the door's `keybindings.json` in its own chord names (`ctrl+w q`) |
+| How a field passes keys | one `field()` adapter in `keys.rs`: table first, text second, unhandled up |
+| Where an open lands | `layout::place`, in the door's order (own wire, opens-into, home, flow next, first unpinned reader); an activation's `where` maps to an open rule there |
+| Whether a layout changes | `layout::apply`, with policy and agent limits |
+| What Esc closes | one step list in `keys.rs`; the hint row reads it |
+| What a screen or kind is | `screens.list` and `extensions.list` |
+| Which door answers `act` | `controlFor` in `session/place.ts`, with `--door native` |
+| Meaning of notes; a patch's place | the service |
+
+## 5. Agents, tests, headless
+
+- **Control:** native serves `native.sock` beside `door.sock`, with the door's verbs. `act` runs `AppHandle::update(|s, _| s.act(line, agent))`, taking no pointer, focus or selection; the status line names the actor.
+- **`peek`:** `{screen, focus, whereabouts, watches, tiles: [{id, name, kind, facts, asks}]}`. Element keys are `tile/<name>/…`.
+- **Headless:** `--headless --control <sock>` on `App::headless_runtime`; `--screen <name> --act file.act --snap out.png --tree`, on a scratch outline.
+- **Tests, four levels:**
+  - **Contract tables,** generated from the door's own functions and run by both suites: `{layout, op, actor}` to layout or refusal, `{layout, open}` to `{tile, why}`, act lines to requests.
+  - **Garden over `Standin`,** asserting the wire.
+  - **Window tests** with a parity table: every row runs by its chord, its bar row pressed and its act line, giving one step record.
+  - **`one_owner.rs`:** `place(` only in `open`; `Op::` only in `actions/` and `layout.rs`; `.on_key(` only in `keys.rs`; `virtual_rows` only in `list.rs`; no figure name or property key under `tiles/`.
+- **Frame cost:** each tile draws in `memo(tile.id, version)` over its spec, slot generations, focus, cursor, scroll and draft revision.
+- **Every visible wave** carries a wiretext Sketch, a scene and a `kitchen` screen entry. Tests split into `src/tests/*.rs`; actions and drawers register per module.
+
+## 6. The three likeliest hydras
+
+1. **A second layout decider.** Rust `apply` and `place` sit beside the door's, by language. Both suites run the one generated table, and every open reaches `place` only through the `open` action.
+2. **A second vocabulary.** One kind catalogue, one validator and one address resolver, all served; one action-row fixture. A portability test opens every shipped screen in both doors, and the fork check copies each into a scratch outline as a note.
+3. **A second key or list.** One field adapter, one table, and one `list.rs` for tree, bar, lanes and followers.
+
+## 7. Judges' items, resolved
+
+- **Arrangement store, write cost:** a state file; no outline write per op.
+- **Built-in screens twice:** the screens extension. Specs computed from args (board's hub, pinned) move once `target` gains `fills: <tile>.<field>`; a test lists door literals left.
+- **Rows three ways, search:** `from:` only; `search` calls `tree.search`'s ranker.
+- **Figures:** served primitives own the look; the door's `graphs.ts` stays until a figure has a service builder.
+- **Templating:** none; act lines only.
+- **Wire table:** a checked-in dump of the `actions.ts` flags, kept true by a test; answer shapes are serde structs checked against recorded answers.
+- **Pty hosts:** one, the door's pty host protocol; libghostty-vt only parses cells.
+- **Watch budget:** equal asks share a slot; hidden tabs release theirs and keep `last()`; `dropped` re-asks when next drawn; lanes are one grouped query.
+- **Row caps, `whole` latency:** the tree answers visible rows and `truncated` draws a row that re-roots; bar typing is measured in W1, and a fix is the host row's flag.
+- **More outlines:** an Ask is keyed by outline and machine; the reader keeps `outline=` and `machine=`.
+- **Draft safety:** drafts belong to the App and mirror to `edit-recovery.*` on settle; a closed tile's dirty draft moves to a float.
+- **Comments on a span:** by quoted text, through `quote`; no anchor maths in Rust.
+- **Undo, reset, restore:** `layout.undo` over a journal, `screen.reset`, a notice when the note changed under an arrangement; a restart reads the file and recovery.
+- **Mouse:** dividers and title bars use `on_drag`; a drop point becomes `tile.move to= side=`. Rows cross tiles by action.
+- **Typed handlers, windows:** the shell keeps `HashMap<TileId, TileUi>` and uses no `PaneState` or kit `Tree`; windows share one Store and budget, each with its own layout.
+- **Authoring:** arrange, then `screen.save`; kinds and fields complete inside a screen note; a problem draws on the note and on the tile.
+- **Host layer, floats:** floats are layout state with ops; the agent drawer is a window-level dock.
+- **Sideways lanes, native menus:** rows virtualize per lane only; the bar row is the press route everywhere.
+- **A kind one door lacks:** draws its spec as data.
+- **Does not apply:** `layouts.apply`, `keys.table`, `actions.list`, `Does::` templates, `wire.describe` and `wire.catalog` are dropped.
+
+**Not verified:** whether Rune sets focus from code, wraps kit fields, reads tile rects in a drag, or returns elements from a live window; `drafts.answer`'s present shape; whether `replaces` gives an extension kind a bare name; the pty host's byte stream. W0 answers each; a "no" changes the adapter, the mouse route or the terminal wave, not the primitives.
+
+## 8. Waves
+
+Wave PRs merge into the feature branch `claude/adoring-rubin-fcfz04` (PR 1436), never into main; hydra sweeps follow W2, W4 and W7. From W1, each sentence starts "Evan opens native and…".
+
+| Wave | Sentence | Depends on | Files | Deletes | Tests | Can parallel with |
+|---|---|---|---|---|---|---|
+| **W0 Ground** | Evan opens one findings note and reads the probe answers, the terminal measurement and the generated contract tables. | none | door `scripts/layout-contract.ts`; outline-core `screen-spec.ts`, `action-row.ts`, `fixtures/`; `native/probes/` | the door's own spec types and the description half of `ActionDef` | door contract test; `one-owner.test.ts` | its three parts run together |
+| **W1 Hands** | …presses ⌘K, types "trash", runs it; `ep0ch act --door native note.trash` does the same, attributed. | W0 | `store.rs`, `actions/`, `actline.rs`, `keys.rs`, `control.rs`, `list.rs`, `bar.rs`, `src/tests/`; outliner `from: search`; door `place.ts` | `on_key` match, field `on_key`s, label literals, `Tag`, `Notice::Trashed`, scene fns, `palette()`, `enum Finder` | parity, `one_owner.rs`, store re-ask, budget and `dropped` | none |
+| **W2 Tiles and screens** | …splits the reader, drags a tile to a dock, saves the screen, opens it in the door, breaks a kind and reads why, then resets. | W1 | `layout.rs`, `screen.rs`; `view.rs` split into `shell.rs`, `tiles/page.rs`, `tiles/tree.rs`, `tiles/about.rs`; outline-core `screen-note.ts`; outliner `screens.list`; door `screen-notes.ts` | `view.rs`, the fixed `SplitView`, both `PaneState`s, `sidebar()`, `toolbar()`, the `back` stack; the door's note reader and validator path | contract tables in cargo; portability fixture; one shell test per container | none |
+| **W3 Lists** | …opens navigator, board and lastcall from the bar in both doors; tree, lanes, matches and backlinks are one list. | W2 | `list.rs` arranges; outliner `site.ts`, `list-row.ts`, `extensions/screens/`; door `screen-specs.ts`, `builtin-tiles.ts`; `scripts/native-forkable` | `tiles/tree.rs` and `tiles/about.rs` (`tree_row`, `levels`, `inspector()`); the door's moved screen literals and kind descriptions | one list over each producer; fork check; install and uninstall on a scratch outline | W4, W8 |
+| **W4 Page and parts** | …opens a note with figures, boxes and a button, presses the button, and it runs here. | W2 | `tiles/page.rs`, `prim.rs`, `actions/script.rs`; outliner `note-page.ts`, `actions.ts` | `component()`, `stat_tiles`, `note()`, `chips()` in `tiles/page.rs` | every primitive type has a builder; button answers `scripts.answer`; action-row fixture | W3, W8 |
+| **W5 Draft** | …edits one block with completions while an agent patches it, quits mid-word and finds the text back. | W4 | `draft.rs`, `actions/draft.rs`, `tiles/page.rs`; outliner `completion.rows`, `draft-patch.ts` | `Editing`, the whole-note `TextArea`, the guards in `open()` | capture-first tests re-aimed; hold, patch, release; recovery | W7, W8 |
+| **W6 About the note** | …comments on a selection, reviews a proposal and a revision in tiles that follow the reader, and opens the keys and library screens. | W3, W5 | `tiles/diff.rs`, `actions/review.rs`; `extensions/screens/` rows; outliner producers | nothing left of the spike | follow wire; apply and dismiss on the wire; keys screen equals the rows | W7, W8 |
+| **W7 Extensions and outlines** | …installs Waiting from the bar, uses, configures and uninstalls it, switches outline, and tears a tab into a second window. | W3, W4 | `ext.rs`, `actions/outline.rs`, `shell.rs` windows | nothing | install, use, uninstall on a scratch outline; two links in one Store | W5, W6, W8 |
+| **W8 Terminal and agents** | …opens a shell and an agent beside a note, detaches, returns, and jumps between agents from a list. | W2 and W0's measurement | `tiles/pty.rs`, `pty/`, `Cargo.toml` feature; a new `extensions/terminal/` manifest | nothing | `takes_keys` whereabouts; a scripted pty host; redraw cost recorded | W3 to W7 |
