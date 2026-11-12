@@ -363,17 +363,14 @@ impl App {
         let own = self.field_of(tile, QUERY).and_then(Value::as_str).map(str::to_string);
         // (One step: the list it follows asks its own question, or none.)
         let followed = || self.source_of(tile).filter(|source| source != tile && self.drawer_of(source).is_some_and(|drawer| drawer.lists)).map(|source| self.asked_of(&source));
-        let mut words = own.or_else(followed).unwrap_or_default();
-        for (key, value) in &self.ui(tile).narrowed {
-            if !words.is_empty() { words.push(' ') }
-            words.push_str(&format!("{key}={}", super::word(value)));
-        }
-        words
+        self.narrowed_in(tile, own.or_else(followed).unwrap_or_default())
     }
 
     /// A list tile's own question, narrowed by what was picked in it: what a list that follows it asks too.
-    fn asked_of(&self, tile: &str) -> String {
-        let mut words = self.field_of(tile, QUERY).and_then(Value::as_str).unwrap_or_default().to_string();
+    fn asked_of(&self, tile: &str) -> String { self.narrowed_in(tile, self.field_of(tile, QUERY).and_then(Value::as_str).unwrap_or_default().to_string()) }
+
+    /// A question with what was picked in a tile said after it: a term a pick, the one place a pick becomes words.
+    fn narrowed_in(&self, tile: &str, mut words: String) -> String {
         for (key, value) in &self.ui(tile).narrowed {
             if !words.is_empty() { words.push(' ') }
             words.push_str(&format!("{key}={}", super::word(value)));
