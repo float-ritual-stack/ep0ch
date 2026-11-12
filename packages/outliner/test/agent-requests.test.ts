@@ -94,7 +94,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "noted" } }));`)
  * against its own buffer, with the compare the door vendors.
  */
 async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) {
-  const door = { text: block.text, holdId: "", requests: [] as DraftHolderRequest[], progress: [] as NonNullable<OutlinerEvent["ask"]>[] };
+  /** `cursor`: the line the person's cursor is on, as a door's read answers it (PIE-1743); left out, a door that doesn't say. */
+  const door = { text: block.text, holdId: "", cursor: undefined as number | undefined, requests: [] as DraftHolderRequest[], progress: [] as NonNullable<OutlinerEvent["ask"]>[] };
   const connected = Promise.withResolvers<void>();
   const watcher = client.watch({
     client: { clientId, role: "observer", contextId: clientId },
@@ -105,7 +106,7 @@ async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) 
       const request = event.draft;
       door.requests.push(request);
       let answer: unknown = { applied: false, reason: "not in this stand-in" };
-      if (request.kind === "read") answer = { text: door.text, revision: block.revision };
+      if (request.kind === "read") answer = { text: door.text, revision: block.revision, ...(door.cursor !== undefined ? { cursorLine: door.cursor } : {}) };
       else if (request.kind === "patch") {
         const located = locateSpans(door.text, request.patches, request.force);
         if (!located.ok) answer = { applied: false, reason: located.reason };
@@ -121,7 +122,8 @@ async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) 
   cleanups.push(() => watcher.stop());
   await connected.promise;
   door.holdId = (await client.request<{ holdId: string }>({ action: "drafts.hold", blockId: block.id, clientId, revision: block.revision })).holdId;
-  return door;
+  /** The door goes away without letting go of its draft (a dropped connection). */
+  return Object.assign(door, { stop: () => watcher.stop() });
 }
 
 test("request lines: an answered @name at a line's start, outside code; unknown names are prose", () => {
@@ -595,11 +597,15 @@ test("a reason stored before the door's run-again key moved reads with no key: n
   expect(store.agentRequests(own)[0]!.message).toBe("the r to send button is broken");
 });
 
-test("taking an answered line out and putting it back (undo) doesn't ask again (B18)", async () => {
+// B18, PIE-1743: an undo puts the ask back with its answer, and nothing is asked; the line written back by hand, its answer
+// gone, is a new ask ("write the line again to ask again"), and the line never says the old answer meanwhile.
+test("an answered line put back with its answer (undo) isn't asked again; written back by hand it is (B18, PIE-1743)", async () => {
   const { store, client, create, agentOf, counted } = await setup();
   const calls = await counted("count");
   const note = await create("Note\n@count once\nend");
-  await agentOf(note.id, (p) => p.status === "ready");
+  const first = await agentOf(note.id, (p) => p.status === "ready");
+  await until("the answer under the line", () => store.get(note.id)!.text.includes("@count answered"));
+  const answered = store.get(note.id)!.text;
   expect(calls()).toEqual(["run once"]);
   const save = async (text: string) => {
     const block = store.get(note.id)!;
@@ -608,11 +614,212 @@ test("taking an answered line out and putting it back (undo) doesn't ask again (
   await save("Note\nend");
   await Bun.sleep(150);
   expect(store.agentRequests(note.id)).toEqual([]);
-  await save("Note\n@count once\nend");
+  // The undo: the ask and its answer back together.
+  await save(answered);
   await Bun.sleep(400);
   expect(calls()).toEqual(["run once"]);
   expect(store.agentRequests(note.id).map((row) => row.status)).toEqual(["replied"]);
+  // Taken out again, then typed back by hand: no answer under it, so it is asked, and its line never reads the old answer.
+  await save("Note\nend");
+  await Bun.sleep(150);
+  await save("Note\n@count once\nend");
+  const now = (await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: note.id })).projections.find(p => p.kind === "agent");
+  expect(now?.status === "ready" && now.fetchedAt === first.fetchedAt).toBe(false);
+  await until("asked again", () => calls().length === 2);
+  await until("its new answer under the line", () => store.get(note.id)!.text.includes("@count answered"));
+  expect(store.get(note.id)!.text.split("@count answered").length - 1).toBe(1);
 });
+
+// PIE-1743, the verifier's walk in a live draft: the ask and its answer taken out and saved, then the same words typed
+// back where they were, are answered again.
+test("in a live draft, an ask deleted with its answer and saved, then typed back, is answered again (PIE-1743)", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\nturn the soil");
+  const door = await fakeDoor(client, "door-retype-1743", note);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string) => { const n = reads(); door.text = text; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  await type("Beds\nturn the soil\n@count tally the beds");
+  await until("answered in the draft", () => door.text.includes("@count answered"));
+  // Ask and answer backspaced away and saved.
+  await type("Beds\nturn the soil");
+  await client.request({ action: "update", blockId: note.id, text: door.text, expectedRevision: store.get(note.id)!.revision, mutation: PERSON });
+  await Bun.sleep(200);
+  // Typed back by hand, nothing under it.
+  await type("Beds\nturn the soil\n@count tally the beds");
+  await until("asked again", () => calls().length === 2);
+  await until("its new answer in the draft", () => door.text.includes("@count answered"));
+  // And without a save between: taken out of the draft with its answer, typed back, asked again.
+  await type("Beds\nturn the soil");
+  await type("Beds\nturn the soil\n@count tally the beds");
+  await until("asked a third time", () => calls().length === 3);
+}, 20_000);
+
+// PIE-1743: the answer folded under an ask taken out by hand, the ask kept: its line says the answer is gone, never
+// "answered 2 min ago".
+test("an answer taken out by hand under its kept ask: the line says it's gone and how to ask again (PIE-1743)", async () => {
+  const { store, client, create, agentOf, counted } = await setup();
+  await counted("count");
+  const note = await create("Shelf\n@count tally\nlast");
+  await agentOf(note.id, (p) => p.status === "ready");
+  await until("the answer under the line", () => store.get(note.id)!.text.includes("@count answered"));
+  const block = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: "Shelf\n@count tally\nlast", expectedRevision: block.revision, mutation: PERSON });
+  const gone = await agentOf(note.id, (p) => p.status !== "ready");
+  expect(gone.reason).toContain("answer was taken out");
+}, 20_000);
+
+// PIE-1743: an ask being typed waits for the person: a pause mid-word on its line sends nothing; leaving the line, or
+// saving, sends it. A door that doesn't say where its cursor is keeps the quiet timer.
+test("an ask on the cursor's line waits until the cursor leaves it or the draft is saved (PIE-1743)", async () => {
+  const { store, client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "echo-cursor-")), "echo.log");
+  await writeAgent("echo", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + request.input.request } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\nfirst line");
+  const door = await fakeDoor(client, "door-cursor-1743", note);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  // Half typed, the cursor on it, a pause well past the quiet: nothing sent, and the line says when it will be.
+  await type("Hub\nfirst line\n@echo hub it", 2);
+  await Bun.sleep(400);
+  expect(asked()).toEqual([]);
+  expect([...door.progress].reverse().find(p => p.line === "@echo hub it")?.warning).toContain("leave the line");
+  await type("Hub\nfirst line\n@echo hub items", 2);
+  await Bun.sleep(300);
+  expect(asked()).toEqual([]);
+  // The cursor leaves the line: it is asked, as written.
+  await type("Hub\nfirst line\n@echo hub items", 1);
+  await until("asked once the line was left", () => asked().length === 1);
+  expect(asked()).toEqual(["hub items"]);
+  await until("the answer under it", () => door.text.includes("> for: hub items"));
+  // One character typed on the answered ask, the cursor on it: the half-typed words are not sent.
+  await type(door.text.replace("@echo hub items\n", "@echo hub items n\n"), 2);
+  await Bun.sleep(400);
+  expect(asked()).toEqual(["hub items"]);
+  // Saved with the cursor still there: the save sends it.
+  await client.request({ action: "update", blockId: note.id, text: door.text, expectedRevision: store.get(note.id)!.revision, mutation: PERSON });
+  await until("the save sent it", () => asked().length === 2);
+  expect(asked()).toEqual(["hub items", "hub items n"]);
+}, 20_000);
+
+// PIE-1743: a retype in a draft is asked only once it is sent; let go unsaved, the note keeps its ask and answer as they
+// were, and nothing is asked later.
+test("an answered ask retyped in a draft that is let go unsaved: nothing asked, its answer still its own (PIE-1743)", async () => {
+  const { store, client, create, counted, agentOf } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const door = await fakeDoor(client, "door-unsaved-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  await type("Beds\nend", 1);
+  await type("Beds\n@count tally the beds\nend", 1);
+  await Bun.sleep(300);
+  await client.request({ action: "drafts.release", holdId: door.holdId });
+  const now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${now.text}\nmore`, expectedRevision: now.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls()).toEqual(["run tally the beds"]);
+  expect((await agentOf(note.id, () => true)).status).toBe("ready");
+}, 20_000);
+
+// PIE-1743: an answer the person edited is still under its ask: its line says it was answered, not that it's gone.
+test("an answer edited under its ask is still its answer: the line reads answered, not taken out (PIE-1743)", async () => {
+  const { store, client, create, agentOf, counted } = await setup();
+  await counted("count");
+  const note = await create("Shelf\n@count tally\nlast");
+  await until("the answer under the line", () => store.get(note.id)!.text.includes("> noted"));
+  const block = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: block.text.replace("> noted", "> noted, and kept by me"), expectedRevision: block.revision, mutation: PERSON });
+  await Bun.sleep(300);
+  expect((await agentOf(note.id, () => true)).status).toBe("ready");
+});
+
+// PIE-1722 kept under PIE-1743: the same words typed again above two answered asks with nothing in the note (an applied
+// edit, nothing to change) shift their keys; only the new line is asked.
+test("the same ask typed above two asks whose answers left nothing in the note: only the new line is asked (PIE-1722, PIE-1743)", async () => {
+  const { store, client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "quiet-")), "quiet.log");
+  await writeAgent("quiet", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, "run\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { message: "nothing to change", patches: [] } }));`);
+  const runs = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0);
+  const note = await create("Plan\n@quiet\nsoil\n@quiet\nend");
+  await until("both answered", () => runs() === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
+  const door = await fakeDoor(client, "door-shift-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  // Read once as opened, then the same words typed again above both.
+  await type(door.text, 4);
+  await type("Plan\n@quiet\nfirst\n@quiet\nsoil\n@quiet\nend", 6);
+  await until("the new line asked", () => runs() === 3);
+  await Bun.sleep(400);
+  expect(runs()).toBe(3);
+}, 20_000);
+
+// Codex on #1445, finding 2: an ask retyped by hand waits at the cursor; an undo then puts its answer back under it. The
+// answer back is the undo's, so leaving the line asks nothing.
+test("a retype waiting at the cursor, then undone with its answer: leaving the line asks nothing (PIE-1743)", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const saved = store.get(note.id)!.text;
+  const door = await fakeDoor(client, "door-undo-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  await type(saved, 1);
+  await type("Beds\nend", 1);
+  await type("Beds\n@count tally the beds\nend", 1);
+  await Bun.sleep(200);
+  await type(saved, 1);
+  await type(saved, 0);
+  await Bun.sleep(400);
+  expect(calls()).toEqual(["run tally the beds"]);
+}, 20_000);
+
+// Codex on #1445, findings 3 and 4: what one door holds unsent is that door's. Another door letting go of its draft
+// leaves it; a door that drops without letting go takes it with it, so a later save asks nothing.
+test("an ask held unsent is its own door's: another door's release keeps it, its own dropped connection ends it (PIE-1743)", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const typer = (door: Awaited<ReturnType<typeof fakeDoor>>) => {
+    const reads = () => door.requests.filter(r => r.kind === "read").length;
+    return async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  };
+  const retype = async (type: ReturnType<typeof typer>) => {
+    await type(store.get(note.id)!.text, 1);
+    await type("Beds\nend", 1);
+    await type("Beds\n@count tally the beds\nend", 1);
+  };
+  const a = await fakeDoor(client, "door-a-1743", store.get(note.id)!), typeA = typer(a);
+  await retype(typeA);
+  // Door B opens the note and closes its draft unchanged.
+  const b = await fakeDoor(client, "door-b-1743", store.get(note.id)!);
+  await client.request({ action: "drafts.release", holdId: b.holdId });
+  // A's cursor leaves the line: its retype is asked.
+  await typeA("Beds\n@count tally the beds\nend", 0);
+  await until("A's retype asked", () => calls().length === 2);
+  await until("its answer in A's draft", () => a.text.includes("@count answered"));
+  await client.request({ action: "drafts.release", holdId: a.holdId });
+  // A door that retypes and then drops: a later save from elsewhere (a blank line put under the ask) asks nothing.
+  const c = await fakeDoor(client, "door-c-1743", store.get(note.id)!);
+  await retype(typer(c));
+  await Bun.sleep(200);                                                   // its last read answered
+  c.stop();
+  await Bun.sleep(300);
+  const now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: now.text.replace("@count tally the beds\n", "@count tally the beds\n\n"), expectedRevision: now.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls().length).toBe(2);
+}, 30_000);
 
 test("yolo: an agent's r releases a line an agent wrote, as a person's r would (PIE-973)", async () => {
   const { client, create, agentOf, counted } = await setup();

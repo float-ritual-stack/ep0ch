@@ -321,7 +321,7 @@ describe("the lifecycle, on a fake target", () => {
     keys(s, ["!"]);
     expect(h.touched).toEqual(["note-held"]);
     const ask = h.held.get("note-held")!;
-    expect(await ask({ kind: "read", requestId: "r", holdId: "h", blockId: "note-held" })).toEqual({ text: "Beds\nrake  them   flat\n\nnotes!", revision: 4 });
+    expect(await ask({ kind: "read", requestId: "r", holdId: "h", blockId: "note-held" })).toEqual({ text: "Beds\nrake  them   flat\n\nnotes!", revision: 4, cursorLine: 3 });
     const patch = await ask({ kind: "patch", requestId: "r", holdId: "h", blockId: "note-held", patchId: "p1", revision: 4, patches: [{ observed: "rake  them   flat", replacement: "rake them flat" }], mutation: { author: "agent", actorId: "tidy" } });
     expect(patch).toEqual({ applied: true });
     expect(did).toEqual(["edited text above your cursor"]);

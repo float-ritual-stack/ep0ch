@@ -13,7 +13,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import type { HeldAsk } from "@ep0ch/outline-core/protocol";
-import { ANSWERED_ASK_STATES } from "@ep0ch/outline-core/ask-states";
+import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { decide, newChain, parseGrant, personAsk, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
@@ -42,7 +42,10 @@ import { isAnnotationBlock } from "./annotations";
  * loop). A request runs once per text; changing the line is a new request, and
  * `r` asks again (on the note, `r` asks the requests not answered yet). A door
  * that says when the person types in a draft it holds (`drafts.touch`) gets a
- * request run while they write, before any save. Every write is `author: agent`, `actorId: ext:<id>`, under
+ * request run while they write, before any save; one on the line the person's
+ * cursor is on waits until the cursor leaves it or the draft is saved (PIE-1743).
+ * A line written back by hand is a new ask; one an undo puts back with its answer
+ * keeps that answer. Every write is `author: agent`, `actorId: ext:<id>`, under
  * `ext.<id>.agent.<name>` in the change feed.
  */
 
@@ -86,10 +89,11 @@ const PROGRESS_MS = 60_000;
 export const WORKING_MARK = "⋯ working";
 /** How many of the notes an answer wrote its reply links. */
 const MAX_WROTE_LINKS = 20;
-/** How long a removed request line's answer is kept, so undoing the removal doesn't ask again. */
+/** How long a removed request line's answer is kept, so undoing the removal (the line and its answer back) doesn't ask again. */
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
 const ANSWERED = ANSWERED_ASK_STATES;
+const AT_CURSOR = ASK_AT_CURSOR;
 /** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
 const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
 const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
@@ -546,6 +550,9 @@ export class AgentRequests {
   /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now, and an orphan its save left goes. */
   released(holdId: string, blockId?: string): void {
     this.draftKeys.delete(holdId);
+    // What it held unsent was never sent: a draft let go unsaved leaves the note's asks as they were (PIE-1743).
+    // Only that draft's: another door's ask on the same note waits on (Codex on #1445).
+    for (const [key, by] of this.unsent) if (by === holdId) this.unsent.delete(key);
     if (!blockId || !this.orphansAfterRelease.delete(blockId)) return;
     const block = this.store.get(blockId);
     if (block) void this.dropOrphans(blockId, this.lines(block, null).map(l => l.requestKey)).catch(() => {});
@@ -556,13 +563,39 @@ export class AgentRequests {
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
 
-  private recall(blockId: string, requestKey: string): AgentRequestRow | null {
-    const key = this.key(blockId, requestKey);
+  /**
+   * A line a save took out is back in `text`: its row returns when its answer came back with it, as an undo puts both
+   * back. Written back by hand, with nothing of its answer under it, it is a new ask (PIE-1743: "write the line again to
+   * ask again"), and its old row is gone, so its line never says that answer.
+   */
+  private recall(blockId: string, line: RequestLine, text: string): AgentRequestRow | null {
+    const key = this.key(blockId, line.requestKey);
     const kept = this.removed.get(key);
     if (!kept) return null;
     this.removed.delete(key);
-    return this.now - kept.at <= REMOVED_KEPT_MS ? kept.row : null;
+    // A request whose answer was never in the note (an applied edit, nothing to change) leaves nothing to tell an undo
+    // from a retype by: it keeps its row, as before.
+    const back = !this.hadAnswer(blockId, line.agent, line.requestKey) || this.answerUnder(line, text);
+    return this.now - kept.at <= REMOVED_KEPT_MS && back ? kept.row : null;
   }
+
+  /** Whether an answer of `line`'s agent is right under it in `text` (its fold's head; the person may have edited it). */
+  private answerUnder(line: RequestLine, text: string): boolean {
+    const next = text.slice(line.end + 1).split("\n", 1)[0]!.replace(/\r$/, "");
+    return text[line.end] === "\n" && ANSWER_HEAD.exec(next)?.[1] === line.agent;
+  }
+
+  /** Whether this service wrote an answer into the note for the request (a fold under its line), there now or not. */
+  private hadAnswer(blockId: string, agent: string, requestKey: string): boolean {
+    return this.answers.of(blockId)[agent]?.some(([, key]) => key === requestKey) ?? false;
+  }
+
+  /**
+   * Asks a draft holds that wait to be sent (PIE-1743): written on the line the cursor is on, or written again there by
+   * hand over an answered one. The next read with the cursor elsewhere, or a save, asks them (the old row going then);
+   * the draft let go unsaved (released, lapsed or its door gone) forgets them. Each is kept with the hold that holds it.
+   */
+  private readonly unsent = new Map<string, string | undefined>();
 
   /**
    * The request lines a block already had, as its baseline keeps them. A baseline written before PIE-1722 keyed the same
@@ -659,6 +692,7 @@ export class AgentRequests {
 
   private schedule(blockId: string, requestKey: string): void {
     const key = this.key(blockId, requestKey);
+    this.unsent.delete(key);
     const previous = this.timers.get(key);
     if (previous) clearTimeout(previous);
     const timer = setTimeout(() => {
@@ -877,9 +911,18 @@ export class AgentRequests {
         // The key includes the wording: typing elsewhere must not postpone this ask.
         continue;
       }
-      if (before.has(line.requestKey) || answered.has(line.requestKey)) continue;
-      // Taken out and put back (an undo): what it had is what it has, nothing is asked again.
-      const kept = this.recall(blockId, line.requestKey);
+      // An ask the draft held unsent is sent by the save, though the note had its words before (PIE-1743): a retype's old
+      // row goes now.
+      // Its answer back under it (the retype undone before the save) is what it had: nothing is asked.
+      if (answered.has(line.requestKey) && this.answerUnder(line, block.text)) this.unsent.delete(key);
+      const pending = this.unsent.has(key);
+      if (pending && answered.has(line.requestKey) && !this.running.has(key)) {
+        answered.delete(line.requestKey);
+        this.store.pruneAgentRequests(blockId, rows.map(row => row.requestKey).filter(k => k !== line.requestKey));
+      }
+      if (!pending && (before.has(line.requestKey) || answered.has(line.requestKey))) continue;
+      // Taken out and put back with its answer (an undo): what it had is what it has, nothing is asked again.
+      const kept = pending ? null : this.recall(blockId, line, block.text);
       if (kept) {
         this.store.putAgentRequest(kept);
         continue;
@@ -904,9 +947,10 @@ export class AgentRequests {
    * A person typed in a draft a door holds (`drafts.touch`; `text` is the draft as the door has it). A request
    * line the draft has and the saved note never had runs once the draft has been quiet, as a save's would: the
    * person goes on typing and the answer lands in the draft. The rows it leaves keep a later save from asking
-   * again.
+   * again. `cursorLine`, the line the person's cursor is on when the door says (PIE-1743): an ask there is being
+   * written and waits until the cursor leaves it or the draft is saved; lines the person isn't on keep the quiet.
    */
-  touched(blockId: string, text: string, holdId?: string): void {
+  touched(blockId: string, text: string, holdId?: string, cursorLine?: number): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (block && !block.effectiveDeletedRootId && isAnnotationBlock(block)) return this.notInThreads(blockId, text);
@@ -926,6 +970,7 @@ export class AgentRequests {
         this.timers.delete(key);
       }
     }
+    for (const key of this.unsent.keys()) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.unsent.delete(key);
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
@@ -934,20 +979,35 @@ export class AgentRequests {
     if (holdId) this.draftKeys.set(holdId, keys);
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
-      // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save
-      // path's withdraw makes it (PIE-1731): its row goes, and it is asked.
-      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.take(blockId, line.requestKey)) {
+      // A line written again (gone from the draft when it was last read, back now) is a new ask, as the save path makes
+      // it: a no-answer's (PIE-1731), and one whose answer in the note didn't come back with it (PIE-1743: typed back by
+      // hand, not an undo). A request whose answer was never in the note (an applied edit) has nothing to tell an undo
+      // from a retype by, nor do lines whose keys moved (PIE-1722): those keep their rows. It is asked once it is sent (the cursor off it, or a save); until then its row stays, so a draft
+      // let go unsaved leaves the note as it was.
+      const had = rows.get(line.requestKey);
+      if (had && seen && !seen.has(line.requestKey) && !this.running.has(key) && (this.retried.take(blockId, line.requestKey)
+        || (ANSWERED.has(had.status) && this.hadAnswer(blockId, line.agent, line.requestKey) && !this.answerUnder(line, text)))) this.unsent.set(key, holdId);
+      // Its answer back under it since (an undo of the retype): what it had is what it has (Codex on #1445).
+      else if (had && this.unsent.has(key) && this.answerUnder(line, text)) this.unsent.delete(key);
+      const pending = this.unsent.has(key);
+      if (pending && rows.has(line.requestKey) && cursorLine !== line.line && !this.running.has(key)) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
         this.store.pruneAgentRequests(blockId, [...rows.keys()]);
       }
       const row = rows.get(line.requestKey);
-      if (row) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
+      if (row && !pending) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
       if (this.timers.has(key)) continue;
-      if (before.has(line.requestKey) || answered.has(line.requestKey) || this.running.has(key)) continue;
-      const kept = this.recall(blockId, line.requestKey);
+      if (this.running.has(key) || (!pending && (before.has(line.requestKey) || answered.has(line.requestKey)))) continue;
+      const kept = pending ? null : this.recall(blockId, line, text);
       if (kept) {
         this.store.putAgentRequest(kept);
+        continue;
+      }
+      // Being written: the cursor is on it. It waits for the person, saying how it goes (PIE-1743).
+      if (cursorLine === line.line) {
+        this.unsent.set(key, holdId);
+        this.deps.changed(blockId, { ...asked(line), state: "queued", warning: AT_CURSOR });
         continue;
       }
       this.deps.changed(blockId, { ...asked(line), state: "queued" });
@@ -1004,6 +1064,7 @@ export class AgentRequests {
   private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain, onRunning?: () => void): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
+    this.unsent.delete(key);
     if (this.running.has(key)) {
       if (askedBy) this.again.set(key, askedBy);
       return;
@@ -1523,6 +1584,12 @@ export class AgentRequests {
         if (row.status === "running") return { ...base, status: "not-run" as const, fetching: true, reason: row.message ?? `@${candidate.agent} is working on it` };
         if (row.status === "waiting") return { ...base, status: "not-run" as const, reason: row.message ?? `waits for a person to ask @${candidate.agent}` };
         if (row.status === "failed") return { ...base, status: "unavailable" as const, reason: row.message ?? "it failed", fetchError: row.message ?? "it failed" };
+        // Its answer was in the note and is gone from under the line (taken out by hand): the line says so, never the
+        // answer it no longer has (PIE-1743). A note held in a draft may have it there, not saved yet.
+        if (row.status === "replied" && !this.deps.heldDraft?.(blockId) && this.hadAnswer(blockId, candidate.agent, candidate.requestKey)
+          && !this.answerUnder(candidate, block.text)) {
+          return { ...base, status: "not-run" as const, reason: `@${candidate.agent}'s answer was taken out · ask again for a new one` };
+        }
         const at = row.answeredAt ?? row.requestedAt;
         return {
           ...base,

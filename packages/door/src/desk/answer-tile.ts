@@ -105,9 +105,12 @@ export class AnswerTile implements Pane {
     this.foldsIn = draft ? "edit" : "note";
     const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
     const status = draft?.askStatus(this.ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
+    // Its words not sent yet, or asked and nothing written back yet: what the line says, not an answer under it that was to
+    // other words (loki on #1445: an answered ask typed on showed the old answer beside "asks once you leave").
+    const progress = draft?.liveAsk(this.ask), pending = !!progress && (progress.state === "queued" || (progress.state === "working" && !progress.blocks));
     // The answer's lines are the note's (as the reader holds it, typed or saved): its buttons press as they do there (PIE-1699).
-    const body = fold ? lines.slice(fold.line + 1, fold.end) : [];
-    const doc = fold
+    const body = fold && !pending ? lines.slice(fold.line + 1, fold.end) : [];
+    const doc = fold && !pending
       ? reader.surface.snippetDoc(body.map(l => stripQuotes(l, 1)).join("\n"), w, reader.host(desk), this.links, false, undefined, body.map((_, i) => fold.line + 1 + i))
       : reader.surface.snippetDoc(status || "Waiting for the answer…", w, reader.host(desk), this.links);
     this.ranges = doc.links;
