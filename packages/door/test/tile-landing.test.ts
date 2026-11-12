@@ -182,7 +182,7 @@ describe("an answer tile keeps a narrow reader's width (PIE-1757)", () => {
     const asked = readers().find(t => t.name === "grow")!.rect;
     expect({ below: answer.row > asked.row && answer.col === asked.col, cols: answer.cols }).toEqual({ below: true, cols: asked.cols });
     expect(new Map(readers().map(t => [t.name, t.rect.cols]))).toEqual(before);
-    expect(d.answerSide(grow)).toBe("down");
+    expect(d.answerAt(grow)?.side).toBe("down");
     (d as { dispose?: () => void }).dispose?.();
   });
 
@@ -196,7 +196,7 @@ describe("an answer tile keeps a narrow reader's width (PIE-1757)", () => {
     for (const t of d.layoutGet().tiles as { name: string; kind: string }[]) if ((d as any).paneNamed(t.name) !== reader) await d.dispatch.act({ action: "tile.close", tile: t.name }, PERSON).catch(() => {});
     const name = (d.layoutGet().tiles as { name: string }[])[0]!.name;
     await d.answerTile(reader, ask, PERSON);
-    expect(d.answerSide(reader)).toBe("tab");
+    expect(d.answerAt(reader)?.side).toBe("tab");
     expect((d.layoutGet().tiles as { kind: string; rect: Rect }[]).find(t => t.kind === "reader")!.rect.cols).toBe(44);
     await d.dispatch.act({ action: "tile.group", tile: name }, PERSON);
     await Bun.sleep(0);

@@ -88,7 +88,7 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
-import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy } from "../edit";
+import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy, type AnswerPlace } from "../edit";
 import { agentRefusal, blockTarget, followHistory, noteReplyTarget, recordAs, DraftSession, hasStrays, leaveSaid, propertyChange, propertyListOf, unsent, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
 import { baseTextOf, keptName, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentOp } from "../unsent";
@@ -263,7 +263,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; shownAsk?(): string | undefined; answerSide?(): "left" | "right" | "up" | "down" | "tab" | null | undefined; current?(): SurfaceHost | undefined;   // current: this reader's host on the desk holding it after a move into a group or the drawer (PIE-1716), else none; a draft asks it each time
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; shownAsk?(): string | undefined; answerAt?(): AnswerPlace | undefined; current?(): SurfaceHost | undefined;   // current: this reader's host on the desk holding it after a move into a group or the drawer (PIE-1716), else none; a draft asks it each time
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
   attachment?: AttachmentKind;
   hasWiredPreview?(): boolean;
@@ -2980,7 +2980,7 @@ export class NoteSurface {
       },
       closed: how => this.draftClosed(s, how, now()),
     });
-    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); }; s.draft.following((host.current?.() ?? host).shownAsk?.()); s.draft.answerSide = () => (host.current?.() ?? host).answerSide?.(); s.draft.answerShown = () => (host.current?.() ?? host).shownAsk?.(); // beside an answer tile already there, typing on its ask follows it; its row says where it is
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); }; s.draft.following((host.current?.() ?? host).shownAsk?.()); s.draft.answerAt = () => (host.current?.() ?? host).answerAt?.(); // beside an answer tile already there, typing on its ask follows it; its row says where it is
     if (this.drawn && s.draft.restored === null) { const rows = this.readingRows(); s.draft.landInView = !rows || rows[0] < this.scroll || rows[0] >= this.scroll + this.drawn.room; } // The wheel left the reading line's first row behind: the words go where the person is looking (PIE-1579).
     this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));

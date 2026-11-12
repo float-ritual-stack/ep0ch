@@ -260,6 +260,33 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     } finally { p.close(); }
   }, 60_000);
 
+  // Codex on #1466: two saved asks in the same words both said `beside ▸` (the row compared the words, not which line the
+  // tile shows), and a saved answer no tile showed said only `· answered`.
+  test("two saved asks in the same words: the row of the one the tile shows names its side, the other says show ▸", async () => {
+    // Answers already saved, to a name no agent here answers to: nothing asks again, so the two answers stand as written.
+    const title = "Twin asks", ask = "@nobody the rows";
+    const text = [title, "two beds", ask, "> [!note]- @nobody answered", "> counted: bed one", "", ask, "> [!note]- @nobody answered", "> counted: bed two", ""].join("\n");
+    const id = await create(text);
+    const p = await pane(id, title, 177, 40);
+    const fail = (e: Error) => { throw new Error(`${e.message}\n${p.capture()}`); };
+    const edit = () => p.capture().split("\n").map(l => l.split(/[║│]/)[1] ?? "");
+    const rows = () => edit().filter(l => l.includes(ask)).map(l => l.trim());
+    const tile = () => p.capture().split("\n").map(l => l.split(/[║│]/)[3] ?? "").join(" ");
+    try {
+      p.keys("e"); await Bun.sleep(300);
+      if (!p.capture().includes("» editing")) p.keys("Enter");
+      await until(() => p.capture().includes("» editing"), "the edit").catch(fail);
+      // No tile yet: each saved answer's row says a click shows it.
+      await until(() => rows().length === 2 && rows().every(r => r.endsWith("· answered · show ▸")), "both rows saying show ▸", 5000).catch(fail);
+      // A click on the second: the tile shows its answer, and only its row names the side.
+      const lines = p.capture().split("\n"), at = lines.map((l, i) => [l, i] as const).filter(([l]) => (l.split(/[║│]/)[1] ?? "").includes(ask)).at(-1)![1];
+      const col = lines[at]!.indexOf(ask) + 3;
+      p.type(`\x1b[<0;${col};${at + 1}M`); p.type(`\x1b[<0;${col};${at + 1}m`);
+      await until(() => tile().includes("counted: bed two"), "the tile on the second ask", 10_000).catch(fail);
+      await until(() => rows()[0]!.endsWith("· show ▸") && rows()[1]!.endsWith("· beside ▸"), "only the second row beside", 5000).catch(fail);
+    } finally { p.close(); }
+  }, 45_000);
+
   // PIE-1758: at 44×9 the edit's three header rows and its rule left the text one row.
   test("a 44×9 door's edit gives its text two rows", async () => {
     const title = "Seed nine";

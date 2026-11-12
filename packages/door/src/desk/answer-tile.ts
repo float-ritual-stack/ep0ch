@@ -46,6 +46,11 @@ export class AnswerTile implements Pane {
     const lines = text.split("\n");
     return lines.includes(this.ask) ? this.ask : this.saved && lines.includes(this.saved) ? this.saved : undefined;
   }
+  /** The line of `text` whose answer it shows (PIE-1768): its answer's ask line, else the first line saying its ask. */
+  shownRow(text: string): number | undefined {
+    const fold = this.answer(text), ask = fold ? undefined : this.shown(text);
+    return fold ? fold.line - 1 : ask === undefined ? undefined : text.split("\n").indexOf(ask);
+  }
   /** The ask it shows as its reader was last drawn: its own words, or the saved ones an edit put aside left (PIE-1757). */
   private showing?: string;
   title() { return this.showing ?? this.ask; }

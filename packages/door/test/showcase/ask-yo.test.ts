@@ -1066,7 +1066,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       await until(() => shows(`zoom the shed ${tag}`), `one answer tile beside the reader in the ${move}, on the new ask`, 30_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(answers())}`); });
       // Opened there, it is placed by the desk's one placement too (PIE-1757): a pair with the reader, or a tab behind it.
       // Gathered with its reader, it stays where the gather put it.
-      if (move !== "group with its answer") expect([move, holder().answerSide(pane)]).toEqual([move, expect.stringMatching(/^(right|left|down|up|tab)$/)]);
+      if (move !== "group with its answer") expect([move, holder().answerAt(pane)?.side]).toEqual([move, expect.stringMatching(/^(right|left|down|up|tab)$/)]);
       // The caret back on the first ask selects it there, with no refusal.
       const row = draft()!.text.split("\n").findIndex(l => l.startsWith(`@yo fold the shed ${tag}`));
       while (draft()!.row > row) h.press({ kind: "up" });
