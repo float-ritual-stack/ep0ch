@@ -4,7 +4,7 @@
 // progress lines and the doctor's backup line say the same thing, and tests describe a history instead of living it.
 // `--json` keeps everything and `--verbose` keeps the raw reasons: nothing here deletes them, it only stops leading with them.
 import { plainFailure, plainReason, SILENT } from "./plain";
-import { type Alert, alertMark, type BackupState, hhmm, type OutlineState } from "./alert";
+import { type Alert, alertMark, type BackupState, FORGET_FAILS, hhmm, type OutlineState } from "./alert";
 
 export type Level = "ok" | "warn" | "bad";
 export interface Problem { level: Level; text: string; fix: string }
@@ -53,8 +53,15 @@ export function verdict(s: BackupState, a: Alert | null, now: number, c: Verdict
   const problems: Problem[] = [];
   const covered = new Set<string>();
   const opts = { repo: c.repo, hub: c.hub };
+  // No host answering (PIE-1750): first, with the command that starts it, from the first failed run; the outlines it
+  // left waiting say only that (their own lines would point at ep0ch backup run, which can't help yet).
+  if (s.host) {
+    covered.add(`host:${c.machine}`);
+    problems.push({ level: "bad", text: s.host.error, fix: s.host.fix });
+  }
   for (const [name, o] of Object.entries(s.outlines).sort()) {
-    if (o.error) {
+    if (o.error && s.host && o.error === s.host.error) covered.add(`outline:${c.machine}/${name}`);
+    else if (o.error) {
       covered.add(`outline:${c.machine}/${name}`);
       problems.push({ level: "bad", text: `${name}: not backed up: ${plainFailure(o.error, opts)}`, fix: RUN });
     } else if (o.relayed && !o.relayed.uploaded) {
@@ -136,6 +143,10 @@ export function renderStatus(o: {
   // History: what happened, not what is wrong.
   const hist: string[] = [];
   if (s.lastRun) hist.push(`last run ${moment(s.lastRun.at)} (${o.age(now - Date.parse(s.lastRun.at))} ago): ${s.lastRun.ok ? "ok" : "failed"}, ${s.lastRun.detail}`);
+  // Retention (PIE-1755): what the last forget did; failing twice in a row is a problem above (alert.ts).
+  const f = s.forget;
+  if (f?.ok) hist.push(`old snapshots let go ${moment(f.at)}${f.pruned ? ", and pruned" : ""}${f.cleared ? ` (after clearing a stale lock: ${f.cleared})` : ""}${s.lastPrune && !f.pruned ? `; last prune ${moment(s.lastPrune)}` : ""}`);
+  else if (f && f.failures < FORGET_FAILS) hist.push(`restic forget failed ${moment(f.at)} (${f.failures} run${f.failures === 1 ? "" : "s"} in a row): ${f.error ?? "?"}`);
   for (const name of names) {
     const r = s.outlines[name]!.relayed;
     if (r?.uploaded) hist.push(`${name}'s last upload went through ${r.via} at ${moment(r.at)} because ${plainReason(r.why, { repo: o.repo, hub: r.via }).replace(/ \(probably.*\)$/, "")} then`);

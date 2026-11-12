@@ -20,7 +20,7 @@ import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type
 import type { BackupConfig, MirrorSource } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { failedLine, moment, relayedLine } from "./verdict";
-import { backupFile, complaint, dumpTo, forget, NO_REPO, type OutlineSnapshot, runRestic, snapshots } from "./restic";
+import { backupFile, complaint, dumpTo, forget, LOCKED, lockHolder, NO_REPO, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
 /** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
@@ -124,7 +124,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   }
   delete s.host;
   // Snapshots are the repository's: another repository (or machine name) starts every outline over.
-  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
+  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; delete s.forget; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   o.step?.(`checking ${outlines.length} outline${outlines.length === 1 ? "" : "s"} for changes`);
@@ -198,8 +198,19 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     // Retention after each upload; the prune that frees space, once a day.
     const prune = !s.lastPrune || now() - Date.parse(s.lastPrune) >= 24 * 3_600_000;
     const r = await forget(c, repo, prune);
-    if (r.code === 0 && prune) s.lastPrune = new Date(now()).toISOString();
-    if (r.code !== 0) say(`restic forget failed (the snapshots are safe; the next run tries again): ${complaint(r)}`);
+    const at = new Date(now()).toISOString();
+    if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
+    if (r.code === 0) {
+      if (prune) s.lastPrune = at;
+      s.forget = { at, ok: true, failures: 0, pruned: prune, ...(r.cleared ? { cleared: r.cleared } : {}) };
+      say(`✓ old snapshots let go${prune ? ", and pruned" : ""}`);
+    } else {
+      // Counted, so a forget that keeps failing is an incident (alert.ts), not only a journal line.
+      const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
+      const was = s.forget?.ok === false ? s.forget : undefined;
+      s.forget = { at, ok: false, failures: (was?.failures ?? 0) + 1, since: was?.since ?? at, error };
+      say(`restic forget failed (the snapshots are safe; the next run tries again): ${error}`);
+    }
   }
   return { uploaded, failed, relayed };
 }
