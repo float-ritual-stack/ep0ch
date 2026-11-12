@@ -31,12 +31,14 @@
                     "verb": "select",
                     "to": "reader"
                   }
-                ]
+                ],
+                "role": "query"
               },
               {
                 "t": "leaf",
                 "kind": "screens.reader",
-                "name": "reader"
+                "name": "reader",
+                "role": "reader"
               }
             ]
           }
@@ -79,7 +81,8 @@
                     "verb": "select",
                     "to": "reader"
                   }
-                ]
+                ],
+                "role": "tree"
               },
               {
                 "t": "split",
@@ -92,7 +95,8 @@
                   {
                     "t": "leaf",
                     "kind": "screens.reader",
-                    "name": "reader"
+                    "name": "reader",
+                    "role": "reader"
                   },
                   {
                     "t": "dock",
@@ -114,14 +118,16 @@
                           "kind": "screens.props",
                           "name": "props",
                           "source": "tile:reader",
-                          "subject": "follows"
+                          "subject": "follows",
+                          "role": "props"
                         },
                         {
                           "t": "leaf",
                           "kind": "screens.backlinks",
                           "name": "backlinks",
                           "source": "tile:reader",
-                          "subject": "follows"
+                          "subject": "follows",
+                          "role": "backlinks"
                         }
                       ]
                     }
@@ -173,12 +179,14 @@
               {
                 "t": "leaf",
                 "kind": "screens.activity",
-                "name": "activity"
+                "name": "activity",
+                "role": "activity"
               },
               {
                 "t": "leaf",
                 "kind": "screens.reader",
-                "name": "reader"
+                "name": "reader",
+                "role": "reader"
               }
             ]
           }
@@ -221,7 +229,8 @@
                   "open": [
                     "views"
                   ]
-                }
+                },
+                "role": "facets"
               },
               {
                 "t": "leaf",
@@ -237,12 +246,14 @@
                     "verb": "open",
                     "to": "reader"
                   }
-                ]
+                ],
+                "role": "matches"
               },
               {
                 "t": "leaf",
                 "kind": "screens.reader",
-                "name": "reader"
+                "name": "reader",
+                "role": "reader"
               }
             ]
           }
@@ -274,7 +285,8 @@
           "root": {
             "t": "leaf",
             "kind": "screens.who",
-            "name": "who"
+            "name": "who",
+            "role": "who"
           }
         },
         "toolbar": [

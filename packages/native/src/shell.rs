@@ -85,7 +85,8 @@ fn tile(s: &App, id: &str, at: [f32; 4], boxes: &Boxes, origin: [f32; 2], dark: 
     let (dragged, held) = (name.clone(), boxes.clone());
     let bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 })
         .child(title)
-        .child(Badge::new(kind.to_string()).variant(BadgeVariant::Subtle).build(k))
+        // What kind of tile it is, in the kind's own word for itself (its row's name), else as its spec names it.
+        .child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k))
         .child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("tile.close")).on_press(act(format!("tile.close tile={}", word(&name)))).build(k).key(format!("tile/{name}/close")))
         .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = dropped(d, &held, origin, &dragged) { s.act(&line, Actor::Person); });
     let problems = s.problems_of(id);
@@ -93,7 +94,7 @@ fn tile(s: &App, id: &str, at: [f32; 4], boxes: &Boxes, origin: [f32; 2], dark: 
     // What the service says is wrong with this tile is said on it, in its words.
     for (i, said) in problems.iter().enumerate() { body = body.child(text(said.clone()).key(format!("tile/{name}/problem/{i}")).font(k.ty.small).color(c.danger.fg).wrap().px(10.0).py(6.0)) }
     let drawn = match (s.cx(id), spec) {
-        (Some(cx), _) => match tiles::drawer(cx.row.drawer) {
+        (Some(cx), _) => match tiles::drawer_of(cx.row) {
             Some(drawer) => memo(format!("tile/{name}/body"), version(s, &cx, drawer, &problems, dark), || col().w_full().h_full().min_h(0.0).child((drawer.draw)(&cx, k))),
             None => tiles::as_data(cx.spec, &name, k),
         },

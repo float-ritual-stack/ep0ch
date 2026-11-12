@@ -1,14 +1,15 @@
-//! Tiles: what a kind is, and the drawers that draw one.
+//! Tiles: the drawers that draw one.
 //!
-//! - **A kind row** says what a tile kind is: the drawer that draws it and what the layout's rules need to know of
-//!   it (whether it reads notes, whether it lists them). `KINDS` is the catalogue; a screen names kinds, never code.
-//! - **A drawer** draws one answer shape. It is given a `TileCx`: the store to read, its tile's spec and its own
-//!   state, and two ways out, both act lines: `cx.act(line)` and `cx.emit(verb, subject)`. It gets no layout to
-//!   change and no socket: a drawer can ask and can say, and nothing else.
+//! - **A kind row** says what a tile kind is: the drawer that draws it and the fields a tile of it starts with. The
+//!   service serves the rows (`screen::KindRow`, an extension's `tiles[]`); this window holds no catalogue of kinds
+//!   and names none: a screen names kinds, a kind names a drawer.
+//! - **A drawer** draws one answer shape, and there are two: `page` (a note's page) and `list` (one list, whatever
+//!   it is of). It is given a `TileCx`: the store to read, its tile's spec, its kind's row and its own state, and
+//!   two ways out, both act lines: `cx.act(line)` and `cx.emit(verb, subject)`. It gets no layout to change and no
+//!   socket: a drawer can ask and can say, and nothing else.
 //! - **A kind this window has no drawer for** is drawn as its spec, as data, with what the service said is wrong.
-pub mod about;
+pub mod list;
 pub mod page;
-pub mod tree;
 
 use rune::{El, col, text};
 use rune_kit::Kit;
@@ -16,30 +17,8 @@ use serde_json::{Value, json};
 
 use crate::actions::{Actor, App, TileUi, word};
 use crate::layout::TileSpec;
+use crate::screen::KindRow;
 use crate::store::{Ask, Store};
-
-/// What a tile kind is.
-pub struct KindRow {
-    pub kind: &'static str,
-    pub about: &'static str,
-    /// The drawer that draws it.
-    pub drawer: &'static str,
-    /// It reads notes: an open can land in it.
-    pub notes: bool,
-    /// It lists notes: its rows open elsewhere.
-    pub lists: bool,
-    /// It shows what another tile's note is about, and follows it.
-    pub follower: bool,
-}
-
-pub static KINDS: &[KindRow] = &[
-    KindRow { kind: "tree", about: "the outline's notes, a folder a level", drawer: "tree", notes: false, lists: true, follower: false },
-    KindRow { kind: "reader", about: "one note, read and written", drawer: "page", notes: true, lists: false, follower: false },
-    KindRow { kind: "props", about: "the properties and the record of the note another tile shows", drawer: "about", notes: false, lists: false, follower: true },
-    KindRow { kind: "backlinks", about: "the notes that link to the note another tile shows", drawer: "about", notes: false, lists: true, follower: true },
-];
-
-pub fn kind(name: &str) -> Option<&'static KindRow> { KINDS.iter().find(|row| row.kind == name) }
 
 /// What a drawer is handed: everything it may read, and the two ways it may speak.
 pub struct TileCx<'a> {
@@ -73,7 +52,13 @@ impl TileCx<'_> {
 /// One answer shape, drawn.
 pub struct Drawer {
     pub id: &'static str,
-    /// What its tile reads now, each as a role (`page`, `level`).
+    /// What it draws, as it says of itself.
+    pub about: &'static str,
+    /// It reads notes: an open can land in a tile it draws, and that tile has a note of its own.
+    pub notes: bool,
+    /// It lists notes: its rows open elsewhere.
+    pub lists: bool,
+    /// What its tile reads now, each as a role (`page`, `list`).
     pub asks: fn(&TileCx) -> Vec<(&'static str, Ask)>,
     pub draw: fn(&TileCx, &Kit) -> El,
     /// What `peek` says of its tile.
@@ -84,9 +69,15 @@ pub struct Drawer {
     pub version: fn(&TileCx) -> u64,
 }
 
-pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &tree::DRAWER, &about::DRAWER];
+pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &list::DRAWER];
 
 pub fn drawer(id: &str) -> Option<&'static Drawer> { DRAWERS.iter().copied().find(|drawer| drawer.id == id) }
+
+/// The drawer a kind's row names, when this window has it.
+pub fn drawer_of(row: &KindRow) -> Option<&'static Drawer> { row.drawer.as_deref().and_then(drawer) }
+
+/// The drawers this window has, as it tells the service when it asks for screens.
+pub fn drawers() -> Vec<&'static str> { DRAWERS.iter().map(|drawer| drawer.id).collect() }
 
 /// A tile whose kind this window can't draw: its spec as data, never hidden.
 pub fn as_data(spec: &TileSpec, name: &str, k: &Kit) -> El {
@@ -99,13 +90,11 @@ pub fn as_data(spec: &TileSpec, name: &str, k: &Kit) -> El {
         .child(text(serde_json::to_string_pretty(&Value::Object(data)).unwrap_or_default()).font(k.ty.mono).color(k.c.text_base).wrap().selectable(true))
 }
 
-/// The catalogue as `actions` over the control socket lists it: each kind as its own row says it, and each drawer.
-pub fn described() -> Value {
+/// The catalogue as `actions` over the control socket lists it: each kind as the service's row says it, and each
+/// drawer as it says of itself.
+pub fn described(app: &App) -> Value {
     json!({
-        "kinds": KINDS.iter().map(|row| json!({ "kind": row.kind, "about": row.about, "drawer": row.drawer, "notes": row.notes, "lists": row.lists, "follower": row.follower })).collect::<Vec<_>>(),
-        "drawers": DRAWERS.iter().map(|drawer| json!({ "id": drawer.id, "takesKeys": drawer.takes_keys })).collect::<Vec<_>>(),
+        "kinds": app.kinds().iter().map(|row| json!({ "kind": row.kind, "name": row.name, "about": row.about, "drawer": row.drawer, "fields": row.fields, "replaces": row.replaces, "extension": row.extension, "drawn": drawer_of(row).is_some() })).collect::<Vec<_>>(),
+        "drawers": DRAWERS.iter().map(|drawer| json!({ "id": drawer.id, "about": drawer.about, "notes": drawer.notes, "lists": drawer.lists, "takesKeys": drawer.takes_keys })).collect::<Vec<_>>(),
     })
 }
-
-/// The kinds this window draws, as it tells the service when it asks for screens.
-pub fn kinds() -> Vec<&'static str> { KINDS.iter().map(|row| row.kind).collect() }

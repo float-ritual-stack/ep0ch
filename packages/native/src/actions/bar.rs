@@ -7,10 +7,10 @@ use super::{Action, Actor, App, Outcome, draft, word};
 use crate::actline::Args;
 use crate::bar;
 
-static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, the outline's notes by the service's search; scope=actions|notes|query lists one source (query: the views' grammar, with the facets its matches carry). The person's opens it; an agent's opens nothing: it answers the action rows for its own query=, and is refused the notes and a query's matches, which are the service's to ask")
+static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, whatever the service lists on a bar's main list (the outline's notes by its search); scope= lists one source: actions, or one the service says a bar lists (query: the views' grammar, with the facets its matches carry; screens: the screens to open). The person's opens it; an agent's opens nothing: it answers the rows for its own query=, the actions at once and a served source's as the store holds them, with the ask that lists them")
     .args(&[
         ("query", ArgSpec::text("what's typed in it").optional()),
-        ("scope", ArgSpec::text("one source: actions, notes or query; all (the default) lists actions, then notes").optional()),
+        ("scope", ArgSpec::text("one source: actions, or one the service lists for a bar (search, query, screens); all (the default) lists actions, then the main list").optional()),
     ])
     .keys(&[
         KeyRow::keys("mod+k", "open the bar on everything"),
@@ -20,6 +20,7 @@ static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the comma
     .menu(&[
         MenuRow::new("Find", "Bar", Some("mod+k")),
         MenuRow::with("Query", "Bar", Some("mod+l"), &[("scope", Scalar::Text("query"))]),
+        MenuRow::with("Screens", "Bar", None, &[("scope", Scalar::Text("screens"))]),
     ])
     .examples(&[Example { act: "bar.open scope=query query=\"type=bed NOT stage=done\"", does: "opens the bar on the beds not done yet", safe: Some(true) }]);
 
@@ -54,25 +55,34 @@ static NARROW: ActionRow = ActionRow::new("bar.narrow", Touches::Nothing, "narro
 
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &CLOSE, run: close }, Action { row: &PICK, run: pick }, Action { row: &MOVE, run: step }, Action { row: &NARROW, run: narrow }];
 
+/// A row as an agent is answered it.
+fn listed(rows: &[bar::BarRow]) -> Vec<serde_json::Value> { rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "detail": row.detail, "act": row.line })).collect() }
+
 fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    let scope = args.text("scope").unwrap_or("all");
-    let Some(source) = bar::source(scope) else {
-        return Outcome::refused(format!("the bar has no source {scope}: {}", bar::SOURCES.iter().map(|s| s.id).collect::<Vec<_>>().join(", ")));
+    let scope = args.text("scope").unwrap_or(bar::ALL);
+    let Some(source) = bar::source(app, scope) else {
+        return Outcome::refused(format!("the bar has no source {scope}: {}", bar::sources(app).iter().map(|s| s.id.clone()).collect::<Vec<_>>().join(", ")));
     };
     if !by.is_person() {
-        // An agent's is a question, not the person's bar, and an act answers at once: it lists what this window
-        // lists itself. Rows that are the service's answers (its search, a query) would not be here yet, and an
-        // empty list would read as "nothing matches": said instead, with where to ask.
-        let Some(here) = source.here else {
-            return Outcome::refused(format!("the bar's {} source is the service's to answer, and an act answers at once: ask the service yourself (`ep0ch find`) · scope=actions lists the actions here", source.id));
-        };
-        let rows = bar::rows_for(app, here, args.text("query").unwrap_or(""));
-        return Outcome::answer(json!({ "scope": here, "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() }));
+        // An agent's is a question, not the person's bar, and an act answers at once. The rows this window lists
+        // itself are answered whole. A served source's are the service's answer: the ones the store holds now are
+        // answered with the ask that lists them, so the agent asks the service the same thing and maps nothing.
+        let words = args.text("query").unwrap_or("");
+        if source.served {
+            let ask = bar::ask(app, &source, words);
+            let held = app.store.read::<crate::page::ListAnswer>(&ask).is_some();
+            let rows = bar::rows_for(app, &source, words);
+            let mut request = ask.params.clone();
+            request["action"] = json!(ask.action);
+            return Outcome::answer(json!({ "scope": source.id, "rows": listed(&rows), "answered": held, "ask": request }));
+        }
+        let here = bar::source(app, bar::ACTIONS).unwrap_or(source);
+        return Outcome::answer(json!({ "scope": here.id, "rows": listed(&bar::rows_for(app, &here, words)), "answered": true }));
     }
     // Opened again on the same source with nothing said, the words typed stay.
     let text = args.text("query").map(str::to_string).unwrap_or_else(|| if app.bar.open && app.bar.scope == source.id { app.bar.edit.text.clone() } else { String::new() });
     app.st.bar.open = true;
-    app.st.bar.scope = source.id.to_string();
+    app.st.bar.scope = source.id.clone();
     app.st.bar.edit = draft::focused(&text);
     app.st.bar.cursor = 0;
     Outcome::done()
@@ -91,7 +101,8 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         bar::rows(app)
     } else {
         let Some((source, _)) = named else { return Outcome::refused("an agent's pick names its row: source= and key= (bar.open answers them)") };
-        bar::rows_for(app, source, "")
+        let Some(source) = bar::source(app, source) else { return Outcome::refused(format!("the bar has no source {source}")) };
+        bar::rows_for(app, &source, "")
     };
     let row = match (named, args.number("n")) {
         (Some((source, key)), _) => rows.iter().find(|row| row.source == source && row.key == key),
@@ -102,7 +113,7 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if row.fill {
         // It can't run without arguments: its line goes on the bar's own line, for the person to finish.
         if !by.is_person() { return Outcome::refused(format!("{} needs arguments: run it yourself, with them", row.key)) }
-        app.st.bar.scope = "actions".into();
+        app.st.bar.scope = bar::ACTIONS.into();
         app.st.bar.edit = draft::focused(&format!("{} ", row.line));
         app.st.bar.cursor = 0;
         return Outcome::done();
@@ -123,14 +134,19 @@ fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     Outcome::done()
 }
 
+/// The source a question in the views' grammar is typed on: the one the bar is on when its list carries facets,
+/// else the one named `query` among those the service lists.
+const QUESTIONS: &str = "query";
+
 /// A facet value picked: the query gains `key=value`, in the views' grammar.
 fn narrow(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (key, value) = (args.text("key").unwrap_or(""), args.text("value").unwrap_or(""));
     let term = format!("{key}={}", word(value));
-    let now = if app.bar.open && app.bar.scope == "query" { app.bar.edit.text.trim().to_string() } else { String::new() };
+    let on = if app.bar.open && !bar::facets(app).is_empty() { app.bar.scope.clone() } else { QUESTIONS.to_string() };
+    let now = if app.bar.open && app.bar.scope == on { app.bar.edit.text.trim().to_string() } else { String::new() };
     if app.bar.open && now.split_whitespace().any(|w| w == term) { return Outcome::done() }
     app.st.bar.open = true;
-    app.st.bar.scope = "query".into();
+    app.st.bar.scope = on;
     app.st.bar.edit = draft::focused(&if now.is_empty() { term } else { format!("{now} {term}") });
     app.st.bar.cursor = 0;
     Outcome::done()

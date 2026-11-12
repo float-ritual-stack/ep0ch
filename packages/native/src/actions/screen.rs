@@ -1,5 +1,5 @@
 //! Screens: open one, save the arrangement as one, put the arrangement back as the screen has it. A screen is
-//! data the service serves (`screens.list`) or this window ships; saving one is the service's write
+//! data the service serves (`screens.list`: a note's, an extension's); saving one is the service's write
 //! (`screens.save`), so the note's form has one writer.
 use serde_json::{Value, json};
 
@@ -9,12 +9,12 @@ use crate::actline::Args;
 use crate::screen::{From, Screen};
 use crate::store::Reply;
 
-static OPEN: ActionRow = ActionRow::new("screen.open", Touches::Screen, "lay the window out as a screen: one the outline has as a note, an extension's, or one this window ships. What the service says is wrong with a tile of it is drawn on that tile")
-    .args(&[("name", ArgSpec::text("the screen's name").kind("screen"))])
+static OPEN: ActionRow = ActionRow::new("screen.open", Touches::Screen, "lay the window out as a screen: one the outline has as a note, or an extension's (the screens every door ships are one extension's). target= is what it opens on, where its spec takes one (a navigator's query). What the service says is wrong with a tile of it is drawn on that tile")
+    .args(&[("name", ArgSpec::text("the screen's name").kind("screen")), ("target", ArgSpec::text("what it opens on, when its spec says a target fills one of its tiles' fields").optional())])
     .keys(&[KeyRow::via("a screen's row in the bar")])
-    .examples(&[Example { act: "screen.open name=desk", does: "lays the window out as the screen it ships: the tree, a reader and the open note's details in a dock", safe: None }]);
+    .examples(&[Example { act: "screen.open name=garden-work", does: "lays the window out as the screen note garden-work", safe: None }]);
 
-static SAVE: ActionRow = ActionRow::new("screen.save", Touches::Nothing, "save the arrangement as a screen note in the outline, so every door on it opens it: under the name it has, or name= (kept as typed for its title; its name is that, lowercase, spaces as -). The screen this window ships is saved under a name of your own")
+static SAVE: ActionRow = ActionRow::new("screen.save", Touches::Nothing, "save the arrangement as a screen note in the outline, so every door on it opens it: under the name it has, or name= (kept as typed for its title; its name is that, lowercase, spaces as -). An extension's screen is saved under a name of your own")
     .args(&[("name", ArgSpec::text("the screen's name, as its note is headed (Garden work is garden-work)").optional().kind("screen"))])
     .keys(&[KeyRow::keys("mod+shift+s", "save the arrangement as its screen")])
     .menu(&[MenuRow::new("Save screen", "Window", Some("mod+shift+s"))])
@@ -27,7 +27,7 @@ static RESET: ActionRow = ActionRow::new("screen.reset", Touches::Screen, "put t
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &SAVE, run: save }, Action { row: &RESET, run: reset }];
 
 /// The window is laid out as `screen`: the layout's rules are asked first whether another arrangement may take this one's place.
-fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
+pub(super) fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
     let Some(next) = screen.layout().filter(|l| !l.all().is_empty()) else {
         let why = screen.problems.iter().map(|p| p.said.as_str()).collect::<Vec<_>>().join(" · ");
         return Outcome::refused(if why.is_empty() { format!("the screen {} has no layout to open", screen.name) } else { why });
@@ -39,8 +39,10 @@ fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
     // What was there is one step back: the arrangement, and the screen it was of when this opens another (a reset
     // is the same screen, read again).
     let was = std::mem::replace(&mut app.st.screen, screen);
+    // A window's first screen has nothing before it to go back to.
+    let first = was.is_nowhere();
     let left = Some(was).filter(|was| was.name != app.st.screen.name);
-    if left.is_some() || !super::layout::same_shape(&was_laid, &app.st.layout) { app.stepped((was_laid, left)) }
+    if !first && (left.is_some() || !super::layout::same_shape(&was_laid, &app.st.layout)) { app.stepped((was_laid, left)) }
     app.keep();
     if !said.is_empty() { app.st.notice = Some(Notice::problem(said.clone())) }
     Outcome { said, ..Outcome::answer(json!({ "screen": app.screen.name, "tiles": app.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>() })) }
@@ -49,9 +51,19 @@ fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
 fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let name = args.text("name").unwrap_or("");
     let screens = app.screens();
-    let Some(screen) = screens.iter().find(|s| s.name == name).cloned() else {
+    let Some(mut screen) = screens.iter().find(|s| s.name == name).cloned() else {
         return Outcome::refused(format!("no screen named {name} · the screens here: {}", screens.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")));
     };
+    // What it opens on: the tile and field its spec says a target fills carry the words (outline-core's `targetFilled`).
+    if let Some(words) = args.text("target").map(str::trim).filter(|words| !words.is_empty()) {
+        let Some((tile, field)) = screen.target().map(|(tile, field)| (tile.to_string(), field.to_string())) else { return Outcome::refused(format!("the screen {name} opens on no target: its spec names none")) };
+        fn fill(node: &mut Value, tile: &str, field: &str, words: &str) {
+            if node["t"] == "leaf" && node["name"] == tile { node[field] = json!(words) }
+            for key in ["kids", "tabs"] { if let Some(kids) = node.get_mut(key).and_then(Value::as_array_mut) { for kid in kids { fill(kid, tile, field, words) } } }
+            if let Some(kid) = node.get_mut("kid") { fill(kid, tile, field, words) }
+        }
+        if let Some(root) = screen.spec.as_mut().and_then(|spec| spec.get_mut("layout")).and_then(|layout| layout.get_mut("root")) { fill(root, &tile, &field, words) }
+    }
     lay_out(app, screen, by)
 }
 
@@ -62,10 +74,10 @@ fn reset(app: &mut App, _: &Args, by: &Actor) -> Outcome {
 }
 
 fn save(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    let shipped = matches!(app.screen.from, From::Shipped);
     // A name given is kept as typed for the title; the service makes the screen's name of it, by the one rule.
     let named = args.text("name").map(str::to_string).filter(|typed| *typed != app.screen.name && *typed != app.screen.title);
-    if named.is_none() && shipped { return Outcome::refused(format!("{} ships with this window: a screen you make takes a name of its own · screen.save name=<a name>", app.screen.name)) }
+    if named.is_none() && let From::Extension(theirs) = &app.screen.from { return Outcome::refused(format!("{} is the {theirs} extension's screen: a screen you make takes a name of its own · screen.save name=<a name>", app.screen.name)) }
+    if app.screen.is_nowhere() { return Outcome::refused("no screen is open yet: there is no arrangement to save") }
     // The screen's own fields stay; its layout is the arrangement as it stands.
     let mut spec = app.screen.spec.clone().filter(Value::is_object).unwrap_or_else(|| json!({}));
     match &named { Some(typed) => { spec["name"] = json!(typed); spec["title"] = json!(typed) } None => { spec["name"] = json!(app.screen.name); spec["title"] = json!(app.screen.title) } }

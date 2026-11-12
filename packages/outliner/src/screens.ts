@@ -112,15 +112,20 @@ function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: Read
 /**
  * `spec` with each tile's kind as the kind it is: a retired name (`detail`, `pinned`) and a name an extension's kind
  * replaces read as the kind that took their place, with what the retired name said as the tile's fields (outline-core's
- * `canonLeaf`: a pin is still a pin). The one place a served screen's kinds are resolved: a client finds its drawer by
- * the kind the row says, and keeps no map from old names of its own.
+ * `canonLeaf`: a pin is still a pin). A tile whose kind is served under another name keeps the name its screen wrote as
+ * its role, so an address by role names it in every door. The one place a served screen's kinds are resolved: a client
+ * finds its drawer by the kind the row says, and keeps no map from old names of its own.
  */
 function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>): ScreenSpec {
   const served = structuredClone(spec);
   for (const leaf of [...savedNodes(served.layout.root), ...(served.layout.floats ?? []).map(f => f.tile)]) {
     if (leaf?.t !== "leaf" || typeof leaf.kind !== "string") continue;
     Object.assign(leaf, canonLeaf(leaf as { kind: string; mode?: string; page?: string }));
-    leaf.kind = replaced.get(leaf.kind) ?? leaf.kind;
+    const serves = replaced.get(leaf.kind);
+    if (!serves) continue;
+    // The tile keeps the role its screen named it by (`tile=role:reader` finds it), whichever kind serves that name now.
+    if (typeof leaf.role !== "string" || !leaf.role) leaf.role = leaf.kind;
+    leaf.kind = serves;
   }
   return served;
 }

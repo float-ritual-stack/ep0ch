@@ -147,12 +147,12 @@ async function matches(own: Own, request: ListsRequest, lanes = false): Promise<
 
 /**
  * The properties a question's matches carry, as rows to narrow it by: a group a key, a row a value with how many
- * matches carry it. A pick narrows the list it is in (`list.narrow`); the same facets ride on the answer for chips.
+ * matches carry it. A pick narrows the list it is in (`facets.set`, the facets tile's own action in every door); the same facets ride on the answer for chips.
  */
 async function facets(own: Own, request: ListsRequest): Promise<Answered> {
   const found = await asked(own, request, { facets: true, limit: 1 });
   const listed = found.facets ?? [];
-  const rows = listed.flatMap(f => f.values.map(v => row({ id: `${f.key}=${v.value}`, label: v.value, detail: String(v.count), group: f.key, chips: [{ key: f.key, value: v.value }], do: runs("list.narrow", { key: f.key, value: v.value }) })));
+  const rows = listed.flatMap(f => f.values.map(v => row({ id: `${f.key}=${v.value}`, label: v.value, detail: String(v.count), group: f.key, chips: [{ key: f.key, value: v.value }], do: runs("facets.set", { key: f.key, value: v.value }) })));
   const groups: ListGroup[] = listed.map(f => ({ name: f.key, label: f.key, count: f.count, ...(f.more ? { note: `${f.more} more` } : {}) }));
   return { list: { type: "list", arrange: "rows", rows, groups, empty: "The matches carry no properties." }, ...facetsOf(found), ...(found.hint ? { hint: found.hint } : {}), ...countOf(found) };
 }

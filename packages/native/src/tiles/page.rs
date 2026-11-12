@@ -1,6 +1,6 @@
 //! The `page` drawer: one note as the service answered it (`notes.page`). Prose arrives as Markdown and each
-//! component with the service's answer; nothing here reads Blockdown. The reader tile is its one kind today, and
-//! the note's source in the editor is drawn here while the draft is on this tile.
+//! component with the service's answer; nothing here reads Blockdown. Whichever kinds the service's rows give this
+//! drawer are tiles it draws, and the note's source in the editor is drawn here while the draft is on this tile.
 use std::hash::{Hash, Hasher};
 
 use rune::{El, ScrollSpec, SurfaceFit, TextStyle, col, el, row, text};
@@ -13,7 +13,7 @@ use crate::keys::{self, Layer};
 use crate::page::{Frame, ListRow, NoteRow, Page, Part, Picture};
 use crate::store::Ask;
 
-pub static DRAWER: Drawer = Drawer { id: "page", asks, draw, facts, takes_keys: false, version };
+pub static DRAWER: Drawer = Drawer { id: "page", about: "one note as the service answers it: read, and written in its source", notes: true, lists: false, asks, draw, facts, takes_keys: false, version };
 
 fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> { cx.app.note_of(cx.id).map(|note| ("page", cx.app.page_ask(&note))).into_iter().collect() }
 

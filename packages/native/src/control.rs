@@ -117,20 +117,20 @@ pub fn peek(s: &App) -> Value {
     // Every tile of the arrangement, as its drawer says it: the ones on screen with what they ask.
     let mut tiles: Vec<Value> = s.layout.all().iter().map(|id| {
         let (name, kind) = (s.layout.name(id), s.spec(id).map_or("", |spec| spec.kind.as_str()));
-        let facts = s.cx(id).and_then(|cx| tiles::drawer(cx.row.drawer).map(|drawer| (drawer.facts)(&cx))).unwrap_or(Value::Null);
+        let facts = s.cx(id).and_then(|cx| tiles::drawer_of(cx.row).map(|drawer| (drawer.facts)(&cx))).unwrap_or(Value::Null);
         json!({ "id": id, "name": name, "kind": kind, "shown": shown.contains(id), "focused": s.layout.focus == *id, "facts": facts, "asks": s.store().asks_of(id), "problems": s.problems_of(id) })
     }).collect();
     if s.bar.open {
         let rows = bar::rows(s);
         tiles.push(json!({ "id": "bar", "name": "bar", "kind": "bar", "asks": s.store().asks_of("bar"),
-            "facts": { "scope": s.bar.scope, "query": s.bar.edit.text, "lit": s.bar.cursor + 1,
+            "facts": { "scope": s.bar.scope, "query": s.bar.edit.text, "lit": s.bar.cursor + 1, "sources": bar::sources(s).iter().map(|source| json!({ "id": source.id, "about": source.about, "served": source.served, "main": source.main })).collect::<Vec<_>>(),
                 "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() } }));
     }
     let page = s.shown();
     let mut text = vec![format!("{} on {}{} · screen {}", s.at.outline, if s.machine.is_empty() { "…" } else { &s.machine }, if s.online { "" } else { " (offline)" }, s.screen.name)];
     if let Some(notice) = &s.notice { text.push(format!("! {}", notice.said)) }
     if let Some(said) = &s.agent_said { text.push(format!("· {said}")) }
-    text.extend(s.tree().iter().map(|line| format!("{}{} {}", "  ".repeat(line.depth), if s.subject().as_deref() == Some(line.row.id.as_str()) { ">" } else { " " }, line.row.title)));
+    text.extend(s.tree().iter().map(|row| format!("{}{} {}", "  ".repeat(row.depth), if s.subject().as_deref() == Some(row.id.as_str()) { ">" } else { " " }, row.label)));
     if let Some(page) = page {
         text.push(String::new());
         text.extend(if s.editing.is_some() { s.editor.text.lines().map(str::to_string).collect::<Vec<_>>() } else { page.text.lines().map(str::to_string).collect() });
@@ -142,6 +142,8 @@ pub fn peek(s: &App) -> Value {
             // The arrangement as it would be saved, with each container's id, and how far `layout.undo` goes back.
             "layout": s.layout.save(), "revision": s.layout.rev, "undo": s.journal.len(),
             "screens": s.screens().iter().map(|screen| json!({ "name": screen.name, "title": screen.title, "problems": screen.problems.iter().map(|p| json!({ "tile": p.tile, "said": p.said })).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+            // What is wrong that no one screen holds (two notes with one name), in the service's words.
+            "screenProblems": s.screen_problems(),
             "notice": s.notice.as_ref().map(|n| json!({ "said": n.said, "undo": n.undo })), "said": s.agent_said,
             "steps": s.steps.iter().rev().take(10).rev().map(actions::Step::json).collect::<Vec<_>>(),
         },
@@ -156,5 +158,5 @@ fn listed(s: &App) -> Value {
         row["name"] = json!(action.row.id);
         row
     }).collect();
-    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(), "catalogue": tiles::described() })
+    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(), "catalogue": tiles::described(s) })
 }

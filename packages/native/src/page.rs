@@ -1,5 +1,5 @@
-//! What the service answers, as this app reads it off the wire: a note in a list (`blocks.read`, `tree.search`,
-//! `blocks.query`), and a note's page (`notes.page`, outline-core's note-page.ts). Shapes only: nothing here decides.
+//! What the service answers, as this app reads it off the wire: a list (`lists.read`, outline-core's list-row.ts)
+//! and a note's page (`notes.page`, outline-core's note-page.ts). Shapes only: nothing here decides.
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -16,7 +16,7 @@ pub struct NoteRow {
     pub context: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct Chip {
     pub key: String,
     pub value: String,
@@ -41,15 +41,36 @@ pub struct Group {
     pub empty: Option<String>,
 }
 
-/// A view's row as the service lists it: the note, its label, and a cell per column.
-#[derive(Clone, Debug, Default, Deserialize)]
+/// A row of a list, as the service lists it (outline-core's `ListRow`): what it shows and the act line a pick runs.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct ListRow {
     pub id: String,
     pub label: String,
     #[serde(default)]
     pub detail: Option<String>,
     #[serde(default)]
+    pub mark: Option<String>,
+    #[serde(default)]
+    pub tone: Option<String>,
+    /// The section it sits in, when the list has some.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// A table's cells, one a column.
+    #[serde(default)]
     pub cells: Vec<Value>,
+    /// The properties it carries that the list shows on it.
+    #[serde(default)]
+    pub chips: Vec<Chip>,
+    /// The act line a pick runs. None: a header, or a row that only copies.
+    #[serde(default)]
+    pub act: Option<String>,
+    /// In a tree: how deep it sits, whether anything is under it, whether that is listed after it.
+    #[serde(default)]
+    pub depth: usize,
+    #[serde(default)]
+    pub folds: bool,
+    #[serde(default)]
+    pub open: bool,
 }
 
 impl ListRow {
@@ -64,14 +85,90 @@ impl ListRow {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+/// A named run of a list's rows (outline-core's `ListGroup`): a section, or a lane.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ListGroup {
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub glyph: Option<String>,
+    #[serde(default)]
+    pub count: u64,
+    #[serde(default)]
+    pub note: Option<String>,
+    /// The rows in it, in order, when the list says so by id (a row may be in several); else a row names its group.
+    #[serde(default)]
+    pub ids: Option<Vec<String>>,
+}
+
+/// The list primitive (outline-core's `ListPrimitive`): rows, how they are arranged, a table's columns, the groups.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct ListView {
     #[serde(default)]
     pub rows: Vec<ListRow>,
+    /// `tree`, `rows`, `table`, `lanes` or `grid`; none said is rows.
+    #[serde(default)]
+    pub arrange: String,
     #[serde(default)]
     pub headers: Vec<String>,
     #[serde(default)]
     pub columns: Vec<String>,
+    #[serde(default)]
+    pub groups: Vec<ListGroup>,
+    /// What an empty list says.
+    #[serde(default)]
+    pub empty: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// One section of a list as it is drawn: its header (none for the rows that name no group) and its rows' places in `rows`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Section { pub head: Option<ListGroup>, pub rows: Vec<usize> }
+
+impl ListView {
+    /// The rows in the sections they are drawn in, as outline-core's `listSections` orders them: by the groups' own
+    /// ids when they give them, else the rows that name no group, each declared group's, then groups only a row names.
+    pub fn sections(&self) -> Vec<Section> {
+        if self.groups.iter().any(|g| g.ids.is_some()) {
+            return self.groups.iter().map(|g| Section { head: Some(g.clone()), rows: g.ids.iter().flatten().filter_map(|id| self.rows.iter().position(|r| r.id == *id)).collect() }).collect();
+        }
+        let mut out: Vec<Section> = Vec::new();
+        let bare: Vec<usize> = self.rows.iter().enumerate().filter(|(_, r)| r.group.is_none()).map(|(i, _)| i).collect();
+        if !bare.is_empty() { out.push(Section { head: None, rows: bare }) }
+        let of = |name: &str| self.rows.iter().enumerate().filter(|(_, r)| r.group.as_deref() == Some(name)).map(|(i, _)| i).collect::<Vec<_>>();
+        for g in &self.groups { out.push(Section { head: Some(g.clone()), rows: of(&g.name) }) }
+        let mut named: Vec<&str> = Vec::new();
+        for r in &self.rows { if let Some(g) = r.group.as_deref() && !self.groups.iter().any(|x| x.name == g) && !named.contains(&g) { named.push(g) } }
+        for g in named { out.push(Section { head: Some(ListGroup { name: g.to_string(), label: g.to_string(), count: of(g).len() as u64, ..ListGroup::default() }), rows: of(g) }) }
+        out
+    }
+}
+
+/// `lists.read`'s answer (outline-core's `ListAnswer`): one list, whatever it is of.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ListAnswer {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub list: ListView,
+    /// The property keys the listed notes carry, counted: chips that narrow the question.
+    #[serde(default)]
+    pub facets: Vec<Facet>,
+    #[serde(default)]
+    pub hint: Option<String>,
+    #[serde(default)]
+    pub total: Option<u64>,
+    #[serde(default)]
+    pub truncated: bool,
+    /// A tree: the folders whose notes are listed.
+    #[serde(default)]
+    pub open: Vec<String>,
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// A picture a note shows (outline-core's `PagePicture`): a file the host reads (`path`), or an svg fence's own text.
@@ -171,8 +268,6 @@ pub struct Page {
     #[serde(default)]
     pub chips: Vec<Chip>,
     #[serde(default)]
-    pub properties: Vec<Chip>,
-    #[serde(default)]
     pub parts: Vec<Part>,
     /// The note's header image, drawn above the title.
     #[serde(default)]
@@ -181,23 +276,17 @@ pub struct Page {
     pub ancestors: Vec<NoteRow>,
     #[serde(default)]
     pub children: Vec<NoteRow>,
-    #[serde(default)]
-    pub backlinks: Vec<NoteRow>,
-    #[serde(default)]
-    pub updated: String,
-    #[serde(default)]
-    pub author: String,
 }
 
 /// A property key the matches of a query carry, with the values it takes among them (`blocks.query` with `facets`).
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct Facet {
     pub key: String,
     #[serde(default)]
     pub values: Vec<FacetValue>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct FacetValue {
     pub value: String,
     pub count: u64,

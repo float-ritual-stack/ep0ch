@@ -9,8 +9,9 @@ use crate::actline::Args;
 use crate::layout::tree::{self, Node};
 use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op, Refusal};
 use crate::tiles;
+use crate::screen::{From, Screen};
 
-static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a dock open or shut: the first dock on that edge of the screen (the default screen keeps what the service knows about the open note in one on the right)")
+static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a dock open or shut: the first dock on that edge of the screen")
     .args(&[("side", ArgSpec::text("the edge the dock is on").choices(&["left", "right", "up", "down"]))])
     .keys(&[
         KeyRow::with("mod+shift+b", None, "show or hide the dock on the left", &[("side", Scalar::Text("left"))]),
@@ -61,7 +62,9 @@ impl App {
         ctx.typing_in = person.typing_in.as_deref().and_then(|name| self.layout.named(name));
         ctx.busy = person.busy;
         ctx.lands = self.screen.lands().map(str::to_string);
-        ctx.kinds = Some(Kinds { all: tiles::KINDS.iter().map(|row| row.kind.to_string()).collect(), notes: tiles::KINDS.iter().filter(|row| row.notes).map(|row| row.kind.to_string()).collect() });
+        // The kinds there are, by every name a tile may carry for one: the service's rows, and the names each serves in place of.
+        let names = |row: &crate::screen::KindRow| std::iter::once(row.kind.clone()).chain(row.replaces.iter().cloned()).collect::<Vec<_>>();
+        ctx.kinds = Some(Kinds { all: self.kinds().iter().flat_map(names).collect(), notes: self.kinds().iter().filter(|row| tiles::drawer_of(row).is_some_and(|drawer| drawer.notes)).flat_map(names).collect() });
         ask(&ctx)
     }
 
@@ -114,8 +117,11 @@ impl App {
     /// The arrangement and what each tile shows, written to the file they are kept in.
     pub(super) fn keep(&self) {
         let Some(path) = &self.kept_in else { return };
-        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded }))).collect();
-        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "spec": self.screen.spec, "layout": self.layout.save(), "tiles": tiles });
+        // No screen yet is nothing to keep: the file is what a window opens as next time.
+        if self.screen.is_nowhere() { return }
+        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen }))).collect();
+        let extension = match &self.screen.from { From::Extension(id) => Some(id.clone()), _ => None };
+        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "spec": self.screen.spec, "layout": self.layout.save(), "tiles": tiles });
         if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
         if let Err(e) = std::fs::write(path, serde_json::to_vec_pretty(&kept).unwrap_or_default()) { eprintln!("ep0ch-native: can't keep the arrangement in {}: {e}", path.display()) }
     }
@@ -127,9 +133,9 @@ impl App {
         let layout = Layout::read(saved);
         if layout.all().is_empty() { return }
         if let Some(name) = kept["screen"].as_str() {
-            let shipped = crate::screen::shipped().into_iter().find(|s| s.name == name);
-            let from = match kept["note"]["id"].as_str() { Some(id) => crate::screen::From::Note { id: id.to_string(), revision: kept["note"]["revision"].as_u64().unwrap_or(0) }, None => crate::screen::From::Shipped };
-            self.st.screen = shipped.unwrap_or_else(|| crate::screen::Screen { name: name.to_string(), title: kept["title"].as_str().unwrap_or(name).to_string(), from, spec: kept.get("spec").filter(|s| s.is_object()).cloned(), problems: Vec::new() });
+            // The screen as the file kept it: its spec is data, whoever served it (a note, an extension).
+            let from = match kept["note"]["id"].as_str() { Some(id) => From::Note { id: id.to_string(), revision: kept["note"]["revision"].as_u64().unwrap_or(0) }, None => From::Extension(kept["extension"].as_str().unwrap_or_default().to_string()) };
+            self.st.screen = Screen { name: name.to_string(), title: kept["title"].as_str().unwrap_or(name).to_string(), from, spec: kept.get("spec").filter(|s| s.is_object()).cloned(), problems: Vec::new() };
         }
         self.st.tiles.clear();
         for (name, ui) in kept["tiles"].as_object().into_iter().flatten() {
@@ -137,6 +143,8 @@ impl App {
             let slot = self.st.tiles.entry(tile).or_default();
             slot.note = ui["note"].as_str().map(str::to_string);
             slot.unfolded = ui["unfolded"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+            slot.narrowed = ui["narrowed"].as_array().into_iter().flatten().filter_map(|pair| Some((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string()))).collect();
+            slot.chosen = ui["chosen"].as_object().into_iter().flatten().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string()))).collect();
         }
         self.st.layout = layout;
     }

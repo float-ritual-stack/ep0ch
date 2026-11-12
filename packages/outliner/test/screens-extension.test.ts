@@ -84,6 +84,8 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   const desk = all.screens.find(s => s.name === "desk")!.spec!;
   expect(desk.start).toBe(true);
   expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.kind)).toEqual(["screens.tree", "screens.reader", "screens.props", "screens.backlinks"]);
+  // Each keeps the name its screen wrote as its role, so `tile=role:reader` names it in every door.
+  expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.role)).toEqual(["tree", "reader", "props", "backlinks"]);
   // A door without the list drawer is told so on each tile it can't draw, in words, and still gets the reader's.
   const pages = await screens({ drawers: ["page"] });
   expect(pages.screens.find(s => s.name === "desk")!.problems).toEqual([

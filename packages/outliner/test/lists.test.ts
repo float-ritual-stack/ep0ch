@@ -101,7 +101,7 @@ test("facets: the properties the matches carry as rows, a group a key, each a pi
   const found = await list("facets", { query: "type=bed" });
   expect(found.list.groups!.map(g => g.name)).toEqual(expect.arrayContaining(["type", "stage", "crop"]));
   const sown = found.list.rows.find(r => r.id === "stage=sown")!;
-  expect(sown).toMatchObject({ label: "sown", detail: "2", group: "stage", chips: [{ key: "stage", value: "sown" }], do: { run: { action: "list.narrow", args: { key: "stage", value: "sown" } } }, act: `list.narrow key="stage" value="sown"` });
+  expect(sown).toMatchObject({ label: "sown", detail: "2", group: "stage", chips: [{ key: "stage", value: "sown" }], do: { run: { action: "facets.set", args: { key: "stage", value: "sown" } } }, act: `facets.set key="stage" value="sown"` });
 });
 
 test("search: notes by the words typed, ranked by the one search, each saying where it sits", async () => {
