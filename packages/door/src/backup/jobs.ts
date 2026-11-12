@@ -139,7 +139,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   const note = (line: string) => { if (o.verbose) say(line); };
-  o.step?.(`archiving ${outlines.length} outline${outlines.length === 1 ? "" : "s"}' logs`);
+  o.step?.(`archiving the log of ${outlines.length} outline${outlines.length === 1 ? "" : "s"}`);
   // Each outline's new entries into its archive, here, first: what is archived is kept whatever the upload does.
   const changed: { name: string; logId: string; lsn: number; schema: number; ranges: LogRange[] }[] = [];
   for (const x of outlines) {

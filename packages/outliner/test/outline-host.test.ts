@@ -591,6 +591,18 @@ test("UUID links and backlinks cross forwarded host sockets without switching ou
 
 
 /**
+ * Every ssh this process starts goes to the fake one, which reaches nobody (FAKE_SSH_DOWN): the copies' followers try
+ * their home (the laptop) through the shared forward, and a test never reaches a real machine.
+ */
+function sshReachesNobody(root: string): void {
+  const saved = Object.fromEntries(["EP0CH_SSH", "FAKE_SSH_DOWN", "FAKE_SSH_HOME", "FAKE_SSH_OUTLINES"].map(k => [k, process.env[k]]));
+  const ssh = join(root, "ssh-down");
+  writeFileSync(ssh, `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fake-ssh.ts")}' "$@"\n`, { mode: 0o700 });
+  Object.assign(process.env, { EP0CH_SSH: ssh, FAKE_SSH_DOWN: "1", FAKE_SSH_HOME: join(root, "nobody-home"), FAKE_SSH_OUTLINES: join(root, "nobody-outlines") });
+  cleanups.push(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+}
+
+/**
  * The copy a follower here made of `outline` while its home answered at `socket` (outline-follower.ts, ADR 0009): its
  * home's log applied into `<mirrors>/<machine>/`. Returns the newest change it holds (what a read says as `asOf`).
  */
@@ -606,6 +618,7 @@ async function followedCopy(mirrors: string, machine: string, outline: string, s
 
 test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
+  sshReachesNobody(root);
   const previous = process.env.EP0CH_MCP_MIRROR_DIR;
   process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
   cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
@@ -646,6 +659,7 @@ test("away machines answer links from a read-only copy while silent forwards tim
 
 test("an away machine's big copies answer links while the door's reads keep their turn (PIE-1546)", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
+  sshReachesNobody(root);
   const previous = process.env.EP0CH_MCP_MIRROR_DIR;
   process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
   cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });

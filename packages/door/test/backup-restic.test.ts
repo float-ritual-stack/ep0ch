@@ -266,7 +266,7 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     await write(laptop, "garden", ["Net the brassicas"]);
     expect(await backupCommand(["backup", "run"], { out: s => out.push(s), err: s => err.push(s), terminal }, env)).toBe(0);
     const text = drawn.join("").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
-    expect(text).toContain("archiving 2 outlines' logs");
+    expect(text).toContain("archiving the log of 2 outlines");
     expect(text).toContain("garden: uploading its archive to restic");
     expect(text).toMatch(/✓ garden \(log entry \d+\) → snapshot [0-9a-f]{8}/);
     expect(out).toEqual([]);

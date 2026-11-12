@@ -214,7 +214,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(hubHolds("garden")).toBe(ranges.at(-1)!.entries.at(-1)!.lsn);
   }, 120_000);
 
-  test("a damaged or misdescribed log is refused, and so is the hub's own name", async () => {
+  test("a damaged or misdescribed log is refused, and so are the hub's own name and a machine it doesn't take", async () => {
     const part = join(dir, "bad.jsonl");
     const logId = readBackupState(laptop.state).outlines.garden!.logId!;
     const ranges = archivedRanges(archiveRoot(laptop, "laptop"), "garden", logId);
@@ -222,6 +222,8 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     const r = (o: Partial<Parameters<typeof receive>[1]>) => receive(hub, { machine: "laptop", outline: "garden", part, lockWaitMs: 200, ...o });
     expect(await r({ sha256: "0".repeat(64) })).toMatchObject({ ok: false, error: expect.stringContaining("damaged") });
     expect(await r({ machine: "float-2" })).toMatchObject({ ok: false });
+    // A machine this hub doesn't take relays from (EP0CH_BACKUP_MIRRORS names it) is refused, naming the setting.
+    expect(await r({ machine: "stranger" })).toMatchObject({ ok: false, error: expect.stringContaining("EP0CH_BACKUP_MIRRORS") });
     expect(await r({ outline: "../garden" })).toMatchObject({ ok: false, error: expect.stringContaining("isn't an outline name") });
     writeFileSync(part, [ranges[0], { ...ranges.at(-1)!, logId: "00000000-0000-4000-8000-000000000000" }].map(x => JSON.stringify(x)).join("\n") + "\n");
     expect(await r({})).toMatchObject({ ok: false, error: expect.stringContaining("aren't of one log") });

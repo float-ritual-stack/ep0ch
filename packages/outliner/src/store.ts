@@ -2261,7 +2261,7 @@ export class OutlinerStore {
 
   /** Forgets every stored result of an extension's handler lines (its folder is gone). */
   forgetExtensionOutputs(extensionId: string): number {
-    return this.database.query("DELETE FROM extension_outputs WHERE extension_id = ?").run(extensionId).changes;
+    return this.database.query("DELETE FROM extension_outputs WHERE extension_id = ? RETURNING 1").all(extensionId).length;
   }
 
   /**

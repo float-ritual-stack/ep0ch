@@ -17,7 +17,7 @@
 // A copy older than this build's schema (a deploy here while the home sleeps) is taken up by `migrate` and served,
 // stale, until the home's own migration writes the genesis it rebuilds from.
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { isMachineName, isOutlineName, outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -146,6 +146,8 @@ interface Folder {
 const ANSWER_CHECK_MS = 5_000;
 /** How long a read waits for the first copy to arrive; a home that accepts and never answers doesn't hold reads up. */
 const FIRST_COPY_WAIT_MS = 3_000;
+/** A home that wasn't reached is asked again after this (each ask can be an ssh spawn). */
+const REACH_BACKOFF_MS = 15_000;
 const folders = new Map<string, Folder>();
 
 const statusFile = (dir: string, outline: string) => join(dir, ".follow", `${outline}.json`);
@@ -180,6 +182,8 @@ class FollowLoop {
   private timer: ReturnType<typeof setInterval> | null = null;
   private watcher: { stop(): Promise<void> } | null = null;
   private stopped = false;
+  /** The home's last refusal to be reached, and when: asked again only after REACH_BACKOFF_MS (an ssh spawn each time). */
+  private unreached: { at: number; error: Error } | null = null;
   status: FollowStatus;
 
   constructor(private readonly folder: Folder, readonly outline: string, private readonly o: Required<Pick<OutlineFollowerOptions<unknown>, "log" | "now" | "schema" | "migrate" | "label" | "reach" | "everyMs">>) {
@@ -200,13 +204,13 @@ class FollowLoop {
     const { OutlinerWatcher } = await import(CLIENT_MODULE) as typeof import("./client");
     if (this.stopped) return;
     let socket: string;
-    try { socket = await this.o.reach(this.folder.machine); } catch { setTimeout(() => void this.watch(), this.o.everyMs).unref?.(); return; }
+    try { socket = await this.reachHome(); } catch { setTimeout(() => void this.watch(), this.o.everyMs).unref?.(); return; }
     let soon: ReturnType<typeof setTimeout> | null = null;
     const nudge = () => { if (soon) return; soon = setTimeout(() => { soon = null; void this.pull(); }, 150); (soon as { unref?: () => void }).unref?.(); };
     this.watcher = new OutlinerWatcher(socket, {
       client: { clientId: `follower:${process.pid}:${this.outline}`, role: "observer", contextId: "follow" },
       onConnect: nudge, onEvent: nudge, onError: () => {},
-    }, 5_000, this.outline, async () => { await this.o.reach(this.folder.machine); });
+    }, 5_000, this.outline, async () => { await this.reachHome(); });
   }
 
   /** One pull at a time; a pull asked for while one runs runs once more after it. */
@@ -227,21 +231,41 @@ class FollowLoop {
     writeStatus(this.folder.dir, this.outline, this.status);
   }
 
+  /** The home's host socket, or why not; a home that wasn't reached isn't asked again for REACH_BACKOFF_MS. */
+  private async reachHome(): Promise<string> {
+    if (this.unreached && this.o.now() - this.unreached.at < REACH_BACKOFF_MS) throw this.unreached.error;
+    try { const socket = await this.o.reach(this.folder.machine); this.unreached = null; return socket; }
+    catch (e) { this.unreached = { at: this.o.now(), error: e as Error }; throw e; }
+  }
+
   private async client() {
     const { OutlinerClient } = await import(CLIENT_MODULE) as typeof import("./client");
-    return new OutlinerClient(await this.o.reach(this.folder.machine), 30_000, this.outline);
+    return new OutlinerClient(await this.reachHome(), 15_000, this.outline);
   }
 
   private async pullNow(): Promise<void> {
+    const host = this.folder.owner!;
+    // The copy here first, whether or not its home answers: one older than this build is taken up, and one found here
+    // with nothing said of it (an earlier copy, a status file lost) is served as it is until the home answers.
+    let opened: Awaited<ReturnType<FolderHost["open"]>> | null = null;
+    if (existsSync(this.file)) {
+      try { opened = await host.open(this.outline); }
+      catch (e) {
+        if (!(await this.takeUp(e))) return;
+        try { opened = await host.open(this.outline); }
+        catch (again) { this.stale(`the copy can't be opened: ${(again as Error).message}`); return; }
+      }
+      if (!this.status.copiedAt) {
+        const at = new Date(statSync(this.file).mtimeMs).toISOString();
+        this.status = { ...this.status, cursor: opened.store.logCursor().lsn, asOf: at, copiedAt: at, homeInstanceId: opened.store.outlineInstanceId };
+        writeStatus(this.folder.dir, this.outline, this.status);
+      }
+    }
     let home;
     try { home = await this.client(); } catch (e) { this.stale(`${this.folder.machine} doesn't answer: ${(e as Error).message}`); return; }
     const ask = (after: number) => home.request<LogRange>({ action: "log.range", after, limit: RANGE_LIMIT } as never);
     try {
-      if (!existsSync(this.file)) { await this.rebuild(ask, "a first copy"); return; }
-      const host = this.folder.owner!;
-      let opened;
-      try { opened = await host.open(this.outline); }
-      catch (e) { if (!(await this.takeUp(e))) return; opened = await host.open(this.outline); }
+      if (!opened) { await this.rebuild(ask, "a first copy"); return; }
       for (;;) {
         const at = opened.store.logCursor();
         const range = await ask(at.lsn);
@@ -318,7 +342,8 @@ class FollowLoop {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     await this.watcher?.stop();
-    await this.pulling?.catch(() => {});
+    // A pull waiting on a silent home isn't waited out: what it brings lands, or doesn't, after.
+    await Promise.race([this.pulling?.catch(() => {}), Bun.sleep(1_000)]);
   }
 }
 
@@ -356,7 +381,10 @@ export class OutlineFollower<B> {
     // Shared by every process that serves the copy: a snapshot link the gateway mints is downloaded through the web
     // client, and what the web client's pages show is what the gateway's reader_view says (PIE-1091).
     this.shares = join(folder, ".shares", machine);
+    // Followed from the start, not from the first read: a read comes when the home is already away.
+    this.starting = this.folder().then(() => {}, e => this.log(`${this.label} ${outline}@${machine}: ${(e as Error).message}`));
   }
+  private readonly starting: Promise<void>;
 
   /**
    * The name the outline's own machine gives itself (its host's hostname, as a URI machine name), learned the last time
@@ -386,7 +414,7 @@ export class OutlineFollower<B> {
       }
     }
     await f.claiming;
-    if (f.owner && !this.looping) {
+    if (f.owner && !this.looping && !this.closed) {
       this.looping = true;
       let entry = f.loops.get(this.outline);
       if (!entry) {
@@ -394,7 +422,7 @@ export class OutlineFollower<B> {
         f.loops.set(this.outline, entry = { loop, users: 0 });
         loop.start();
         const first = loop.pull();
-        if (!this.exists()) await Promise.race([first, Bun.sleep(FIRST_COPY_WAIT_MS)]);
+        if (!this.exists() || !readStatus(this.dir, this.outline)?.copiedAt) await Promise.race([first, Bun.sleep(FIRST_COPY_WAIT_MS)]);
       }
       entry.users++;
     }
@@ -420,6 +448,11 @@ export class OutlineFollower<B> {
     const status = readStatus(this.dir, this.outline);
     if (!this.exists() || !status?.copiedAt) {
       const why = status?.stale?.why;
+      if (this.exists() && why) {
+        // The access setting stays known while the copy can't be read: the list says what a write would become.
+        const access = accessOf(this.follow);
+        return { error: `can't be read: ${why}`, ...(access ? { access } : {}) };
+      }
       return { error: `hasn't arrived yet (${why ?? `${this.machine}'s log hasn't been followed here yet`})` };
     }
     if (!f.owner && f.answeredAt === 0) return { error: "isn't served: the process that serves it has stopped; the next read takes it over" };
@@ -447,6 +480,7 @@ export class OutlineFollower<B> {
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.starting;
     this.attached?.close();
     this.attached = null;
     const f = folders.get(this.dir);
