@@ -66,15 +66,22 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       await Bun.sleep(4000);
       expect(asked().length).toBe(before);
       expect(p.flat()).toContain("asksonceyouleave");
-      p.type("ds");
+      // Longer than the edit is wide, at either size: it wraps (PIE-1757).
+      const rest = `ds ${"by the east fence ".repeat(Math.ceil(cols / 17))}${cols}`;
+      p.type(rest);
       await Bun.sleep(2500);
       expect(asked().length).toBe(before);
-      // Off the line: sent, as finally written.
-      p.keys("Enter");
-      p.type("and the peas");
-      await until(() => asked().length > before, "the ask sent once the line was left", 10_000);
-      expect(asked().slice(before)).toEqual([`the be${cols}ds`]);
-      await until(() => p.flat().includes(`@tallythebe${cols}ds·`) && !p.flat().includes("asksonceyouleave"), "its line saying how it went", 10_000);
+      // Off the line by one ↑ up its wrap (PIE-1757: the cursor stays on the line, a row up, and that is leaving it): sent,
+      // as finally written.
+      p.keys("Up");
+      await until(() => asked().length > before, "the ask sent by one ↑", 10_000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(asked().slice(before)).toEqual([`the be${cols}${rest}`]);
+      await until(() => !p.flat().includes("asksonceyouleave"), "its line saying how it went", 10_000);
+      // Typed on again, it is another ask, waiting for the person again.
+      p.keys("End");
+      p.type(" too");
+      await until(() => p.flat().includes("asksonceyouleave"), "the retyped ask waiting again", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(asked().length).toBe(before + 1);
     } finally { p.close(); }
   }, 45_000);
 
@@ -85,7 +92,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     const ask = "@tally the trays";
     const id = await create(`${title}\n${ask}`);
     await untilAsync(async () => (await board.get(id))!.text.includes("@tally answered"), "the first answer", 15_000);
-    const p = await pane(id, title, 44, 16);
+    const p = await pane(id, title, 44, 30);
     /** The answer tile's words: each row's part between the tile's side borders. */
     const tile = () => p.capture().split("\n").map(l => l.split("│")[1] ?? "").join(" ").replace(/\s+/g, " ");
     /** The edit's words, the same way: between its side borders. */
@@ -103,11 +110,11 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
   }, 45_000);
 
   // Codex on #1445: the edit closed and opened again beside the same answer tile; typed on, the tile still follows.
-  test("a reopened edit: one character typed on an answered ask, and the tile beside it still says what the line says", async () => {
+  test("a reopened edit: words typed on an answered ask, and the tile beside it still says what the line says", async () => {
     const title = "Seed tin";
     const id = await create(`${title}\n@tally the packets`);
     await untilAsync(async () => (await board.get(id))!.text.includes("@tally answered"), "the first answer", 15_000);
-    const p = await pane(id, title, 44, 16);
+    const p = await pane(id, title, 44, 30);
     const tile = () => p.capture().split("\n").map(l => l.split("│")[1] ?? "").join(" ").replace(/\s+/g, " ");
     const edit = () => p.capture().split("\n").map(l => l.split("║")[1] ?? "").join(" ").replace(/\s+/g, " ");
     try {
@@ -121,13 +128,28 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       await until(() => p.capture().includes("» editing"), "the edit again", 5000);
       // It opens where the edit was left, on the ask: no move onto it selects it.
       p.keys("End");
-      p.type(" n");
+      p.type(" please");
       await until(() => edit().includes("asks once you leave the line or save"), "the line saying it waits", 8000);
       await until(() => tile().includes("asks once you leave the line or save"), "the answer tile saying the same", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      // PIE-1757: put aside (esc, esc), the saved note still has the ask as it was, answered: the tile says that answer,
+      // never "its ask is gone"; opened again, it says what the line says.
+      p.keys("Escape"); p.keys("Escape");
+      await until(() => !p.capture().includes("» editing"), "the edit put aside", 5000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      await until(() => tile().includes("counted: the packets"), "the tile saying the saved ask's answer", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(tile()).not.toContain("gone");
+      // e opens it, or arms first and a second e opens it.
+      p.keys("e");
+      await until(() => p.capture().includes("» editing") || p.capture().includes("opens it"), "the edit back, or armed", 8000);
+      if (!p.capture().includes("» editing")) p.keys("e");
+      await until(() => edit().includes("@tally the packets please"), "the edit back with its words", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      await until(() => !tile().includes("gone") && tile().includes("counted: the packets"), "the tile saying what the line says (answered)", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
     } finally { p.close(); }
   }, 45_000);
 
-  test("a click on another line leaves the ask's line: it is sent", async () => {
+  // In a 44×16 pane, below would leave the edit two rows of text: the answer opens as a tab behind it (PIE-1757), the edit
+  // whole, its row saying so, and the person types on; ^W ] shows the answer, ^W [ the edit again, the cursor where it was.
+  // The tests that read the answer tile's words run at 44×30, where it opens below (the sketch on PIE-1757).
+  test("a click on another line leaves the ask's line: it is sent; in a 44×16 pane its answer is a tab behind the edit", async () => {
     const title = "Cold frame";
     const id = await create(`${title}\nprop the lid open`);
     const p = await pane(id, title, 44, 16);
@@ -144,6 +166,20 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       p.type(`\x1b[<0;${col};${row + 1}M`); p.type(`\x1b[<0;${col};${row + 1}m`);
       await until(() => asked().length > before, "the ask sent once the click left its line", 10_000);
       expect(asked().slice(before)).toEqual(["the seed trays"]);
+      const words = () => p.capture().split("\n").map(l => l.split("║")[1] ?? "").join(" ").replace(/\s+/g, " ");
+      await until(() => /editing · 1 Cold frame 2 @t/.test(p.capture()) && words().includes("· in a tab"), "the answer a tab behind the edit, its row saying so", 15_000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(p.capture()).not.toContain("┌");
+      expect(words()).not.toContain("beside ▸");
+      // Typed after it opened: the words land in the edit.
+      p.keys("End");
+      p.type(" and vent it");
+      await until(() => words().includes("prop the lid open and vent it"), "typing on in the edit", 5000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      p.keys("C-w"); p.keys("]");
+      await until(() => p.capture().includes("counted: the seed trays"), "the answer, its tab shown", 5000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      p.keys("C-w"); p.keys("[");
+      await until(() => p.capture().includes("» editing"), "the edit shown again", 5000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      p.type("!");
+      await until(() => words().includes("prop the lid open and vent it!"), "the cursor where it was", 5000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
     } finally { p.close(); }
   }, 45_000);
 

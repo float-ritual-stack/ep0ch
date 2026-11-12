@@ -174,6 +174,7 @@ export class Draft {
   set row(value: number) {
     const was = this.position.cursor.row;
     this.position.cursor.row = value;
+    if (value !== was) this.leftOn = null;
     // The cursor left the line the person last typed on: the service hears it, so an ask written there is sent (PIE-1743).
     // That line moved with the cursor on it (an answer landing above) is no leaving.
     if (this.typedOn !== null && value !== this.typedOn) {
@@ -194,6 +195,24 @@ export class Draft {
   }
   /** The line the person last typed on (its row and its text), until the cursor leaves it (PIE-1743). */
   private typedOn: number | null = null;
+  /**
+   * The line the cursor is on that the person has left all the same (PIE-1757): an ↑ on a wrapped line that keeps the
+   * cursor on it, a row up, counts as leaving it, as an ↑ off a line of one row does. Until the cursor moves to another
+   * line or the person types again.
+   */
+  private leftOn: number | null = null;
+  /**
+   * The line the person is writing on, as the service is told (the draft's read, `cursorLine`): the cursor's line, unless
+   * they have left it (`leftOn`). An ask there waits for them (PIE-1743); one on any other line is sent.
+   */
+  get writingOn(): number | undefined { return this.leftOn === this.row ? undefined : this.row; }
+  /** An ↑ that kept the cursor on line `row`, a row up its wrap: leaving it, for an ask typed or held there (PIE-1757). */
+  private upWithin(row: number) {
+    if (this.row !== row || (this.typedOn !== row && !this.waitingAt(row))) return;
+    this.typedOn = null;
+    this.leftOn = row;
+    this.onPersonTyped?.();
+  }
   private typedLine = "";
   get col() { return this.position.cursor.col; }
   set col(value: number) { this.position.cursor.col = value; }
@@ -370,7 +389,7 @@ export class Draft {
   }
 
   private markWriter(who: Actor) {
-    if (who.kind === "user") { this.typedOn = this.row; this.typedLine = this.lines[this.row] ?? ""; this.onPersonTyped?.(); }
+    if (who.kind === "user") { this.leftOn = null; this.typedOn = this.row; this.typedLine = this.lines[this.row] ?? ""; this.onPersonTyped?.(); }
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
@@ -751,7 +770,7 @@ export class Draft {
         else if (this.row < L.length - 1) { this.row++; this.col = 0; }
         break;
       // Up and down move by the rows drawn (a wrapped line is several), keeping the column they started at.
-      case "up": this.views.raw.moveBy(-1); break;
+      case "up": { const c0 = this.col; this.views.raw.moveBy(-1); if (this.col !== c0) this.upWithin(r0); break; }
       case "down": this.views.raw.moveBy(1); break;
       case "pgup": this.views.raw.moveBy(-this.views.raw.pageRows()); break;
       case "pgdn": this.views.raw.moveBy(this.views.raw.pageRows()); break;
@@ -1489,13 +1508,18 @@ export class Draft {
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
-      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + (ask.beside ? " · beside ▸" : "");
+      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + (ask.beside ? ` · ${this.answerWords()}` : "");
       return width(whole) > room && width(said) <= room ? said : whole;
     }
-    const short = ` · ${ask.state}${ask.beside ? " · beside ▸" : ""}`;
-    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
+    const short = ` · ${ask.state}${ask.beside ? ` · ${this.answerWords()}` : ""}`;
+    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? ` · ${this.answerWords()}` : ""}`;
     return width(full) <= room ? full : short;
   }
+
+  /** Where the answer tile is beside this draft's reader (its host's desk says, PIE-1757): null before one opens. */
+  answerSide: (() => "left" | "right" | "up" | "down" | "tab" | null | undefined) | null = null;
+  /** Where an ask's answer is, as its row says it: beside ▸ until a tile says otherwise (below ▾, in a tab). */
+  private answerWords(): string { return ANSWER_WORDS[this.answerSide?.() ?? "right"]; }
 
   /** The asks (`askKey`) the text this draft opened on (or reloaded) already had an answer under. */
   private answeredAtOpen(): Set<string> {
@@ -1566,6 +1590,8 @@ export class Draft {
 
 
 /** The keys that select with shift held (`Draft.key`). */
+/** An ask row's words for where its answer tile is, by its side of the pair with the reader (PIE-1757). */
+const ANSWER_WORDS = { right: "beside ▸", left: "◂ beside", down: "below ▾", up: "above ▴", tab: "in a tab" } as const;
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
 
 export { hangOf, wrapRows, type VRow } from "./draft-view";
