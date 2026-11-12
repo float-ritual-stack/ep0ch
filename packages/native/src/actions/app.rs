@@ -266,7 +266,7 @@ impl App {
     pub fn reader(&self) -> Option<Id> {
         let reads = |tile: &Id| self.row_of(tile).is_some_and(|row| row.notes);
         self.aimed.clone().filter(reads).or_else(|| Some(self.layout.focus.clone()).filter(reads))
-            .or_else(|| self.screen.lands().and_then(|name| self.layout.named(name)).filter(reads))
+            .or_else(|| self.screen.lands().and_then(|address| self.layout.resolve(address, None, &self.screen.name).ok()).filter(reads))
             .or_else(|| self.layout.all().into_iter().find(reads))
     }
     /// The tree an act about "the tree" means: the one aimed at, else the first.
@@ -352,7 +352,12 @@ impl App {
         let row = tiles::kind(&kind);
         // A reader that holds unsaved text holds an edit: an open lands beside it, and it isn't closed.
         let editing = self.editing.as_ref().filter(|e| e.tile == tile && self.unsaved()).map(|e| format!("an edit of {}", self.page_of(tile).map_or(e.note.as_str(), |p| p.title.as_str())));
-        layout::Facts { kind, notes: row.is_some_and(|r| r.notes), lists: row.is_some_and(|r| r.lists), follower: row.is_some_and(|r| r.follower), showing: row.filter(|r| r.notes).and_then(|_| self.note_of(tile)), editing, ..layout::Facts::default() }
+        // A tile that reads no notes has a home, where its own opens land when no wire or container says: the tile
+        // it follows (`source: tile:`), else where the screen says opens land.
+        let notes = row.is_some_and(|r| r.notes);
+        let follows = spec.and_then(|spec| spec.text("source")).and_then(|s| s.strip_prefix("tile:")).and_then(|address| self.layout.resolve(address, Some(tile), &self.screen.name).ok());
+        let home = if notes { None } else { follows.or_else(|| self.screen.lands().and_then(|name| self.layout.named(name))).map(|id| self.layout.name(&id)) };
+        layout::Facts { kind, notes, lists: row.is_some_and(|r| r.lists), follower: row.is_some_and(|r| r.follower), showing: row.filter(|r| r.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: it holds unsaved text. The fact is the one the layout's rules read

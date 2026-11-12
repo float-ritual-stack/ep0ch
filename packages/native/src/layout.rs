@@ -180,6 +180,8 @@ pub struct Ctx<'a> {
     /// How this layout says its own name, with its lock chip and what covers it.
     pub own: Option<(String, Option<String>, Option<String>)>,
     pub home: Option<Id>,
+    /// Where the screen says an open naming no tile lands (its spec's `lands`): a tile's name, or a container's key.
+    pub lands: Option<String>,
     /// Another screen takes opens this one has no reader for: its name, or none there.
     pub screen: Option<Option<String>>,
     pub outward: Option<String>,
@@ -189,7 +191,7 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     /// The person at the keys, in an area.
     pub fn person(facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> {
-        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, screen: None, outward: None, fresh_action: None }
+        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, lands: None, screen: None, outward: None, fresh_action: None }
     }
     /// An agent: its opens land beside the person, and the tile they type in is left as it is.
     pub fn agent(id: &str, facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> { Ctx { by: By::Agent(id.to_string()), standing: false, keys: false, protect_typing: true, ..Ctx::person(facts, area) } }

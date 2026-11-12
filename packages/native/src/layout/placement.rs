@@ -207,6 +207,14 @@ fn hand_out(screen: &Option<String>) -> Destination {
 
 /// Where an open lands, as the door decides it.
 pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
+    // An open from outside any tile lands where the screen says its opens land: the tile `lands` names, else the
+    // container keyed so (the door's `Desk.landingRequest`). One that says a tile or a container itself is past this.
+    if request.default && request.to.is_none() && request.container.is_none() && request.at.is_none() && request.new_note.is_none() && let Some(lands) = &ctx.lands {
+        return match s.named(lands) {
+            Some(tile) => placement(s, &Request { to: Some(tile), ..request.clone() }, ctx),
+            None => placement(s, &Request { container: Some(lands.clone()), default: false, ..request.clone() }, ctx),
+        };
+    }
     let (from, to, fresh, note) = (&request.from, &request.to, request.fresh, &request.note);
     let facts = |id: &str| (ctx.facts)(id);
     let verb = if request.hover { "hover" } else if fresh { "alt" } else { "open" };

@@ -174,7 +174,8 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
 fn an_address_is_read_by_the_layout_s_resolver_alone() {
     none("an address read outside the grammar's file and the layout's resolver", strays("Address::", |path| path == "actline.rs" || path == "layout/address.rs"));
     none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)", "lands().and_then(|name| app.layout.named"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
-    assert_eq!(calls("resolve", |path| path.starts_with("layout") || path == "client.rs").len(), 2, "two callers of the resolver: an act's tile (`App::tile_named`) and a follower's source");
+    // Its callers: an act's tile (`App::tile_named`), and in app.rs a follower's source and the screen's `lands` as a name.
+    none("the resolver asked from somewhere new", calls("resolve", |path| path.starts_with("layout") || path == "client.rs" || path == "actions/mod.rs" || path == "actions/app.rs"));
 }
 
 /// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).

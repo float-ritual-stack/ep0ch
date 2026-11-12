@@ -6,9 +6,10 @@ use serde_json::json;
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{Action, Actor, App, Notice, Outcome, nav, word};
 use crate::actline::Args;
+use crate::layout::Request;
 use crate::store::Reply;
 
-static NEW: ActionRow = ActionRow::new("note.new", Touches::Nothing, "a new note under the open one (or near=<id>; with nothing open, at the top level). The person's opens to be written, at the revision the service made it at; an agent's is made and said, and opens nothing")
+static NEW: ActionRow = ActionRow::new("note.new", Touches::Nothing, "a new note under the open one (or near=<id>; with nothing open, at the top level). The person's opens to be written, at the revision the service made it at, where the screen's rule for new notes says (a float, a tab, where its opens land); an agent's is made and said, and opens nothing")
     .args(&[
         ("text", ArgSpec::text("its text: a title line, a body, [key::value] properties. The person's starts empty").optional()),
         ("near", ArgSpec::text("make it under this note (a block id) instead of the open one").optional().kind("note")),
@@ -50,12 +51,19 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         app.st.notice = Some(Notice::problem(why.clone()));
         return Outcome::refused(why);
     }
+    // The tile it is made from: the one aimed at, else the one with the keys. The screen's rule for a new note
+    // made there may be another action altogether (a board's lane makes a card).
+    let from = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
+    let rule = app.spec(&from).map(|spec| spec.kind.clone()).and_then(|kind| app.screen.new_note(&kind).cloned());
+    if by.is_person() && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
+        let given = rule.as_ref().and_then(|rule| rule["args"].as_object()).cloned().unwrap_or_default();
+        return app.act(&crate::actline::line_of(action, &given), by.clone());
+    }
     let parent = args.text("near").map(str::to_string).or_else(|| app.subject());
     if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.tree_tile()) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
-    // The new note opens in the reader this act means: said now, while the act's aim is known.
-    let reader = app.reader();
+    let opens = rule.as_ref().and_then(|rule| rule["opens"].as_str()).unwrap_or("float");
     let at = app.at.clone();
-    app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent, "reader": reader }));
+    app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent, "from": from, "opens": opens }));
     Outcome::done()
 }
 
@@ -69,11 +77,22 @@ fn created(app: &mut App, reply: Reply) {
         app.st.notice = Some(Notice::info(format!("{} made a note.", reply.by.label())));
         return;
     }
-    let Some(reader) = reply.ctx["reader"].as_str().map(str::to_string).filter(|tile| app.spec(tile).is_some()).or_else(|| app.reader()) else { app.wrote(&[parent]); return };
-    app.show(&reader, &id, true);
-    app.st.bar.open = false;
+    // Where it opens is the layout's to say, asked as the screen's rule puts it: a float over the screen, a tab on
+    // the tile it was made from, or where the screen's opens land. (This window has no drawer: its notes float.)
+    let from = reply.ctx["from"].as_str().map(str::to_string).filter(|tile| app.spec(tile).is_some()).unwrap_or_else(|| app.layout.focus.clone());
+    let request = match reply.ctx["opens"].as_str() {
+        Some("lands") => Request { from, note: id.clone(), default: true, ..Request::default() },
+        Some("tab") => Request { from, note: id.clone(), new_note: Some("tab".into()), ..Request::default() },
+        _ => Request { from, note: id.clone(), new_note: Some("float".into()), ..Request::default() },
+    };
+    let landed = nav::land(app, request, &reply.by, true);
+    let Some(tile) = landed.answer["tile"].as_str().and_then(|name| app.layout.named(name)) else {
+        app.st.notice = Some(Notice::problem(format!("The note was made, and nothing here opens it: {}", landed.said)));
+        app.wrote(&[parent]);
+        return;
+    };
     // A new note opens to be written, at the revision the service made it at.
-    app.begin(reader, id, revision, text, &reply.by);
+    app.begin(tile, id, revision, text, &reply.by);
     app.keep();
     app.wrote(&[parent]);
 }

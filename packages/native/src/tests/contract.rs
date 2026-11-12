@@ -92,7 +92,7 @@ fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_per
     Ctx {
         by, standing: stands("standing", !agent), keys: stands("keys", !agent), protect_typing: stands("protectTyping", agent),
         typing_in: text(person, "typingIn"), busy: flag(person, "busy") == Some(true), yolo: flag(person, "yolo") == Some(true), here: flag(person, "here"),
-        facts, area, kinds: kinds.clone(), expected: extra.get("expected").cloned(), screen_host: text(extra, "screenHost"), other_names: texts(extra, "otherNames"), empties: flag(extra, "empties") == Some(true),
+        facts, area, kinds: kinds.clone(), expected: extra.get("expected").cloned(), screen_host: text(extra, "screenHost"), other_names: texts(extra, "otherNames"), empties: flag(extra, "empties") == Some(true), lands: None,
         beside: extra.get("beside").and_then(Value::as_object).map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect()).unwrap_or_default(),
         opened: extra.get("opened").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), texts(v, "ids"), text(v, "active"))).collect()).unwrap_or_default(),
         own: extra.get("self").map(|s| (text(s, "name").unwrap_or_default(), text(s, "chip"), text(s, "covered"))),

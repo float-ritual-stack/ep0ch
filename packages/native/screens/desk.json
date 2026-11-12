@@ -2,6 +2,7 @@
   "name": "desk",
   "title": "Desk",
   "lands": "reader",
+  "newNote": [{ "opens": "lands" }],
   "toolbar": ["back", "bar.open", "bar.open scope=query", "note.new", "tile.split", "screen.save", "screen.reset", "dock.toggle side=right"],
   "layout": {
     "focus": "reader",

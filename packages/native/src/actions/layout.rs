@@ -60,6 +60,7 @@ impl App {
         let mut ctx = match by { Actor::Person => Ctx::person(&facts, self.area), Actor::Agent(id) => Ctx::agent(id, &facts, self.area) };
         ctx.typing_in = person.typing_in.as_deref().and_then(|name| self.layout.named(name));
         ctx.busy = person.busy;
+        ctx.lands = self.screen.lands().map(str::to_string);
         ctx.kinds = Some(Kinds { all: tiles::KINDS.iter().map(|row| row.kind.to_string()).collect(), notes: tiles::KINDS.iter().filter(|row| row.notes).map(|row| row.kind.to_string()).collect() });
         ask(&ctx)
     }
