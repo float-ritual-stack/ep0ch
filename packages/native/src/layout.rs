@@ -9,6 +9,7 @@
 //! own answers are written down in `outline-core/fixtures/layout-contract.json` and `place-contract.json`, and
 //! `tests/contract.rs` runs every row of both against this file. A layout reads from and saves to the door's saved
 //! form (`Layout::read`, `Layout::save`), so a screen saved in one door opens in the other.
+pub mod address;
 mod placement;
 mod step;
 pub mod tree;
@@ -453,6 +454,29 @@ impl Layout {
     pub fn name(&self, id: &str) -> String { self.names.get(id).cloned().unwrap_or_else(|| id.to_string()) }
     /// The tile named `name`.
     pub fn named(&self, name: &str) -> Option<Id> { self.names.0.iter().find(|(_, n)| n == name).map(|(id, _)| id.clone()) }
+    /// The tiles as an address reads them, on the screen named `screen`: a tile's role is the one set on it, else
+    /// its kind; its slots are its own name and the key of each container it is in.
+    pub fn candidates(&self, screen: &str) -> Vec<address::Candidate> {
+        self.all().into_iter().map(|id| {
+            let name = self.name(&id);
+            let spec = self.spec(&id);
+            let role = spec.and_then(|s| s.text("role")).map(str::to_string).unwrap_or_else(|| spec.map_or("tile", |s| s.kind.as_str()).to_string());
+            let chain = chain_of(self.tree(), &id);
+            let slots = std::iter::once(name.clone()).chain(chain.iter().filter_map(|p| self.tree().at(p)).filter_map(Node::key).map(str::to_string)).collect();
+            address::Candidate { from: self.opened_from.get(&id).map(|o| o.from.clone()), where_: format!("{screen}/{name}"), id, name, role, slots, screen: screen.to_string(), ..Default::default() }
+        }).collect()
+    }
+
+    /// The tile an address names here (`tile=`, `to=`, a follower's source): an id or its first characters, a role,
+    /// a slot on this screen, `^` from the tile `from`, and last a tile's name. The one resolver: why not, in its words.
+    pub fn resolve(&self, sel: &str, from: Option<&str>, screen: &str) -> Result<Id, String> {
+        let cs = self.candidates(screen);
+        match address::named(sel, &cs, from)? {
+            address::Named::Tile(at) => Ok(cs[at].id.clone()),
+            address::Named::None(why) => Err(why),
+            address::Named::Name(name) => self.named(&name).ok_or_else(|| format!("no tile {sel} here: this window has {}", self.names.0.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", "))),
+        }
+    }
     pub fn is_float(&self, id: &str) -> bool { self.floats.iter().any(|f| f.spec.id == id) }
     /// Every tile: the tree's, then the floats.
     pub fn all(&self) -> Vec<Id> { self.tree().leaves().into_iter().chain(self.floats.iter().map(|f| f.spec.id.clone())).collect() }

@@ -3,7 +3,7 @@
 // rows and screens). Nothing here decides anything: each table is made by calling the door's function on made-up input
 // (scripts/layout-contract/cases.ts) and recording what came back.
 //
-//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the five tables to packages/outline-core/fixtures/
+//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the six tables to packages/outline-core/fixtures/
 //   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check    write nothing; exit 1 naming each table that is stale
 //
 //   layout-contract.json   { layout, tiles, actor, person, op }      → the layout after, or the refusal   (apply)
@@ -36,8 +36,8 @@ import {
 import { builtinScreen, readSpec, screenNames, screenSpec, screenTargetArg, specData } from "../src/desk/screen-spec";
 import { tileKind, tileKinds } from "../src/desk/tile-kinds";
 import { canonSpec, tileKindNames, type LayoutSpec, type TileSpec } from "../src/desk/tiles";
-import { parseTileAddress } from "../src/desk/tile-address";
-import { ACT_LINES, AREA, LAYOUT_CASES, PLACE_CASES, TILE_ADDRESSES, type CaseCtx, type LayoutCase, type PlaceCase, type Scene } from "./layout-contract/cases";
+import { parseTileAddress, resolveAddress, resolveRelative, whyNone, type AddressCandidate } from "../src/desk/tile-address";
+import { ACT_LINES, ADDRESS_CASES, ADDRESS_TILES, AREA, LAYOUT_CASES, PLACE_CASES, TILE_ADDRESSES, type CaseCtx, type LayoutCase, type PlaceCase, type Scene } from "./layout-contract/cases";
 
 /** Where the tables are checked in: outline-core's, so both suites read one copy. */
 export const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
@@ -252,7 +252,26 @@ function actLine(c: { line: string; repeats?: "list"; typed?: true }, specs: Rea
   }
 }
 
-/** The five tables, by file name, as text. */
+/**
+ * Which tile an address names among `ADDRESS_TILES`, as the desk asks it (resolveTile): `^` by the openers recorded, an
+ * id, a role or a slot by the one resolver, with why when none has it; a refusal when several do. A name is the
+ * caller's own to read after these, so its row says only that it is one.
+ */
+function addressRow(c: { address: string; from?: string }) {
+  const cs: AddressCandidate<string>[] = ADDRESS_TILES.map(({ where, ...t }) => ({ ...t, value: t.id, where: () => where }));
+  const a = parseTileAddress(c.address);
+  try {
+    if (a.kind === "relative") return { ...c, tile: resolveRelative(a, cs, c.from).value };
+    if (a.kind === "name") return { ...c, name: a.name };
+    const hit = resolveAddress(a, cs);
+    return hit ? { ...c, tile: hit.value } : { ...c, none: whyNone(a, cs) };
+  } catch (e) {
+    if ((e as Error).name !== "ActionRefused") throw e;
+    return { ...c, refused: (e as Error).message };
+  }
+}
+
+/** The six tables, by file name, as text. */
 export function contractTables(): Record<string, string> {
   const layout = LAYOUT_CASES.map(layoutRow), place = PLACE_CASES.map(placeRow);
   for (const [what, rows] of [["layout", layout], ["place", place]] as const) {
@@ -276,6 +295,7 @@ export function contractTables(): Record<string, string> {
     "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal. Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA, kinds: kindsAsked() }, { cases: layout }),
     "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA, kinds: kindsAsked() }, { cases: place }),
     "act-lines.json": table({ about: "An act line: its words, the request it is, and (typed) its arguments as the action's row types them. A tile= is one of five kinds of address. Made by lineWords(), actRequestOf(), the door's coerceActionArgs() and parseTileAddress(); never edited by hand.", by: BY }, { lines: ACT_LINES.map(c => actLine(c, specs)), addresses: TILE_ADDRESSES.map(tile => ({ tile, address: parseTileAddress(tile) })) }),
+    "address-contract.json": table({ about: "Which tile an address names (tile=, to=, a follower's source) among the tiles a window has: the one tile, why none has it (none), or the refusal when several do (refused). A plain name is the caller's own to read after these (name). Made by outline-core's parseTileAddress(), resolveAddress(), resolveRelative() and whyNone(), in the order the door's desk asks them; never edited by hand.", by: BY }, { tiles: ADDRESS_TILES, cases: ADDRESS_CASES.map(addressRow) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
     "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. drawn names a field the screen drew as it made its spec (a hint row's strip): the table holds its words, without the colours and click marks. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
   };

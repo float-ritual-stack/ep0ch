@@ -168,6 +168,15 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
     assert!(text("keys.rs").contains("e.tile == self.layout.focus"), "the person's layer is read from the tile with the keys");
 }
 
+/// Which tile an address names is `Layout::resolve` (layout/address.rs, held to the door's resolver by
+/// address-contract.json): nothing else reads the address grammar or looks an argument's tile up by name.
+#[test]
+fn an_address_is_read_by_the_layout_s_resolver_alone() {
+    none("an address read outside the grammar's file and the layout's resolver", strays("Address::", |path| path == "actline.rs" || path == "layout/address.rs"));
+    none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)", "lands().and_then(|name| app.layout.named"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
+    assert_eq!(calls("resolve", |path| path.starts_with("layout") || path == "client.rs").len(), 2, "two callers of the resolver: an act's tile (`App::tile_named`) and a follower's source");
+}
+
 /// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
 /// No action's run refuses an agent for whose the thing is: the three left are named, each with why it is not the
 /// row's to say.

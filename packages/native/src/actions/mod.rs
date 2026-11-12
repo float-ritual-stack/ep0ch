@@ -27,7 +27,7 @@ use serde_json::{Map, Value, json};
 pub use app::{App, CELL, Editing, Field, Notice, Shown, TileUi, Tone, TreeLine};
 pub use row::ActionRow;
 
-use crate::actline::{self, Address, Args};
+use crate::actline::{self, Args};
 use crate::keys::Whereabouts;
 use crate::store::Reply;
 use row::{Touches, While};
@@ -150,17 +150,13 @@ impl App {
             Err(why) => { step.said = why.0; return self.invalid(step) }
         };
         step.args = args.json();
-        // `tile=` is an address (outline-core's grammar): here, a tile of the arrangement by its name or its id.
+        // `tile=` is an address: the layout's one resolver says which tile it names, or why none.
         let aimed = match req.tile.as_deref() {
             None => None,
-            Some(tile) => {
-                let found = match Address::parse(tile) { Address::Name(name) | Address::Role { role: name, scope: None } => self.layout.named(&name), Address::Id(id) => Some(id).filter(|id| self.layout.spec(id).is_some()), _ => None }.or_else(|| self.layout.named(tile));
-                let Some(found) = found else {
-                    step.said = format!("no tile {tile} here: this window has {}", self.layout.names.0.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", "));
-                    return self.invalid(step);
-                };
-                Some(found)
-            }
+            Some(tile) => match self.tile_named(tile, &by) {
+                Ok(found) => Some(found),
+                Err(why) => { step.said = why; return self.invalid(step) }
+            },
         };
         // The tile a tile-touching act is about: the one it names, else the reader. An open that names none is about
         // no tile yet: where it lands is the layout's to say, and the layout's rule keeps it off the person's tile.
@@ -180,6 +176,12 @@ impl App {
         self.steps_mut().push(step);
         self.pump();
         outcome
+    }
+
+    /// The tile an address names in this window, as `by` says it (`^` is from the tile with the person's keys):
+    /// the layout's resolver, asked by every argument that names a tile.
+    pub(in crate::actions) fn tile_named(&self, address: &str, by: &Actor) -> Result<String, String> {
+        self.layout.resolve(address, Some(self.layout.focus.as_str()).filter(|_| by.is_person()), &self.screen.name)
     }
 
     /// A step that never ran, recorded with why.

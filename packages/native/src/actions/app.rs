@@ -279,7 +279,7 @@ impl App {
     pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone().or_else(|| self.level(None).first().map(|row| row.id.clone())) }
     /// The note a follower is about: its source tile's (`source: tile:<name>`), else the reader's.
     pub fn followed_by(&self, tile: &str) -> Option<String> {
-        let source = self.spec(tile).and_then(|spec| spec.text("source")).and_then(|s| s.strip_prefix("tile:")).and_then(|name| self.layout.named(name));
+        let source = self.spec(tile).and_then(|spec| spec.text("source")).and_then(|s| s.strip_prefix("tile:")).and_then(|address| self.layout.resolve(address, Some(tile), &self.screen.name).ok());
         source.or_else(|| self.reader()).and_then(|reader| self.note_of(&reader))
     }
     /// The note a tree marks as the one open: the note of the reader its selection feeds, else the reader's.

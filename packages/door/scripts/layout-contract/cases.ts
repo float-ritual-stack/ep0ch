@@ -602,3 +602,33 @@ export const TILE_ADDRESSES: string[] = [
   "^", "^^", "^^^",
   "bed", "#3", "3", "nursery/reader", "north bed",
 ];
+
+/**
+ * Which tile an address names (`tile=`, `to=`, a follower's `source: tile:`): the tiles a made-up window has, as the
+ * resolver reads one (outline-core's AddressCandidate, with `where` already said), and what is asked of them. `from`:
+ * the tile the request acts from, for `^`.
+ */
+export interface AddressTile { id: string; name: string; role: string; slots: string[]; screen: string; from?: string; copiedFrom?: string; usedAt?: number; where: string }
+const tid = (n: number) => `t-${String(n).repeat(8)}-4e5f-4a6b-8c7d-9e0f1a2b3c4d`;
+export const ADDRESS_TILES: AddressTile[] = [
+  { id: tid(1), name: "beds", role: "query", slots: ["beds"], screen: "garden-work", where: "garden-work/beds" },
+  { id: tid(2), name: "bed", role: "reader", slots: ["bed", "readers"], screen: "garden-work", from: tid(1), where: "garden-work/readers/bed" },
+  { id: tid(3), name: "seeds", role: "reader", slots: ["seeds", "readers"], screen: "garden-work", from: tid(2), where: "garden-work/readers/seeds" },
+  { id: tid(4), name: "roots", role: "backlinks", slots: ["roots"], screen: "garden-work", from: "t-99999999-4e5f-4a6b-8c7d-9e0f1a2b3c4d", where: "garden-work/roots" },
+  { id: tid(5), name: "almanac", role: "reader", slots: ["detail"], screen: "shed", copiedFrom: "t-88888888-4e5f-4a6b-8c7d-9e0f1a2b3c4d", where: "shed/almanac" },
+  { id: tid(6), name: "sower", role: "agent", slots: ["sower"], screen: "drawer", usedAt: 10, where: "drawer/sower" },
+  { id: tid(7), name: "weeder", role: "agent", slots: ["weeder"], screen: "drawer", usedAt: 20, where: "drawer/weeder" },
+];
+export const ADDRESS_CASES: { address: string; from?: string }[] = [
+  // An id: whole, by its first characters, in any case; one nothing has, one a copy was made of, one near another.
+  { address: tid(2) }, { address: "t-33333333" }, { address: "T-33333333-4E5F" }, { address: "t-0a1b2c3d" }, { address: "t-88888888" }, { address: "t-11111199" },
+  // A role: one tile, several (refused, with the ids to type), several agents (the one used last), on a screen, on none shown.
+  { address: "role:query" }, { address: "role:reader" }, { address: "role:reader@shed" }, { address: "role:reader@garden-work" }, { address: "role:agent" }, { address: "drawer.agent" },
+  { address: "role:terminal" }, { address: "role:reader@orchard" }, { address: "role:query@shed" },
+  // A slot on a screen: one tile, a container's several, none, a screen not on show.
+  { address: "detail@shed" }, { address: "beds@garden-work" }, { address: "readers@garden-work" }, { address: "lanes@garden-work" }, { address: "detail@orchard" },
+  // The tile that opened the acting one: one step, two, past the first, from nowhere, an opener that was closed.
+  { address: "^", from: tid(3) }, { address: "^^", from: tid(3) }, { address: "^^^", from: tid(3) }, { address: "^" }, { address: "^", from: tid(4) }, { address: "^", from: "t-0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d" },
+  // A name is the caller's own to read, after every address.
+  { address: "bed" }, { address: "north bed" }, { address: "3" },
+];

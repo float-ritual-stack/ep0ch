@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { ALT_RULES, OPEN_RULES, POLICY_KEYS, WIRE_VERBS, AGENT_LEVELS } from "@ep0ch/outline-core/screen-spec";
 
 const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
-const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "action-rows.json", "screens.json"];
+const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "address-contract.json", "action-rows.json", "screens.json"];
 const made = Object.fromEntries(FILES.map(file => [file, readFileSync(join(FIXTURES, file), "utf8")]));
 const parsed = <T>(file: string): T => JSON.parse(made[file]!) as T;
 

@@ -207,3 +207,28 @@ fn a_split_saved_as_ratio_a_b_reads_as_the_same_tree_as_weights_and_kids() {
     assert_eq!(a.save()["root"]["kids"][1]["kids"][0]["name"], "bed", "it saves the form written with kids");
     assert_eq!(differs(&Layout::read(&a.save()).save(), &a.save(), ""), None, "and what it saves reads back as itself");
 }
+
+/// Every row of the address table: which tile an address names among the tiles a window has, why none, or the
+/// refusal when several do, as outline-core's resolver answers.
+#[test]
+fn every_address_names_the_tile_the_door_s_resolver_names() {
+    use crate::layout::address::{Candidate, Named, named};
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../outline-core/fixtures/address-contract.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    let tiles: Vec<Candidate> = table["tiles"].as_array().unwrap().iter().map(|t| Candidate {
+        id: text(t, "id").unwrap(), name: text(t, "name").unwrap(), role: text(t, "role").unwrap(), slots: t["slots"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect(),
+        screen: text(t, "screen").unwrap(), from: text(t, "from"), copied_from: text(t, "copiedFrom"), used_at: t.get("usedAt").and_then(Value::as_f64), where_: text(t, "where").unwrap(),
+    }).collect();
+    let cases = table["cases"].as_array().unwrap();
+    assert!(cases.len() >= 25, "the table has its rows: {}", cases.len());
+    let mut kinds = std::collections::BTreeSet::new();
+    for case in cases {
+        let address = case["address"].as_str().unwrap();
+        let got = named(address, &tiles, case.get("from").and_then(Value::as_str));
+        let (kind, want) = ["tile", "none", "refused", "name"].iter().find_map(|k| case.get(*k).map(|v| (*k, v.as_str().unwrap().to_string()))).unwrap_or_else(|| panic!("{case}"));
+        kinds.insert(kind);
+        let said = match got { Ok(Named::Tile(at)) => ("tile", tiles[at].id.clone()), Ok(Named::None(why)) => ("none", why), Ok(Named::Name(name)) => ("name", name), Err(why) => ("refused", why) };
+        assert_eq!(said, (kind, want), "{case}");
+    }
+    assert_eq!(kinds.into_iter().collect::<Vec<_>>(), ["name", "none", "refused", "tile"], "every kind of answer is asked");
+}
