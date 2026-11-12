@@ -96,7 +96,7 @@ Writing
   delete --id <id> [--expected <revision>] [--if-empty] | restore --id <id>
   purge --id <id> --confirm <work id or the id's first 8>
                                        delete a Trash root and what is under it for good
-  comment --id <id> --expected <revision> --request-id <id> --quote <text> | --whole --text <text> | --stdin
+  comment --id <id> --expected <revision> --request-id <id> (--quote <text> | --whole) (--text <text> | --stdin)
   agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
   work …, note …                       roadmap items and notes ("outliner work" lists them)
   work-id-status | work-id-configure --prefix <P> | work-id-allocate
