@@ -246,7 +246,7 @@ const agents: ServiceSource = {
       const note = script?.blockId ? (await svc.request<{ selected: Wire | null }>("blocks.context", { blockId: script.blockId }).catch(() => ({ selected: null }))).selected : null;
       const definition = script ? note ? [`[g] ${note.title ?? note.text.split("\n")[0]} ((${note.id}))`, ...note.text.split("\n").slice(1)] : [script.file ?? "", ...script.code.split("\n")]
         : [a.extension.directory ?? "", `handler @${a.name}`, ...a.extension.handlers.map(h => `${h.key}:: ${h.description ?? h.kind}`)];
-      const context = a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · ask again on the line runs it again";
+      const context = a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once you leave it (or save), as an attributed edit · ask again on the line runs it again";
       return {
         label: `@${a.name}`, insert: `@${a.name} `, kind: "agent", ...(a.description ? { detail: a.description } : {}),
         docs: [context, "", ...definition.slice(0, 40)].join("\n"), ...(note ? { definition: note.id } : {}),

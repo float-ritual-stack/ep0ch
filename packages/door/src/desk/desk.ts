@@ -516,6 +516,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.ctx?.trail?.places[this.tileId(id)];
     if (p) { p.at = mapPlace(returnPlace(this.layout, id), n => this.tileId(n)); p.name = this.nameOf(id); p.screen = this.spec.name; p.mount = this.holder ? tileRegistry.knownId(this.holder.tile) : undefined; p.drawer = !!this.ctx.hostLayer?.isDrawer(this); this.ctx.trail?.changed(); }
   }
+  /** The ask the answer tile beside `reader` shows (an edit opening there follows it), if one is there. */
+  shownAsk(reader: ReaderPane): string | undefined { const at = [...this.panes].find(([, p]) => p === reader)?.[0]; return at === undefined ? undefined : ([...this.panes.values()].find(p => p instanceof AnswerTile && p.source === this.nameOf(at)) as AnswerTile | undefined)?.ask; }
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === reader)?.[0];
     if (at === undefined) return null;
@@ -525,9 +527,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (existing) {
       id = existing[0];
       if (!this.dispatch.standing(actor) && this.hasFocus(existing[1])) return { ...this.tileAnswer(id), held: true };
-      (existing[1] as AnswerTile).ask = ask;
-      (existing[1] as AnswerTile).fold = fold;
-      (existing[1] as AnswerTile).top = 0;
+      Object.assign(existing[1] as AnswerTile, { ask, fold, top: 0 });
     }
     else id = this.openPair(at, new AnswerTile(source, ask, fold), "answer", false, actor);
     this.save(); this.redraw();

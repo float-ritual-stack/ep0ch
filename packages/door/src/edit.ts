@@ -25,7 +25,7 @@ import type { Key } from "./term";
 import { escByHint } from "./esc-rule";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
-import { ANSWERED_ASK_STATES } from "@ep0ch/outline-core/ask-states";
+import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
 import type { ModeKey } from "./surface/modes";
@@ -171,7 +171,30 @@ export class Draft {
   /** Every view of this draft (src/draft-view.ts): its raw rows, a line field's one row, rich cells, the popup. */
   readonly views: DraftViews = new DraftViews(this);
   get row() { return this.position.cursor.row; }
-  set row(value: number) { this.position.cursor.row = value; }
+  set row(value: number) {
+    const was = this.position.cursor.row;
+    this.position.cursor.row = value;
+    // The cursor left the line the person last typed on: the service hears it, so an ask written there is sent (PIE-1743).
+    // That line moved with the cursor on it (an answer landing above) is no leaving.
+    if (this.typedOn !== null && value !== this.typedOn) {
+      if (this.lines[value] === this.typedLine) { this.typedOn = value; return; }
+      this.typedOn = null;
+      this.onPersonTyped?.();
+      return;
+    }
+    // An ask the service holds for the cursor (it was back on the line when the service read it): leaving that line
+    // tells the service again, typed on or not (Codex on #1445: off and back within the touch's second, then off again).
+    if (value !== was && this.waitingAt(was)) this.onPersonTyped?.();
+  }
+  /** Whether the ask on row `row` waits for the cursor to leave it, as the service last said. */
+  private waitingAt(row: number): boolean {
+    const line = this.lines[row];
+    if (!this.asks.size || line === undefined) return false;
+    return this.asks.get(Draft.askKey(line, this.lines.slice(0, row).filter(l => l === line).length))?.warning === ASK_AT_CURSOR;
+  }
+  /** The line the person last typed on (its row and its text), until the cursor leaves it (PIE-1743). */
+  private typedOn: number | null = null;
+  private typedLine = "";
   get col() { return this.position.cursor.col; }
   set col(value: number) { this.position.cursor.col = value; }
   usePosition(position: ReaderPosition) {
@@ -183,7 +206,19 @@ export class Draft {
   /** An ask's place in `asks`: its text, and its `nth` (from 0) among the lines saying it exactly. */
   static askKey(line: string, nth = 0) { return nth ? `${line}\u0000${nth}` : line; }
   /** Take an ask's progress, as the service sends it. */
-  progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) { this.asks.set(Draft.askKey(ask.line, ask.nth), ask); }
+  progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) {
+    this.asks.set(Draft.askKey(ask.line, ask.nth), ask);
+    // The ask on the cursor's line said something new of itself (typed on, its words are another ask now): the answer
+    // tile already beside an ask follows it, so the two say the same (loki on #1445: "its ask is gone" beside "asks once
+    // you leave"). A first ask opens none before its answer, as before.
+    if (this.selectedAsk !== null && ask.line === this.lines[this.row] && ask.line !== this.selectedAsk) this.selectAsk();
+  }
+  /** The ask an answer tile beside the note already shows, when the edit opens beside it: typing on it follows (Codex on #1445). */
+  following(ask: string | undefined) { this.selectedAsk = ask ?? null; }
+  /** What the service last said of the ask `line` while this draft is open (its progress), if anything. */
+  liveAsk(line: string, nth = 0) { return this.asks.get(Draft.askKey(line, nth)); }
+  /** The ask the cursor last selected (`selectAsk`): the one the answer tile beside the note follows. */
+  private selectedAsk: string | null = null;
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
   /** The answers opened by hand (their fold row, the answer tile's `f`, fold.toggle): open until shut by hand (`answerOpen`). */
@@ -320,8 +355,9 @@ export class Draft {
   get busy() { return this.status.busy; }
 
   /**
-   * The person changed the text (never an agent's patch): the reader holding this draft tells the service, so a
-   * request line they write here (`@tidy …`) runs once quiet, before any save (`drafts.touch`).
+   * The person changed the text (never an agent's patch), or the cursor left the line they typed on: the reader holding
+   * this draft tells the service, so a request line they write here (`@tidy …`) runs before any save (`drafts.touch`),
+   * once quiet and once the cursor is off it (the read answers the cursor's line, PIE-1743).
    */
   onPersonTyped: (() => void) | null = null;
   /** Its host draws it again (its session's): when an armed key's say lapses. */
@@ -334,7 +370,7 @@ export class Draft {
   }
 
   private markWriter(who: Actor) {
-    if (who.kind === "user") this.onPersonTyped?.();
+    if (who.kind === "user") { this.typedOn = this.row; this.typedLine = this.lines[this.row] ?? ""; this.onPersonTyped?.(); }
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
@@ -1436,6 +1472,7 @@ export class Draft {
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
     if (!answer && !this.asks.has(this.line)) return;
+    this.selectedAsk = this.line;
     this.onAskSelected?.(this.line, answer?.key);
   }
 

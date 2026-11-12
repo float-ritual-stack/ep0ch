@@ -555,7 +555,7 @@ export class OutlinerServer {
       }),
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
       ...(options.agentWorkingMs ? { workingAfterMs: options.agentWorkingMs.after, progressMs: options.agentWorkingMs.every } : {}),
-    });
+    }); this.draftHolds.onGone = hold => this.agentRequests.released(hold.holdId, hold.blockId); // released, lapsed or its door gone (PIE-1743)
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       lines: this.lineWatches,
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
@@ -3352,18 +3352,18 @@ export class OutlinerServer {
         case "drafts.release": {
           this.stalledHolds.delete(request.holdId);
           const released = this.draftHolds.list().find(hold => hold.holdId === request.holdId);
-          result = wired(action, { released: this.draftHolds.release(request.holdId) }); this.agentRequests.released(request.holdId, released?.blockId);
+          result = wired(action, { released: this.draftHolds.release(request.holdId) }); // agent requests hear it through onGone
           // The draft closed: a note that waited to route while it was held routes now (PIE-1010).
           if (released) this.routing.draftReleased(released.blockId);
           break;
         }
         case "drafts.touch": {
-          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet.
+          // The person typed in the draft this hold keeps: a request line they wrote there runs once quiet and off the cursor's line.
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
           const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
           if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
           void this.askHolder(hold, { kind: "read" }).then(answer => {
-            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId); // a read landing after its hold ended is nobody's
+            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId, typeof answer.cursorLine === "number" ? answer.cursorLine : undefined); // a read landing after its hold ended is nobody's
           }).catch(() => {});
           result = wired(action, { touched: true });
           break;

@@ -263,7 +263,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; current?(): SurfaceHost | undefined;   // current: this reader's host on the desk holding it after a move into a group or the drawer (PIE-1716), else none; a draft asks it each time
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; shownAsk?(): string | undefined; current?(): SurfaceHost | undefined;   // current: this reader's host on the desk holding it after a move into a group or the drawer (PIE-1716), else none; a draft asks it each time
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
   attachment?: AttachmentKind;
   hasWiredPreview?(): boolean;
@@ -2980,7 +2980,7 @@ export class NoteSurface {
       },
       closed: how => this.draftClosed(s, how, now()),
     });
-    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); };
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); }; s.draft.following((host.current?.() ?? host).shownAsk?.()); // beside an answer tile already there, typing on its ask follows it
     if (this.drawn && s.draft.restored === null) { const rows = this.readingRows(); s.draft.landInView = !rows || rows[0] < this.scroll || rows[0] >= this.scroll + this.drawn.room; } // The wheel left the reading line's first row behind: the words go where the person is looking (PIE-1579).
     this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));
