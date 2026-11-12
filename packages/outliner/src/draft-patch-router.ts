@@ -3,7 +3,8 @@ import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
-import { wholeTextSpan } from "./extension-writes";
+import { changedLineSpans, wholeTextSpan } from "./extension-writes";
+import { checkPropertyPatch, keyedPropertyOps, patchPropertyText } from "./properties";
 /**
  * Where a `draft.patch` goes (PIE-501). Routing is the service's job, not the
  * agent's: a note a door holds a live draft of is patched in that draft (the
@@ -56,12 +57,13 @@ import {
   type DraftProposal,
   type DraftProposalStatus,
   type DraftGroup,
+  type PropertiesPatched,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
-import type { ChecklistIdentityChange, MutationProvenance } from "./types";
+import type { ChecklistIdentityChange, MutationProvenance, PropertyPatchOperation } from "./types";
 import { removedListItemIds } from "./checklist-items";
 import { fragmentAnchors } from "./fragments";
 import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
@@ -304,6 +306,27 @@ export class DraftPatchRouter {
       }
     }
     return { blockId, route: "saved", text: saved.text, revision: saved.revision };
+  }
+
+  /**
+   * A `properties.patch` on a note a door holds a live draft of (PIE-1756): one patch into that draft, as any agent's
+   * edit there is, so the person's typing stays and the save carries both; never a whole-text write that stales it.
+   * `set` and `add` read the draft as typed (a second stamp before the save counts from the first); ordinal
+   * operations read the saved revision they name and rebase onto the draft. One span per changed line keeps a
+   * passage being typed between two chips out of the patch. Null when nobody holds the note: the store writes it.
+   */
+  async patchProperties(input: { blockId: string; expectedRevision?: number; operations: PropertyPatchOperation[]; mutation: MutationProvenance }): Promise<PropertiesPatched | null> {
+    const saved = this.deps.store.requireActive(input.blockId);
+    checkPropertyPatch(saved, input.expectedRevision, input.operations);
+    if (!this.isHeld(saved.id)) return null;
+    const draft = await this.read(saved.id);
+    if (draft.route !== "draft") return null;
+    const keyed = input.operations.every(op => op.op === "set" || op.op === "add");
+    const [text, revision] = keyed ? [draft.text, draft.revision] : [saved.text, saved.revision];
+    const patches = changedLineSpans(text, patchPropertyText(text, keyedPropertyOps(text, input.operations)));
+    if (patches.length) await this.patch({ blockId: saved.id, revision, patches, mutation: input.mutation, policy: "edit" });
+    const now = patches.length ? await this.read(saved.id) : draft;
+    return { ...this.deps.store.requireActive(saved.id), draft: { holder: draft.holder!, text: now.text } };
   }
 
   /** Only the output planner sets output: it has checked the region belongs to its producer. */

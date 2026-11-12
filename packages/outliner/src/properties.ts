@@ -43,6 +43,17 @@ export function formatProperty(property: BlockProperty): string {
   return `[${validated.key}::${validated.value}]`;
 }
 
+/**
+ * What every properties.patch is checked against before anything is read or written (PIE-1752, PIE-1756): one
+ * operation at least; a revision unless every operation names its key (`set`, `add`); that revision the saved one.
+ * The store's write and the held draft's (draft-patch-router) both start here.
+ */
+export function checkPropertyPatch(saved: { id: string; revision: number }, expectedRevision: number | undefined, operations: readonly PropertyPatchOperation[]): void {
+  if (operations.length === 0) throw new Error("Property patch requires at least one operation");
+  if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set or add");
+  if (expectedRevision !== undefined && saved.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${saved.id}`);
+}
+
 /** PIE-1752: `set` and `add` name a key, so they become a replace or an append on the text as it is now. */
 export function keyedPropertyOps(text: string, operations: PropertyPatchOperation[]): PropertyPatchOperation[] {
   const tokens = parsePropertyRecords(text);

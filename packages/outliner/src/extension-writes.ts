@@ -640,6 +640,28 @@ export function wholeTextSpan(before: string, after: string): DraftPatchSpan | n
   };
 }
 
+/**
+ * The lines `after` changed, one span each (PIE-1756): a property set on the header and another lower down are two
+ * small spans, so a passage between them being typed in is left out of the patch. A change that adds or removes lines,
+ * or fills an empty one (nothing there to compare), is the one span wholeTextSpan makes.
+ */
+export function changedLineSpans(before: string, after: string): DraftPatchSpan[] {
+  if (before === after) return [];
+  const was = before.split("\n"), now = after.split("\n");
+  const whole = [wholeTextSpan(before, after)!];
+  if (was.length !== now.length) return whole;
+  const spans: DraftPatchSpan[] = [];
+  let start = 0;
+  for (const [row, line] of was.entries()) {
+    if (line !== now[row]) {
+      if (!line) return whole;
+      spans.push({ observed: line, replacement: now[row]!, range: { start, end: start + line.length } });
+    }
+    start += line.length + 1;
+  }
+  return spans;
+}
+
 /** A new block's label for words: its first line, short. */
 const labelOf = (text: string) => { const line = withoutFragmentAnchor(text.split("\n", 1)[0]!).trim(); return line.length > 60 ? `${line.slice(0, 59)}…` : line; };
 

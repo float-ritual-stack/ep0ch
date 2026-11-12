@@ -16,7 +16,7 @@ import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
 import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DraftStatus, type DraftPhase } from "./draft-status";
-import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
+import { DRAFT_ACTIONS, chipsOnly, pruneOld, sameParty, tidy, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import type { ElementEdit } from "./surface/element-editor";
@@ -646,7 +646,8 @@ export class DraftSession {
     const a = d.applyPatch(r, by);
     if (a.applied) {
       if (r.replyTo) this.env.answered?.(r.replyTo, by);
-      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
+      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft"
+        : r.patches.every(p => chipsOnly(p.observed, p.replacement)) ? "set a property in your draft · ctrl+s saves it with your words" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }

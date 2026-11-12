@@ -24,6 +24,7 @@ import { pageRows } from "./scroll";
 import type { Key } from "./term";
 import { escByHint } from "./esc-rule";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
@@ -1118,7 +1119,10 @@ export class Draft {
         if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
       } else if (!p.replyTo) {
         const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
-        if (located.spans.some(sp => typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
+        // A chip changed on another line of that block (a stamp under the title while the person types below it,
+        // PIE-1756) leaves the words being typed alone: only the cursor's own line holds it back.
+        const stamp = (sp: LocatedSpan) => chipsOnly(text.slice(sp.start, sp.end), sp.replacement) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
+        if (located.spans.some(sp => !stamp(sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
           return no("it changes the block being typed in");
         }
       }
@@ -1143,7 +1147,11 @@ export class Draft {
       }
     }
     // A cursor at the ask's end stays there, on the line it was typing: the answer opens below it.
+    // An agent's stamp is its change, not the person's: the save's "this changes properties" check starts from it
+    // (PIE-1756), so ctrl+s saves the stamp and the typing at once, and still asks about a chip the person changed.
+    const stamps = own ? [] : located.spans.flatMap(sp => chipsOnly(text.slice(sp.start, sp.end), sp.replacement) ? [[text.slice(sp.start, sp.end), sp.replacement] as const] : []);
     this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : undefined);
+    for (const [before, after] of stamps) this.baseProps = chipsMoved(this.baseProps, before, after);
     const latest = this.undos.at(-1);
     if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
@@ -1853,6 +1861,22 @@ const stripWith = (who: Actor): Actor => { const { with: _, ...me } = who; retur
 type Edit = { at: number; removed: number; text: string };
 /** `edits` (in order, apart) made to `from`. */
 const applyEdits = (from: string, edits: Edit[]) => { let out = "", i = 0; for (const e of edits) { out += from.slice(i, e.at) + e.text; i = e.at + e.removed; } return out + from.slice(i); };
+/** A text's words with its property chips taken out (the shared property grammar), spacing folded. */
+const wordsOf = (text: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(text)) { out += text.slice(at, p.start); at = p.end; } return (out + text.slice(at)).replace(/\s+/g, " ").trim(); };
+const chipsIn = (text: string) => parsePropertyRecords(text).map(p => text.slice(p.start, p.end)).join("\u0000");
+/** A change of property chips alone (a stamp, PIE-1756): the chips differ, and the words around them are the same. */
+export const chipsOnly = (before: string, after: string) => chipsIn(before) !== chipsIn(after) && wordsOf(before) === wordsOf(after);
+/** `props` with the chips `before` held and `after` doesn't taken out, and the ones `after` adds put in. */
+const chipsMoved = (props: PropertyList, before: string, after: string): PropertyList => {
+  const chips = (text: string) => parsePropertyRecords(text).map(p => `${p.key}\u0000${p.value}`);
+  const less = (from: string[], take: string[]) => { const left = [...from]; for (const c of take) { const i = left.indexOf(c); if (i >= 0) left.splice(i, 1); } return left; };
+  const was = chips(before), now = chips(after), out = [...props];
+  for (const gone of less(was, now)) { const i = out.findIndex(p => `${p.key}\u0000${p.value}` === gone); if (i >= 0) out.splice(i, 1); }
+  return [...out, ...less(now, was).map(c => { const [key, value] = c.split("\u0000") as [string, string]; return { key, value }; })];
+};
+/** Where the line holding `offset` starts and ends in `text`. */
+const lineStartAt = (text: string, offset: number) => text.lastIndexOf("\n", offset - 1) + 1;
+const lineEndAt = (text: string, offset: number) => { const end = text.indexOf("\n", offset); return end < 0 ? text.length : end; };
 /**
  * Step `s` as the spans its agent patch changed, in the text undoing (`back`) or redoing it starts from; null for a step
  * with no patch, or one that took a patch back (its spans were where the patch was, not where it was taken back).

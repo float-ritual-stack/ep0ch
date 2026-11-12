@@ -26,7 +26,7 @@ import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import type { MutationProvenance } from "./types";
+import type { Block, MutationProvenance } from "./types";
 import { actorName } from "@ep0ch/outline-core/attribution";
 import { valueOf } from "@ep0ch/outline-core/block-record";
 
@@ -128,6 +128,12 @@ export interface DraftProposalsBeside {
 }
 
 export type DraftPatchResult = DraftPatchApplied | DraftPatchProposed;
+
+/**
+ * A `properties.patch` answer (PIE-1756): the note as saved, and, when a door holds a live draft of it, `draft`: the
+ * change landed there instead (`holder` the door, `text` the draft as it is now), saved with the person's own save.
+ */
+export type PropertiesPatched = Block & { draft?: { holder: string; text: string } };
 
 /** What the service asks the door holding a draft; the door answers with `drafts.answer`. */
 /** The proposal a patch sent to a holding door settles: `apply` (apply anyway) or `dismiss` (an older proposal's embed line out). */

@@ -88,7 +88,7 @@ import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
+import { checkPropertyPatch, formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
@@ -2651,8 +2651,7 @@ export class OutlinerStore {
   ): Block {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
-    if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set or add");
-    if (expectedRevision !== undefined && existing.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
+    checkPropertyPatch(existing, expectedRevision, operations);
     const text = patchPropertyText(existing.text, keyedPropertyOps(existing.text, operations));
     return this.update(id, text, existing.revision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
   }

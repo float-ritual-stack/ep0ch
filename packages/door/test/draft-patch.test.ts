@@ -5,11 +5,11 @@ import { changesOf, proposed } from "./wire";
 // is typing in. The test line: the mark is the queue, you keep typing, the block keeps its id. The draft half
 // runs anywhere; the rest starts a scratch outliner service (never a real outline) with fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { recordAs } from "../src/draft-session";
-import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor, requesterOf } from "../src/socket";
+import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor, type PropertyPatch, requesterOf } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -184,6 +184,27 @@ describe("a patch in a draft being typed in", () => {
     // Who made it is lit where it landed, and the save names both of them.
     expect(draftView(d).render(60, 8).map(visible).join("\n")).toContain("@tidy · just now");
     expect(recordAs(d, { kind: "user" })).toEqual({ kind: "user", with: ["tidy"] });
+  });
+
+  // PIE-1756: a stamp changes chips only, so it may land on another line of the paragraph being typed in, never on
+  // the cursor's own line or a line with words changed; and the save's property check starts from it.
+  test("a stamp on another line of the paragraph being typed lands; on the cursor's line, or with words, it waits", () => {
+    const STAMP: Actor = { kind: "agent", id: "stamp" };
+    const d = new Draft("note-9", 2, "Beds by the fence\n[touches::1]\nthe compost is warm", [{ key: "touches", value: "1" }]);
+    d.row = 2; d.col = d.lines[2]!.length;
+    const words = d.applyPatch({ patchId: "w", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::1] mulched")] }, STAMP);
+    expect(words).toEqual({ applied: false, reason: "it changes the block being typed in" });
+    expect(d.applyPatch({ patchId: "s1", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::2]")] }, STAMP)).toEqual({ applied: true });
+    expect(d.baseProps).toEqual([{ key: "touches", value: "2" }]);
+    expect([d.row, d.col]).toEqual([2, "the compost is warm".length]);
+    // The person's own chip edit is theirs: the check still sees it.
+    d.row = 1; d.col = d.lines[1]!.length;
+    for (const c of " [moved::yes]") d.key(char(c));
+    expect(d.baseProps).toEqual([{ key: "touches", value: "2" }]);
+    // On the cursor's own line: waits for the person.
+    const here = d.applyPatch({ patchId: "s2", revision: 2, patches: [span(d.text, "[touches::2] [moved::yes]", "[touches::3] [moved::yes]")] }, STAMP);
+    expect(here.applied).toBe(false);
+    expect(d.text).toBe("Beds by the fence\n[touches::2] [moved::yes]\nthe compost is warm");
   });
 
   test("a draft only an extension's @agent changed saves as the saver's, naming it: never as ext:<id> (PIE-510)", () => {
@@ -463,6 +484,39 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.request("pages.resolve", { address: "morning plan" })).block!.id).toBe(e.id);
     expect((await board.request("fragments.read", { blockId: e.id, fragmentId: "deep-link" })).status).toBe("resolved");
     expect((await board.get(a))!.text).toContain(`((${e.id}^deep-link))`);
+  }, 30_000);
+
+  // PIE-1756: a stamp (properties.patch set/add) on a note being typed in was a whole-text update: the draft read
+  // "changed elsewhere", ^S was refused and the typed line went to a drafts file. It lands through the hold instead.
+  test("Evan types under the chips while a stamp sets a property twice: both land in his draft, and ^S saves both", async () => {
+    const e = await editing("Beds by the fence\n[touches::1] [tended::2026-11-01]\nthe compost is warm");
+    const keptCopies = () => { try { return readdirSync(join(scratch.root, "door", "drafts"), { recursive: true }).map(String).filter(f => f.includes(e.id.slice(0, 8))); } catch { return []; } };
+    try {
+      e.type(", turn it");
+      const stamp = (operations: PropertyPatch[]) => agent.request("properties.patch", { blockId: e.id, operations, mutation: { author: "agent", actorId: "stamp" } });
+      const saved = (await board.get(e.id))!;
+      const first = await stamp([{ op: "add", key: "touches", by: 1 }, { op: "set", key: "tended", value: "2026-11-12" }]);
+      expect(first).toMatchObject({ id: e.id, revision: saved.revision, draft: { holder: expect.any(String) } });
+      expect(e.d.text).toBe("Beds by the fence\n[touches::2] [tended::2026-11-12]\nthe compost is warm, turn it");
+      e.type(" weekly");
+      // A second stamp before any save counts from the first: it reads the draft, not the saved note.
+      await stamp([{ op: "add", key: "touches", by: 1 }]);
+      expect(e.d.text).toBe("Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm, turn it weekly");
+      expect((await board.get(e.id))!.text).toBe(saved.text);
+      const drawn = e.s.render(80, 12, e.h).lines.map(visible).join("\n");
+      expect(drawn).not.toContain("changed elsewhere");
+      expect(drawn).toContain("you and an agent (stamp) typed this");
+      expect(drawn).toContain("[touches::3] [tended::2026-11-12]  @stamp · just now");
+      expect(e.s.agent).toMatchObject({ id: "stamp", did: expect.stringContaining("set a property in your draft") });
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
+      expect((await board.get(e.id))!.text).toBe("Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm, turn it weekly");
+      expect(keptCopies()).toEqual([]);
+      // A note nobody holds still takes it as a store write, a revision of its own.
+      const loose = await create("Seed tray\n[touches::4]");
+      const stamped = await agent.request("properties.patch", { blockId: loose, operations: [{ op: "add", key: "touches", by: 1 }], mutation: { author: "agent", actorId: "stamp" } });
+      expect(stamped).toMatchObject({ text: "Seed tray\n[touches::5]", revision: 2 });
+      expect(stamped.draft).toBeUndefined();
+    } finally { e.s.dispose(); }
   }, 30_000);
 
   test("rich tables: streamed rows remain editable while the current cell stays put", async () => {
