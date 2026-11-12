@@ -102,6 +102,28 @@ function dropLogTriggers(database: Database): void {
   for (const { name } of existing) database.exec(`DROP TRIGGER ${q(name)}`);
 }
 
+/**
+ * A follower's connection writes nothing of its home's (ADR 0009): TEMP triggers, on this connection only, skip every
+ * insert, update and delete of a replicated row that isn't an apply (`log_state.applying`). The store's open-time work
+ * (recovering a refresh the home left running, parsing properties again, seeding) then leaves the copy as the home's log
+ * made it, and the next range follows it. Nothing on a home's connection. Returns whether the file is a follower's.
+ */
+export function guardFollowerWrites(database: Database): boolean {
+  let role: string | undefined;
+  try { role = (database.query("SELECT role FROM log_state WHERE id = 1").get() as { role: string } | null)?.role; } catch { return false; }
+  if (role !== "follower") return false;
+  const skip = "(SELECT applying = 0 FROM main.log_state WHERE id = 1)";
+  for (const t of replicatedTables(database)) {
+    const local = (ref: string) => t.name === "metadata" ? ` AND ${ref}"key" NOT IN (${LOCAL_METADATA_KEYS.map(lit).join(", ")})` : "";
+    database.exec(`
+      CREATE TEMP TRIGGER IF NOT EXISTS ${q(`follower_${t.name}_i`)} BEFORE INSERT ON main.${q(t.name)} WHEN ${skip}${local("NEW.")} BEGIN SELECT RAISE(IGNORE); END;
+      CREATE TEMP TRIGGER IF NOT EXISTS ${q(`follower_${t.name}_u`)} BEFORE UPDATE ON main.${q(t.name)} WHEN ${skip}${local("NEW.")} BEGIN SELECT RAISE(IGNORE); END;
+      CREATE TEMP TRIGGER IF NOT EXISTS ${q(`follower_${t.name}_d`)} BEFORE DELETE ON main.${q(t.name)} WHEN ${skip}${local("OLD.")} BEGIN SELECT RAISE(IGNORE); END;
+    `);
+  }
+  return true;
+}
+
 /** Drops and makes again the log's triggers for every replicated table, for the columns they have now. */
 export function installLogTriggers(database: Database): void {
   dropLogTriggers(database);
@@ -119,6 +141,15 @@ export function installLogTriggers(database: Database): void {
 /** A new outline's log: its identity, as this machine's own (`home`). */
 export function initLogState(database: Database, role: "home" | "follower" = "home", logId: string = randomUUID()): void {
   database.query("INSERT OR REPLACE INTO log_state (id, log_id, role, txn, applying) VALUES (1, ?, ?, 1, 0)").run(logId, role);
+}
+
+/** A log begun again on a file (an import): a new id, this machine's own (`home`), and a genesis of what it holds. */
+export function startFreshLog(database: Database, schema: number): void {
+  database.transaction(() => {
+    database.exec("DELETE FROM change_log");
+    database.query("UPDATE log_state SET log_id = ?, role = 'home', txn = 1, applying = 0, forked_from = NULL WHERE id = 1").run(randomUUID());
+    writeGenesis(database, schema);
+  }).immediate();
 }
 
 export interface LogState { logId: string; role: "home" | "follower"; txn: number; forkedFrom: string | null }
@@ -361,9 +392,11 @@ export function rowCounts(database: Database): Record<string, number> {
 /**
  * The store's change-log transactions (ADR 0009): wraps `database.transaction` so the outermost write transaction that
  * logged anything ends its log transaction before it commits, and a range never ends inside one. The store calls it
- * before its own wrapper (store.ts `configureTransactions`), so every write passes through it.
+ * before its own wrapper (store.ts `configureTransactions`), so every write passes through it. On a follower's file it
+ * also guards the connection (`guardFollowerWrites`): the store's own work there writes nothing of the home's.
  */
 export function endLogTransactionsOn(database: Database): void {
+  guardFollowerWrites(database);
   const transaction = database.transaction.bind(database);
   const total = () => (database.query("SELECT total_changes() AS n").get() as { n: number }).n;
   type Run = (...args: unknown[]) => unknown;

@@ -2,13 +2,14 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
 import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
+import { importOutline } from "../src/outline-import";
 
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
@@ -296,4 +297,93 @@ test("a genesis carries AUTOINCREMENT's high-water marks: an id given out once i
   const restored = new Database(join(dir, "restored.sqlite"), { readonly: true });
   expect(top(restored)).toBe(before);
   restored.close();
+});
+
+test("an import is an outline of its own: a fresh home log, whatever the file it came from (a follower's copy too)", () => {
+  const dir = root();
+  const { home, jar } = busyHome(dir);
+  const follower = follow(home, join(dir, "follower.sqlite"));
+  follower.catchUp();
+  follower.db.close();
+  const homeLog = home.log.cursor().logId;
+  home.close();
+  for (const from of ["home.sqlite", "follower.sqlite"]) {
+    const target = join(dir, `imported-from-${from}`);
+    importOutline(join(dir, from), target);
+    const store = new OutlinerStore(target);
+    try {
+      expect(store.get(jar.id)?.text).toContain("Jar of lentils");
+      const at = store.log.cursor();
+      expect(at.logId).not.toBe(homeLog);
+      store.create("Written after the import");
+      // Logged: a write moves the log on, as at any home.
+      expect(store.log.cursor().lsn).toBeGreaterThan(at.lsn);
+      expect(store.log.range(at.lsn).entries.some(e => e.tbl === "blocks" && e.row?.includes("Written after the import"))).toBe(true);
+    } finally { store.close(); }
+    // And its log alone rebuilds it.
+    const copy = new Database(join(dir, `copy-of-${from}`), { create: true });
+    const db = new Database(target, { readonly: true });
+    openFollowerSchema(copy, (db.query("SELECT log_id FROM log_state").get() as { log_id: string }).log_id);
+    for (let at = 0; ;) { const r = readRange(db, at, 500, SCHEMA_VERSION); applyRange(copy, r, SCHEMA_VERSION); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+    expect(canonicalDump(copy)).toBe(canonicalDump(db));
+    db.close(); copy.close();
+  }
+});
+
+test("a replay refuses an archive with a segment missing in the middle, or a genesis cut short, instead of a quiet gap", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const archive = join(dir, "archive");
+  const run = () => {
+    const ranges: LogRange[] = [];
+    let at = archivedCursor(archive, "home", home.log.cursor().logId)?.lsn ?? 0;
+    for (;;) { const r = home.log.range(at, 50); ranges.push(r); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+    writeSegment(archive, "home", ranges);
+  };
+  run();
+  for (const words of ["Sack of oats", "Tin of cocoa", "Jar of honey"]) { home.create(words, shelf.id); run(); }
+  const logId = home.log.cursor().logId;
+  home.close();
+  const folder = join(archive, "home", logId);
+  const segments = readdirSync(folder).sort();
+  expect(segments.length).toBe(4);
+  // The whole archive replays.
+  replayArchive(archive, "home", join(dir, "whole.sqlite"));
+  // The third segment lost (a disk, a hand): refused, naming the gap.
+  renameSync(join(folder, segments[2]!), join(dir, "lost.jsonl"));
+  expect(() => replayArchive(archive, "home", join(dir, "gapped.sqlite"))).toThrow(/missing entries/);
+  expect(existsSync(join(dir, "gapped.sqlite"))).toBe(false);
+  renameSync(join(dir, "lost.jsonl"), join(folder, segments[2]!));
+  // The genesis's own segment cut short: refused too.
+  const first = join(folder, segments[0]!);
+  const lines = readFileSync(first, "utf8").split("\n").filter(Boolean);
+  const cut = JSON.parse(lines[0]!) as LogRange;
+  writeFileSync(first, `${JSON.stringify({ ...cut, entries: cut.entries.slice(0, 5) })}\n${lines.slice(1).join("\n")}\n`);
+  expect(() => replayArchive(archive, "home", join(dir, "short.sqlite"))).toThrow(/missing entries|genesis/);
+});
+
+test("opening a follower's copy writes nothing of the home's (no recovery of a refresh the home left running)", () => {
+  const dir = root();
+  const { home } = busyHome(dir);
+  home.close();
+  // The home was mid-refresh of a web page when the copy took its log (a test's own connection writes it).
+  const raw = new Database(join(dir, "home.sqlite"));
+  raw.query("INSERT INTO web_resource_state (resource_id, address_version, generation, freshness) VALUES ('res-1', 1, 1, 'refreshing')").run();
+  // The follower takes it from the home's file as it is (the home's own store would recover it, as it should).
+  const copy = new Database(join(dir, "follower.sqlite"), { create: true });
+  openFollowerSchema(copy, (raw.query("SELECT log_id FROM log_state").get() as { log_id: string }).log_id);
+  for (let at = 0; ;) { const r = readRange(raw, at, 500, SCHEMA_VERSION); applyRange(copy, r, SCHEMA_VERSION); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+  raw.close();
+  const before = canonicalDump(copy);
+  const sequence = (db: Database) => (db.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as { value: string }).value;
+  const seq = sequence(copy);
+  copy.close();
+  // The copy's host opens it: the store's own recoveries must leave the home's rows as the home left them.
+  new OutlinerStore(join(dir, "follower.sqlite")).close();
+  const after = new Database(join(dir, "follower.sqlite"), { readonly: true });
+  try {
+    expect((after.query("SELECT freshness FROM web_resource_state WHERE resource_id = 'res-1'").get() as { freshness: string } | null)?.freshness).toBe("refreshing");
+    expect(sequence(after)).toBe(seq);
+    expect(canonicalDump(after)).toBe(before);
+  } finally { after.close(); }
 });

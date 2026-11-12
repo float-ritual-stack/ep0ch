@@ -78,6 +78,27 @@ export function writeSegment(root: string, outline: string, ranges: readonly Log
   return file;
 }
 
+/**
+ * Whether what a replay is about to apply is whole: every entry from its genesis on, one after another (the log's
+ * positions are consecutive), each range meeting the entry before it, and the genesis's rows all there. A segment lost
+ * from the middle would otherwise replay into an outline missing notes, with the right last entry and a clean check.
+ */
+function checkChain(ranges: readonly LogRange[], entries: readonly LogEntry[]): void {
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i]!.lsn !== entries[i - 1]!.lsn + 1) throw new Error(`the archive is missing entries ${entries[i - 1]!.lsn + 1} to ${entries[i]!.lsn - 1} (a segment is gone); it can't be replayed whole`);
+  }
+  const first = entries[0]!.lsn;
+  const byEnd = new Map<number, LogEntry>();
+  for (const r of ranges) for (const e of r.entries) byEnd.set(e.lsn, e);
+  for (const r of ranges) {
+    if (!r.entries.length || r.entries[0]!.lsn <= first || r.prev === null) continue;
+    const before = byEnd.get(r.after);
+    if (!before || entryDigest(before) !== r.prev) throw new Error(`the archive's range after entry ${r.after} doesn't meet the entry there; it can't be replayed whole`);
+  }
+  const rows = (JSON.parse(entries[0]!.row ?? "{}") as { rows?: number }).rows;
+  if (rows !== undefined && entries.length - 1 < rows) throw new Error(`the archive's genesis at ${first} holds ${entries.length - 1} of its ${rows} rows; it can't be replayed whole`);
+}
+
 /** What a replay made: the log it came from, the newest entry applied, when that was written, and the rows it holds. */
 export interface Replayed { logId: string; lsn: number; at: string | null; rows: Record<string, number> }
 
@@ -93,12 +114,14 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   const logs = logsOf(root, outline);
   const log = o.logId ? logs.find(l => l.logId === o.logId) : logs[0];
   if (!log) throw new Error(`the archive at ${join(root, outline)} holds no log ${o.logId ? `${o.logId} ` : ""}of ${outline}`);
-  const all: LogEntry[] = segments(log.dir).flatMap(s => readSegment(s.file).flatMap(r => r.entries));
+  const ranges = segments(log.dir).flatMap(s => readSegment(s.file));
+  const all: LogEntry[] = ranges.flatMap(r => r.entries);
   const until = o.until ?? Number.POSITIVE_INFINITY;
   const upTo = all.filter(e => Date.parse(e.at) <= until);
   const start = upTo.map((e, i) => ({ e, i })).filter(({ e }) => e.op === "g" && (JSON.parse(e.row ?? "{}") as { schema?: number }).schema === SCHEMA_VERSION).at(-1);
   if (!start) throw new Error(`the archive of ${outline} holds no genesis at schema ${SCHEMA_VERSION}${o.until !== undefined ? ` before ${new Date(until).toISOString()}` : ""}; restore it with the build that wrote it`);
   const entries = upTo.slice(start.i);
+  checkChain(ranges, entries);
   // Whole transactions only: a cut inside one leaves it out.
   const lastTxn = entries.at(-1)!.txn, cut = all.some(e => e.txn === lastTxn && Date.parse(e.at) > until);
   const kept = cut ? entries.filter(e => e.txn !== lastTxn) : entries;

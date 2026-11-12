@@ -5,6 +5,7 @@
 // seconds-fresh copy of that outline if its machine's disk is lost.
 import { existsSync, readFileSync } from "node:fs";
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
+import { FOLLOW_EVERY_MS } from "@ep0ch/outliner/outline-follower";
 import { mirrorsConfig, OutlineFollower } from "../mcp-mirror";
 import type { BackupConfig, Env } from "./config";
 
@@ -36,7 +37,27 @@ export async function followCommand(c: BackupConfig, io: { out: (s: string) => v
   await report();
   const stop = Promise.withResolvers<void>();
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => stop.resolve());
-  await stop.promise;
+  await keepFollowing(followers, stop.promise, { say: line => io.out(line) });
   await Promise.all(followers.map(f => f.close()));
   return 0;
+}
+
+/**
+ * Looks at each follower every `everyMs` until `stop`: a read is what takes a machine's copies over when the process
+ * that served them has gone (another follow, a gateway that exited), so this process follows on its own from then.
+ * A copy's state is said when it changes (stale, unreadable, current again), not every look.
+ */
+export async function keepFollowing(followers: readonly OutlineFollower[], stop: Promise<void>, o: { everyMs?: number; say?: (line: string) => void } = {}): Promise<void> {
+  const every = o.everyMs ?? FOLLOW_EVERY_MS, said = new Map<OutlineFollower, string>();
+  let stopped = false;
+  void stop.then(() => { stopped = true; });
+  while (!stopped) {
+    await Promise.race([stop, Bun.sleep(every)]);
+    if (stopped) break;
+    for (const f of followers) {
+      const r = await f.read();
+      const line = "error" in r ? `✗ ${f.outline}@${f.machine}: ${r.error}` : r.stale ? `! ${f.outline}@${f.machine}: stale: ${r.stale.why}` : `✓ ${f.outline}@${f.machine}: following`;
+      if (said.get(f) !== line) { said.set(f, line); if (said.size > 0) o.say?.(line); }
+    }
+  }
 }

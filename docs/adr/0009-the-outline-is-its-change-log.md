@@ -92,7 +92,11 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   folder (`OutlineHost`, `readOnly`, `copy`). The first process that needs it (the gateway, the web client, `ep0ch
   backup follow`) starts it and takes its lock; the others attach to its socket. When the owner stops, the next read
   takes over.
-- **`ep0ch backup follow`** runs the followers on their own (the `ep0ch-follow` unit, written by install when
+- **Every process asks for the copies it needs** (`.follow/<outline>.want` in the folder), and the owner follows
+  each one asked for, so a process that attaches still gets its copy. A follower's connection writes nothing of its
+  home's outside an apply (TEMP triggers skip it), so the store's open-time recoveries leave the copy as the log made it.
+- **`ep0ch backup follow`** looks at its copies every 10 seconds, which takes the folder over when its owner exits. It
+  runs the followers on their own (the `ep0ch-follow` unit, written by install when
   `EP0CH_MCP_MIRRORS` is in `backup.env`): on a machine with no gateway, it is the off-machine copy of an outline.
 - **The owner follows each outline** it serves: it asks the home's host for `log.range` through the shared forward
   (`<outlines>/.remote/<machine>.sock`), applies through the hosted store (the same connection that answers reads, so
@@ -135,6 +139,8 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   this build's schema. The file gets a new `logId` (recorded as forked from the old one at that `lsn`), so followers
   of the old log rebuild instead of applying a diverging range. Swapping it in stays a person's step with the host
   stopped.
+- **A replay refuses an archive that isn't whole:** entries missing between segments, a range that doesn't meet the
+  entry before it, a genesis short of its rows. An import is an outline of its own too: a fresh home log and genesis.
 - **The drill** (monthly, and `ep0ch backup drill`) replays each outline's newest archive and checks it: integrity,
   its blocks counted, and the replay ending at the entry the archive was taken at. That a replay equals the outline,
   row for row (a canonical dump of the replicated tables), is the tests' to hold, over every mutation family.

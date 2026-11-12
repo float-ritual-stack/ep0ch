@@ -155,6 +155,10 @@ interface Folder {
   loops: Map<string, { loop: FollowLoop; users: number }>;
   /** When the other process's host last answered (a read asks again at most every ANSWER_CHECK_MS). */
   answeredAt: number;
+  /** The owner's look for outlines another process asked it to follow (`.follow/<outline>.want`). */
+  sweep: ReturnType<typeof setInterval> | null;
+  /** The outlines a follower in this process asked for: each runs its own loop, with its own settings. */
+  asked: Set<string>;
 }
 const ANSWER_CHECK_MS = 5_000;
 /** How long a read waits for the first copy to arrive; a home that accepts and never answers doesn't hold reads up. */
@@ -331,7 +335,8 @@ class FollowLoop {
   private async rebuild(ask: (after: number) => Promise<LogRange>, why: string): Promise<void> {
     const { openFollowerSchema, SCHEMA_VERSION } = await import(SCHEMA_MODULE) as typeof import("./schema");
     const first = await ask(0);
-    const aside = join(this.folder.dir, `.${this.outline}.rebuild.sqlite`);
+    // Its own name: two rebuilds of one copy (a loop stopping while another starts) never share a file.
+    const aside = join(this.folder.dir, `.${this.outline}.rebuild-${process.pid}-${Math.random().toString(36).slice(2, 8)}.sqlite`);
     removeDatabase(aside);
     mkdirSync(this.folder.dir, { recursive: true, mode: 0o700 });
     const db = new Database(aside, { create: true });
@@ -422,13 +427,23 @@ export class OutlineFollower<B> {
     try { mkdirSync(dirname(this.homeFile), { recursive: true, mode: 0o700 }); writeFileSync(this.homeFile, `${name}\n`); } catch { /* the alias is a convenience */ }
   }
 
+  /** Asks whichever process owns the folder to follow this outline too (a file the owner looks for). */
+  private want(): void {
+    const file = join(this.dir, ".follow", `${this.outline}.want`);
+    if (existsSync(file)) return;
+    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, "", { mode: 0o600 }); } catch { /* the next read asks again */ }
+  }
+
   /** Whether a copy has arrived. */
   exists(): boolean { return existsSync(this.follow); }
 
   /** This machine's copies folder, claimed by this process when nobody serves it. */
   private async folder(): Promise<Folder> {
     let f = folders.get(this.dir);
-    if (!f) { f = { dir: this.dir, machine: this.machine, owner: null, socket: outlineLayout(this.dir).socket, claiming: null, loops: new Map(), answeredAt: 0 }; folders.set(this.dir, f); }
+    if (!f) { f = { dir: this.dir, machine: this.machine, owner: null, socket: outlineLayout(this.dir).socket, claiming: null, loops: new Map(), answeredAt: 0, sweep: null, asked: new Set() }; folders.set(this.dir, f); }
+    f.asked.add(this.outline);
+    // Asked for, whoever owns the folder: the owner follows every outline a process wants from this machine.
+    this.want();
     if (!f.owner && !f.claiming && this.now() - f.answeredAt >= ANSWER_CHECK_MS) {
       // One look at a time in a process: whoever serves the folder answers, or this process takes it.
       const claimed = f;
@@ -457,7 +472,24 @@ export class OutlineFollower<B> {
     mkdirSync(f.dir, { recursive: true, mode: 0o700 });
     const { OutlineHost } = await import(OUTLINE_HOST_MODULE) as { OutlineHost: FolderHostClass };
     const host = new OutlineHost({ outlinesFolder: f.dir, readOnly: true, copy: { machine: this.machine, state: this.shares }, log: line => this.log(`${this.label} ${this.machine}: ${line}`) });
-    try { await host.start(); f.owner = host; f.socket = host.socketPath; }
+    try {
+      await host.start(); f.owner = host; f.socket = host.socketPath;
+      // What other processes asked for, followed here too, on this process's clock and reach.
+      const look = () => {
+        let wanted: string[] = [];
+        try { wanted = readdirSync(join(f.dir, ".follow")).filter(n => n.endsWith(".want")).map(n => n.slice(0, -5)); } catch { return; }
+        for (const outline of wanted) {
+          if (f.loops.has(outline) || f.asked.has(outline) || !isOutlineName(outline)) continue;
+          const loop = new FollowLoop(f, outline, { log: this.log, now: this.now, schema: this.schema, migrate: this.migrate, label: this.label, reach: this.reach, everyMs: this.everyMs });
+          f.loops.set(outline, { loop, users: 0 });
+          loop.start();
+          void loop.pull();
+        }
+      };
+      look();
+      f.sweep = setInterval(look, Math.min(this.everyMs, ANSWER_CHECK_MS));
+      (f.sweep as { unref?: () => void }).unref?.();
+    }
     catch (e) {
       // Another process took it first: it serves, this one attaches.
       await host.close().catch(() => {});
@@ -512,9 +544,13 @@ export class OutlineFollower<B> {
     if (!f || !entry || !this.looping) return;
     this.looping = false;
     if (--entry.users > 0) return;
+    f.asked.delete(this.outline);
     f.loops.delete(this.outline);
     await entry.loop.stop();
-    if (f.owner && f.loops.size === 0) {
+    if (f.owner && [...f.loops.values()].every(e => e.users === 0)) {
+      if (f.sweep) clearInterval(f.sweep);
+      for (const [, e] of f.loops) await e.loop.stop();
+      f.loops.clear();
       const host = f.owner;
       f.owner = null;
       folders.delete(this.dir);
