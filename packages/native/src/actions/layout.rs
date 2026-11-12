@@ -31,6 +31,9 @@ static UNDO: ActionRow = ActionRow::new("layout.undo", Touches::Shape, "put the 
     .keys(&[KeyRow::keys("mod+alt+z", "undo the last change to the arrangement")])
     .menu(&[MenuRow::new("Undo arrangement", "Window", Some("mod+alt+z"))]);
 
+/// The action a border's drag is a run of.
+pub(super) fn resizes(row: &ActionRow) -> bool { std::ptr::eq(row, &RESIZE) }
+
 pub static ACTIONS: &[Action] = &[Action { row: &DOCK, run: dock }, Action { row: &RESIZE, run: resize }, Action { row: &UNDO, run: undo }];
 
 /// How many arrangements `layout.undo` goes back through.
@@ -54,6 +57,12 @@ impl App {
             Ok(done) => { self.arranged(done.layout, done.changed); Outcome::answer(Value::Object(done.answer)) }
             Err(Refusal(why)) => Outcome::refused(why),
         }
+    }
+
+    /// Whether another arrangement may take this one's place (a screen opened, a step undone): the layout's own
+    /// rule, asked as `by`. Why not, in its words.
+    pub(super) fn may_replace(&self, with: &str, by: &Actor) -> Result<(), String> {
+        self.asked(by, |ctx| layout::apply(&self.layout, &Op::Load { name: with.to_string() }, ctx)).map(|_| ()).map_err(|Refusal(why)| why)
     }
 
     /// The arrangement is `next`: the one before is somewhere to go back to, the state of tiles that are gone is
@@ -112,12 +121,19 @@ fn dock(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 }
 
 fn resize(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    app.reshape(&Op::Resize { split: args.text("split").map(str::to_string), path: None, border: args.number("border").unwrap_or(0.0), share: args.number("share").unwrap_or(0.5) }, by)
+    let (split, border) = (args.text("split").map(str::to_string), args.number("border").unwrap_or(0.0));
+    // A border dragged is one change, however many moves it took: the arrangement before the first is the step back.
+    let dragging = Some((split.clone().unwrap_or_default(), border as usize));
+    let (again, steps) = (app.st.dragging == dragging, app.st.journal.len());
+    let outcome = app.reshape(&Op::Resize { split, path: None, border, share: args.number("share").unwrap_or(0.5) }, by);
+    if outcome.ok && again && app.st.journal.len() > steps { app.st.journal.pop(); }
+    if outcome.ok { app.st.dragging = dragging }
+    outcome
 }
 
 fn undo(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     // The layout's own rules say whether another arrangement may take this one's place.
-    if let Err(Refusal(why)) = app.asked(by, |ctx| layout::apply(&app.layout, &Op::Load { name: "the arrangement before".into() }, ctx)) { return Outcome::refused(why) }
+    if let Err(why) = app.may_replace("the arrangement before", by) { return Outcome::refused(why) }
     let Some(before) = app.st.journal.pop() else { return Outcome::refused("the arrangement is as it started: there is nothing to undo") };
     // The keys stay on a tile that is still there.
     let focus = Some(app.layout.focus.clone()).filter(|tile| before.all().contains(tile)).unwrap_or_else(|| before.focus.clone());

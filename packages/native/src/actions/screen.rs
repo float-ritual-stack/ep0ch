@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
 use super::{Action, Actor, App, Notice, Outcome};
 use crate::actline::Args;
-use crate::layout::{self, Layout, Op, Refusal};
+use crate::layout::Layout;
 use crate::screen::{From, Screen};
 use crate::store::Reply;
 
@@ -33,7 +33,7 @@ fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
         let why = screen.problems.iter().map(|p| p.said.as_str()).collect::<Vec<_>>().join(" · ");
         return Outcome::refused(if why.is_empty() { format!("the screen {} has no layout to open", screen.name) } else { why });
     };
-    if let Err(Refusal(why)) = app.asked(by, |ctx| layout::apply(&app.layout, &Op::Load { name: screen.name.clone() }, ctx)) { return Outcome::refused(why) }
+    if let Err(why) = app.may_replace(&screen.name, by) { return Outcome::refused(why) }
     // A draft stays on its tile when the screen has one by that id; otherwise it has nowhere to be, and the screen stays.
     if let Some(e) = &app.editing && app.unsaved() && next.spec(&e.tile).is_none() { return Outcome::refused("a note is open with unsaved text: save or discard it before the screen changes under it") }
     if app.editing.as_ref().is_some_and(|e| next.spec(&e.tile).is_none()) { app.st.editing = None }

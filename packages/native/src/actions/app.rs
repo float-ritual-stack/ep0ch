@@ -120,6 +120,8 @@ pub struct State {
     pub journal: Vec<Layout>,
     /// The tile the act being run is aimed at (`tile=`).
     pub aimed: Option<Id>,
+    /// The border being dragged (its split and which border): its moves are one change to go back through.
+    pub dragging: Option<(String, usize)>,
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
     pub pictured: HashMap<Id, (String, u64)>,
 
@@ -182,6 +184,7 @@ impl App {
                 area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
                 journal: Vec::new(),
                 aimed: None,
+                dragging: None,
                 pictured: HashMap::new(),
                 editor: TextEdit::new(""),
                 editing: None,

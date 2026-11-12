@@ -97,8 +97,13 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace_text("Plot, half written"));
     let before = d.asked.borrow().len();
     for (request, why) in [
-        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), "the person is in an edit on reader"),
-        (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "the person is in an edit on reader"),
+        // An open that names no tile is the layout's to place: the screen's one reader holds their draft, and says so
+        // in the door's words. Aimed at that reader, it is the actor rule's no.
+        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), "reader holds an edit or a comment; it stays on its note until that's saved or closed"),
+        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "tile": "reader" }), "the person is in an edit on reader"),
+        (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "reader holds an edit or a comment"),
+        (json!({ "cmd": "act", "action": "tile.close", "tile": "reader" }), "not closed: it holds an edit of Plot"),
+        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "an agent doesn't move what they look at"),
         (json!({ "cmd": "act", "action": "link.follow", "args": { "ref": "ep0ch:b/shed" } }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "back" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "edit.close", "args": { "discard": "true" } }), "the editor is the person's"),

@@ -25,6 +25,9 @@ static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow 
     .keys(&[KeyRow::via("a press on a link in a note's prose")])
     .examples(&[Example { act: "link.follow ref=ep0ch:b/7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens the note the link names", safe: None }]);
 
+/// An action whose note is placed by the layout: aimed at no tile, it is about none until it lands.
+pub(super) fn placed(row: &ActionRow) -> bool { std::ptr::eq(row, &OPEN) }
+
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &BACK, run: back }, Action { row: &FOLLOW, run: follow }];
 
 /// Why the one editor won't take another note: it holds unsaved text, which stays where it is.

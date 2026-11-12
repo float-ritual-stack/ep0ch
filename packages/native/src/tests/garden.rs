@@ -41,7 +41,7 @@ fn a_host_on_another_protocol_is_refused_naming_the_side_to_update() {
 
 #[test]
 fn opening_a_note_unfolds_the_way_to_it_from_the_page_s_ancestors() {
-    let Garden { mut app, asked, said } = garden(ok());
+    let Garden { mut app, asked, said, .. } = garden(ok());
     act(&mut app, "open id=fork");
     let names = |app: &App| listed(app).into_iter().map(|(depth, title)| format!("{depth} {title}")).collect::<Vec<_>>();
     assert_eq!(names(&app), ["0 Plot", "1 Lift the onions", "2 Take the fork", "1 Water the beans", "0 Shed"]);
@@ -75,7 +75,7 @@ fn an_answer_only_lands_in_the_slot_of_its_own_ask() {
 
 #[test]
 fn a_watched_answer_that_moved_is_read_by_its_generation_and_nothing_else_is_asked() {
-    let Garden { mut app, asked, said } = garden(ok());
+    let Garden { mut app, asked, said, .. } = garden(ok());
     let before = asked.borrow().len();
     let page = page_key(&asked, "plot");
     changed(&mut app, &said, &page, 4);
@@ -247,7 +247,7 @@ fn a_lost_link_is_made_again_and_everything_wanted_is_asked_for_afresh() {
 
 #[test]
 fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
-    let Garden { app, asked, said } = garden(ok());
+    let Garden { app, asked, said, .. } = garden(ok());
     let mut app = app.blocking(true);
     act(&mut app, "open id=shed");
     let read: Vec<String> = asked.borrow().iter().filter(|a| a["action"] == "media.read").map(|a| a["path"].as_str().unwrap().to_string()).collect();

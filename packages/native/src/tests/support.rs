@@ -71,11 +71,14 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
 }
 
 /// A made-up outline: Plot › (Lift the onions › Take the fork, Water the beans), Shed. `saves`: how `update` answers.
-pub struct Garden { pub app: App, pub asked: Asked, pub said: Said }
+/// `screens`: the rows the host's `screens.list` answers, for a test to set (then `screens_changed`).
+pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>> }
 
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden {
     let (asked, said): (Asked, Said) = Default::default();
     let texts: Rc<RefCell<std::collections::HashMap<String, (u64, String)>>> = Default::default();
+    let screens: Rc<RefCell<Value>> = Rc::new(RefCell::new(json!([])));
+    let listed = screens.clone();
     let answers: Answers = Box::new(move |ask| {
         let note = ask["blockId"].as_str().unwrap_or("").to_string();
         let titled = |id: &str| match id { "plot" => "Plot", "onions" => "Lift the onions", "beans" => "Water the beans", "shed" => "Shed", "new" => "", _ => "Take the fork" }.to_string();
@@ -106,7 +109,7 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
             },
             "screens.save" => Ok(json!({ "name": "beds", "title": "Beds", "id": "screen-note", "revision": ask["base"]["revision"].as_u64().map_or(1, |r| r + 1), "created": ask["base"].is_null() })),
             // The outline's own screens: none, until a test's host says otherwise (`host_says`).
-            "screens.list" => Ok(json!({ "screens": [], "problems": [], "anyChange": true })),
+            "screens.list" => Ok(json!({ "screens": listed.borrow().clone(), "problems": [], "anyChange": true })),
             "tree.search" => Ok(json!({ "matches": [{ "block": { "id": "beans", "revision": 1 }, "title": format!("found for {}", ask["query"].as_str().unwrap()), "path": "Plot" }] })),
             "blocks.query" => match ask["query"]["where"].as_str().unwrap() {
                 "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
@@ -118,7 +121,34 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
     let mut app = App::new(Box::new(Standin { answers, asked: asked.clone(), said: said.clone() }), "garden");
     app.start();
     app.settle();
-    Garden { app, asked, said }
+    Garden { app, asked, said, screens }
+}
+
+/// The host's screens are `rows` now, and it says so: the watched `screens.list` is read again.
+pub fn screens_are(g: &mut Garden, rows: Value) {
+    *g.screens.borrow_mut() = rows;
+    let key = watch_of(&g.asked, "screens.list", |_| true);
+    let generation = g.asked.borrow().len() as u64;
+    changed(&mut g.app, &g.said, &key, generation);
+    // The change is told, then the answer it asked for lands.
+    g.app.settle();
+}
+
+/// A screen note's row, as `screens.list` answers one.
+pub fn screen_row(name: &str, layout: Value, problems: Value) -> Value {
+    json!({ "name": name, "title": name, "from": "note", "note": { "id": format!("{name}-note"), "revision": 2, "form": "blocks" }, "spec": { "name": name, "title": name, "layout": layout }, "problems": problems })
+}
+
+/// Where an element is on screen, by its key: [x, y, w, h].
+pub fn rect_of(rt: &Runtime<App>, key: &str) -> Option<[f32; 4]> { rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect) }
+
+/// A drag from one point to another, let go there.
+pub fn drag(rt: &mut Runtime<App>, from: (f32, f32), to: (f32, f32)) {
+    rt.pointer_down(from.0, from.1);
+    rt.pointer_move((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+    rt.pointer_move(to.0, to.1);
+    rt.pointer_up(to.0, to.1);
+    rest(rt);
 }
 
 pub fn ok() -> Rc<RefCell<Result<(), (&'static str, String)>>> { Rc::new(RefCell::new(Ok(()))) }

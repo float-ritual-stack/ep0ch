@@ -156,8 +156,9 @@ impl App {
                 Some(found)
             }
         };
-        // The tile a tile-touching act is about: the one it names, else the reader.
-        let about = aimed.clone().or_else(|| self.reader()).map(|tile| self.layout.name(&tile)).unwrap_or_default();
+        // The tile a tile-touching act is about: the one it names, else the reader. An open that names none is about
+        // no tile yet: where it lands is the layout's to say, and the layout's rule keeps it off the person's tile.
+        let about = aimed.clone().or_else(|| if nav::placed(action.row) { None } else { self.reader() }).map(|tile| self.layout.name(&tile)).unwrap_or_default();
         if let Err(why) = rule(action.row, &by, &self.person(), &about) {
             step.said = why;
             return self.record(step);
@@ -165,6 +166,8 @@ impl App {
         let outer = std::mem::replace(&mut self.st.aimed, aimed);
         let outcome = (action.run)(self, &args, &by);
         self.st.aimed = outer;
+        // A border's drag is a run of resizes; anything else ends it.
+        if !layout::resizes(action.row) { self.st.dragging = None }
         step.ok = outcome.ok;
         step.said = outcome.said.clone();
         self.said(&step);

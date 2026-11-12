@@ -5,6 +5,8 @@
 //! - `window.rs`: the window drawn, pressed and typed in.
 //! - `parity.rs`: every action by its chord, by its bar row pressed and by its act line, leaving one step record.
 //! - `store.rs`: one slot an ask, the watch budget, what the service dropped.
+//! - `contract.rs`: every row of the door's layout and place tables, asked of `layout::apply` and `layout::place`.
+//! - `shell.rs`: tiles and screens: one test a container kind, where opens land, a screen saved, broken and reset.
 //! - `actline.rs`: the act-line grammar and the action rows against outline-core's fixtures.
 //! - `control.rs`: an agent over the control socket.
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
@@ -16,6 +18,7 @@ mod garden;
 mod live;
 mod one_owner;
 mod parity;
+mod shell;
 mod store;
 mod support;
 mod window;
