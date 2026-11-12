@@ -114,7 +114,7 @@ import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { kept } from "./kept-desk";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WKey, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -713,10 +713,31 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private tileLeaves(id: number, how: "end" | "carry" | "rebuilt", by: Actor = USER) {
     const p = this.panes.get(id);
-    if (how === "end") return this.dropTile(id, by);
+    if (how === "end") { this.dropTile(id, by); this.leftNames.delete(id); return this.emptied(); }
     if (!p) return;
     if (how === "rebuilt") { p.dispose?.(); tileRegistry.release(p); }
     this.forgetTile(id, p); if (how === "carry" && p instanceof ReaderPane) for (const a of this.panes.values()) if (a instanceof AnswerTile) a.readerLeft(this);   // once it's gone, each sees whether its own went: a tab behind it isn't drawn to (PIE-1757)
+    this.leftNames.delete(id);
+    this.emptied();
+  }
+  /**
+   * A group left with no tile goes (PIE-1775): its last tile closed, carried to the drawer or another group, or its
+   * answer tile closing after its reader went. Once the leave is done (a carry still uses this desk after its take), the
+   * desk holding it closes the group, giving its room to its neighbours, in the step that emptied it: one undo brings
+   * the group back with its tiles. A group being put back, spilled or ending is no emptied one.
+   */
+  private emptied() {
+    const h = this.holder, g = h?.tile;
+    if (this.all().length || this.disposed || this.steps.puttingBack || !(g instanceof ScreenTile) || !g.group) return;
+    queueMicrotask(() => { if (!this.all().length && !this.disposed && g.inner === this) h!.desk()?.pruneGroup(g, this.holderBefore?.shape ?? null); });
+  }
+  /** Group `g`, emptied (`emptied`), closes here as one step from `before`: this desk's shape before the step that emptied it. */
+  private pruneGroup(g: ScreenTile, before: { shape: string; before: LayoutSpec } | null) {
+    const id = this.idOf(g);
+    if (id === undefined) return;
+    if (before) this.settled = before;
+    this.closeId(id);
+    this.save(); this.redraw();
   }
   /**
    * What's out of step between the instances, the records kept by tile id and the LayoutState (PIE-1559): a tile the
@@ -752,7 +773,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.specTiles.get(name);
     return id !== undefined && this.panes.has(id) ? id : this.idNamed(name);
   }
-  private nameOf(id: number) { return this.names.get(id) ?? String(id); }
+  private nameOf(id: number) { return this.names.get(id) ?? this.leftNames.get(id) ?? String(id); }
   /** Every tile: the tree's, a tab set's hidden ones included, then the floats. */
   private all(): number[] { return allTiles(this.layout); }
   private isFloat(id: number) { return this.floats.some(f => f.id === id); }
@@ -901,8 +922,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // swapped a pane in can't leave us nothing to rebuild from): a change of shape is an entry, a focus move is none.
     const by = this.asked.get(r), prior = this.settled ?? this.snapshotShape();
     if (by?.op === "close") for (const wire of this.layout.wires) {
-      if (!r.state.names.has(wire.to) && r.state.names.has(wire.from)) this.ctx?.flash(`${this.nameOf(wire.from)}: ${wire.verb} wire dropped; ${this.nameOf(wire.to)} (${this.tileId(wire.to)}) closed`);
+      if (!r.state.names.has(wire.to) && r.state.names.has(wire.from)) this.ctx?.flash(`${this.nameOf(wire.from)}: ${wire.verb} wire dropped; ${this.nameOf(wire.to)} closed`);
     }
+    // A tile this step takes out keeps its name until it has left (`tileLeaves`): what's said of it names it, never its number.
+    for (const [id, name] of this.layout.names) if (!r.state.names.has(id)) this.leftNames.set(id, name);
+    // A group's desk: the desk holding it keeps its shape from before this step (or before the transaction it's part of),
+    // the shape an emptied group's close goes back to (PIE-1775), and takes the group's new shape after it.
+    const up = this.holder?.desk(), txn = TXN.getStore()?.txn;
+    if (up && (!txn || txn !== this.holderBefore?.txn)) this.holderBefore = { txn, shape: up.snapshotShape() };
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
@@ -912,6 +939,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       else if (verdict === "step") this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     }
     this.settled = now;
+    up?.resettle();
     this.focus = r.focus;
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
     const arrival = this.arrivals.get(r.focus);
@@ -944,6 +972,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The shape as of the last commit or build: what the next change is recorded against. */
   private settled: { shape: string; before: LayoutSpec } | null = null;
+  /**
+   * A group's tiles changed (PIE-1775): the shape this desk records its next change against has the group as it is now, so
+   * an undo of a spill or a close puts the group back as it last stood, never as it was gathered. Up through each holder.
+   */
+  private resettle() { this.settled = this.snapshotShape() ?? this.settled; this.holder?.desk()?.resettle(); }
+  /** A group's desk: its holder's shape from before this desk's newest step or transaction, by that transaction. */
+  private holderBefore: { txn: string | undefined; shape: { shape: string; before: LayoutSpec } | null } | null = null;
+  /** The names of the tiles the newest step took out, until each has left. */
+  private readonly leftNames = new Map<number, string>();
 
   /** The screen's shape now, as text and as a spec to rebuild from; null when a pane the layout names is already gone (mid-operation). */
   private snapshotShape(): { shape: string; before: LayoutSpec } | null {
@@ -2711,8 +2748,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Fresh: a new detail in the screen's container (the board's readers row), else beside the tile, as alt+⏎ on a link opens one.
     const key = this.hasPlaces() ? this.layout.policy.opensInto! : undefined;
     if (fresh) return key ? { from, note, container: key, at: { kind: "in", key } } : { from, note, fresh: true };
-    const target = this.spec.lands === undefined ? undefined : this.specTile(this.spec.lands);
-    return { from, note, to: target, ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) };
+    // The spec's tile, else its container; when neither is here now (the detail screen's `detail` closed, gathered into a
+    // group or put in the drawer, PIE-1775), the screen's default: the reader its opens land in, as for any screen.
+    const lands = this.spec.lands, target = lands === undefined ? undefined : this.specTile(lands);
+    return { from, note, to: target, ...(target === undefined && lands && node(this.root, lands) ? { container: lands } : { default: true }) };
   }
   private landBlock(m: Msg, by: Actor) {
     const landed = this.placeNote(m, this.landingRequest(this.focus, m.id), by);
@@ -4517,7 +4556,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private spotAt(k: Key): { key?: Key; tile?: number; run?: () => void } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
 
   /** Every ^W key with its label and summary, joined from the actions it runs (wkeys.ts): what the keys box and the power bar's ^W list show. */
-  wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name)); }
+  wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name), e => this.sizesGroup(e)); }
+  /** ^W key `e` (its `>` when left out) acts on the group holding this desk (wkeys.ts `holdingDesk`): the panel, the popup and the hint row say so (PIE-1773). */
+  private sizesGroup(e: WKey | undefined = wKey(">")): boolean { return e?.holder === "group" && !!holdingDesk(e, this.holder); }
 
   /**
    * Type `keys` after ^W, as the person's keys would (the power bar's ^W list picks one this way): `o s` is ^W o, then s.
@@ -4774,7 +4815,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || !!rd.surface.draft?.views.raw.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
+        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.sizesGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
@@ -4783,7 +4824,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ` + partsHint(tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, action: "tile.open", args: this.openKindArgs(x.key, this.prefix === "addtab")! }))))
-        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.sizesGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -6873,7 +6914,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (p) for (const d of this.relatives()) for (const [from, wires] of d.ext) for (const w of [...wires]) {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);
-        d.ctx?.flash(`${d.nameOf(from)}: ${w.verb} wire dropped; ${this.nameOf(id)} (${this.tileId(id)}) closed`);
+        d.ctx?.flash(`${d.nameOf(from)}: ${w.verb} wire dropped; ${this.nameOf(id)} closed`);
         d.save();
       }
     }

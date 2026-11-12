@@ -5,50 +5,17 @@
 // made-up agent; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { cellOf, TallyDoors, type Pane } from "./tally-pane";
+import { beanDesk, cellOf, cols, gather, TallyDoors, widths } from "./tally-pane";
 
 describe.skipIf(!outliner || !Bun.which("tmux"))("a group gathered on a desk of 44-column tiles (PIE-1771)", () => {
   const doors = new TallyDoors();
   beforeAll(() => doors.start(), 30_000);
   afterAll(() => doors.stop());
 
-  /** Each tile on the screen with its width, as layout.get has them (`drawer`: the drawer's layer instead). */
-  const widths = (p: Pane, drawer = false) => ((JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: { name: string; rect?: { cols: number } }[] }[]).find(l => l.drawer === drawer)?.tiles ?? []).map(t => `${t.name} ${t.rect?.cols}`);
-  const cols = (p: Pane, name: string) => Number(widths(p).find(w => w.startsWith(`${name} `))?.split(" ")[1] ?? 0);
   /** The edit's frame as drawn, from its ╔ to its ╗. */
   const editCols = (frame: string) => { const line = [...(frame.split("\n").find(l => l.includes("╔═ editing")) ?? "")]; const at = line.indexOf("╔"); return at < 0 ? 0 : line.indexOf("╗", at) - at + 1; };
 
-  /** Evan's desk, made up: an edit with its answer beside, two notes, four tiles of 44 columns in 177; the keys in the edit. */
-  async function desk() {
-    const marrow = await doors.create("Marrow bed\nnet it"), runner = await doors.create("Runner beans\ntie them in");
-    const p = await doors.pane(await doors.create("Bean rows\nstake the runners"), "Bean rows", 177, 40);
-    p.keys("e");
-    await until(() => p.capture().includes("editing"), "the edit");
-    await doors.ask(p, "@tally the stakes");
-    // Opened while he types, they land beside.
-    for (const [n, note] of [[3, marrow], [4, runner]] as const) { expect(p.act("open", `id=${note}`).ok).toBe(true); await until(() => widths(p).length === n, `tile ${n} open`); }
-    // Saved, so an agent may lay the desk out (it never resizes the tile the person types in); with no room for four at
-    // 177 some folded to spines, opened again here. Then back into the edit.
-    p.keys("C-s");
-    await until(() => !p.capture().includes("editing"), "saved");
-    const quarter = () => { for (const a of [["layout.even"], ["layout.resize", "split=s1", "border=0", "share=0.25"]]) expect([a.join(" "), p.act(...a).ok]).toEqual([a.join(" "), true]); };
-    quarter();
-    for (const w of widths(p)) if (Number(w.split(" ")[1]) < 10) expect(p.act("tile.expand", `tile=${w.split(" ")[0]}`).ok).toBe(true);
-    quarter();
-    await until(() => widths(p).join() === "detail 44,answer 44,detail2 44,detail3 45", "the 44/44/44/45 desk", 5000).catch(e => { throw new Error(`${e.message}: ${widths(p).join()}`); });
-    p.keys("e");
-    await until(() => p.capture().includes("editing"), "the edit again");
-    return p;
-  }
-  /** ^W space on the edit, a shift-click on the answer's title, ^W G: the person's gather. */
-  async function gather(p: Pane) {
-    p.keys("C-w", " ");
-    await until(() => p.capture().includes("gathering"), "the edit picked");
-    p.click({ col: 52, row: 1 }, 4);
-    await Bun.sleep(200);
-    p.keys("C-w", "G");
-    await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group", 5000);
-  }
+  const desk = () => beanDesk(doors);
 
   test("a gathered edit and its answer keep the room they had, ^W > grows the group, and a spill and an undo give it back", async () => {
     const p = await desk();
@@ -76,6 +43,25 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a group gathered on a desk of 
       p.keys("C-w", "B");
       await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group back by one undo");
       expect(cols(p, "group")).toBe(room);
+    } finally { p.close(); }
+  }, 40_000);
+
+  test("the ^W panel says the group's words on a group and the tile's inside it, as the hint row does (PIE-1773)", async () => {
+    const p = await desk();
+    try {
+      await gather(p);
+      // Paused after ^W on the group: its resize keys size the group, and the panel says so, as the hint row does.
+      p.keys("C-w");
+      await until(() => p.capture().includes("narrower group"), "the panel's group words").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      for (const words of ["wider group", "shorter group", "taller group"]) expect(p.capture()).toContain(words);
+      p.keys("Escape");
+      await until(() => !p.capture().includes("narrower group"), "the panel closed");
+      // Gone in (^W e), the keys size a tile inside: the panel says the tile's words, and the hint row no longer offers the group's.
+      p.keys("C-w", "e");
+      await until(() => p.capture().includes("· in"), "in the group");
+      p.keys("C-w");
+      await until(() => /narrower(?! group)/.test(p.capture()), "the panel's tile words").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      for (const words of ["narrower group", "wider group", "shorter group", "taller group"]) expect(p.capture()).not.toContain(words);
     } finally { p.close(); }
   }, 40_000);
 

@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
+import { expect } from "bun:test";
 import { Scratch, until } from "./scratch";
 
 export type Pane = Awaited<ReturnType<TallyDoors["pane"]>>;
@@ -81,4 +82,44 @@ export function cellOf(frame: string, text: string): { col: number; row: number 
     if (at >= 0) return { col: [...lines[row]!.slice(0, at)].length + 1, row: row + 1 };
   }
   return null;
+}
+
+/** Each tile on the screen with its width, as layout.get has them (`drawer`: the drawer's layer instead). */
+export const widths = (p: Pane, drawer = false) => ((JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: { name: string; rect?: { cols: number } }[] }[]).find(l => l.drawer === drawer)?.tiles ?? []).map(t => `${t.name} ${t.rect?.cols}`);
+/** Tile `name`'s width on the screen (0 when it isn't there). */
+export const cols = (p: Pane, name: string) => Number(widths(p).find(w => w.startsWith(`${name} `))?.split(" ")[1] ?? 0);
+
+/**
+ * Evan's desk, made up (PIE-1771): an edit with its answer beside, two notes, four tiles of 44 columns in 177; the keys
+ * in the edit.
+ */
+export async function beanDesk(doors: TallyDoors) {
+  const marrow = await doors.create("Marrow bed\nnet it"), runner = await doors.create("Runner beans\ntie them in");
+  const p = await doors.pane(await doors.create("Bean rows\nstake the runners"), "Bean rows", 177, 40);
+  p.keys("e");
+  await until(() => p.capture().includes("editing"), "the edit");
+  await doors.ask(p, "@tally the stakes");
+  // Opened while he types, they land beside.
+  for (const [n, note] of [[3, marrow], [4, runner]] as const) { expect(p.act("open", `id=${note}`).ok).toBe(true); await until(() => widths(p).length === n, `tile ${n} open`); }
+  // Saved, so an agent may lay the desk out (it never resizes the tile the person types in); with no room for four at
+  // 177 some folded to spines, opened again here. Then back into the edit.
+  p.keys("C-s");
+  await until(() => !p.capture().includes("editing"), "saved");
+  const quarter = () => { for (const a of [["layout.even"], ["layout.resize", "split=s1", "border=0", "share=0.25"]]) expect([a.join(" "), p.act(...a).ok]).toEqual([a.join(" "), true]); };
+  quarter();
+  for (const w of widths(p)) if (Number(w.split(" ")[1]) < 10) expect(p.act("tile.expand", `tile=${w.split(" ")[0]}`).ok).toBe(true);
+  quarter();
+  await until(() => widths(p).join() === "detail 44,answer 44,detail2 44,detail3 45", "the 44/44/44/45 desk", 5000).catch(e => { throw new Error(`${e.message}: ${widths(p).join()}`); });
+  p.keys("e");
+  await until(() => p.capture().includes("editing"), "the edit again");
+  return p;
+}
+/** ^W space on the edit, a shift-click on the answer's title, ^W G: the person's gather of the edit and its answer. */
+export async function gather(p: Pane) {
+  p.keys("C-w", " ");
+  await until(() => p.capture().includes("gathering"), "the edit picked");
+  p.click({ col: 52, row: 1 }, 4);
+  await Bun.sleep(200);
+  p.keys("C-w", "G");
+  await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group", 5000);
 }
