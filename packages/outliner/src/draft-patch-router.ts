@@ -3,6 +3,7 @@ import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { chipSpans, wholeTextSpan } from "./extension-writes";
 import { checkPropertyPatch, keyedPropertyOps, patchLines, patchPropertyText, withLines } from "./properties";
 /**
@@ -336,14 +337,26 @@ export class DraftPatchRouter {
     const chips = patchPropertyText(now.text, keyedPropertyOps(now.text, input.operations.filter(op => op.op !== "line")));
     const text = lines.length ? withLines(chips, lines) : chips;
     if (text === now.text) return { ...now, draft: { holder: draft.holder!, text: draft.text } };
-    // The draft's chips for each chip the saved note changes, found near where the saved note has them.
-    const patches: DraftPatchSpan[] = chipSpans(now.text, chips).map(span => {
+    // The draft's chips for each chip the saved note changes, found near where the saved note has them. A note empty as
+    // saved has nothing to find: its chips go on a first line of their own (CodeRabbit on #1461).
+    const savedChips = parsePropertyRecords(now.text), draftChips = parsePropertyRecords(draft.text);
+    const patches: DraftPatchSpan[] = !now.text.trim() ? [{ observed: "", replacement: `${chips}${draft.text ? "\n" : ""}`, range: { start: 0, end: 0 } }] : chipSpans(now.text, chips).map(span => {
       const at = locateSpans(draft.text, [span]);
       if (!at.ok) throw new Refusal(at.kind ?? "conflict", `not applied: ${span.observed.trim()} isn't in the draft as it's saved (${at.reason}); read it again`);
-      return { ...span, range: { start: at.spans[0]!.start, end: at.spans[0]!.end } };
+      const found = at.spans[0]!;
+      // A chip is the same chip only in the same place: one the person took off the title doesn't become a copy of it
+      // in the body (CodeRabbit on #1461).
+      const was = savedChips.find(r => r.start === span.range!.start && r.end === span.range!.end);
+      const is = draftChips.find(r => r.start === found.start && r.end === found.end);
+      if (was && (!is || is.scope !== was.scope || is.placement !== was.placement)) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (it was taken out or moved); read it again`);
+      return { ...span, range: { start: found.start, end: found.end } };
     });
-    // A line goes at the draft's end, a paragraph of its own (an empty observed text with no range is the end).
-    if (lines.length) patches.push({ observed: "", replacement: `${draft.text.trim() ? "\n\n" : ""}${lines.join("\n\n")}` });
+    // A line goes at the draft's end, a paragraph of its own, the way the saved note takes it: the draft's trailing
+    // blank lines give way to it, as withLines trims the saved note's (CodeRabbit on #1461).
+    if (lines.length) {
+      const tail = draft.text.length - draft.text.trimEnd().length;
+      patches.push({ observed: draft.text.slice(draft.text.length - tail), replacement: `${draft.text.trim() ? "\n\n" : ""}${lines.join("\n\n")}`, ...(tail ? { range: { start: draft.text.length - tail, end: draft.text.length } } : {}) });
+    }
     let written: ReturnType<OutlinerStore["patchProperties"]> | undefined;
     const outcome = await this.run([{ blockId: saved.id, revision: draft.revision, patches }], {
       mutation: input.mutation, policy: "edit", standsOn: { revision: now.revision + 1, text },

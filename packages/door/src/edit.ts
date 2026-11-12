@@ -1900,8 +1900,8 @@ const chipsMoved = (props: PropertyList, before: string, after: string): Propert
   for (const gone of less(was, now)) { const i = out.findIndex(p => `${p.key}\u0000${p.value}` === gone); if (i >= 0) out.splice(i, 1); }
   return [...out, ...less(now, was).map(c => { const [key, value] = c.split("\u0000") as [string, string]; return { key, value }; })];
 };
-/** An insertion at the very end of `text` that starts a paragraph of its own. */
-const belowAll = (text: string, sp: LocatedSpan) => sp.start === text.length && sp.end === text.length && sp.replacement.startsWith("\n");
+/** A paragraph of its own added at the very end of `text`, in place of nothing or of its trailing blank lines. */
+const belowAll = (text: string, sp: LocatedSpan) => sp.end === text.length && !text.slice(sp.start).trim() && sp.replacement.startsWith("\n");
 /** Where the line holding `offset` starts and ends in `text`. */
 const lineStartAt = (text: string, offset: number) => text.lastIndexOf("\n", offset - 1) + 1;
 const lineEndAt = (text: string, offset: number) => { const end = text.indexOf("\n", offset); return end < 0 ? text.length : end; };

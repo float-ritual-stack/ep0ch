@@ -715,6 +715,27 @@ describe("draft.patch over the protocol", () => {
     expect(store.require(free.id).text).toContain("[work-stage::later]");
   });
 
+  test("CodeRabbit on #1461: an empty note, a chip taken off the title, a note ending in a newline", async () => {
+    const { store, client } = await service();
+    // An empty note being written: its first chip goes on a line of its own above what's typed.
+    const empty = store.create("");
+    const blank = await fakeDoor(client, "door-empty", empty.id, "first words", empty.revision);
+    const set = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: empty.id, operations: [{ op: "set", key: "kind", value: "seed" }], mutation: TIDY });
+    expect(set.text).toBe("[kind::seed]");
+    expect(blank).toMatchObject({ text: "[kind::seed]\nfirst words", revision: set.revision });
+    // The person took the chip off the title; the same chip in the body is not it: refused, nothing written.
+    const note = store.create("Bean row [kind::seed]\n\nwas [kind::seed] last week");
+    await fakeDoor(client, "door-moved", note.id, "Bean row\n\nwas [kind::seed] last week", note.revision);
+    await expect(client.request({ action: "properties.patch", blockId: note.id, operations: [{ op: "set", key: "kind", value: "pod" }], mutation: TIDY })).rejects.toThrow("isn't where it's saved in the draft");
+    expect(store.require(note.id)).toMatchObject({ text: note.text, revision: note.revision });
+    // A note ending in a newline takes a line the same way in the saved note and the draft: nothing left to save.
+    const tail = store.create("Fix the roof [kind::job]\n\nTar paper first.\n");
+    const roof = await fakeDoor(client, "door-tail", tail.id, tail.text, tail.revision);
+    const lined = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: tail.id, operations: [{ op: "line", text: "**Back from later, 2026-11-12:** asked again" }], mutation: TIDY });
+    expect(lined.text).toBe("Fix the roof [kind::job]\n\nTar paper first.\n\n**Back from later, 2026-11-12:** asked again");
+    expect(roof.text).toBe(lined.text);
+  });
+
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();
     const note = store.create("Morning plan");
