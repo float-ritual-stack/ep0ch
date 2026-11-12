@@ -99,7 +99,9 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
   });
 
   test("saved at the end of a note whose answers the reader draws taller than the edit: the line typed stays in view (PIE-1585)", async () => {
-    const answered = Array.from({ length: 12 }, (_, i) => `Cane ${i + 1}\n@yo how do I tie cane ${i + 1}\n> [!note]- @yo answered\n> one\n> two\n> three\n> four`).join("\n\n");
+    // Answers to an agent this outline doesn't have: folded as yo's are, and nobody is asked. Twelve @yo lines asked yo
+    // twelve times at once on the save, which held the door for seconds and turned the tests after this one red (PIE-1763).
+    const answered = Array.from({ length: 12 }, (_, i) => `Cane ${i + 1}\n@plover how do I tie cane ${i + 1}\n> [!note]- @plover answered\n> one\n> two\n> three\n> four`).join("\n\n");
     const title = `Answered beans ${cols}`, r = await reading(title, answered);
     const d = await opened(r);
     // ctrl+End under the shut answer that ends the note goes to a line of its own after it (PIE-1741); one ⏎ more is
