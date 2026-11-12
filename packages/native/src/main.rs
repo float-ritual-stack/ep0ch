@@ -38,7 +38,7 @@ fn flag(name: &str) -> Option<String> {
 fn init() -> App {
     // A headless render steps a virtual clock: each ask waits for its answer, so the frame drawn shows it.
     let headless = rune::tooling::headless_run().is_some();
-    let app = match client::resolve(rune::extra_args()) {
+    let app = match client::place(rune::extra_args()) {
         Ok(place) => {
             let path = place.socket.clone();
             App::new(Box::new(Socket::connect(&place.socket)), &place.outline).reconnecting(Box::new(move || Box::new(Socket::connect(&path))))

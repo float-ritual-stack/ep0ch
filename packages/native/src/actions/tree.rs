@@ -24,7 +24,8 @@ fn set(app: &mut App, id: &str, open: Option<bool>) {
 
 fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let id = args.text("id").unwrap_or("").to_string();
-    if !by.is_person() { return nav::go(app, &id, by, true) }
+    // An agent's pick is an open, by the same rule as any agent's open: asked of the dispatcher, not done round it.
+    if !by.is_person() { return app.act(&format!("open id={}", super::word(&id)), by.clone()) }
     // A press opens the note; on the open note it folds or unfolds what's under it.
     if app.subject().as_deref() == Some(id.as_str()) {
         if folds(app, &id) { set(app, &id, None) }

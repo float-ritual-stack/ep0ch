@@ -104,10 +104,13 @@ impl Link for Nowhere {
     fn wait(&mut self, _: &str, _: Duration) {}
 }
 
-/// Where the outline is: its host's socket and its name.
+/// Where the outline is: its host's socket and its name, and where this window serves its control socket
+/// (`native.sock` beside the outline's `door.sock`), when the door's rule said.
+#[derive(Clone)]
 pub struct Place {
     pub socket: String,
     pub outline: String,
+    pub control: Option<String>,
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> { args.iter().position(|a| a == name).and_then(|at| args.get(at + 1)).cloned() }
@@ -122,14 +125,21 @@ fn bun(args: &[String]) -> Result<Value, String> {
 
 /// Where the outline is, by the door's own rule (`resolve.ts`, run once with bun).
 /// `EP0CH_SOCKET` with `--ws` or `EP0CH_WS` names both outright, as it does for every client.
-pub fn resolve(args: &[String]) -> Result<Place, String> {
+fn resolve(args: &[String]) -> Result<Place, String> {
     let named = flag(args, "--ws").or_else(|| std::env::var("EP0CH_WS").ok());
-    if let (Ok(socket), Some(outline)) = (std::env::var("EP0CH_SOCKET"), named.as_ref()) { return Ok(Place { socket, outline: outline.clone() }) }
+    // With the host's socket named outright nothing runs the door's rule: there is no folder to be beside.
+    if let (Ok(socket), Some(outline)) = (std::env::var("EP0CH_SOCKET"), named.as_ref()) { return Ok(Place { socket, outline: outline.clone(), control: None }) }
     let answer = bun(args)?;
     match (answer["socket"].as_str(), answer["outline"].as_str()) {
-        (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string() }),
+        (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string(), control: answer["control"].as_str().map(str::to_string) }),
         _ => Err(answer["error"].as_str().unwrap_or("no outline is named here").to_string()),
     }
+}
+
+/// Where the outline is, asked once a run: the window's first state and its control socket both read it.
+pub fn place(args: &[String]) -> Result<Place, String> {
+    static PLACE: std::sync::OnceLock<Result<Place, String>> = std::sync::OnceLock::new();
+    PLACE.get_or_init(|| resolve(args)).clone()
 }
 
 /// Where this window serves its control socket: `--control <path>`, then `EP0CH_NATIVE_CONTROL`, then
@@ -137,7 +147,5 @@ pub fn resolve(args: &[String]) -> Result<Place, String> {
 /// the window runs without one.
 pub fn control(args: &[String]) -> Option<String> {
     if let Some(path) = flag(args, "--control").or_else(|| std::env::var("EP0CH_NATIVE_CONTROL").ok()).filter(|path| !path.is_empty()) { return Some(path) }
-    // With the host's socket named outright nothing ran the door's rule: there is no folder to be beside.
-    if std::env::var("EP0CH_SOCKET").is_ok() { return None }
-    bun(args).ok()?["control"].as_str().map(str::to_string)
+    place(args).ok()?.control
 }
