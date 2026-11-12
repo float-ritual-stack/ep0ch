@@ -55,7 +55,7 @@ import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXT_UNDO, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
-import { loadScreenNotes, SCREEN_TYPE, watchedScreens } from "./desk/screen-notes";
+import { loadScreenNotes, reservedScreens, watchedScreens } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { referenceWords } from "./refs";
 import { AskAgain, outlineHeard } from "./search-schedule";
@@ -668,7 +668,7 @@ export class App implements Ctx {
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
     // Once the door has read its screens: the first read is the start's, and a moved answer before it has nothing to bring up to date.
-    this.screensAsk = new AskAgain<void>({ read: async () => { if (this.screensSeen) await this.loadScreens(); }, show() {}, told: board.watched && { by: board.watched, answers: () => [board.byPropShown?.("type", SCREEN_TYPE, 500)] } });
+    this.screensAsk = new AskAgain<void>({ read: async () => { if (this.screensSeen) await this.loadScreens(); }, show() {}, told: board.watched && { by: board.watched, answers: () => [board.screensShown?.(reservedScreens())] } });
     this.started = now();
     this.speed = new SpeedMeter(now);
     // A Claude session running twice (PIE-1369): this machine's sessions and the outline's machine's, read while someone looks.

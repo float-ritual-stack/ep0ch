@@ -21,8 +21,9 @@ test("a screen note's text holds its spec as data, read back as the same spec un
   const read = readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "potting" }], revision: 3 });
   expect(read).toMatchObject({ name: "potting", id: "n1", revision: 3, spec });
   // Renamed by its property, it's that screen; a note without its fence says how to write one.
-  expect(readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }], revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
-  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }] })).toMatchObject({ problem: expect.stringContaining("has no ```json fence") });
+  // (The note's text is what is read, as the service reads it: its property is renamed where it is written.)
+  expect(readScreenNote({ id: "n1", text: text.replace("[screen::potting]", "[screen::seedlings]"), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }], revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
+  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }] })).toMatchObject({ problem: expect.stringContaining("has no layout: neither blocks under it (a split, tabs, a tile …) nor a ```json fence") });
 });
 
 describe.skipIf(!outliner)("screens people make, against a scratch outline", () => {
@@ -199,5 +200,22 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     // ^W v again: its opens already land there, and the person is told so, not left wondering.
     await mine("tile.preview", { where: "down" }, "detail");
     expect((app as any).message).toContain("detail already opens into detail-preview: showed it · alt+l then click detail-preview to unlink");
+  });
+
+  test("a screen saved as blocks under its note (screens.save, the native window's save) opens here as it was arranged", async () => {
+    const spec = { name: "Seed bench", title: "Seed bench", layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
+      { t: "leaf", kind: "tree", name: "tree", wires: [{ verb: "select", to: "reader" }] },
+      { t: "split", dir: "col", weights: [0.6, 0.4], kids: [{ t: "leaf", kind: "reader", name: "reader" }, { t: "leaf", kind: "backlinks", name: "roots", source: "tile:reader", subject: "follows" }] }] } } };
+    const saved = await board.request("screens.save", { spec, mutation: { author: "agent", actorId: "seedling-agent" } });
+    expect(saved).toMatchObject({ name: "seed-bench", title: "Seed bench", created: true });
+    // The note holds no JSON: its layout is the blocks under it, which only the service reads.
+    const note = (await board.get(saved.id))!;
+    expect(note.text).toBe("Seed bench [type::screen] [screen::seed-bench] [focus::reader]");
+    await until(() => screenNames().includes("seed-bench"), "the door registered the screen from the service's list");
+    expect(madeScreen("seed-bench")).toMatchObject({ id: saved.id, title: "Seed bench" });
+    await app.dispatch.act({ action: "screen.open", args: { name: "seed-bench" } }, { kind: "user" });
+    await until(() => top().name === "seed-bench", "seed-bench opened");
+    expect(get().tiles.map(t => t.name)).toEqual(["tree", "reader", "roots"]);
+    expect(get().tiles.find(t => t.name === "roots").kind).toBe("backlinks");
   });
 });
