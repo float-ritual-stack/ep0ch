@@ -1,0 +1,209 @@
+//! The contract tables, row for row: what the door's `apply` and `placement` answer (written down by the door's own
+//! functions in `outline-core/fixtures/`), asked of `layout::apply` and `layout::place`. A row that answers
+//! differently is a second layout decider: it fails here, naming the row.
+use serde_json::{Map, Value, json};
+
+use crate::layout::tree::{self, Axis, Dir, Node, Place, Policy, Rect, TileSpec};
+use crate::layout::{self, At, By, Ctx, Facts, Fold, Kinds, Layout, Op, Request, Wire};
+
+fn table(name: &str) -> Value {
+    let path = format!("{}/../outline-core/fixtures/{name}.json", env!("CARGO_MANIFEST_DIR"));
+    serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap()
+}
+
+fn text(v: &Value, k: &str) -> Option<String> { v.get(k).and_then(Value::as_str).map(str::to_string) }
+fn flag(v: &Value, k: &str) -> Option<bool> { v.get(k).and_then(Value::as_bool) }
+fn number(v: &Value, k: &str) -> Option<f64> { v.get(k).and_then(Value::as_f64) }
+fn texts(v: &Value, k: &str) -> Vec<String> { v.get(k).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default() }
+fn pairs(v: &Value, k: &str) -> Vec<(String, Value)> { v.get(k).and_then(Value::as_array).map(|l| l.iter().filter_map(|p| Some((p.get(0)?.as_str()?.to_string(), p.get(1)?.clone()))).collect()).unwrap_or_default() }
+
+fn place_of(v: &Value) -> Place {
+    match At::read(v).expect("a place") { At::Split { target, dir, pair, weight } => Place::Split { target, dir, pair, weight }, At::Tabs { target, index, behind } => Place::Tabs { target, index, behind }, At::Edge { dir } => Place::Edge { dir }, other => panic!("{other:?} is no place to move to") }
+}
+
+/// An operation as a row writes it. `kind_of`: the kind of a tile the row names by id alone.
+fn op_of(v: &Value, kind_of: &dyn Fn(&str) -> String) -> Op {
+    let tile = || text(v, "tile").unwrap_or_default();
+    let spec = |id: String, kind: Option<String>| { let kind = kind.unwrap_or_else(|| kind_of(&id)); TileSpec::new(id, kind) };
+    match v["op"].as_str().unwrap() {
+        "open" if v.get("placement").is_some() => Op::OpenNote { request: Request::read(&v["placement"]), tile: spec(tile(), Some(text(v, "kind").unwrap_or_else(|| "reader".into()))), name: text(v, "name") },
+        "open" => Op::Open { tile: spec(tile(), text(v, "kind")), name: text(v, "name"), loose: flag(v, "loose") == Some(true), alt: flag(v, "alt") == Some(true), deliberate: flag(v, "deliberate"), at: At::read(&v["at"]).expect("an at"), keys: flag(v, "keys") != Some(false), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
+        "close" => Op::Close { tile: tile(), gone: flag(v, "gone") == Some(true) },
+        "release" => Op::Release { tile: tile() },
+        "peek.release" => Op::PeekRelease { tile: tile() },
+        "replace" => Op::Replace { tile: tile(), with: spec(text(v, "with").unwrap(), text(v, "kind")), name: text(v, "name"), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
+        "take" => Op::Take { tile: tile(), heir: v.get("heir").map(|h| (spec(text(h, "id").unwrap(), Some(kind_of(&tile()))), text(h, "name"))) },
+        "group" => Op::Group { tile: text(v, "tile"), node: text(v, "node"), take: texts(v, "take"), with: spec(text(v, "with").unwrap(), text(v, "kind")), name: text(v, "name") },
+        "ungroup" => Op::Ungroup {
+            tile: tile(), tree: tree::revive(&v["tree"], &mut |leaf| spec(text(leaf, "id").unwrap(), None)),
+            names: pairs(v, "names").into_iter().map(|(id, name)| (id, name.as_str().unwrap().to_string())).collect(),
+            folds: pairs(v, "folds").into_iter().map(|(id, f)| (id, Fold { by: text(&f, "by"), flat: text(&f, "dir").as_deref() == Some("h") })).collect(),
+            agents: pairs(v, "agents").into_iter().map(|(id, l)| (id, l.as_str().unwrap().to_string())).collect(),
+            wires: v.get("wires").and_then(Value::as_array).map(|l| l.iter().map(|w| Wire { from: text(w, "from").unwrap(), verb: text(w, "verb").unwrap(), to: text(w, "to").unwrap(), rule: text(w, "rule") }).collect()).unwrap_or_default(),
+        },
+        "move" => Op::Move { tile: tile(), to: place_of(&v["to"]) },
+        "swap" => Op::Swap { tile: tile(), with: text(v, "with").unwrap() },
+        "float" => Op::Float { tile: tile(), at: v.get("at").and_then(At::read) },
+        "place" => Op::Nudge { tile: text(v, "tile"), dx: number(v, "dx"), dy: number(v, "dy"), col: number(v, "col"), row: number(v, "row"), cols: number(v, "cols"), rows: number(v, "rows") },
+        "pin" => Op::Pin { tile: tile(), on: flag(v, "on"), edge: text(v, "edge").as_deref().and_then(Dir::read), container: text(v, "container") },
+        "slide" => Op::Slide { tile: tile(), open: flag(v, "open"), container: text(v, "container"), beside: flag(v, "beside") == Some(true) },
+        "collapse" => Op::Collapse { tile: tile(), on: flag(v, "on"), dir: text(v, "dir") },
+        "room" => Op::Room { tile: tile() },
+        "alt.hold" => Op::AltHold { tile: tile() },
+        "resize" => Op::Resize { split: text(v, "split"), path: text(v, "path"), border: number(v, "border").unwrap(), share: number(v, "share").unwrap() },
+        "shares" => Op::Shares { split: text(v, "split").unwrap(), shares: v["shares"].as_array().unwrap().iter().filter_map(Value::as_f64).collect() },
+        "grow" => Op::Grow { tile: tile(), axis: if text(v, "axis").as_deref() == Some("col") { Axis::Col } else { Axis::Row }, by: number(v, "by").unwrap() },
+        "even" => Op::Even,
+        "gather" => Op::Gather { tile: tile(), node: text(v, "node"), side: text(v, "side").unwrap() },
+        "lock" => Op::Lock { on: flag(v, "on") },
+        "agents" => Op::Agents { tile: tile(), level: text(v, "level") },
+        "opened" => Op::Opened { tile: tile(), from: text(v, "from").unwrap(), typing: flag(v, "typing") == Some(true) },
+        "policy" => Op::Policy { tile: text(v, "tile"), node: text(v, "node"), set: v["set"].as_object().cloned().unwrap_or_default(), clear: texts(v, "clear") },
+        "link" => Op::Link { tile: tile(), to: text(v, "to"), verb: text(v, "verb"), remove: flag(v, "remove") == Some(true), rule: text(v, "rule"), across: text(v, "across") },
+        "focus" => Op::Focus { tile: tile(), quiet: flag(v, "quiet") == Some(true) },
+        "reveal" => Op::Reveal { tile: tile() },
+        "tab" => Op::Tab { tile: tile(), by: v.get("by").and_then(Value::as_i64) },
+        "zoom" => Op::Zoom { tile: tile(), on: flag(v, "on"), reach: text(v, "reach") },
+        "load" => Op::Load { name: text(v, "name").unwrap() },
+        "fill" => Op::Fill {
+            container: text(v, "container").unwrap(), order: texts(v, "order"),
+            fresh: v.get("fresh").and_then(Value::as_array).map(|l| l.iter().map(|t| (spec(text(t, "id").unwrap(), text(t, "kind")), text(t, "name"))).collect()).unwrap_or_default(),
+            drop: texts(v, "drop"), weights: pairs(v, "weights").into_iter().map(|(id, w)| (id, w.as_f64().unwrap())).collect(),
+            names: pairs(v, "names").into_iter().map(|(id, n)| (id, n.as_str().unwrap().to_string())).collect(), select: texts(v, "select"),
+        },
+        "source" => Op::Source { container: text(v, "container").unwrap(), source: text(v, "source").unwrap() },
+        "flow.widen" => Op::FlowWiden { tile: tile() },
+        "flow.travel" => Op::FlowTravel { tile: tile(), dir: v["dir"].as_i64().unwrap() },
+        "flow.hold" => Op::FlowHold { tile: tile(), on: flag(v, "on") },
+        "rename" => Op::Rename { tile: tile(), name: text(v, "name").unwrap() },
+        "names" => Op::Names,
+        "remember" => Op::Remember { key: text(v, "key").unwrap(), policy: Policy::of(v.get("policy")) },
+        other => panic!("the table asks an operation this window has no Op for: {other}"),
+    }
+}
+
+/// The context a row is asked in: who acts and how they stand, where the person is, what each tile is.
+fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_person: bool, facts: &'a dyn Fn(&str) -> Facts, area: Rect, kinds: &Option<Kinds>) -> Ctx<'a> {
+    let agent = actor["kind"] == "agent";
+    let by = if agent { By::Agent(text(actor, "id").unwrap_or_default()) } else { By::Person };
+    let stands = |k: &str, default: bool| standing.and_then(|s| flag(s, k)).unwrap_or(default);
+    let person = if default_person { &Value::Null } else { &case["person"] };
+    let extra = &case["ctx"];
+    Ctx {
+        by, standing: stands("standing", !agent), keys: stands("keys", !agent), protect_typing: stands("protectTyping", agent),
+        typing_in: text(person, "typingIn"), busy: flag(person, "busy") == Some(true), yolo: flag(person, "yolo") == Some(true), here: flag(person, "here"),
+        facts, area, kinds: kinds.clone(), expected: extra.get("expected").cloned(), screen_host: text(extra, "screenHost"), other_names: texts(extra, "otherNames"), empties: flag(extra, "empties") == Some(true),
+        beside: extra.get("beside").and_then(Value::as_object).map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect()).unwrap_or_default(),
+        opened: extra.get("opened").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), texts(v, "ids"), text(v, "active"))).collect()).unwrap_or_default(),
+        own: extra.get("self").map(|s| (text(s, "name").unwrap_or_default(), text(s, "chip"), text(s, "covered"))),
+        home: text(extra, "home"), screen: extra.get("screen").map(|s| s.as_str().map(str::to_string)), outward: text(extra, "outward"), fresh_action: text(extra, "freshAction"),
+    }
+}
+
+/// A saved leaf as a row's result holds one: what the layout itself keeps of a tile.
+fn lean(v: &Value) -> Value {
+    match v {
+        Value::Object(map) if map.get("t") == Some(&json!("leaf")) => Value::Object(map.iter().filter(|(k, _)| ["t", "kind", "name", "id", "collapsed", "agents", "altReader", "wires"].contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), lean(v))).collect()),
+        Value::Array(list) => Value::Array(list.iter().map(lean).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The layout as a row's result writes it.
+fn saved(l: &Layout) -> Value {
+    let mut out = match lean(&l.save()) { Value::Object(map) => map, _ => Map::new() };
+    out.insert("also".into(), l.also());
+    Value::Object(out)
+}
+
+/// Where two values differ: equal but for a share within 1e-9, as the tables say to compare them.
+fn differs(got: &Value, want: &Value, at: &str) -> Option<String> {
+    match (got, want) {
+        (Value::Number(a), Value::Number(b)) => ((a.as_f64().unwrap() - b.as_f64().unwrap()).abs() > 1e-9).then(|| format!("{at}: {a}, the door says {b}")),
+        (Value::Object(a), Value::Object(b)) => a.keys().chain(b.keys()).find_map(|k| match (a.get(k), b.get(k)) { (Some(x), Some(y)) => differs(x, y, &format!("{at}.{k}")), (Some(x), None) => Some(format!("{at}.{k}: {x}, which the door doesn't say")), (None, Some(y)) => Some(format!("{at}.{k}: missing; the door says {y}")), (None, None) => None }),
+        (Value::Array(a), Value::Array(b)) => if a.len() != b.len() { Some(format!("{at}: {} items, the door has {}: {got} / {want}", a.len(), b.len())) } else { a.iter().zip(b).enumerate().find_map(|(i, (x, y))| differs(x, y, &format!("{at}[{i}]"))) },
+        (a, b) => (a != b).then(|| format!("{at}: {a}, the door says {b}")),
+    }
+}
+
+/// A row's scene as it starts: its layout read, its setup applied, the person's keys where the row says.
+fn start<'a>(case: &'a Value, area: Rect, kinds: &Option<Kinds>, facts: &dyn Fn(&str) -> Facts) -> Layout {
+    let mut l = Layout::read(&case["layout"]);
+    for step in case.get("setup").and_then(Value::as_array).into_iter().flatten() {
+        let actor = step.get("actor").cloned().unwrap_or_else(|| json!({ "kind": "user" }));
+        let ctx = ctx_of(case, &actor, None, true, facts, area, kinds);
+        let op = op_of(&step["op"], &|id| facts(id).kind);
+        l = layout::apply(&l, &op, &ctx).unwrap_or_else(|why| panic!("{}: its setup step was refused: {}", case["name"], why.0)).layout;
+    }
+    if let Some(focus) = text(&case["person"], "focus") { l.focus = l.named(&focus).unwrap_or(focus) }
+    l
+}
+
+fn area_of(table: &Value, case: &Value) -> Rect { Rect::read(case.get("area").unwrap_or(&table["area"])).expect("an area") }
+fn kinds_of(table: &Value) -> Option<Kinds> { table.get("kinds").map(|k| Kinds { all: texts(k, "all"), notes: texts(k, "notes") }) }
+fn facts_of(case: &Value) -> impl Fn(&str) -> Facts + '_ { |id: &str| case["tiles"].get(id).map_or_else(|| Facts { kind: "tile".into(), ..Facts::default() }, Facts::read) }
+
+fn applied(r: &Result<layout::Applied, layout::Refusal>, with_answer: bool) -> Value {
+    match r {
+        Ok(done) => { let mut out = json!({ "ok": true, "layout": saved(&done.layout) }); if with_answer { out["changed"] = json!(done.changed); out["answer"] = Value::Object(done.answer.clone()); } out }
+        Err(why) => json!({ "ok": false, "refused": why.0 }),
+    }
+}
+
+#[test]
+fn every_row_of_the_layout_contract_answers_as_the_door_does() {
+    let table = table("layout-contract");
+    let kinds = kinds_of(&table);
+    let (mut wrong, mut asked) = (Vec::new(), 0);
+    for case in table["cases"].as_array().unwrap() {
+        asked += 1;
+        let facts = facts_of(case);
+        let area = area_of(&table, case);
+        let l = start(case, area, &kinds, &facts);
+        let ctx = ctx_of(case, &case["actor"], Some(&case["standing"]), false, &facts, area, &kinds);
+        let op = op_of(&case["op"], &|id| facts(id).kind);
+        let got = applied(&layout::apply(&l, &op, &ctx), true);
+        if let Some(why) = differs(&got, &case["result"], "") { wrong.push(format!("{} ({}): {why}", case["name"], case["op"]["op"])) }
+    }
+    assert!(asked >= 310, "the table has its rows: {asked}");
+    assert!(wrong.is_empty(), "{} of {asked} rows answer differently:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+#[test]
+fn every_row_of_the_place_contract_lands_where_the_door_lands_it() {
+    let table = table("place-contract");
+    let kinds = kinds_of(&table);
+    let mut wrong = Vec::new();
+    let rows = table["cases"].as_array().unwrap();
+    for case in rows {
+        let facts = |id: &str| if id == "sprout" && case["tiles"].get(id).is_none() { Facts { kind: "reader".into(), notes: true, ..Facts::default() } } else { facts_of(case)(id) };
+        let area = area_of(&table, case);
+        let l = start(case, area, &kinds, &facts);
+        let ctx = ctx_of(case, &case["actor"], Some(&case["standing"]), false, &facts, area, &kinds);
+        let landing = layout::place(&l, &Request::read(&case["request"]), &TileSpec::new("sprout", "reader"), &ctx);
+        let mut lands = json!({ "tile": landing.tile, "kind": landing.kind, "why": landing.why });
+        if landing.new { lands["new"] = json!(true) }
+        if let Some(keeps) = &landing.keeps { lands["keeps"] = json!(keeps) }
+        if let Some(Err(why)) = &landing.after { lands["refused"] = json!(why.0) }
+        let mut got = json!({ "lands": lands, "placement": landing.placement.json() });
+        if let Some(after) = &landing.after { got["after"] = applied(after, false) }
+        let want: Value = Value::Object(["lands", "placement", "after"].iter().filter_map(|k| case.get(*k).map(|v| (k.to_string(), v.clone()))).collect());
+        if let Some(why) = differs(&got, &want, "") { wrong.push(format!("{}: {why}", case["name"])) }
+    }
+    assert!(rows.len() >= 85, "the table has its rows: {}", rows.len());
+    assert!(wrong.is_empty(), "{} of {} rows land differently:\n{}", wrong.len(), rows.len(), wrong.join("\n"));
+}
+
+/// Both of the door's saved forms read as one tree, and what is saved is the form written with `kids`.
+#[test]
+fn a_split_saved_as_ratio_a_b_reads_as_the_same_tree_as_weights_and_kids() {
+    let leaf = |name: &str, kind: &str| json!({ "t": "leaf", "kind": kind, "name": name });
+    let old = json!({ "focus": "bed", "root": { "t": "split", "dir": "row", "ratio": 0.3, "a": leaf("beds", "tree"), "b": { "t": "split", "dir": "col", "ratio": 0.6, "a": leaf("bed", "reader"), "b": leaf("log", "activity") } } });
+    let new = json!({ "focus": "bed", "root": { "t": "split", "dir": "row", "weights": [0.3, 0.7], "kids": [leaf("beds", "tree"), { "t": "split", "dir": "col", "weights": [0.6, 0.4], "kids": [leaf("bed", "reader"), leaf("log", "activity")] }] } });
+    let (a, b) = (Layout::read(&old), Layout::read(&new));
+    assert_eq!(differs(&a.save(), &b.save(), ""), None);
+    assert!(matches!(a.tree(), Node::Split { kids, .. } if kids.len() == 2), "{:?}", a.tree());
+    assert_eq!(a.save()["root"]["kids"][1]["kids"][0]["name"], "bed", "it saves the form written with kids");
+    assert_eq!(differs(&Layout::read(&a.save()).save(), &a.save(), ""), None, "and what it saves reads back as itself");
+}

@@ -10,6 +10,7 @@
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
+mod contract;
 mod control;
 mod garden;
 mod live;

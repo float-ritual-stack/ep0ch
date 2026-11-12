@@ -13,6 +13,7 @@ mod bar;
 mod client;
 mod control;
 mod keys;
+mod layout;
 mod list;
 mod page;
 mod store;
