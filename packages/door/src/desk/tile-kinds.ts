@@ -277,6 +277,12 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
   return had;
 }
 /**
+ * A served name one of the door's own kinds answers to (the screens extension's `screens.reader` is the door's
+ * `reader`): `screens.list` serves a tile's kind as the kind that serves it, and the door draws that kind itself.
+ * Nothing when the door has no kind by that name, or already has one by the served name.
+ */
+export function aliasTileKind(served: TileKindName, own: TileKindName): void { if (registry.has(own) && !registry.has(served)) aliases.set(served, own); }
+/**
  * A kind's name as the registry has it now: itself, or, for a retired name an extension's kind `replaces`, that kind.
  * Every lookup by name goes through it (tileKind, isTileKind, a spec's canon), so a saved tile of a replaced kind opens
  * as, and saves under, the kind that serves it. A name nobody replaces is its own.

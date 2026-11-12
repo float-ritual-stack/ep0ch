@@ -1610,13 +1610,14 @@ secret reference.
 
 **What it is.** A tile of its own kind (`tarot.reading`, `what-changed.list`), registered in the door's open
 tile-kind registry (PIE-505), which makes, binds and saves it like any built-in kind; the engine never switches on
-its name. A tile is one of three things (PIE-507, PIE-1506), exactly one per `tiles[]` entry:
+its name. A tile is one of four things (PIE-507, PIE-1506), exactly one per `tiles[]` entry:
 
 | Form | `tiles[]` field | What the door makes |
 |---|---|---|
 | a program | `"run": ["bun", "tile.ts"]` | a terminal tile running it (like nvim or the daily agent), its args appended as `--name=value` |
 | drawn rows | `"render": "<a script in scripts[]>"` | a service-drawn tile: the service runs that `// ep0ch-script mode=render` file with the tile's args as `props` and the door draws its view with its own primitives; a `list` in it is the door's one list (j k ⏎ alt+⏎, a click, the wheel, `/` filters, `list.*` for agents), the picked row's note the tile's subject |
 | a view | `"view": "<a query in the views' grammar>"` | the door's query tile (PIE-511) under this kind: the notes the query lists as cards, j k ⏎ r, `query.*`; `view=<a saved view's id>` at open time lists that instead |
+| a kind a door draws | `"drawer": "list"` (or `"page"`), with `"fields": { "from": "children" }` | a kind a door draws itself with the drawer named: `list` is one list over `lists.read` (what it lists is its `from`; `group`, `sort`, `columns` and `arrange` name properties and an arrangement), `page` a note's page. `fields` is what a tile of the kind starts with, where its own spec says nothing. The [screens](../../extensions/screens) extension's kinds are all this: the native window draws each from its row, and the door's own kinds answer to the names those rows serve (`screens.reader` is its `reader`). A door with no such drawer says so on the tile |
 
 **The contract.** A `tiles[]` entry:
 
@@ -1747,7 +1748,10 @@ line draws the same list in a note. No door code draws the rows.
 **What it is.** `screens[]` (PIE-1525) ships whole screens for the door: each a screen spec as data, the same shape a
 screen note holds (`name`, `title`, `layout`, and the optional `keys`, `hint`, `lands`…). The door registers each
 while the extension is served and forgets it when it stops: uninstalling takes the screen, installing brings it back,
-with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O.
+with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O. The screens every door ships
+(the desk a window opens on, the navigator, the board, last callers, who's online) are one extension's too,
+[screens](../../extensions/screens): `start: true` marks the screen a window with no arrangement of its own opens on,
+and `target: { "arg": "query", "fills": "facets.query" }` says which tile's field what a screen is opened on becomes.
 
 ```json
 "screens": [{

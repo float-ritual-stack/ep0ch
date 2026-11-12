@@ -225,7 +225,7 @@ const Tile = Type.Object(
   {
     kind: ID,
     name: Type.String({ minLength: 1, maxLength: 60 }),
-    description: Type.Optional(Type.String({ maxLength: 300 })),
+    description: Type.Optional(Type.String({ maxLength: 600 })),
     /**
      * What fills the tile: exactly one of `run` (a terminal program, from the extension's folder; `bun` means the
      * service's own Bun), `render` (the name of a render script the extension ships in `scripts[]`: the service draws

@@ -934,7 +934,7 @@ export class SocketBoard implements Board {
   async screensWatched(reserved: readonly string[]): Promise<WireAnswer<"screens.list">> {
     const shown = await this.watched.answer<WireAnswer<"screens.list">>("screens.list", { reserved: [...reserved] }, r => r, "", { held: true });
     if (shown.state === "error") throw new Error(shown.error);
-    return shown.value ?? { screens: [], problems: [], anyChange: true };
+    return shown.value ?? { screens: [], kinds: [], problems: [], anyChange: true };
   }
   screensShown(reserved: readonly string[]): WireAnswer<"screens.list"> | undefined { return this.watched.read<WireAnswer<"screens.list">>("screens.list", { reserved: [...reserved] }, r => r, "", { held: true }).value; }
 

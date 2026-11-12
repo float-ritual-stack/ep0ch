@@ -260,6 +260,7 @@ const LAYOUT_FAMILIES: Family[] = [
       "desk/screen-spec.ts": { n: 2, why: "the door's readSpec: outline-core's, told which tile kinds this door has" },
       "desk/screen-notes.ts": { n: 1, why: "a registered spec as each open copies it (a screen note's text is the service's to read: screens.list)" },
       "extensions.ts": { n: 2, why: "an extension's screens[], checked as a note's is" },
+      "desk/shipped-screens.ts": { n: 2, why: "the screens extension's screens[], held from its manifest until a host serves them: checked as any extension's" },
     },
   },
   {

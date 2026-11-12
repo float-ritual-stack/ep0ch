@@ -164,7 +164,9 @@ describe("the action rows, the screens and the act lines", () => {
 
   test("the door's screens are there as specs, the desk and the board among them", () => {
     const screens = parsed<{ screens: { name: string; target?: string; spec: { name: string; layout: { root: unknown } } }[] }>("screens.json").screens;
-    for (const name of ["desk", "welcome", "brief", "pinned", "board", "river", "blank", "library", "keys", "settings", "detail", "home", "navigator", "who", "lastcall"]) expect(screens.some(s => s.name === name)).toBe(true);
+    for (const name of ["desk", "welcome", "brief", "pinned", "board", "river", "blank", "library", "keys", "settings", "detail", "home"]) expect(screens.some(s => s.name === name)).toBe(true);
+    // The navigator, who's online and last callers are the screens extension's, not the door's: they aren't in its table.
+    for (const name of ["navigator", "who", "lastcall"]) expect(screens.some(s => s.name === name)).toBe(false);
     for (const s of screens) { expect(s.spec.name).toBe(s.name); expect(nodes(s.spec.layout.root).some(n => n.t === "leaf")).toBe(true); }
     expect(screens.find(s => s.name === "board")!.target).toBe("hub");
   });

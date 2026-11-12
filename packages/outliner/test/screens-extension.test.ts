@@ -105,6 +105,19 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   const navigator = targetFilled(all.screens.find(s => s.name === "navigator")!.spec!, { query: "type=bed" });
   expect(savedNodes(navigator.layout.root).find(n => n.t === "leaf" && n.name === "facets")).toMatchObject({ query: "type=bed" });
 
+  // The fork check: every shipped screen saved as a note of a person's own reads back as the same screen, with
+  // nothing wrong, so what a door opens on is changed by a note, never by building a door again.
+  for (const shipped of all.screens) {
+    const { start: _start, ...spec } = shipped.spec! as unknown as Record<string, unknown>;
+    const mine = await client.request<{ name: string; id: string }>({ action: "screens.save", spec: { ...spec, name: `My ${shipped.name}` } } as never);
+    const read = (await screens()).screens.find(s => s.name === mine.name)!;
+    expect([read.from, read.problems], mine.name).toEqual(["note", []]);
+    const shape = (root: unknown) => savedNodes(root as never).map(n => [n.t, n.kind ?? null, n.name ?? null, n.role ?? null]);
+    expect(shape(read.spec!.layout.root), mine.name).toEqual(shape(shipped.spec!.layout.root));
+    expect([read.spec!.lands ?? null, read.spec!.toolbar ?? null], mine.name).toEqual([shipped.spec!.lands ?? null, shipped.spec!.toolbar ?? null]);
+    await client.request({ action: "delete", blockId: mine.id, mutation: { author: "user" } } as never);
+  }
+
   // A window saves a tile under the kind its row names; the role the row gives it anyway isn't written, and reads back.
   const potting = await client.request<{ id: string }>({ action: "screens.save", spec: { name: "Potting bench", layout: { root: { t: "leaf", kind: "screens.reader", role: "reader", name: "bench" } } } } as never);
   expect((await client.request<{ text: string }[]>({ action: "children", parentId: potting.id } as never)).map(b => b.text)).toEqual(["tile screens.reader [name::bench]"]);

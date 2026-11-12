@@ -366,6 +366,13 @@ the served rows.
 finds its drawer by the kind the row says, and a pin a retired name said (`pinned`, a `detail` with a page) comes with
 it as `mode: pinned`. The door's `resolveKind` still answers for layouts the door keeps itself.
 
+**As built (W3):** the screens extension's rows say `replaces: ["reader"]` and the rest, and the door's literals did
+not go first: its own kinds stand, and answer to the served names instead (`aliasTileKind`, `screens.reader` is its
+`reader`), so a screen either door saved opens in the other. The door saves `reader`; a window saves the name its
+row serves and the service drops a role the row gives anyway. A tile made in the native window carries the name
+saved screens use (`KindRow::saved`), so the layout's own rules (a tile named after its kind, `role:reader`) read
+as they do in the door.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**

@@ -302,7 +302,7 @@
       "kind": "screens.tree",
       "extension": "screens",
       "name": "Outline",
-      "about": "the outline tree; a pick opens a note where its opens land",
+      "about": "the outline tree; ⏎ opens a note where its opens land",
       "drawer": "list",
       "fields": {
         "from": "children"
@@ -325,7 +325,7 @@
       "kind": "screens.query",
       "extension": "screens",
       "name": "Query",
-      "about": "the notes a question lists (query=\"type=bed NOT stage=done\", the views' grammar), or the cards of a saved view (view=<its block id>); group=<a property name> with arrange=lanes makes a board's lanes, sort= and columns= name properties too",
+      "about": "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"type=bed\", source=tile:<its home reader>: a tag opened in a reader, PIE-800); a board lane is one",
       "drawer": "list",
       "fields": {
         "from": "query"
@@ -338,7 +338,7 @@
       "kind": "screens.backlinks",
       "extension": "screens",
       "name": "Links",
-      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): the notes that link to it, the ones it links to and the ones under it (linkGroups= names some); subject=follows lists what its home shows as it changes",
+      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -365,7 +365,7 @@
       "kind": "screens.facets",
       "extension": "screens",
       "name": "Facets",
-      "about": "the properties the notes have, each opening to its values with how many notes carry them; a pick narrows the question, and the Matches tile beside it (source=tile:<this one>) lists what is left; query=<a starting query>",
+      "about": "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>; ^W o # opens it on the tags facet (args.open=[tag], no calendar)",
       "drawer": "list",
       "fields": {
         "from": "facets"
@@ -378,7 +378,7 @@
       "kind": "screens.matches",
       "extension": "screens",
       "name": "Matches",
-      "about": "a facets tile's Matches: the notes its selection leaves, in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and opens",
+      "about": "a facets tile's Matches (PIE-1443: the notes its selection leaves, grouped Pinned, Today, Yesterday, Previous 7 days, then months) in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and ⏎ opens. Opened by facets.place place=tile (ctrl+o), closed when Matches goes back",
       "drawer": "list",
       "fields": {
         "from": "query",
