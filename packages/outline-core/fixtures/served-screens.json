@@ -109,8 +109,9 @@
                       "t": "split",
                       "dir": "col",
                       "weights": [
-                        0.5,
-                        0.5
+                        0.3,
+                        0.3,
+                        0.4
                       ],
                       "kids": [
                         {
@@ -128,6 +129,33 @@
                           "source": "tile:reader",
                           "subject": "follows",
                           "role": "backlinks"
+                        },
+                        {
+                          "t": "tabs",
+                          "active": 0,
+                          "tabs": [
+                            {
+                              "t": "leaf",
+                              "kind": "screens.threads",
+                              "name": "threads",
+                              "source": "tile:reader",
+                              "role": "threads"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.proposals",
+                              "name": "proposals",
+                              "source": "tile:reader",
+                              "role": "proposals"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.revisions",
+                              "name": "revisions",
+                              "source": "tile:reader",
+                              "role": "revisions"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -155,6 +183,116 @@
         ],
         "lands": "reader",
         "start": true
+      },
+      "problems": []
+    },
+    {
+      "name": "keys",
+      "title": "keys",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "keys",
+        "title": "keys",
+        "layout": {
+          "focus": "keys",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.keymap",
+            "name": "keys",
+            "role": "keymap"
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "kitchen",
+      "title": "kitchen sink",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "kitchen",
+        "title": "kitchen sink",
+        "layout": {
+          "focus": "reader",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.18,
+              0.42,
+              0.4
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.tree",
+                "name": "tree",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  }
+                ],
+                "role": "tree"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader",
+                "role": "reader"
+              },
+              {
+                "t": "split",
+                "dir": "col",
+                "weights": [
+                  0.34,
+                  0.33,
+                  0.33
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.threads",
+                    "name": "threads",
+                    "source": "tile:reader",
+                    "role": "threads"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.proposals",
+                    "name": "proposals",
+                    "source": "tile:reader",
+                    "role": "proposals"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.revisions",
+                    "name": "revisions",
+                    "source": "tile:reader",
+                    "role": "revisions"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "edit",
+          "comment",
+          "screen.reset"
+        ],
+        "lands": "reader"
       },
       "problems": []
     },
@@ -189,6 +327,32 @@
                 "role": "reader"
               }
             ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "library",
+      "title": "library",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "library",
+        "title": "library",
+        "layout": {
+          "focus": "components",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.components",
+            "name": "components",
+            "role": "components"
           }
         },
         "toolbar": [
@@ -440,6 +604,89 @@
       "serves": [
         "who"
       ]
+    },
+    {
+      "kind": "screens.threads",
+      "extension": "screens",
+      "name": "Comments",
+      "about": "the comment threads on the note another tile shows (source=tile:<name>): the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "threads",
+        "subject": "follows"
+      },
+      "replaces": [
+        "threads"
+      ],
+      "serves": [
+        "threads"
+      ]
+    },
+    {
+      "kind": "screens.proposals",
+      "extension": "screens",
+      "name": "Proposals",
+      "about": "the edits waiting beside the note another tile shows (source=tile:<name>): who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "proposals",
+        "subject": "follows"
+      },
+      "replaces": [
+        "proposals"
+      ],
+      "serves": [
+        "proposals"
+      ]
+    },
+    {
+      "kind": "screens.revisions",
+      "extension": "screens",
+      "name": "Revisions",
+      "about": "the texts the note another tile shows had (source=tile:<name>), newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
+      "drawer": "list",
+      "fields": {
+        "from": "revisions",
+        "subject": "follows"
+      },
+      "replaces": [
+        "revisions"
+      ],
+      "serves": [
+        "revisions"
+      ]
+    },
+    {
+      "kind": "screens.keymap",
+      "extension": "screens",
+      "name": "Keys",
+      "about": "every way to press an action in this door: its keys, the act line they run, where they hold and what they do, read from the actions' own rows; a pick runs the line",
+      "drawer": "list",
+      "fields": {
+        "from": "actions"
+      },
+      "replaces": [
+        "keymap"
+      ],
+      "serves": [
+        "keymap"
+      ]
+    },
+    {
+      "kind": "screens.components",
+      "extension": "screens",
+      "name": "Components",
+      "about": "every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn",
+      "drawer": "list",
+      "fields": {
+        "from": "components"
+      },
+      "replaces": [
+        "components"
+      ],
+      "serves": [
+        "components"
+      ]
     }
   ],
   "sources": [
@@ -587,6 +834,78 @@
       "from": "clients",
       "about": "Who's here",
       "params": []
+    },
+    {
+      "from": "threads",
+      "about": "Comments",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "proposals",
+      "about": "Proposals",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "revisions",
+      "about": "Revisions",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        }
+      ]
+    },
+    {
+      "from": "actions",
+      "about": "Keys",
+      "placeholder": "A key, an action or what it does",
+      "params": [
+        {
+          "name": "actions",
+          "about": "the asker's own actions, each as its row",
+          "required": true
+        },
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        }
+      ]
+    },
+    {
+      "from": "components",
+      "about": "Components",
+      "placeholder": "A component's name",
+      "params": [
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        },
+        {
+          "name": "of",
+          "about": "the note an example asks about as `this` (left out: the outline's first)"
+        }
+      ]
     },
     {
       "from": "screens",

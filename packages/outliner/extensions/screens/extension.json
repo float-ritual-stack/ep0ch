@@ -3,7 +3,7 @@
   "id": "screens",
   "version": 1,
   "name": "Screens",
-  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers and who's online, and the outline, reader, query, links and activity tiles they are made of. Fork it to change what a door opens on.",
+  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions and activity tiles they are made of. Fork it to change what a door opens on.",
   "defaultOn": true,
   "tiles": [
     {
@@ -112,6 +112,69 @@
       "replaces": [
         "who"
       ]
+    },
+    {
+      "kind": "threads",
+      "name": "Comments",
+      "description": "the comment threads on the note another tile shows (source=tile:<name>): the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "threads",
+        "subject": "follows"
+      },
+      "replaces": [
+        "threads"
+      ]
+    },
+    {
+      "kind": "proposals",
+      "name": "Proposals",
+      "description": "the edits waiting beside the note another tile shows (source=tile:<name>): who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "proposals",
+        "subject": "follows"
+      },
+      "replaces": [
+        "proposals"
+      ]
+    },
+    {
+      "kind": "revisions",
+      "name": "Revisions",
+      "description": "the texts the note another tile shows had (source=tile:<name>), newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
+      "drawer": "list",
+      "fields": {
+        "from": "revisions",
+        "subject": "follows"
+      },
+      "replaces": [
+        "revisions"
+      ]
+    },
+    {
+      "kind": "keymap",
+      "name": "Keys",
+      "description": "every way to press an action in this door: its keys, the act line they run, where they hold and what they do, read from the actions' own rows; a pick runs the line",
+      "drawer": "list",
+      "fields": {
+        "from": "actions"
+      },
+      "replaces": [
+        "keymap"
+      ]
+    },
+    {
+      "kind": "components",
+      "name": "Components",
+      "description": "every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn",
+      "drawer": "list",
+      "fields": {
+        "from": "components"
+      },
+      "replaces": [
+        "components"
+      ]
     }
   ],
   "screens": [
@@ -181,8 +244,9 @@
                     "t": "split",
                     "dir": "col",
                     "weights": [
-                      0.5,
-                      0.5
+                      0.3,
+                      0.3,
+                      0.4
                     ],
                     "kids": [
                       {
@@ -198,6 +262,30 @@
                         "name": "backlinks",
                         "source": "tile:reader",
                         "subject": "follows"
+                      },
+                      {
+                        "t": "tabs",
+                        "active": 0,
+                        "tabs": [
+                          {
+                            "t": "leaf",
+                            "kind": "threads",
+                            "name": "threads",
+                            "source": "tile:reader"
+                          },
+                          {
+                            "t": "leaf",
+                            "kind": "proposals",
+                            "name": "proposals",
+                            "source": "tile:reader"
+                          },
+                          {
+                            "t": "leaf",
+                            "kind": "revisions",
+                            "name": "revisions",
+                            "source": "tile:reader"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -361,6 +449,114 @@
           "t": "leaf",
           "kind": "who",
           "name": "who"
+        }
+      }
+    },
+    {
+      "name": "keys",
+      "title": "keys",
+      "toolbar": [
+        "back",
+        "bar.open",
+        "bar.open scope=screens",
+        "screen.reset"
+      ],
+      "layout": {
+        "focus": "keys",
+        "root": {
+          "t": "leaf",
+          "kind": "keymap",
+          "name": "keys"
+        }
+      }
+    },
+    {
+      "name": "library",
+      "title": "library",
+      "toolbar": [
+        "back",
+        "bar.open",
+        "bar.open scope=screens",
+        "screen.reset"
+      ],
+      "layout": {
+        "focus": "components",
+        "root": {
+          "t": "leaf",
+          "kind": "components",
+          "name": "components"
+        }
+      }
+    },
+    {
+      "name": "kitchen",
+      "title": "kitchen sink",
+      "lands": "reader",
+      "toolbar": [
+        "back",
+        "bar.open",
+        "bar.open scope=screens",
+        "edit",
+        "comment",
+        "screen.reset"
+      ],
+      "layout": {
+        "focus": "reader",
+        "root": {
+          "t": "split",
+          "dir": "row",
+          "weights": [
+            0.18,
+            0.42,
+            0.4
+          ],
+          "kids": [
+            {
+              "t": "leaf",
+              "kind": "tree",
+              "name": "tree",
+              "wires": [
+                {
+                  "verb": "select",
+                  "to": "reader"
+                }
+              ]
+            },
+            {
+              "t": "leaf",
+              "kind": "reader",
+              "name": "reader"
+            },
+            {
+              "t": "split",
+              "dir": "col",
+              "weights": [
+                0.34,
+                0.33,
+                0.33
+              ],
+              "kids": [
+                {
+                  "t": "leaf",
+                  "kind": "threads",
+                  "name": "threads",
+                  "source": "tile:reader"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "proposals",
+                  "name": "proposals",
+                  "source": "tile:reader"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "revisions",
+                  "name": "revisions",
+                  "source": "tile:reader"
+                }
+              ]
+            }
+          ]
         }
       }
     }

@@ -83,15 +83,18 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   expect(all.kinds.find(k => k.kind === "screens.reader")!.about).toBe(MANIFEST.tiles.find(t => t.kind === "reader")!.description);
   const desk = all.screens.find(s => s.name === "desk")!.spec!;
   expect(desk.start).toBe(true);
-  expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.kind)).toEqual(["screens.tree", "screens.reader", "screens.props", "screens.backlinks"]);
+  expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.kind)).toEqual(["screens.tree", "screens.reader", "screens.props", "screens.backlinks", "screens.threads", "screens.proposals", "screens.revisions"]);
   // Each keeps the name its screen wrote as its role, so `tile=role:reader` names it in every door.
-  expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.role)).toEqual(["tree", "reader", "props", "backlinks"]);
+  expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.role)).toEqual(["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]);
   // A door without the list drawer is told so on each tile it can't draw, in words, and still gets the reader's.
   const pages = await screens({ drawers: ["page"] });
   expect(pages.screens.find(s => s.name === "desk")!.problems).toEqual([
     { tile: "tree", said: "this door has no list drawer, which draws a screens.tree tile" },
     { tile: "props", said: "this door has no list drawer, which draws a screens.props tile" },
     { tile: "backlinks", said: "this door has no list drawer, which draws a screens.backlinks tile" },
+    { tile: "threads", said: "this door has no list drawer, which draws a screens.threads tile" },
+    { tile: "proposals", said: "this door has no list drawer, which draws a screens.proposals tile" },
+    { tile: "revisions", said: "this door has no list drawer, which draws a screens.revisions tile" },
   ]);
   // The bar's screens are the same rows, each a pick that opens one.
   expect((await list("screens", { kinds: [], drawers: DRAWERS })).list.rows.map(r => [r.id, r.act])).toEqual(all.screens.map(s => [s.name, `screen.open name="${s.name}"`]));
@@ -148,5 +151,5 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   // Back by the same row.
   await client.request({ action: "extensions.install", extension: "screens", where: "outline" } as never);
   await extensions();
-  expect((await screens()).screens.map(s => s.name)).toEqual(["board", "desk", "lastcall", "navigator", "seed-swap", "who"]);
+  expect((await screens()).screens.map(s => s.name)).toEqual(["board", "desk", "keys", "kitchen", "lastcall", "library", "navigator", "seed-swap", "who"]);
 });
