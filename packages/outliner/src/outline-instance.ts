@@ -10,7 +10,7 @@ import { isPrivateDatabase, ownerLockOf } from "./workspace-ownership";
  * replaced, and stay put otherwise.
  *
  * It lives in the database, so it survives a reboot and a new inode at the same path, which mean nothing replaced
- * it. What a replacement looks like from inside (a `cp` of a backup over the file, sqlite's `.restore`, a Litestream
+ * it. What a replacement looks like from inside (a `cp` of a backup over the file, sqlite's `.restore`, a hand
  * restore, a fork copied back) is the backup's own UUID, and a backup's UUID is the live one's. So each open leaves a
  * record beside the file (`<database>.instance.json`, never copied with it): the instance id, a token written into
  * the database at that open, whether that open has ended, and the sequence it closed at. The next open keeps the id

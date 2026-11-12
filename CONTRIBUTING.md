@@ -302,9 +302,10 @@ it. The runtime never inspects an old shape and never migrates. To change it:
    takes a database from the previous version to the new one and stamps it. `ep0ch install --apply` runs it
    (PIE-617) as `bun <script> <database>` on every outline at the previous version, with the host stopped, and
    reads `user_version` after, so the script: runs in one transaction, refuses a served file
-   (`acquireWorkspaceOwnership`), exits non-zero leaving the file as it was when it can't, and wraps a change that
-   replaces the file (rather than writing in it) in `withLitestreamPaused`. The last one, `0010-marks.ts`, is
-   the model (`git show bf5568e9b:packages/outliner/scripts/migrations/0010-marks.ts`). `openSchema`'s refusal finds it by its number and prints the exact
+   (`acquireWorkspaceOwnership`), and exits non-zero leaving the file as it was when it can't. The log (ADR 0009):
+   it drops the change log's triggers first (`dropLogTriggers`), and after its change makes them again
+   (`installLogTriggers`) and writes a genesis at the new version (`writeGenesis`), so followers and restores rebuild
+   from it. The last one, `0012-change-log.ts`, is the model. `openSchema`'s refusal finds it by its number and prints the exact
    commands for the machine (`schemaRefusal`).
 3. The PR says the merge needs `ep0ch install --apply` on each machine; its plan shows the outlines it migrates.
 4. Delete the script once the outlines that matter (pie on float-2, float-hub on the MacBook) are upgraded; git

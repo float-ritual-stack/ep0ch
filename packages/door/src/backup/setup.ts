@@ -18,6 +18,8 @@ import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machi
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;
 export const LAUNCHD_LABEL = "io.ep0ch.backup";
+/** The followers' unit (ADR 0009, `ep0ch backup follow`): written on Linux when the settings name outlines to follow. */
+export const FOLLOW_UNIT = "ep0ch-follow.service";
 
 export interface UnitFile { path: string; want: string; have: string | null }
 export interface BackupSetupFacts {
@@ -43,6 +45,8 @@ export interface BackupSetupFacts {
   state: BackupState | null;
   alert: Alert | null;
   stateDir: string;
+  /** The settings name outlines to follow here (EP0CH_MCP_MIRRORS), so the followers' unit is written and run. */
+  follow?: boolean;
 }
 
 /** A template with its {{NAME}}s filled. */
@@ -59,13 +63,13 @@ export const jobPath = (bun: string, home: string) =>
   // (A folder with a space is left out: systemd's Environment= line can't quote one inside the value.)
   [...new Set([dirname(bun), join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].filter(d => !/\s/.test(d)).join(":");
 
-export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env }): UnitFile[] {
+export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env; follow?: boolean }): UnitFile[] {
   const vars = { BUN: o.bun, MAIN: o.main, PATH: jobPath(o.bun, o.home), HOME: o.home };
   const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
   const templates = join(o.repoRoot, "scripts/backup");
   if (o.platform === "linux") {
     const dir = join(o.env.XDG_CONFIG_HOME || join(o.home, ".config"), "systemd/user");
-    return SYSTEMD_UNITS.map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
+    return [...SYSTEMD_UNITS, ...(o.follow ? [FOLLOW_UNIT] : [])].map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
   }
   if (o.platform === "macos") {
     const path = join(o.home, "Library/LaunchAgents", `${LAUNCHD_LABEL}.plist`);
@@ -79,7 +83,9 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const env: Env = { ...o.env, HOME: o.home };
   const c = backupConfig(env);
   const file = configFileOf(env);
-  const units = o.bun ? unitFiles({ ...o, bun: o.bun, env }) : [];
+  const fileText = existsSync(file) ? (() => { try { return readFileSync(file, "utf8"); } catch { return ""; } })() : "";
+  const follow = !!(env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim());
+  const units = o.bun ? unitFiles({ ...o, bun: o.bun, env, follow }) : [];
   const loaded = o.platform === "linux"
     ? await o.run(["systemctl", "--user", "is-active", "ep0ch-backup.timer"], { env, timeoutMs: 5000 }).then(async r => r.code === 0 && (await o.run(["systemctl", "--user", "is-enabled", "ep0ch-backup.timer"], { env, timeoutMs: 5000 })).code === 0, () => null)
     : o.platform === "macos"
@@ -101,6 +107,7 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
     state: "error" in c || !existsSync(join(c.state, "state.json")) ? null : readBackupState(c.state),
     alert: "error" in c ? null : readAlert(c.state),
     stateDir: "error" in c ? "" : c.state,
+    ...(follow ? { follow } : {}),
   };
 }
 
@@ -115,7 +122,7 @@ export interface BackupPlan {
 }
 
 const loadCommands = (f: BackupSetupFacts) => f.platform === "linux"
-  ? ["systemctl --user daemon-reload", "systemctl --user enable ep0ch-backup.timer", "systemctl --user restart ep0ch-backup.timer"]
+  ? ["systemctl --user daemon-reload", "systemctl --user enable ep0ch-backup.timer", "systemctl --user restart ep0ch-backup.timer", ...(f.follow ? [`systemctl --user enable ${FOLLOW_UNIT}`, `systemctl --user restart ${FOLLOW_UNIT}`] : [])]
   : [...(f.loaded ? [`launchctl bootout gui/$(id -u)/${LAUNCHD_LABEL}`] : []), `launchctl bootstrap gui/$(id -u) ${f.units[0]?.path ?? ""}`];
 
 export function backupPlan(f: BackupSetupFacts): BackupPlan {
@@ -189,7 +196,8 @@ export function settingsText(existing: string | null, set: Record<string, string
 /** The argv install runs to load the units after writing them. */
 export function loadArgv(f: BackupSetupFacts, uid: number): string[][] {
   return f.platform === "linux"
-    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-backup.timer"], ["systemctl", "--user", "restart", "ep0ch-backup.timer"]]
+    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-backup.timer"], ["systemctl", "--user", "restart", "ep0ch-backup.timer"],
+      ...(f.follow ? [["systemctl", "--user", "enable", FOLLOW_UNIT], ["systemctl", "--user", "restart", FOLLOW_UNIT]] : [])]
     : [...(f.loaded ? [["launchctl", "bootout", `gui/${uid}/${LAUNCHD_LABEL}`]] : []), ["launchctl", "bootstrap", `gui/${uid}`, f.units[0]!.path]];
 }
 

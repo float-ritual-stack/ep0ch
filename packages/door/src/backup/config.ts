@@ -29,9 +29,9 @@ import { defaultStateDir } from "../state";
 export type Env = Record<string, string | undefined>;
 
 /** The settings install keeps in the file when they're set where it runs: the timer doesn't inherit that shell. */
-export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0CH_BACKUP_SECRETS", "EP0CH_RESTIC", "EP0CH_OUTLINES", "EP0CH_MCP_MIRROR_DIR", "EP0CH_MCP_HUB"] as const;
+export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0CH_BACKUP_SECRETS", "EP0CH_RESTIC", "EP0CH_OUTLINES", "EP0CH_MCP_MIRROR_DIR", "EP0CH_MCP_MIRRORS", "EP0CH_MCP_HUB"] as const;
 
-/** The bucket the Litestream replicas already use, under its own prefix: one repository per machine. */
+/** The bucket, under its own prefix: one repository per machine. */
 export const DEFAULT_REPO = "s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}";
 export const DEFAULT_SECRETS = "hetzner-s3,restic";
 /**

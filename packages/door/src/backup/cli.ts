@@ -88,7 +88,8 @@ export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> =
   list: { bare: [], value: ["--machine"] },
   restore: { bare: [], value: ["--machine", "--at", "--to"] },
   copy: { bare: [], value: [] },
-  receive: { bare: [], value: ["--machine", "--outline", "--seq", "--schema", "--sha256"] },
+  receive: { bare: [], value: ["--machine", "--outline", "--sha256"] },
+  follow: { bare: ["--once"], value: [] },
 };
 
 /** The refusal for the first flag a subcommand doesn't take, or null. */
@@ -130,6 +131,11 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     try { return await stateful(sub, args, c, io); } finally { release(); }
   }
   switch (sub) {
+    case "follow": {
+      // The followers (ADR 0009): each outline EP0CH_MCP_MIRRORS names, applied from its home's log as it changes.
+      const { followCommand } = await import("./follow");
+      return followCommand(c, io, { once: args.includes("--once"), env });
+    }
     case "receive": {
       // The relay's receiving side, run over ssh by a machine that can't reach the repository (relay.ts): the file on stdin.
       const { receiveCommand } = await import("./relay");
@@ -224,7 +230,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       return 0;
     }
     default:
-      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, drill, status, list, restore, copy, receive\n${BACKUP_USAGE}`);
+      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, follow, drill, status, list, restore, copy, receive\n${BACKUP_USAGE}`);
       return 2;
   }
 }

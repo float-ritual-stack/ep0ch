@@ -133,14 +133,14 @@ export const WORK_COMMANDS: readonly CliCommand[] = [
 
 const backup = sub("backup", "Install and health");
 export const BACKUP_COMMANDS: readonly CliCommand[] = [
-  backup("status", "The verdict first, then each outline, the mirrors and the history", "status [--json | --verbose]", [["--verbose", "Include raw reasons"], json], ["status", "status --verbose"]),
-  backup("run", "The backup job as its timer runs it: snapshot, mirror, announce", "run [--drill] [--verbose]", [["--drill", "Include a restore drill"], ["--verbose", "Include raw reasons"]], ["run", "run --drill"]),
-  backup("snapshot", "Snapshot the outlines that changed", "snapshot [--force] [--verbose]", [["--force", "Unchanged outlines too"], ["--verbose", "Include raw reasons"]], ["snapshot", "snapshot --force"]),
-  backup("mirror", "Refresh other machines' mirrors here", "mirror", [], ["mirror", "mirror --verbose"]),
-  backup("drill", "Restore the newest snapshot somewhere harmless and check it", "drill [--machine <name>]", [["--machine <name>", "That machine's repository, from here"]], ["drill", "drill --machine box-a"]),
-  backup("list", "An outline's snapshots", "list <outline> [--machine <name>]", [["--machine <name>", "Read that machine's repository"]], ["list garden", "list garden --machine box-a"]),
+  backup("status", "The verdict first, then each outline and the history", "status [--json | --verbose]", [["--verbose", "Include raw reasons"], json], ["status", "status --verbose"]),
+  backup("run", "The backup job as its timer runs it: archive each log, upload, announce", "run [--drill] [--verbose]", [["--drill", "Include a restore drill"], ["--verbose", "Include raw reasons"]], ["run", "run --drill"]),
+  backup("snapshot", "Archive and upload the outlines whose log moved", "snapshot [--force] [--verbose]", [["--force", "Unchanged outlines too"], ["--verbose", "Include raw reasons"]], ["snapshot", "snapshot --force"]),
+  backup("follow", "Follow other machines' outlines here, applying each log as it changes", "follow [--once]", [["--once", "Catch up once and exit"]], ["follow", "follow --once"]),
+  backup("drill", "Replay the newest archives somewhere harmless and check them", "drill [--machine <name>]", [["--machine <name>", "That machine's repository, from here"]], ["drill", "drill --machine box-a"]),
+  backup("list", "An outline's archive snapshots", "list <outline> [--machine <name>]", [["--machine <name>", "Read that machine's repository"]], ["list garden", "list garden --machine box-a"]),
   backup("copy", "A consistent copy of a live outline, made by its host", "copy <outline> <file>", [], ["copy garden ./garden-copy.sqlite", "copy garden /tmp/garden-before-the-move.sqlite"]),
-  backup("restore", "Write a snapshot to a new file, never over an outline in use", "restore <outline> [--at <time>] --to <path>", [["--machine <name>", "Read that machine's repository"], ["--at <time>", "The newest at or before this time (ISO, 3h, 2d)"], ["--to <path>", "The new file"]], ["restore garden --to ./garden-restored.sqlite", "restore garden --at 2d --to ./garden-2d.sqlite"]),
+  backup("restore", "Replay an outline's archive to a new file, never over an outline in use", "restore <outline> [--at <time>] --to <path>", [["--machine <name>", "Read that machine's repository"], ["--at <time>", "Replay up to this time (ISO, 3h, 2d)"], ["--to <path>", "The new file"]], ["restore garden --to ./garden-restored.sqlite", "restore garden --at 2d --to ./garden-2d.sqlite"]),
 ];
 
 const ext = sub("ext", "Extensions");
@@ -309,7 +309,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "status", group: "Install and health", summary: "Show the outline host and its outlines",
     synopsis: "status [--json]", flags: [json], examples: ["ep0ch status", "ep0ch status --json"] },
   { name: "backup", group: "Install and health", summary: "Check, make or restore backups",
-    synopsis: "backup status|run|snapshot|mirror|drill | list|restore|copy <outline>", flags: [json], children: BACKUP_COMMANDS,
+    synopsis: "backup status|run|snapshot|follow|drill | list|restore|copy <outline>", flags: [json], children: BACKUP_COMMANDS,
     examples: ["ep0ch backup status", "ep0ch backup restore garden --to ./garden-restored.sqlite"] },
   { name: "help", group: "Install and health", summary: "Read a command's synopsis, flags and examples", moreOnly: true,
     synopsis: "help [<command> [<subcommand>]] [--more]", flags: [],

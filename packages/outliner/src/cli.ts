@@ -7,7 +7,7 @@ import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
 import { resolve } from "node:path";
-import { closeSync, existsSync, openSync, writeSync } from "node:fs";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { actorLabel } from "@ep0ch/outline-core/attribution";

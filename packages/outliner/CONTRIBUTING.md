@@ -96,8 +96,14 @@ source evidence or distinguish authored glyphs from controls.
   `copyOutlineFile`: VACUUM INTO in a worker of the host's own on a read-only connection, so a big copy never holds the
   host's loop (`outline-copy-worker.ts`). Clients ask the host
   (`outlines.list` carries each outline's `changeSeq` and `schema`; `outlines.backup` makes a copy) and open only
-  copies. Litestream is the one other process with the file open, so the store's `busy_timeout` and the dispatcher's
-  busy retry stay until PIE-1751 replaces it.
+  copies. Nothing else holds the file (ADR 0009 retired Litestream), so the store waits on no lock and the dispatcher
+  retries nothing.
+- **The outline is its change log** (ADR 0009). `src/change-log.ts` owns it: the triggers the schema generates for
+  every replicated table (`LOG_TABLES` classifies each; a test holds every table to it), whole-transaction ranges
+  (`log.range`), the follower's apply and its refusals. `src/outline-follower.ts` follows another machine's outline
+  into a read-only copy; `src/log-archive.ts` writes and replays the backup job's archive. A new table is named in
+  `LOG_TABLES`; a migration drops the log's triggers, changes the tables, makes them again (`installLogTriggers`) and
+  writes a genesis (`writeGenesis`).
 - `src/resource-catalog.ts` owns Resources: sources, interning, reads, refreshes and computed execution, one class
   over the catalog's tables. `src/resource-rows.ts` says what each row holds and how it becomes a record;
   `src/filesystem-source.ts` owns a filesystem Source's root (binding, drift, the rebind command, confinement,

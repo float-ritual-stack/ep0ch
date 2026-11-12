@@ -15,7 +15,7 @@ import { scriptSources, scriptsAt } from "./script-sources";
 import { queueRelease, ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER } from "./block-query";
-import { BUSY_RETRY_MS, refusalEnvelope, retriesBusy } from "./request-envelope";
+import { refusalEnvelope } from "./request-envelope";
 import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
@@ -1951,17 +1951,11 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
-    const sequence = this.store.sequence;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await this.handleAsyncOnce(request, subscribedClient, connection);
-      } catch (error) {
-        if (retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) {
-          await Bun.sleep(BUSY_RETRY_MS);
-          continue;
-        }
-        return refusalEnvelope(request.id, error, this.store.sequence);
-      }
+    // Only the host opens the file (PIE-1750, ADR 0009): nothing holds its writer, so nothing is waited out and tried again.
+    try {
+      return await this.handleAsyncOnce(request, subscribedClient, connection);
+    } catch (error) {
+      return refusalEnvelope(request.id, error, this.store.sequence);
     }
   }
 
@@ -2539,23 +2533,19 @@ export class OutlinerServer {
     return this.answered(request, result);
   }
 
-  /** A sync request's answer: the same one busy retry and envelope as `handleAsync`'s (the wait is a blocking sleep). */
+  /** A sync request's answer: the same envelope as `handleAsync`'s. */
   handle(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
   ): OutlinerResponse {
-    const sequence = this.store.sequence;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return this.handleOnce(request, subscribedClient);
-      } catch (error) {
-        if (!retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) return refusalEnvelope(request.id, error, this.store.sequence);
-        Bun.sleepSync(BUSY_RETRY_MS);
-      }
+    try {
+      return this.handleOnce(request, subscribedClient);
+    } catch (error) {
+      return refusalEnvelope(request.id, error, this.store.sequence);
     }
   }
 
-  /** One try of a sync request: its answer or its refusal's envelope; a busy database is thrown for the caller's retry. */
+  /** One try of a sync request: its answer or its refusal's envelope. */
   private handleOnce(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,

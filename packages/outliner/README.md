@@ -1277,7 +1277,7 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
   its machine: `propose` and `full` take comments, asks, highlights, quotes and replies; `read` and `none` show its
   threads with Copy alone and say what to run there. When the machine doesn't answer within 4 s (asleep, off the
   network) its pages are read from its mirror here (`EP0CH_MCP_MIRROR_DIR`, else `~/outline-mirrors`, the
-  gateway's copies, served by a read-only host of their own, `outline-mirror.ts`), headed `… · as of <time> UTC
+  gateway's copies, applied from the home's change log and served by a read-only host of their own, `outline-follower.ts`), headed `… · as of <time> UTC
   (laptop asleep)`, with no write controls. A machine that didn't answer is asked again at most every 30 s; a live
   one is checked at most every 10 s while pages are opened, and nothing is asked of it otherwise.
 - **Sign-in** is OpenID Connect against Clerk, the MCP gateway's authorization server: the authorization code flow
