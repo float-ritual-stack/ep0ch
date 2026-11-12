@@ -7,7 +7,7 @@
  * Types only. The record is closed over `ActionName`: a new action fails the check until it has a row here, as it does
  * in actions.ts. The door checks this file (and what it imports) under its own, stricter settings.
  */
-import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
+import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineBackup, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ImportReport } from "./outline-import";
 import type { GrepResult } from "@ep0ch/outline-core/text-search";
@@ -246,6 +246,7 @@ export interface WireAnswers {
   "notes.route": NoteRouteRun;
   "outlines.archive": HostedOutlineArchival;
   "outlines.attach": HostedOutlineAttachment;
+  "outlines.backup": HostedOutlineBackup;
   "outlines.close": HostedOutlineSummary;
   "outlines.create": HostedOutlineSummary;
   "outlines.delete": HostedOutlineDeletion;
@@ -372,6 +373,7 @@ export type WireClosed = Closed<Missing>;
 export type { AuthoredLinkCompleteness, AuthoredLinkDiagnostic, AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredOutlinkResolution, AuthoredResourceLink, AuthoredResourceResolution } from "./authored-links";
 export type { AuthoredResourceReference } from "./resource-references";
 export type { ExtensionProjectionOutput, ResourceProjection, ResourceProjectionReadResult, ResourceProjectionStatus } from "./resource-projection";
+export type { PropertyPatchOperation } from "./types";
 export type { Decoration, RuleListEntry } from "./extension-rules";
 export type { ResourceDescription } from "./resources";
 export type { LinkTargetFacets } from "./types";

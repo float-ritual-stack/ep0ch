@@ -1,8 +1,9 @@
-import { mkdirSync, renameSync, rmSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { OutlineSnapshot, ShareSession } from "@ep0ch/outline-core/protocol";
 import type { MutationProvenance } from "./types";
 import type { OutlinerStore } from "./store";
+import { copyOutlineFile } from "./outline-file";
 import { ShareSessions, shareOnWire, shareTtlMs } from "./share-sessions";
 
 /**
@@ -30,10 +31,7 @@ export class OutlineSnapshots {
     mkdirSync(this.folder, { recursive: true, mode: 0o700 });
     const temporary = this.path(crypto.randomUUID());
     const destination = input.out ?? temporary;
-    const copy = Bun.spawn([process.execPath, join(import.meta.dir, "snapshot-database.ts"), this.store.database.filename, destination], { stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([new Response(copy.stdout).text(), new Response(copy.stderr).text(), copy.exited]);
-    if (code !== 0) throw new Error(`Snapshot copy failed: ${stderr.trim()}`);
-    const metadata = JSON.parse(stdout) as Pick<OutlineSnapshot, "bytes" | "sha256" | "schema" | "asOf">;
+    const metadata = await this.copy(destination);
     const by = input.mutation?.author === "agent" ? input.mutation.actorId ?? "agent" : "you";
     const record = !this.records ? { id: "" } : this.store.create(`Snapshot of ${outline} [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: ${by}\nOutline: ${outline}\nAs of: ${metadata.asOf}\nBytes: ${metadata.bytes}\nSHA-256: ${metadata.sha256}\nSchema: ${metadata.schema}\nState: ${input.out ? "saved to file" : "waiting"}`, null, "system");
     if (input.out) return { ...metadata, path: destination };
@@ -43,6 +41,29 @@ export class OutlineSnapshots {
       const url = shareOnWire(share, origin).url!;
       return { ...metadata, url, expiresAt: share.expiresAt, shareId: share.id, curl: `curl --fail --location '${url}' --output '${outline}.snapshot.sqlite'` };
     } catch (error) { rmSync(temporary, { force: true }); throw error; }
+  }
+
+  /**
+   * The checked copy at `destination` (PIE-1750): made by the host in a worker of its own (`copyOutlineFile`, off the
+   * host's loop), checked in a process of its own, then published by a hard link, so `destination` is never half a copy
+   * and an existing file is never touched.
+   */
+  private async copy(destination: string): Promise<Pick<OutlineSnapshot, "bytes" | "sha256" | "schema" | "asOf">> {
+    if (existsSync(destination)) throw new Error(`${destination} already exists; not overwritten`);
+    const folder = mkdtempSync(join(dirname(destination), ".ep0ch-snapshot-"));
+    const copy = join(folder, "copy.sqlite");
+    try {
+      const asOf = new Date().toISOString();
+      await copyOutlineFile(this.store.database.filename, copy);
+      const check = Bun.spawn([process.execPath, join(import.meta.dir, "snapshot-database.ts"), "--check", copy], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(check.stdout).text(), new Response(check.stderr).text(), check.exited]);
+      if (code !== 0) throw new Error(`Snapshot copy failed: ${stderr.trim()}`);
+      try { linkSync(copy, destination); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${destination} already exists; not overwritten`);
+        throw error;
+      }
+      return { ...(JSON.parse(stdout) as { bytes: number; sha256: string; schema: number }), asOf };
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   }
 
   take(token: string, attempt: { ip: string; userAgent: string; method: string }): { path: string; shareId: string; bytes: number } | null {

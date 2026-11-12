@@ -45,25 +45,10 @@ export interface WriteOutcome {
   deduped?: true;
 }
 
-/** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
-interface AgentTools {
-  settleProposal(c: unknown, input: Record<string, unknown>, op: "apply" | "dismiss" | "resolve", actor: WriteActor): Promise<unknown>;
-  createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
-  commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
-  replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
-  editComment(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; mark: string; revision: number }>;
-  resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
-  patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
-  setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key?: string; value?: string; properties?: Record<string, unknown> }>;
-  assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
-  moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
-  trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
-  restoreBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied"; said: string } & Record<string, unknown>>;
-  markNote(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
-  resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
-  resourceRefOf(ref: string): unknown | null;
-  readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
-}
+/** The agent operations, typed from their module (PIE-1748); loaded only when a write runs. */
+type AgentTools = typeof import("./agent-tools");
+/** A write's input as the operation takes it: its tool's schema checked it where the call arrived, so it is named here, not checked again. */
+const checked = <F extends keyof AgentTools>(_: F, input: Record<string, unknown>) => input as unknown as AgentTools[F] extends (c: never, input: infer I, ...rest: never[]) => unknown ? I : never;
 type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; beside: string; deduped?: true };
 export interface ApplyOptions {
   /** The outline's access setting where it is applied now. */
@@ -134,7 +119,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
           const r = await tools.replyTo(client, { thread: thread.id, body: `Proposed edit of ((${mark})), from ${o.actor.actorId}:\n\n${body}` }, o.actor);
           return { outcome: "proposed", uri: o.uri(write.blockId), said: `edit proposed, not applied: a reply in thread ${thread.id} (${r.reply}) gives the new words for its owner to take`, detail: r };
         }
-        const r = await tools.editComment(client, { mark, body, observed: write.input.observed }, o.actor);
+        const r = await tools.editComment(client, checked("editComment", { mark, body, observed: write.input.observed }), o.actor);
         return { outcome: "applied", uri: o.uri(write.blockId), said: `edited ${mark === thread.id ? "the comment" : "a reply"} in thread ${thread.id} on ${o.uri(write.blockId)} (revision ${r.revision})`, detail: r };
       }
       const missing = await threadGone();
@@ -142,7 +127,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         if (o.queued) return gone("Replied to", missing, String(write.input.body));
         throw new Error(`No thread ${missing} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
       }
-      const r = await tools.replyTo(client, write.input, o.actor);
+      const r = await tools.replyTo(client, checked("replyTo", write.input), o.actor);
       return { outcome: "applied", uri: o.uri(write.blockId), said: `replied in thread ${r.thread} on ${o.uri(write.blockId)} (reply ${r.reply})`, detail: r };
     }
     case "outline_resolve_thread": {
@@ -151,7 +136,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         if (o.queued) return gone(write.input.resolved ? "Resolved" : "Reopened", missing, `(${write.input.resolved ? "resolve" : "reopen"} asked of ${actorLabel(o.actor.actorId)}; nothing to change)`);
         throw new Error(`No thread ${missing} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
       }
-      const r = await tools.resolveThread(client, write.input, o.actor);
+      const r = await tools.resolveThread(client, checked("resolveThread", write.input), o.actor);
       return { outcome: "applied", uri: o.uri(write.blockId), said: `thread ${r.thread} on ${o.uri(write.blockId)} is now ${r.lifecycle}`, detail: r };
     }
     case "outline_quote": {
@@ -180,20 +165,20 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     case "outline_create": {
       const top = write.blockId === "root";
       if (kind === "applied" && !o.proposeOnly) {
-        const made = await tools.createBlock(client, { parent: write.blockId, ...write.input }, o.actor);
+        const made = await tools.createBlock(client, checked("createBlock", { parent: write.blockId, ...write.input }), o.actor);
         return { outcome: "applied", uri: o.uri(made.id), said: `created ${o.uri(made.id)} ${top ? "at the top level" : `under ${o.uri(write.blockId)}`}`, detail: made };
       }
       // A new block can't be a draft.patch: it is offered as a comment on its parent, for its owner to make.
       const body = `Proposed new block under this note${write.input.position === undefined ? "" : ` at position ${write.input.position}`}, from ${actorLabel(o.actor.actorId)}:\n\n${String(write.input.text)}`;
-      const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body, requestId: write.input.requestId }, o.actor);
+      const c = await tools.commentOn(client, checked("commentOn", { ref: write.blockId, whole: true, body, requestId: write.input.requestId }), o.actor);
       return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
     }
     case "outline_patch":
-      return patched(await tools.patchDraft(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor), "patch");
+      return patched(await tools.patchDraft(client, checked("patchDraft", { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }), o.actor), "patch");
     case "outline_set_property": {
-      const r = await tools.setBlockProperty(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor);
+      const r = await tools.setBlockProperty(client, checked("setBlockProperty", { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }), o.actor);
       const several = write.input.properties && typeof write.input.properties === "object" ? Object.entries(write.input.properties as Record<string, unknown>) : null;
-      if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: several ? "every property is already as asked" : `[${r.key}::${r.value}] is already set`, detail: r };
+      if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: "key" in r ? `[${r.key}::${r.value}] is already set` : "every property is already as asked", detail: r };
       return patched(r, several ? several.map(([key, value]) => value === null ? `[${key}::] removed` : `[${key}::${String(value)}]`).join(" ") : `[${String(write.input.key)}::${String(write.input.value)}]`);
     }
     case "outline_move":
@@ -207,7 +192,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
         return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not ${move ? "moves" : "trashing"}`, detail: c };
       }
-      const r = await (move ? tools.moveBlock : tools.trashBlock)(client, { ref: write.blockId, ...write.input, ...((o.revision ?? write.revision) !== undefined ? { revision: o.revision ?? write.revision } : {}) }, o.actor);
+      const r = await (move ? tools.moveBlock : tools.trashBlock)(client, checked("moveBlock", { ref: write.blockId, ...write.input, ...((o.revision ?? write.revision) !== undefined ? { revision: o.revision ?? write.revision } : {}) }), o.actor);
       return { outcome: r.outcome, uri: o.uri(write.blockId), said: r.said, detail: r };
     }
     case "outline_mark": {
@@ -219,7 +204,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       return { outcome: "applied", uri: o.uri(write.blockId), said: r.said, detail: r };
     }
     case "outline_assign_id": {
-      const r = await tools.assignWorkId(client, { ref: write.blockId, revision: o.revision ?? write.revision }, o.actor);
+      const r = await tools.assignWorkId(client, checked("assignWorkId", { ref: write.blockId, revision: o.revision ?? write.revision }), o.actor);
       return r.outcome === "unchanged"
         ? { outcome: "unchanged", uri: o.uri(write.blockId), said: `${r.page} was already its id`, detail: r }
         : { outcome: "applied", uri: o.uri(write.blockId), said: `gave ${o.uri(write.blockId)} the id ${r.workId}: ${r.page} reaches it`, detail: r };

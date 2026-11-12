@@ -17,9 +17,10 @@ test("changed write entrypoints reject an incompatible service before touching d
       if (!text.includes("\n")) return;
       const request = JSON.parse(text.slice(0, text.indexOf("\n")));
       actions.push(request.action);
-      socket.end(`${JSON.stringify({ id: request.id, ok: true, result:
-        request.action === "ping" ? { status: "ready", protocolVersion: PROTOCOL - 1 } : null,
-      })}\n`);
+      // A host on another protocol refuses the request itself (PIE-1747): nothing of it is read or written.
+      socket.end(`${JSON.stringify(request.protocol !== PROTOCOL - 1
+        ? { id: request.id, ok: false, kind: "invalid", error: `this client speaks protocol ${request.protocol} and the outline host protocol ${PROTOCOL - 1}: restart the outline host on current code` }
+        : { id: request.id, ok: true, result: request.action === "ping" ? { status: "ready", protocolVersion: PROTOCOL - 1 } : null })}\n`);
     });
   });
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
@@ -40,7 +41,8 @@ test("changed write entrypoints reject an incompatible service before touching d
       expect(exitCode).toBe(1);
       expect(stderr).toContain("restart the outline host on current code");
     }
-    expect(actions).toEqual(["ping", "ping", "ping", "ping"]);
+    // Each entrypoint's first request is refused and it stops: one each.
+    expect(actions).toHaveLength(4);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(root, { recursive: true, force: true });

@@ -327,7 +327,6 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     const input = { where, ...(question.group ? { group: String(question.group) } : {}), ...(question.sort ? { sort: String(question.sort) } : {}), limit, ...(question.facets ? { facets: question.facets === true ? true as const : [...question.facets].map(String) } : {}) };
     const seq = step({ tool: "query", writes: false, phase: "start", input });
     try {
-      if (where) await client.requireCompatibleService();
       const ask = (q: object) => client.request<VisibleBlockCollection>({ action: "blocks.query", query: { ...q, ...(options.thisId ? { this: options.thisId } : {}) } });
       const found = await ask(input);
       const row = (block: VisibleBlock): ScriptQueryRow => {

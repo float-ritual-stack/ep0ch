@@ -1,4 +1,4 @@
-import { refusalKindOf } from "@ep0ch/outline-core/refusal";
+import { Refusal, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, copyFile, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -268,7 +268,7 @@ function namedCopyRoot(id: string, verb: "remove" | "update", carry: readonly st
   if (inUser) return { path: user, where: "user" };
   const elsewhere = copyRoots({ user: null, outlines }).filter((root) => root.where !== here && hasExtension(root.path, id));
   const unnamed = !named ? " (no outline is named here: --ws <name>, EP0CH_WS or a .ep0ch)" : "";
-  throw new Error([
+  throw new Refusal("not-found", [
     `No extension ${id} in ${[user, ...(own ? [own] : [])].join(" or ")}${unnamed}`,
     ...(away ? [`${named} is on ${away}; to look in its own folder there:`, `  ssh ${away} ep0ch ext ${verb} ${id} --ws ${named}${again}`] : []),
     ...(elsewhere.length ? [`${elsewhere.length === 1 ? "Another outline has" : "Other outlines have"} its own copy; for ${elsewhere.length === 1 ? "it" : "one"}:`,
@@ -287,7 +287,7 @@ function pickOf(values: { "outline-folder"?: string; "user-folder"?: boolean }):
 function removeRoot(id: string, pick: CopyPick, carry: readonly string[]): { root: string; where?: string } {
   if (pick.outlineFolder || pick.userFolder) {
     const root = targetRoot(pick.outlineFolder);
-    if (!hasExtension(root, id)) throw new Error(`No extension ${id} in ${root} (ep0ch ext ls --long says where each one is)`);
+    if (!hasExtension(root, id)) throw new Refusal("not-found", `No extension ${id} in ${root} (ep0ch ext ls --long says where each one is)`);
     return { root };
   }
   const { path, where } = namedCopyRoot(id, "remove", carry);
@@ -618,7 +618,7 @@ export async function runExtCommand(args: readonly string[], connect: (outlineFo
         ? await client.request<{ disabledRules?: Record<string, number> }>({ action: "extensions.list" }) : undefined;
       // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.
       const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
-        try { removeRoot(name, pick, carry); return false; } catch (error) { return error instanceof Error && error.message.startsWith("No extension "); }
+        try { removeRoot(name, pick, carry); return false; } catch (error) { return refusalKindOf(error) === "not-found"; }
       })();
       // A built-in that installs per outline (PIE-1509) goes where the install row puts it: the service's outline's own folder.
       const viaService = operation === "add" && !!client && !values.from && !values["user-folder"] && !outlineFolder && installsPerOutline(name);

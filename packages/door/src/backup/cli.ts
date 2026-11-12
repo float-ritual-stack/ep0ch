@@ -7,7 +7,7 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { blockCount, drill, drillHere, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
+import { blockCount, drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, mirror, runAll, snapshot, takeLock } from "./jobs";
 import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
@@ -55,6 +55,7 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
     case "snapshot": {
       const s = readBackupState(c.state);
       const r = await snapshot(c, s, { say, force: args.includes("--force"), ...(args.includes("--verbose") ? { verbose: true } : {}) });
+      if (r.uploaded.length) await maintain(c, s, { uploaded: true, say });
       writeBackupState(c.state, s);
       return r.failed.length ? 1 : 0;
     }
@@ -93,6 +94,7 @@ export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> =
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
   restore: { bare: [], value: ["--machine", "--at", "--to"] },
+  copy: { bare: [], value: [] },
   receive: { bare: [], value: ["--machine", "--outline", "--seq", "--schema", "--sha256"] },
 };
 
@@ -175,6 +177,21 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       for (const x of list) say(`${x.id.slice(0, 8)}  ${hhmm(x.time)}  change ${x.seq ?? "?"}`);
       return 0;
     }
+    case "copy": {
+      // A consistent copy of a live outline, made by its host (PIE-1750): what a script takes instead of opening the file.
+      const outline = args[2], to = args[3];
+      if (!outline || !OUTLINE_NAME.test(outline) || !to || to.startsWith("-")) { io.err(`ep0ch backup copy <outline> <file>`); return 2; }
+      const dest = resolve(to);
+      mkdirSync(dirname(dest), { recursive: true });
+      try {
+        const made = await hostCopy(c, outline, dest);
+        say(`✓ ${outline} (change ${made.seq}, schema ${made.schema}, ${made.bytes} bytes) → ${dest}; integrity ok`);
+        return 0;
+      } catch (e) {
+        io.err(`ep0ch backup copy: ${(e as Error).message}${["ENOENT", "ECONNREFUSED"].includes(String((e as NodeJS.ErrnoException).code)) ? `; the outline host doesn't answer at ${c.host}: ${hostStartCommand()}` : ""}`);
+        return 1;
+      }
+    }
     case "restore": {
       const outline = args[2], to = flag(args, "--to"), at = flag(args, "--at"), machine = flag(args, "--machine") ?? c.machine;
       if (!outline || !OUTLINE_NAME.test(outline) || !to) { io.err(`ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>`); return 2; }
@@ -210,7 +227,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       return 0;
     }
     default:
-      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, mirror, drill, status, list, restore, receive\n${BACKUP_USAGE}`);
+      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, mirror, drill, status, list, restore, copy, receive\n${BACKUP_USAGE}`);
       return 2;
   }
 }

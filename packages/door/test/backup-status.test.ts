@@ -12,6 +12,7 @@ import { plainFailure, plainReason } from "../src/backup/plain";
 import { resticChecks } from "../src/backup/setup";
 import { failedLine, relayedLine, verdict } from "../src/backup/verdict";
 import { scratchDir } from "./scratch";
+import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-backup-status-");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -97,6 +98,25 @@ history
     expect(text).not.toContain("verbose: true");
   });
 
+  test("no host answering: the command that starts it, not only `ep0ch backup run` (PIE-1750)", () => {
+    const fix = "systemctl --user start outliner-host.service";
+    const host = { failingSince: iso(20), error: "the outline host doesn't answer at /fictional/outlines/.host/host.sock (connect ENOENT), so nothing was copied", fix };
+    const c = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host,
+      outlines: { garden: { seq: 3, at: iso(300), pendingSince: iso(20), error: host.error } } });
+    const out = statusLines(c, NOW);
+    expect(out[0]).toBe("✗ failing");
+    // The outline it left waiting isn't a second problem pointing at `ep0ch backup run`.
+    expect(out.filter(l => l.startsWith("  ✗"))).toEqual([`  ✗ ${host.error}`]);
+    expect(out).toContain(`  ✗ ${host.error}`);
+    expect(out).toContain(`  run: ${fix}`);
+    // Two hours on it's an incident as well: said once, with the same command.
+    const late = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host: { ...host, failingSince: iso(180) } },
+      [{ key: "host:float-hub", since: iso(180), title: "the outline host on float-hub doesn't answer the backup job", detail: `nothing has been copied since 06:00Z: ${host.error}`, fix }]);
+    const lines = statusLines(late, NOW);
+    expect(lines.filter(l => l.includes("doesn't answer at"))).toHaveLength(1);
+    expect(lines).toContain(`  run: ${fix}`);
+  });
+
   test("stale with no change for a long time is fine", () => {
     const c = world({ lastRun: { at: iso(5), ok: true, detail: "nothing changed" }, outlines: { archive: { seq: 7, at: iso(60 * 24 * 20) } } });
     const lines = statusLines(c, NOW);
@@ -179,6 +199,10 @@ describe("flags are never ignored", () => {
     const c = backupConfig({ HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_BACKUP_MACHINE: "float-hub", EP0CH_BACKUP_REPO: join(dir, "repos", "{machine}") });
     if ("error" in c) throw new Error(c.error);
     mkdirSync(c.outlines, { recursive: true });
+    // Its host says each outline's change (PIE-1750); the job never opens the file.
+    const host = new OutlineHost({ outlinesFolder: c.outlines, log: () => {} });
+    await host.start();
+    afterAll(() => host.close());
     const path = join(c.outlines, "pie.sqlite");
     const db = new Database(path);
     db.run("CREATE TABLE change_feed (change_id INTEGER PRIMARY KEY AUTOINCREMENT, sequence INTEGER)");

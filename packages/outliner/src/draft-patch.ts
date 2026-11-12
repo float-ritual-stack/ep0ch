@@ -20,6 +20,7 @@
  * is patched under a revision check. This file owns the grammar checks and the
  * holds; `src/server.ts` routes.
  */
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { fragmentAnchors } from "./fragments";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -144,7 +145,8 @@ export type DraftHolderRequest =
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string };
 
 export type DraftHolderAnswer =
-  | { text: string; revision: number }
+  /** `cursorLine`: the line of `text` the person's cursor is on (PIE-1743), so an ask being written waits for them. */
+  | { text: string; revision: number; cursorLine?: number }
   | { applied: true; inverse?: { before: string; text: string; revision: number } }
   | { applied: false; reason: string }
   | { reverted: boolean };
@@ -243,7 +245,15 @@ export interface DraftHold {
  */
 export class DraftHolds {
   private readonly holds = new Map<string, DraftHold>();
+  /** A hold ended, however (released, replaced, lapsed, or its door gone): what the service kept for it goes too. */
+  onGone: ((hold: DraftHold) => void) | null = null;
   constructor(private readonly now: () => number = Date.now) {}
+  private drop(id: string): boolean {
+    const hold = this.holds.get(id);
+    if (!hold || !this.holds.delete(id)) return false;
+    this.onGone?.({ ...hold });
+    return true;
+  }
 
   hold(blockId: string, clientId: string, revision: number, leaseMs = DRAFT_HOLD_DEFAULT_LEASE_MS): DraftHold {
     if (!blockId?.trim()) throw new Error("A draft hold needs a blockId");
@@ -253,7 +263,7 @@ export class DraftHolds {
     }
     // One hold per door and note: holding again replaces it.
     for (const [id, existing] of this.holds) {
-      if (existing.blockId === blockId && existing.clientId === clientId) this.holds.delete(id);
+      if (existing.blockId === blockId && existing.clientId === clientId) this.drop(id);
     }
     const at = this.now();
     const hold: DraftHold = { holdId: crypto.randomUUID(), blockId, clientId, revision, leaseMs, expiresAt: at + leaseMs, renewedAt: at };
@@ -264,7 +274,7 @@ export class DraftHolds {
   heartbeat(holdId: string, revision?: number): DraftHold {
     this.expire();
     const hold = this.holds.get(holdId);
-    if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
+    if (!hold) throw new Refusal("not-found", "This draft hold has expired or was released; hold the draft again");
     if (revision !== undefined) {
       if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("A draft hold's revision is a positive integer");
       hold.revision = revision;
@@ -275,11 +285,11 @@ export class DraftHolds {
   }
 
   release(holdId: string): boolean {
-    return this.holds.delete(holdId);
+    return this.drop(holdId);
   }
 
   releaseClient(clientId: string): void {
-    for (const [id, hold] of this.holds) if (hold.clientId === clientId) this.holds.delete(id);
+    for (const [id, hold] of this.holds) if (hold.clientId === clientId) this.drop(id);
   }
 
   /** The door to route a note's patch to: the most recently renewed live hold, if any. */
@@ -296,7 +306,7 @@ export class DraftHolds {
     const found: DraftHold[] = [];
     for (const hold of this.holds.values()) {
       if (hold.blockId !== blockId) continue;
-      if (!live(hold.clientId)) { this.holds.delete(hold.holdId); continue; }
+      if (!live(hold.clientId)) { this.drop(hold.holdId); continue; }
       found.push({ ...hold });
     }
     return found.sort((left, right) => right.renewedAt - left.renewedAt);
@@ -314,7 +324,7 @@ export class DraftHolds {
 
   private expire(): void {
     const at = this.now();
-    for (const [id, hold] of this.holds) if (hold.expiresAt <= at) this.holds.delete(id);
+    for (const [id, hold] of this.holds) if (hold.expiresAt <= at) this.drop(id);
   }
 }
 

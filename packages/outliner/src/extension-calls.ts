@@ -1,4 +1,4 @@
-import { blockNotFound } from "@ep0ch/outline-core/refusal";
+import { Refusal, blockNotFound } from "@ep0ch/outline-core/refusal";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
 import { runbookPlan } from "./runbook";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
@@ -1744,7 +1744,7 @@ export class ExtensionCalls {
         delete out[arg.name];
         if (!arg.required) continue;
         const choices = this.choicesFor(arg, block);
-        throw new Error(`${action.name} needs ${arg.name}=${arg.description ? ` (${arg.description})` : ""}${choices.length ? `: ${choices.slice(0, 12).join(", ")}${choices.length > 12 ? ", …" : ""}` : ""}`);
+        throw new Refusal("invalid", `${action.name} needs ${arg.name}=${arg.description ? ` (${arg.description})` : ""}${choices.length ? `: ${choices.slice(0, 12).join(", ")}${choices.length > 12 ? ", …" : ""}` : ""}`);
       }
       const problem = arg.type === "choice" && !arg.options!.includes(value) ? `one of ${arg.options!.join(", ")}`
         : arg.type === "number" && !Number.isFinite(Number(value)) ? "a number"

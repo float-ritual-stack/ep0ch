@@ -89,7 +89,7 @@ test("content events carry parent, revision, actor and kind while keeping existi
     action: "update", blockId: task.id, text: "Draft the orbit schedule [status::ready]",
     expectedRevision: task.revision, mutation: { author: "agent", actorId: "planner-bot", taskId: "task-3" },
   });
-  await client.request({ action: "move", blockId: task.id, expectedRevision: edited.revision, parentId: archive.id });
+  await client.request({ action: "move", blockId: task.id, expectedRevision: edited.revision, parentId: archive.id, mutation: { author: "user" } });
   await client.request({ action: "delete", blockId: task.id });
   await client.request({ action: "trash.restore", blockId: task.id });
   await client.request({ action: "delete", blockId: task.id });
@@ -116,7 +116,7 @@ test("content events carry parent, revision, actor and kind while keeping existi
     actor: { author: "agent", actorId: "planner-bot", taskId: "task-3" },
   });
   expect(changes[4]).toMatchObject({ parentId: archive.id, previousParentId: project.id, revision: edited.revision });
-  expect(changes[4]!.actor).toBeUndefined();
+  expect(changes[4]!.actor).toEqual({ author: "user" });
   expect(changes[5]).toMatchObject({ kind: "delete", deleted: true, parentId: archive.id });
   expect(changes[6]).toMatchObject({ kind: "restore", deleted: false });
   expect(changes[8]).toEqual({
@@ -188,7 +188,7 @@ test("a reconnecting client catches up on exactly what it missed, in order", asy
     await client.request<Block>({ action: "create", parentId: parent.id, text: "Missed one" }),
     await client.request<Block>({ action: "create", parentId: parent.id, text: "Missed two" }),
   ];
-  await client.request({ action: "move", blockId: missed[1]!.id, expectedRevision: missed[1]!.revision, parentId: parent.id, position: 0 });
+  await client.request({ action: "move", blockId: missed[1]!.id, expectedRevision: missed[1]!.revision, parentId: parent.id, position: 0, mutation: { author: "user" } });
   await client.request({
     action: "update", blockId: missed[0]!.id, text: "Missed one, revised",
     expectedRevision: missed[0]!.revision, mutation: { author: "user" },
@@ -394,7 +394,7 @@ test("every content mutation family is covered by the feed and matches its live 
     mutation: { author: "agent", actorId: "checklist-bot" },
   }), () => [task.id]);
   task = store.require(task.id);
-  await step("move", () => request({ action: "move", blockId: task.id, expectedRevision: task.revision, parentId: archive.id }), () => [task.id]);
+  await step("move", () => request({ action: "move", blockId: task.id, expectedRevision: task.revision, parentId: archive.id, mutation: { author: "user" } }), () => [task.id]);
   const scratch = await step("create", () => request<Block>({ action: "create", text: "Scratch note" }), id);
   await step("delete", () => request({ action: "delete", blockId: scratch.id }), () => [scratch.id]);
   await step("trash.restore", () => request({ action: "trash.restore", blockId: scratch.id }), () => [scratch.id]);

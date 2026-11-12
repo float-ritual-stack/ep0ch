@@ -23,7 +23,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, SHARE_TTL, atLeast, lowerLevel, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, clientProtocolMismatch, SHARE_TTL, atLeast, lowerLevel, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
 import { gate } from "./write-gate";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -415,7 +415,7 @@ export class OutlinerServer {
       if (sameTurn()) ms = performance.now() - started;
       this.turns.charge(key, ms, input.action);
       noteWork(`${input.action} (own)`, ms);
-      if (!response.ok) throw new Error(response.error);
+      if (!response.ok) throw new Refusal(response.kind, response.error);
       return response.result as T;
     },
   };
@@ -476,7 +476,7 @@ export class OutlinerServer {
       client: {
         request: async <T>(input: RequestInput): Promise<T> => {
           const response = this.handle({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
+          if (!response.ok) throw new Refusal(response.kind, response.error);
           return response.result as T;
         },
       },
@@ -555,7 +555,7 @@ export class OutlinerServer {
       }),
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
       ...(options.agentWorkingMs ? { workingAfterMs: options.agentWorkingMs.after, progressMs: options.agentWorkingMs.every } : {}),
-    });
+    }); this.draftHolds.onGone = hold => this.agentRequests.released(hold.holdId, hold.blockId); // released, lapsed or its door gone (PIE-1743)
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       lines: this.lineWatches,
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
@@ -2196,15 +2196,13 @@ export class OutlinerServer {
         const stage = valueOf(item, "work-stage");
         if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
         const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
-        let updated: Block | undefined;
-        for (let attempt = 0; attempt < 2 && !updated; attempt++) {
-          const now = this.store.require(item.id);
-          try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
-          catch (error) { if (attempt) throw error; }
-        }
+        // Read and write in one step: the text is built from the revision the update is checked against, so only a
+        // write landing between them refuses, and that one is said by its kind (PIE-1752), never guessed at.
+        const now = this.store.require(item.id);
+        const updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation });
         const workId = valueOf(item, "work-id") ?? item.id;
         await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
-        return this.answered(request, { attached: workId, block: updated! });
+        return this.answered(request, { attached: workId, block: updated });
       }
       const { new: fileAnyway, ...input } = request.input;
       const answer = await findTwins(own, { title: input.title, ...(input.body ? { body: input.body } : {}) }, jev);
@@ -3062,7 +3060,7 @@ export class OutlinerServer {
           break;
         case "create":
           result = wired(action, this.store.create(titled(request.text), request.parentId, request.author, request.provenance,
-            { position: request.position, requestId: request.requestId }));
+            { position: request.position, requestId: request.requestId, ...(request.keyed ? { keyed: request.keyed } : {}) }));
           break;
         case "notes.create":
           result = wired(action, request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance));
@@ -3200,7 +3198,7 @@ export class OutlinerServer {
             const by = request.mutation.author === "agent" ? "agent" : "user";
             result = wired(action, { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
               { annotationId: root.block.id, body: request.body.trim(), source: by, properties: { kind: TLDR_KIND } },
-              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] });
+              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0]! });
           } else throw new Error("annotations.tldr asking @margin requires asynchronous dispatch");
           break;
         }
@@ -3350,18 +3348,18 @@ export class OutlinerServer {
         case "drafts.release": {
           this.stalledHolds.delete(request.holdId);
           const released = this.draftHolds.list().find(hold => hold.holdId === request.holdId);
-          result = wired(action, { released: this.draftHolds.release(request.holdId) }); this.agentRequests.released(request.holdId, released?.blockId);
+          result = wired(action, { released: this.draftHolds.release(request.holdId) }); // agent requests hear it through onGone
           // The draft closed: a note that waited to route while it was held routes now (PIE-1010).
           if (released) this.routing.draftReleased(released.blockId);
           break;
         }
         case "drafts.touch": {
-          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet.
+          // The person typed in the draft this hold keeps: a request line they wrote there runs once quiet and off the cursor's line.
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
           const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
-          if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
+          if (!hold) throw new Refusal("not-found", "This draft hold has expired or was released; hold the draft again");
           void this.askHolder(hold, { kind: "read" }).then(answer => {
-            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId); // a read landing after its hold ended is nobody's
+            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId, typeof answer.cursorLine === "number" ? answer.cursorLine : undefined); // a read landing after its hold ended is nobody's
           }).catch(() => {});
           result = wired(action, { touched: true });
           break;
@@ -3891,12 +3889,10 @@ export class OutlinerServer {
    * A packet arrived: this outline's tosser imports it now, as its scheduled toss would (one toss at a time; one that is
    * running finishes first, and the packet waits for the toss after it).
    */
-  private tossOnArrival(attempt = 0): void {
+  private tossOnArrival(): void {
     // Tests toss by hand, so what each toss carried is theirs to check.
     if (process.env.EP0CH_ECHONET_ARRIVAL_TOSS === "0") return;
-    void this.extensionSchedules.runNow("echonet", "action:toss").catch((error: unknown) => {
-      if (attempt < 3 && /running now/.test(error instanceof Error ? error.message : String(error))) setTimeout(() => this.tossOnArrival(attempt + 1), 20_000).unref?.();
-    });
+    void this.extensionSchedules.runAfter("echonet", "action:toss").catch(() => {});
   }
 
   /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */
@@ -4126,6 +4122,7 @@ export class OutlinerServer {
       // Queued turns can outlive their mirror generation, but must never read its released store.
       if (this.stopping) throw new Error("The outline service is stopping");
       previousSequence = this.store.sequence;
+      if (request.protocol !== undefined && request.protocol !== PROTOCOL) throw new Refusal("invalid", clientProtocolMismatch(request.protocol)); // PIE-1747
       // The host routed this connection by its first line; it stays with that outline.
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);

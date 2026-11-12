@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { refusalEnvelope } from "./request-envelope";
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
@@ -9,7 +10,8 @@ import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, clientProtocolMismatch, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -30,13 +32,15 @@ import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { scrubCredentials } from "./resource-extensions";
 import { ensureDefaultOnFor } from "./extension-install";
 import { OutlinerServer } from "./server";
-import { MCP_ACCESS_METADATA_KEY, OutlinerStore, readOutlineAbout } from "./store";
+import { OutlinerStore } from "./store";
+import { copyOutlineFile, readStoppedOutline, type StoppedOutline } from "./outline-file";
 import {
   type HostedArchivedOutline,
   type HostedOutlineArchival,
   type HostedOutlineAttachment,
   type HostedOutlineDeletion,
   type HostedOutlineList,
+  type HostedOutlineBackup,
   type HostedOutlineSummary,
   type HostedPaneOutline,
   type OutlinerHostStatus,
@@ -420,22 +424,42 @@ export class OutlineHost {
   }
 
   private summary(name: string): HostedOutlineSummary {
-    const about = this.aboutOf(name);
+    const look = this.lookAt(name);
     return {
       name, database: this.layout.database(name), folder: this.layout.folder(name), open: this.opened.has(name),
       ...(name === this.defaultOutline ? { default: true } : {}),
-      ...(about ? { about } : {}),
+      ...(look?.about ? { about: look.about } : {}),
+      ...(look ? { changeSeq: look.changeSeq, schema: look.schema } : {}),
     };
   }
 
-  /** What an outline says of itself (who made it over MCP, and why): from the open store, else its file read-only. */
-  private aboutOf(name: string, file = this.layout.database(name)): OutlineAbout | undefined {
+  /**
+   * What an outline is and says of itself (PIE-1750): from the open store, else the host's one read-only look at its
+   * stopped file (`outline-file.ts`); undefined when that can't be read (an empty claim, a file being moved).
+   */
+  private lookAt(name: string, file = this.layout.database(name)): StoppedOutline | undefined {
     const open = this.opened.get(name);
-    if (open) return open.store.outlineAbout();
-    let database: Database | undefined;
-    try { database = new Database(file, { readonly: true }); return readOutlineAbout(database); }
-    catch { return undefined; }
-    finally { database?.close(); }
+    if (open) {
+      const about = open.store.outlineAbout();
+      return { ...open.store.fileFacts(), ...(about ? { about } : {}), ...(open.store.mcpAccessConfigured() ? { access: open.store.mcpAccessStatus().level } : {}) };
+    }
+    if (this.busy.has(name)) return undefined;
+    try { return readStoppedOutline(file); } catch { return undefined; }
+  }
+
+  /**
+   * A consistent copy of one outline at `out` (PIE-1750), what the backup job, install and `ep0ch backup copy` ask for
+   * instead of opening the file: made in a worker of the host's own on a read-only connection (`copyOutlineFile`), so
+   * the host answers everything else meanwhile, open outline or stopped. Writes nothing to the outline, and never over
+   * an existing file.
+   */
+  private async backup(nameInput: unknown, outInput: unknown): Promise<HostedOutlineBackup> {
+    const name = requireName(nameInput);
+    if (typeof outInput !== "string" || !isAbsolute(outInput)) throw new Error("outlines.backup needs the copy's absolute path (out)");
+    if (!this.names().includes(name)) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is being changed; try again`);
+    const facts = await copyOutlineFile(this.layout.database(name), outInput);
+    return { name, path: outInput, ...facts, bytes: statSync(outInput).size, asOf: new Date().toISOString() };
   }
 
   /** The archived outlines (`.archive/<name>/`), each with what it said of itself. */
@@ -446,7 +470,7 @@ export class OutlineHost {
     return entries.filter(isOutlineName).sort().flatMap(name => {
       const file = join(this.layout.archived(name), `${name}.sqlite`);
       if (!lstatOrUndefined(file)) return [];
-      const about = this.aboutOf(name, file);
+      const about = this.lookAt(name, file)?.about;
       return [{ name, ...(about ? { about } : {}) }];
     });
   }
@@ -473,17 +497,9 @@ export class OutlineHost {
     return { outlines: this.names().filter(name => publishes(this.layout.folder(name))).map(name => ({ name })) };
   }
 
-  /** The access level an outline's owner set (`ep0ch mcp access`), from the open store, else its file read-only. */
+  /** The access level an outline's owner set (`ep0ch mcp access`), from the open store, else its stopped file. */
   private accessOf(name: string): string | undefined {
-    const open = this.opened.get(name);
-    if (open) return open.store.mcpAccessConfigured() ? open.store.mcpAccessStatus().level : undefined;
-    let database: Database | undefined;
-    try {
-      database = new Database(this.layout.database(name), { readonly: true });
-      const row = database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
-      return row?.value.trim().toLowerCase();
-    } catch { return undefined; }
-    finally { database?.close(); }
+    return this.lookAt(name)?.access;
   }
 
   /** Every outline in the folder, open or not. Reads only; never creates anything. */
@@ -586,7 +602,7 @@ export class OutlineHost {
     let release: () => void;
     try { release = acquireWorkspaceOwnership(real); }
     catch (error) {
-      if (!(error instanceof Error && error.message.startsWith("Outliner workspace is already owned"))) throw error;
+      if (refusalKindOf(error) !== "conflict") throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
     let started = false;
@@ -949,6 +965,8 @@ export class OutlineHost {
     // Another machine asking for a file a note there names (PIE-1644): this machine's disk alone, by its absolute path.
     const machineFile = request?.outline === undefined && request?.action === "media.read" && !this.defaultOutline;
     const hostAction = request && (isHostAction(request.action) || artifact || machineFile);
+    // PIE-1747: a host action on another protocol is refused before anything answers it, relayed or not.
+    if (request && hostAction && request.protocol !== undefined && request.protocol !== PROTOCOL) { fail(new Refusal("invalid", clientProtocolMismatch(request.protocol))); return; }
     if (request && hostAction && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
       const listing = request.action === "outlines.list" || request.action === "echonet.list";
@@ -1066,6 +1084,7 @@ export class OutlineHost {
       case "outlines.attach": return this.attach(request.name, request.create === true);
       case "outlines.pane": return this.paneOutline(request.paneId, request.hostname);
       case "outlines.close": return this.closeOutline(request.name);
+      case "outlines.backup": return this.backup(request.name, request.out);
       case "outlines.delete": return this.delete(request.name);
       case "outlines.archive": return this.archive(request.name);
       case "outlines.unarchive": return this.unarchive(request.name);

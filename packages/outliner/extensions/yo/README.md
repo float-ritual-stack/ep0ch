@@ -23,7 +23,9 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 
 ## What you do
 
-- **Ask on a line:** write `@yo …` on its own line in any note and keep typing. The answer opens under the line.
+- **Ask on a line:** write `@yo …` on its own line in any note, then go on to the next line (or save). The answer opens under the ask.
+  - **A pause never sends half an ask:** while the cursor is on the line, it says `asks once you leave the line or save`.
+  - **Ask again:** delete the ask and write it again, and yo answers again. An undo that brings the ask back brings its answer back too, with no new run.
   - **Every ask is heard:** a note's tenth ask like its first, and the same words asked again further down get an answer of their own.
 - **Find notes:** `@yo find me all hub items that are not sent yet`, `@yo list the plans tagged garden`, `@yo which notes are drafts`.
   - **The answer:** up to ten notes as links, the query that found them, and how it read each word (`not sent → NOT (status=sent)`).

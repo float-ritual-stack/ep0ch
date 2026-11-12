@@ -13,6 +13,17 @@ describe("showcase: ask yo (PIE-1585)", () => {
   const read = async () => (await h.board.get(note().id))!;
   const say = async (line: string) => { const m = await read(); await h.board.update(m.id, `${m.text.trimEnd()}\n\n${line}\n`, m.revision!, USER); };
   const answered = (what: RegExp) => untilAsync(async () => what.test((await read()).text), `the note says ${what}`, 30_000);
+  type Asking = { askStatus(line: string): string } | null;
+  const askTile = () => h.S().stages.get(h.S().sel).top.pane("ask").surface.draft as Asking;
+  /**
+   * The ask just typed is sent: an ask on the cursor's line waits for the person (PIE-1743), so the cursor goes off it
+   * until yo has it, then back to its end, where the answer tile beside it follows it.
+   */
+  const send = async (line: string, draft: () => unknown = askTile) => {
+    h.press({ kind: "up" });
+    await until(() => { const s = (draft() as Asking)?.askStatus(line) ?? ""; return !!s && !s.includes("leave the line") && s !== " · queued"; }, `${line} sent`, 15_000);
+    h.press({ kind: "down" }); h.press({ kind: "end" });
+  };
 
   test("asks on a line: two quoted lines and a button; do it presses as yo; undo takes it back; asked again, from memory", async () => {
     await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" });
@@ -55,7 +66,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect((await read()).text).toContain("answered from memory");
   }, 60_000);
 
-  test("typed in the editor: it answers under the line the cursor is on; enter goes on past the answer; other words replace it", async () => {
+  test("typed in the editor: it waits while the cursor is on the line, answers under it once left; other words replace it (PIE-1743)", async () => {
     await until(() => !!h.app.keysScreen()?.dispatch?.tile("focused"), "the keys in the stage", 8000);
     h.ch("e");
     await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
@@ -63,20 +74,29 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo how do I dock") h.ch(c);
-    // Quiet with the cursor still on the line: yo answers under it, and the cursor stays.
-    await until(() => h.screen().includes("· tile.dock"), "yo's answer beside the line", 30_000);
-    expect(h.screen()).not.toContain("could not accept");
-    for (const c of " the tile") h.ch(c);
     const draft = () => h.S().stages.get(h.S().sel).top.pane("ask").surface.draft as { text: string };
-    // The answer to the line's first words gives way to the answer to all of them, under it.
-    await until(() => /@yo how do I dock the tile\n> \[!note\][-+]? @yo answered\n/.test(draft().text), "the answer to the whole words", 30_000);
+    // A pause with the cursor still on the line: nothing asked, and the line says how it goes.
+    await until(() => h.screen().includes("asks once you leave the line"), "the ask waiting for the person", 10_000);
+    await Bun.sleep(3000);
+    expect(draft().text).not.toMatch(/@yo how do I dock\n> \[!note\]/);
+    for (const c of " the tile") h.ch(c);
+    // Off the line: asked as finally written, its answer under it.
     h.press({ kind: "enter" });
+    await until(() => /@yo how do I dock the tile\n> \[!note\][-+]? @yo answered\n/.test(draft().text), "the answer to the whole words", 30_000);
+    expect(h.screen()).not.toContain("could not accept");
+    // Back on the ask, other words, then off it again: the new answer takes the old one's place.
+    h.press({ kind: "up" });
+    h.press({ kind: "end" });
+    for (const c of " left") h.ch(c);
+    h.press({ kind: "down" });
+    await until(() => /@yo how do I dock the tile left\n> \[!note\][-+]? @yo answered\n/.test(draft().text), "the answer to the new words", 30_000);
+    h.press({ kind: "end", ctrl: true });
     for (const c of "and I go on") h.ch(c);
     h.press({ kind: "char", ch: "s", ctrl: true });
     await untilAsync(async () => (await read()).text.includes("and I go on"), "the save", 8000);
-    const text = (await read()).text, asked = text.slice(text.indexOf("@yo how do I dock the tile"));
-    expect(asked).toMatch(/^@yo how do I dock the tile\n> \[!note\][-+]? @yo answered\n> `tile\.dock`/);
-    expect(asked).toMatch(/\n> > - [^\n]*\nand I go on\s*$/);
+    const text = (await read()).text, asked = text.slice(text.indexOf("@yo how do I dock the tile left"));
+    expect(asked).toMatch(/^@yo how do I dock the tile left\n> \[!note\][-+]? @yo answered\n> `tile\.dock`/);
+    expect(asked).toMatch(/\nand I go on\s*$/);
     expect(asked.split("\n").filter(l => l.endsWith("@yo answered")).length).toBe(1);
   }, 90_000);
 
@@ -215,6 +235,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     h.press({ kind: "end", ctrl: true });
     const asked = `stow the agent ${how}`;
     for (const c of `@yo ${asked}`) h.ch(c);
+    await send(`@yo ${asked}`);
     const stage = () => h.S().stages.get(h.S().sel).top;
     const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
     await until(() => !!answer() && h.screen().includes("▼ drop"), "yo's answer beside the line, with its button", 30_000);
@@ -260,6 +281,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo name the shed tile") h.ch(c);
+    await send("@yo name the shed tile");
     const stage = () => h.S().stages.get(h.S().sel).top;
     const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
     const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
@@ -413,6 +435,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo backlinks by kind") h.ch(c);
+    await send("@yo backlinks by kind");
     const answer = () => rows().find(t => t.kind === "answer")?.name;
     const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
     await until(() => !!answer() && /label="▸ by kind"/.test(draft()?.text ?? ""), "yo's answer with ▸ by kind", 30_000);
@@ -492,6 +515,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo retitle the seed note") h.ch(c);
+    await send("@yo retitle the seed note");
     const stage = () => h.S().stages.get(h.S().sel).top;
     const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
     const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
@@ -527,6 +551,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of `@yo ${asked}`) h.ch(c);
+    await send(`@yo ${asked}`);
     const stage = () => h.S().stages.get(h.S().sel).top;
     const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
     const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
@@ -568,6 +593,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of `@yo guard the tile ${how}`) h.ch(c);
+    await send(`@yo guard the tile ${how}`);
     const stage = () => h.S().stages.get(h.S().sel).top;
     type Row = { name: string; tile: string; kind: string; agents?: string };
     const rows = () => stage().layoutGet().tiles as Row[];
@@ -622,6 +648,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => h.screen().includes("editing ·"), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo zoom the saved tile") h.ch(c);
+    await send("@yo zoom the saved tile");
     const stage = () => h.S().stages.get(h.S().sel).top;
     const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
     await until(() => !!answer() && h.screen().includes("tile.zoom"), "the answer beside the line", 30_000);
@@ -664,6 +691,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       await edit();
       h.press({ kind: "end", ctrl: true });
       for (const c of `@yo how do I ${asked}`) h.ch(c);
+      await send(`@yo how do I ${asked}`);
       await until(() => draft()!.text.includes("@yo answered"), "the answer in the edit", 30_000);
       h.press({ kind: "char", ch: "s", ctrl: true });
       await until(() => !draft(), "saved", 8000);
@@ -715,6 +743,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
         await edit();
         h.press({ kind: "end", ctrl: true });
         for (const c of ask) h.ch(c);
+        await send(ask);
         await until(() => draft()!.text.includes("@yo answered"), "the answer in the edit", 30_000);
         await save();
       }
@@ -1007,6 +1036,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => !!draft(), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of `@yo fold the shed ${tag}`) h.ch(c);
+    await send(`@yo fold the shed ${tag}`, draft);
     await until(() => shows(`fold the shed ${tag}`), "yo's answer tile beside the reader on the stage", 30_000);
     const answerName = stage().nameOf([...stage().panes].find(([, p]: any) => p instanceof AnswerTile)![0]);
     // The reader moves with the edit open.
@@ -1025,8 +1055,12 @@ describe("showcase: ask yo (PIE-1585)", () => {
       h.press({ kind: "end", ctrl: true });
       h.press({ kind: "enter" }); h.press({ kind: "enter" });
       for (const c of `@yo zoom the shed ${tag}`) h.ch(c);
+      await send(`@yo zoom the shed ${tag}`, draft);
       await until(() => !!draft()?.text.includes(`@yo zoom the shed ${tag}`), "the second ask typed in the edit", 8000);
       await until(() => shows(`zoom the shed ${tag}`), `one answer tile beside the reader in the ${move}, on the new ask`, 30_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(answers())}`); });
+      // Opened there, it is placed by the desk's one placement too (PIE-1757): a pair with the reader, or a tab behind it.
+      // Gathered with its reader, it stays where the gather put it.
+      if (move !== "group with its answer") expect([move, holder().answerSide(pane)]).toEqual([move, expect.stringMatching(/^(right|left|down|up|tab)$/)]);
       // The caret back on the first ask selects it there, with no refusal.
       const row = draft()!.text.split("\n").findIndex(l => l.startsWith(`@yo fold the shed ${tag}`));
       while (draft()!.row > row) h.press({ kind: "up" });
@@ -1062,6 +1096,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => !!draft(), "the edit", 8000);
     h.press({ kind: "end", ctrl: true });
     for (const c of "@yo slide the shed") h.ch(c);
+    await send("@yo slide the shed");
     await until(() => onStage() === 1, "yo's answer tile beside the reader", 30_000);
     const g = await h.app.dispatch.act({ action: "tile.group", tile: "ask" }, USER) as { name?: string; tile?: string };
     try {
@@ -1143,6 +1178,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     h.press({ kind: "end", ctrl: true });
     h.press({ kind: "enter" });
     for (const c of "@yo tuck the shed") h.ch(c);
+    await send("@yo tuck the shed", draft);
     await until(() => answers() === 1, "yo's answer tile beside the reader", 30_000);
     chord("G");
     await until(() => h.screen().includes("this tile · ask2"), "this tile or the whole split?", 8000);

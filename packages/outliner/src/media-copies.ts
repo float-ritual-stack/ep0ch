@@ -83,9 +83,14 @@ export function readMachineFile(path: string, machine?: string, artifact = false
     const stat = statSync(path);
     if (kind.folder && stat.isDirectory()) return { path, mime: kind.mime, from: "file", base64: packFolder(path).toString("base64"), ...(machine ? { machine } : {}) };
     if (kind.folder) throw new Error(`${path} isn't a picture or a page`);
-    if (!stat.isFile()) throw new Error("not a file");
     size = stat.size;
-  } catch (error) { throw new Error(error instanceof Error && !/ENOENT|ENOTDIR|not a file/.test(error.message) ? error.message : `${path} isn't on ${machine ?? "this machine"}`); }
+    if (!stat.isFile()) size = -1;
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    size = -1;
+  }
+  if (size < 0) throw new Error(`${path} isn't on ${machine ?? "this machine"}`);
   if (size > kind.cap) throw new Error(`${path} is ${size} bytes, over the ${kind.cap} a copy holds`);
   return { path, mime: kind.mime, from: "file", base64: readFileSync(path).toString("base64"), ...(machine ? { machine } : {}) };
 }

@@ -141,21 +141,21 @@ test("structural writes without provenance stay unattributed and add no activity
   const pruning = store.create("Pruning notes");
   // The person edited the note; that is still its latest activity.
   store.update(pruning.id, "Pruning notes, winter", pruning.revision, { author: "user", actorId: "detail" });
+  // A move always says who made it (PIE-1749); trash and restore by the host itself can still omit it.
+  await client.request({ action: "move", blockId: pruning.id, expectedRevision: store.require(pruning.id).revision, parentId: orchard.id, mutation: { author: "user", actorId: "detail" } });
   const start = store.sequence;
-
-  // Internal structural writes can omit provenance.
-  await client.request({ action: "move", blockId: pruning.id, expectedRevision: store.require(pruning.id).revision, parentId: orchard.id });
   await client.request({ action: "delete", blockId: orchard.id });
   await client.request({ action: "trash.restore", blockId: orchard.id });
 
   const changes = await changesSince(client, start);
-  expect(changes.map(change => change.kind)).toEqual(["move", "delete", "restore"]);
+  expect(changes.map(change => change.kind)).toEqual(["delete", "restore"]);
   expect(changes.every(change => change.actor === undefined)).toBe(true);
   for (const author of ["user", "agent", "system"]) {
-    expect((await activity(client, { author, kinds: ["move", "delete", "restore"] })).entries).toEqual([]);
+    expect((await activity(client, { author, kinds: ["delete", "restore"] })).entries).toEqual([]);
   }
   const edits = await activity(client, { author: "user" });
   expect(edits.entries.map(entry => [entry.block.id, entry.kind])).toEqual([[pruning.id, "text"]]);
+  expect((await activity(client, { author: "user", kinds: ["move"] })).entries.map(entry => entry.block.id)).toEqual([pruning.id]);
 });
 
 test("activity without kinds still returns edits only, even after an attributed move or trash", async () => {
