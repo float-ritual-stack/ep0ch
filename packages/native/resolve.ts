@@ -3,11 +3,12 @@
 // then the nearest `.ep0ch`; `--machine`, EP0CH_MACHINE or that `.ep0ch` for another machine's host, through its
 // forward). The native app runs this once at launch and then speaks the socket itself; it decides nothing here.
 //
-// `control` is where the window serves its control socket: `native.sock` in the outline's session folder, beside the
-// door's `door.sock` (the door's `placeFor`), so the door's client finds one by the other.
+// `control` is where the window serves its control socket: the native door's own (the door's `DOORS`, cli-words.ts) in
+// the outline's session folder, beside the terminal door's (the door's `placeFor`), so `--door native` finds it.
 //
 //   bun resolve.ts [--ws <name>] [--machine <ssh-name>]   →  {"socket": "…", "outline": "…", "control": "…"} or {"error": "…"}
 import { join } from "node:path";
+import { DOORS } from "@ep0ch/door/src/cli-words";
 import { resolveTarget } from "@ep0ch/door/src/discover";
 import { forwardTo } from "@ep0ch/door/src/machine";
 import { placeFor } from "@ep0ch/door/src/session/place";
@@ -22,6 +23,6 @@ else {
   try {
     if (target.machine) await forwardTo(target.machine);
     const place = placeFor(named);
-    say({ socket: target.path, outline: target.outline, ...(place && !("error" in place) ? { control: join(place.dir, "native.sock") } : {}) });
+    say({ socket: target.path, outline: target.outline, ...(place && !("error" in place) ? { control: join(place.dir, DOORS.native!) } : {}) });
   } catch (e) { say({ error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }); }
 }

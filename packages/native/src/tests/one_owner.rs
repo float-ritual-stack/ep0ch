@@ -196,6 +196,17 @@ fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
     ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
 }
 
+/// Which host and outline the window opens, and where its control socket is, is the door's rule (`resolveTarget`
+/// and `placeFor`, asked through resolve.ts): the window reads no outline or host setting itself, and the socket's
+/// name is the door's own (`DOORS`), so `--door native` looks where the window serves.
+#[test]
+fn which_outline_and_host_is_the_door_s_rule_asked_every_time() {
+    none("the outline or the host read from the environment here: resolve.ts asks the door's rule", ["EP0CH_SOCKET\"", "EP0CH_WS\"", "EP0CH_MACHINE\"", "\"--machine\""].iter().flat_map(|word| strays(word, |_| false)).collect());
+    let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("resolve.ts")).unwrap();
+    assert!(script.contains("DOORS.native") && !script.contains("\"native.sock\""), "resolve.ts names the control socket by the door's DOORS");
+    assert!(script.contains("resolveTarget(named)") && script.contains("placeFor(named)"));
+}
+
 /// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
 /// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
 /// (`--snap`, `--tree`) serves no control socket beside a window's.
