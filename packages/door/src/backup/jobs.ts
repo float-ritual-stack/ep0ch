@@ -16,11 +16,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { alive } from "../state";
 import { hostRequest } from "../socket";
-import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
+import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, type MirrorState, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { failedLine, moment, relayedLine } from "./verdict";
-import { backupFile, complaint, dumpTo, forget, LOCKED, lockHolder, NO_REPO, type OutlineSnapshot, runRestic, snapshots } from "./restic";
+import { backupFile, complaint, dumpTo, forget, LOCKED, lockHolder, NO_REPO, type OutlineSnapshot, prune, type Ran, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
 /** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
@@ -124,7 +124,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   }
   delete s.host;
   // Snapshots are the repository's: another repository (or machine name) starts every outline over.
-  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; delete s.forget; }
+  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; delete s.forget; delete s.prune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   o.step?.(`checking ${outlines.length} outline${outlines.length === 1 ? "" : "s"} for changes`);
@@ -194,25 +194,38 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       say(failedLine(x.name, st.error!, { repo, hub: c.hub }));
     }
   } finally { rmSync(tmp, { recursive: true, force: true }); }
-  if (uploaded.length) {
-    // Retention after each upload; the prune that frees space, once a day.
-    const prune = !s.lastPrune || now() - Date.parse(s.lastPrune) >= 24 * 3_600_000;
-    const r = await forget(c, repo, prune);
-    const at = new Date(now()).toISOString();
-    if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
-    if (r.code === 0) {
-      if (prune) s.lastPrune = at;
-      s.forget = { at, ok: true, failures: 0, pruned: prune, ...(r.cleared ? { cleared: r.cleared } : {}) };
-      say(`✓ old snapshots let go${prune ? ", and pruned" : ""}`);
-    } else {
-      // Counted, so a forget that keeps failing is an incident (alert.ts), not only a journal line.
-      const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
-      const was = s.forget?.ok === false ? s.forget : undefined;
-      s.forget = { at, ok: false, failures: (was?.failures ?? 0) + 1, since: was?.since ?? at, error };
-      say(`restic forget failed (the snapshots are safe; the next run tries again): ${error}`);
-    }
-  }
+  if (uploaded.length) await retention(c, s, repo, now, say);
   return { uploaded, failed, relayed };
+}
+
+/**
+ * After each upload, forget (KEEP) at once; once a day, the prune that frees their space, in a step of its own (PIE-1755).
+ * Each counted, so one that keeps failing is an incident (alert.ts), not only a journal line.
+ */
+async function retention(c: BackupConfig, s: BackupState, repo: string, now: () => number, say: Say): Promise<void> {
+  const r = await forget(c, repo);
+  const at = new Date(now()).toISOString();
+  if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
+  s.forget = counted(s.forget, r, at);
+  if (!s.forget.ok) { say(`restic forget failed (the snapshots are safe; the next run tries again): ${s.forget.error}`); return; }
+  say("✓ old snapshots let go");
+  // Once a day; after a failure, a few hours on, so a prune that can't finish doesn't take every run.
+  const last = s.prune?.at ?? s.lastPrune;
+  if (last && now() - Date.parse(last) < (s.prune && !s.prune.ok ? PRUNE_RETRY_MS : PRUNE_EVERY_MS)) return;
+  const p = await prune(c, repo);
+  const done = new Date(now()).toISOString();
+  if (p.cleared) say(`cleared a stale restic lock (${p.cleared})`);
+  s.prune = counted(s.prune, p, done);
+  if (s.prune.ok) { s.lastPrune = done; say("✓ pruned: the space old snapshots held is freed"); }
+  else say(`restic prune failed (old snapshots are let go; the space comes back with the next prune): ${s.prune.error}`);
+}
+
+/** A forget's or a prune's result, with the failures in a row before it. */
+function counted(was: ForgetState | undefined, r: Ran & { cleared?: string; unlockError?: string }, at: string): ForgetState {
+  if (r.code === 0) return { at, ok: true, failures: 0, ...(r.cleared ? { cleared: r.cleared } : {}) };
+  const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
+  const failing = was?.ok === false ? was : undefined;
+  return { at, ok: false, failures: (failing?.failures ?? 0) + 1, since: failing?.since ?? at, error };
 }
 
 /**

@@ -23,17 +23,25 @@ export async function runRestic(c: BackupConfig, repo: string, args: readonly st
     p = Bun.spawn(argv, { env: { ...c.env, RESTIC_PROGRESS_FPS: "0" } as Record<string, string>, stdin: o.stdin ? Bun.file(o.stdin) : "ignore" as never,
       stdout: o.stdout ? Bun.file(o.stdout) : "pipe", stderr: "pipe" }) as never;
   } catch (e) { return { code: 127, out: "", err: `can't run ${argv[0]}: ${(e as Error).message}` }; }
-  const timer = setTimeout(() => p.kill(), o.timeoutMs ?? 600_000);
+  // Stopped at its limit: said as that, whatever restic printed as it went (it catches the signal and exits itself, a
+  // Go stack trace as its last line, so the exit code alone doesn't say).
+  let timedOut = false;
+  const limit = o.timeoutMs ?? 600_000;
+  const timer = setTimeout(() => { timedOut = true; p.kill(); }, limit);
   try {
     const [out, err, code] = await Promise.all([typeof p.stdout === "number" || !p.stdout || o.stdout ? "" : new Response(p.stdout as ReadableStream).text(), new Response(p.stderr).text(), p.exited]);
-    return { code: p.signalCode ? 124 : code, out, err: p.signalCode ? `${err}\ntimed out after ${Math.round((o.timeoutMs ?? 600_000) / 1000)}s` : err };
+    return timedOut || p.signalCode ? { code: 124, out, err: `${err}\n${TIMED_OUT} ${duration(limit)}` } : { code, out, err };
   } finally { clearTimeout(timer); }
 }
+
+const TIMED_OUT = "timed out after";
+/** `3s`, `40 min`. */
+const duration = (ms: number) => ms < 120_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)} min`;
 
 /** restic's complaint, one line (its last), for a state file and a status bar. */
 export const complaint = (r: Ran) => {
   const lines = r.err.split("\n").map(l => l.trim()).filter(l => l && !/^(open repository|repository [0-9a-f]+ opened|using parent|reading|created restic repository|no parent snapshot)/i.test(l));
-  return (lines.find(l => /^Fatal:/.test(l)) ?? lines.at(-1) ?? `exit ${r.code}`).slice(0, 240);
+  return (lines.find(l => l.startsWith(TIMED_OUT)) ?? lines.find(l => /^Fatal:/.test(l)) ?? lines.at(-1) ?? `exit ${r.code}`).slice(0, 240);
 };
 
 /** An outline's name as a snapshot may carry it: a file name, never a path (the tags are read from a repository). */
@@ -108,20 +116,36 @@ export function lockHolder(r: Ran): string {
 export const removedLocks = (r: Ran) => Number(/removed (\d+) locks?/i.exec(r.out + r.err)?.[1] ?? 0);
 
 /**
- * Retention (KEEP), and once a day the prune. forget takes the repository exclusively, so one lock left behind, by a
- * run killed mid-upload (a reboot, a deploy) or a machine that slept through a restore, refuses every forget after it,
- * while backups (which share the repository) still land (PIE-1755). So a refused lock is cleared and forget tried
- * again: `restic unlock` without `--remove-all` removes only stale locks, those whose process on this machine is gone or
- * that nobody refreshed for 30 minutes; a live one stays, and the second try waits a few minutes for it. `cleared`: the
- * lock it found, when unlock removed it; `unlockError`: why unlock itself failed.
+ * A command that takes the repository exclusively (forget, prune). One lock left behind, by a run killed mid-upload (a
+ * reboot, a deploy) or a machine that slept through a restore, refuses every one of them after it, while backups (which
+ * share the repository) still land (PIE-1755). So a refused lock is cleared and the command tried again: `restic unlock`
+ * without `--remove-all` removes only stale locks, those whose process on this machine is gone or that nobody refreshed
+ * for 30 minutes; a live one stays, and the second try waits `wait` for it. `cleared`: the lock it found, when unlock
+ * removed it; `unlockError`: why unlock itself failed.
  */
-export async function forget(c: BackupConfig, repo: string, prune: boolean, o: { host?: string; wait?: string } = {}): Promise<Ran & { cleared?: string; unlockError?: string }> {
-  const args = ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])];
-  const first = await runRestic(c, repo, args, { timeoutMs: 900_000 });
+async function exclusive(c: BackupConfig, repo: string, args: string[], o: { timeoutMs: number; wait?: string }): Promise<Ran & { cleared?: string; unlockError?: string }> {
+  const first = await runRestic(c, repo, args, { timeoutMs: o.timeoutMs });
   if (first.code !== LOCKED) return first;
   const held = lockHolder(first);
   const unlocked = await runRestic(c, repo, ["unlock"], { timeoutMs: 120_000 });
-  const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: 900_000 + 300_000 });
+  const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: o.timeoutMs + 300_000 });
   if (unlocked.code !== 0) return { ...again, unlockError: complaint(unlocked) };
   return removedLocks(unlocked) > 0 ? { ...again, cleared: held } : again;
 }
+
+/** Retention (KEEP), every run that uploads: the snapshots it lets go are gone at once; their space, at the next prune. */
+export function forget(c: BackupConfig, repo: string, o: { host?: string; wait?: string } = {}) {
+  return exclusive(c, repo, ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP], { timeoutMs: 900_000, ...(o.wait ? { wait: o.wait } : {}) });
+}
+
+/**
+ * The prune that frees the space forgotten snapshots held, once a day, in a step of its own: bounded
+ * (`--max-repack-size`), so a backlog (a month of snapshots no forget let go) finishes over a few days inside its limit
+ * rather than starting over each run and being stopped at it (PIE-1755, float-2 on Nov 11). Packs nothing uses any more
+ * are deleted whatever the bound; only rewriting the partly used ones is held to it.
+ */
+export function prune(c: BackupConfig, repo: string) {
+  return exclusive(c, repo, ["prune", "--max-repack-size", PRUNE_REPACK], { timeoutMs: c.pruneTimeoutMs });
+}
+/** How much a prune rewrites in one go. */
+export const PRUNE_REPACK = "1G";

@@ -12,6 +12,7 @@
 //                          its host over ssh how far each outline is (changes no snapshot holds yet are said)
 //   EP0CH_BACKUP_SECRETS   the with-secrets groups restic runs with when its password isn't in the environment: hetzner-s3,restic
 //   EP0CH_RESTIC           the restic binary (default: restic on PATH)
+//   EP0CH_BACKUP_PRUNE_MINUTES   how long the daily prune may run before it's stopped (default 40; the unit allows 50)
 //   EP0CH_OUTLINES, EP0CH_MCP_MIRROR_DIR   the outlines and the mirrors, where they aren't the defaults
 //   EP0CH_MCP_HUB          the ssh name of the machine whose remote MCP gateway queues writes for this one's outlines
 //                          (netmail, PIE-615): each run pulls them and applies them here. Unset: nothing is pulled.
@@ -61,6 +62,8 @@ export interface BackupConfig {
   mirrorsDir: string;
   mirrors: MirrorSource[];
   restic: string;
+  /** How long the daily prune may run (EP0CH_BACKUP_PRUNE_MINUTES, default 40 minutes). */
+  pruneTimeoutMs: number;
   secrets: string[];
   /** The gateway's machine (its ssh name) this one pulls its queued MCP writes from, if any. */
   hub?: string;
@@ -111,6 +114,7 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
     mirrorsDir: resolve(get("EP0CH_MCP_MIRROR_DIR") || join(home, "outline-mirrors")),
     mirrors,
     restic: get("EP0CH_RESTIC") ?? "restic",
+    pruneTimeoutMs: (Number(get("EP0CH_BACKUP_PRUNE_MINUTES")) > 0 ? Number(get("EP0CH_BACKUP_PRUNE_MINUTES")) : 40) * 60_000,
     secrets: (get("EP0CH_BACKUP_SECRETS") ?? DEFAULT_SECRETS).split(",").map(s => s.trim()).filter(Boolean),
     ...(hub ? { hub } : {}),
     file,

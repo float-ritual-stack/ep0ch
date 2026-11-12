@@ -5,7 +5,7 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors } from "../src/backup/config";
@@ -386,7 +386,8 @@ describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (
     const said: string[] = [];
     const s = readBackupState(c.state);
     expect((await snapshot(c, s, { say: l => said.push(l) })).uploaded).toEqual(["garden"]);
-    expect(s.forget).toMatchObject({ ok: true, failures: 0, pruned: true });
+    expect(s.forget).toMatchObject({ ok: true, failures: 0 });
+    expect(s.prune).toMatchObject({ ok: true, failures: 0 });
     // A run killed mid-upload (a reboot, a deploy): its lock stays in the repository.
     const killed = await holder(c);
     killed.kill(9); await killed.exited;
@@ -409,7 +410,7 @@ describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (
     expect(await ensureRepo(c, c.repoOf(c.machine), () => {})).toBeNull();
     const live = await holder(c);
     try {
-      const r = await forget(c, c.repoOf(c.machine), false, { wait: "1s" });
+      const r = await forget(c, c.repoOf(c.machine), { wait: "1s" });
       expect(r.code).toBe(LOCKED_EXIT);
       expect(r.cleared).toBeUndefined();
       expect(locksOf(c)).toHaveLength(1);
@@ -440,6 +441,58 @@ describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (
     expect(fixed.alert.incidents).toEqual([]);
     expect(readBackupState(c.state).forget).toMatchObject({ ok: true, failures: 0 });
     expect(statusLines(c, now).join("\n")).toContain("old snapshots let go");
+  }, 120_000);
+});
+
+describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day in its own bounded step (PIE-1755)", () => {
+  /** restic, every call written down; its prune hangs past the job's limit (a month of backlog), dying the way restic does. */
+  function slowPrune(name: string) {
+    const log = join(root, `${name}-argv.log`), fake = join(root, `${name}-restic.sh`);
+    writeFileSync(fake, `#!/bin/sh\necho "$*" >> ${log}\nfor a in "$@"; do if [ "$a" = prune ]; then\n  echo 'goroutine 1 [running]:' >&2\n  echo '/usr/local/go/src/runtime/asm_amd64.s:1771' >&2\n  exec sleep 30\nfi; done\nexec ${RESTIC} "$@"\n`, { mode: 0o755 });
+    return { fake, calls: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []).map(l => l.split(" ")) };
+  }
+
+  test("forget never carries --prune; a prune killed at its limit says so, and leaves the forget done", async () => {
+    const { fake, calls } = slowPrune("orchard");
+    const c = await served(machine("orchard", { EP0CH_RESTIC: fake, EP0CH_BACKUP_PRUNE_MINUTES: "0.05" }));
+    const said: string[] = [];
+    const s = readBackupState(c.state);
+    let now = T0;
+    outline(join(c.outlines, "apples.sqlite"), ["Pick the russets"]);
+    expect((await snapshot(c, s, { say: l => said.push(l), now: () => now })).uploaded).toEqual(["apples"]);
+    const forgets = calls().filter(a => a.includes("forget")), prunes = calls().filter(a => a.includes("prune"));
+    expect(forgets.length).toBeGreaterThan(0);
+    expect(forgets.filter(a => a.includes("--prune"))).toEqual([]);
+    expect(s.forget).toMatchObject({ ok: true, failures: 0 });
+    // The prune, bounded so a backlog finishes over a few days rather than never.
+    expect(prunes).toHaveLength(1);
+    expect(prunes[0]).toContain("--max-repack-size");
+    expect(s.prune).toMatchObject({ ok: false, failures: 1 });
+    expect(s.prune?.error).toBe("timed out after 3s");
+    expect(said.filter(l => /prune/.test(l))).toEqual(["restic prune failed (old snapshots are let go; the space comes back with the next prune): timed out after 3s"]);
+    expect(s.lastPrune).toBeUndefined();
+    // The next run soon after forgets again, and doesn't start the prune over.
+    now += 900_000;
+    outline(join(c.outlines, "apples.sqlite"), ["Store the bramleys"]);
+    await snapshot(c, s, { say: l => said.push(l), now: () => now });
+    expect(calls().filter(a => a.includes("prune"))).toHaveLength(1);
+    expect(calls().filter(a => a.includes("forget")).length).toBeGreaterThan(forgets.length);
+  }, 120_000);
+
+  test("a prune that finishes is once a day; two failed in a row is an incident", async () => {
+    const c = await served(machine("vinery", { EP0CH_BACKUP_PRUNE_MINUTES: "5" }));
+    const s = readBackupState(c.state);
+    let now = T0;
+    const run = async (text: string) => { outline(join(c.outlines, "grapes.sqlite"), [text]); return snapshot(c, s, { now: () => now }); };
+    await run("Thin the bunches");
+    expect(s.prune).toMatchObject({ ok: true, failures: 0 });
+    expect(s.lastPrune).toBe(iso(T0));
+    now += 3_600_000;
+    await run("Net the vines");
+    expect(s.prune?.at).toBe(iso(T0));   // not due yet
+    const failing = { ...s, prune: { at: iso(T0), ok: false, failures: 2, since: iso(T0 - 4 * 3_600_000), error: "timed out after 40 min" } };
+    expect(incidents(failing, "vinery", now, CMD).map(i => i.key)).toEqual(["prune:vinery"]);
+    expect(incidents(failing, "vinery", now, CMD)[0]!.detail).toContain("timed out after 40 min");
   }, 120_000);
 });
 

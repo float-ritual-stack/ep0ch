@@ -63,10 +63,13 @@ export interface MirrorState {
   error?: string;
 }
 
-export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; pruned?: boolean; cleared?: string }
+export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; cleared?: string }
 
 /** Forget failing this many runs in a row is an incident: one failure is a live lock the next run waits out. */
 export const FORGET_FAILS = 2;
+/** The prune runs once a day; after one fails, again this long after. */
+export const PRUNE_EVERY_MS = 24 * 3_600_000;
+export const PRUNE_RETRY_MS = 3 * 3_600_000;
 
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
 export interface Drill { at: string; ok: boolean; detail: string; via?: string }
@@ -94,6 +97,8 @@ export interface BackupState {
    * it failed since when, with restic's reason (a lock: who holds it). `cleared`: a stale lock it removed first.
    */
   forget?: ForgetState;
+  /** The last daily prune (its own step since PIE-1755), in the same shape: `lastPrune` is when one last finished. */
+  prune?: ForgetState;
   drill?: Drill;
   /** A drill that was due and couldn't run (the repository out of reach, and the hub too): since when, and why. */
   drillWaiting?: { since: string; why: string };
@@ -173,6 +178,12 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
     out.push({ key: `forget:${machine}`, since: f.since ?? f.at, title: `old backups on ${machine} aren't pruned`,
       detail: `restic forget has failed ${f.failures} runs in a row since ${hhmm(f.since ?? f.at)}: ${f.error ?? "?"}; new snapshots still land, but none are let go, so the repository grows`,
       fix: `${cmd.run}   (it clears a stale lock itself; a lock that stays is held by a live restic, named above; its log: ${cmd.log})` });
+  }
+  const p = s.prune;
+  if (p && !p.ok && p.failures >= FORGET_FAILS) {
+    out.push({ key: `prune:${machine}`, since: p.since ?? p.at, title: `the backups' space on ${machine} isn't freed`,
+      detail: `restic prune has failed ${p.failures} times in a row since ${hhmm(p.since ?? p.at)}: ${p.error ?? "?"}; old snapshots are let go, but the space they held isn't given back`,
+      fix: `${cmd.run}   (it tries the prune again ${PRUNE_RETRY_MS / 3_600_000} hours after a failure; EP0CH_BACKUP_PRUNE_MINUTES in ~/.config/ep0ch/backup.env gives it longer; its log: ${cmd.log})` });
   }
   for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
     if (!late(x.failingSince)) continue;
