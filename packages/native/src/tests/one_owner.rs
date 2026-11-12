@@ -128,6 +128,46 @@ fn the_layout_is_pure_and_only_an_action_changes_it_or_places_an_open() {
     assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/view.rs").exists(), "view.rs is split into shell.rs and tiles/");
 }
 
+/// Whether the arrangement changes has one decider, `layout::apply`, for a step undone and a screen opened as for
+/// a split: nothing but `actions/layout.rs` holds the arrangement to write, issues a load, or keeps a rule of the
+/// layout's beside it (the last tile staying, a share's limits, what unsaved text blocks).
+#[test]
+fn nothing_beside_the_layout_decides_whether_the_arrangement_changes() {
+    none("the arrangement written outside the one place that asks the layout (actions/layout.rs)", strays("st.layout =", |path| path == "actions/layout.rs"));
+    none("a load issued outside actions/layout.rs: `App::replace` asks the layout", strays("Op::Load", |path| path == "actions/layout.rs" || path.starts_with("layout")));
+    none("the last tile staying, said outside the layout", strays("last tile", |path| path.starts_with("layout")));
+    none("a share's limits outside the layout (layout/step.rs keeps them)", [".clamp(0.08", "0.92)"].iter().flat_map(|limit| strays(limit, |path| path.starts_with("layout"))).collect());
+    // What unsaved text blocks is the layout's to say, from the fact it is handed (`App::facts`): the draft's own
+    // actions ask whether there is any, and nothing else does.
+    none("a rule about unsaved text outside the layout and the draft's own actions", strays(".unsaved()", |path| ["actions/app.rs", "actions/draft.rs", "tiles/page.rs"].contains(&path)));
+}
+
+/// What Esc does is the key table's rows (`keys::esc_steps`): nothing turns an Escape into an act line by hand. A
+/// border's drag has its own way back (a resize to where it was), never the undo of some other change.
+#[test]
+fn esc_is_the_key_table_s_and_a_drag_s_way_back_is_not_the_undo() {
+    none("layout.undo run from outside its own row (a key, its bar row)", strays("\"layout.undo\"", |path| path == "actions/layout.rs"));
+    none("Escape read outside the key table", ["Key::Escape", "ChordKey::Escape"].iter().flat_map(|key| strays(key, |path| path == "keys.rs")).collect());
+    let texts = sources();
+    let shell = &texts.iter().find(|(path, _)| path == "shell.rs").expect("shell.rs").1;
+    assert!(shell.contains("d.cancelled() && d.data < 0.0).then(|| line(-d.data))"), "a border's drag let go with Escape says layout.resize, back to the share at the press");
+}
+
+/// Which tile has the keys is `Layout.focus`, changed only in `apply`; Rune's focus follows it through the one
+/// reconciler in keys.rs, the only caller of `Tx::focus`, and a tile's root is made to hold the keys there too.
+#[test]
+fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
+    none("Rune's focus set outside keys.rs: `keys::follow` is the one reconciler", ["tx.focus(", ".return_focus(", "tx.blur("].iter().flat_map(|call| strays(call, |path| path == "keys.rs")).collect());
+    none("the layout's focus written outside the layout", strays(".focus = ", |path| path.starts_with("layout")));
+    // A field's own flag is set where a draft or the bar opens, and by the arrangement settling: nowhere else.
+    none("a field's focus flag set outside the draft's and the arrangement's own files", strays(".focused = ", |path| ["actions/draft.rs", "actions/layout.rs"].contains(&path)));
+    let texts = sources();
+    let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
+    assert!(text("shell.rs").contains("keys::tile("), "each tile's root is made to hold the keys by keys::tile");
+    assert!(text("main.rs").contains("keys::follow(s, tx)"), "the window's poll runs the reconciler");
+    assert!(text("keys.rs").contains("e.tile == self.layout.focus"), "the person's layer is read from the tile with the keys");
+}
+
 /// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
 /// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
 /// (`--snap`, `--tree`) serves no control socket beside a window's.

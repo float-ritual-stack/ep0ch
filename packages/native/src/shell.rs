@@ -98,13 +98,13 @@ fn tile(s: &App, id: &str, at: [f32; 4], boxes: &Boxes, origin: [f32; 2], dark: 
         (None, Some(spec)) => tiles::as_data(spec, &name, k),
         (None, None) => el(),
     };
-    col().key(format!("tile/{name}")).role("group").label(name.clone()).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.md).fill(c.surface_base).border(1.0, if focused { c.border_focus } else { c.border_muted })
+    keys::tile(col().key(format!("tile/{name}")).role("group").label(name.clone()).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.md).fill(c.surface_base).border(1.0, if focused { c.border_focus } else { c.border_muted })
         .child(bar)
-        .child(body.child(el().w_full().grow(1.0).min_h(0.0).child(drawn)))
+        .child(body.child(el().w_full().grow(1.0).min_h(0.0).child(drawn))))
 }
 
 /// The strip between two kids of a split: dragged, it moves their border (`layout.resize`).
-fn grip(split: &str, border: usize, axis: Axis, a: Rect, b: Rect, origin: [f32; 2], k: &Kit) -> El {
+fn grip(split: &str, border: usize, axis: Axis, a: Rect, b: Rect, share: f32, origin: [f32; 2], k: &Kit) -> El {
     let (pa, pb) = (points(a), points(b));
     let row_wise = axis == Axis::Row;
     let (start, span) = if row_wise { (pa[0], pa[2] + pb[2]) } else { (pa[1], pa[3] + pb[3]) };
@@ -112,22 +112,24 @@ fn grip(split: &str, border: usize, axis: Axis, a: Rect, b: Rect, origin: [f32; 
     let split = split.to_string();
     k.interactive(el().absolute(at[0], at[1]).w(at[2]).h(at[3]))
         .key(format!("grip/{split}/{border}")).role("separator").label("The border between two tiles: drag it to resize them")
-        .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = resized(d, &split, border, row_wise, origin, start, span) { s.act(&line, Actor::Person); })
+        .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = resized(d, &split, border, row_wise, origin, start, span, share) { s.act(&line, Actor::Person); })
 }
 
-/// The act line a drag on a border says now: the share its pointer is at, or the undo a drag let go with Escape asks for.
-fn resized(d: &mut Drag, split: &str, border: usize, row_wise: bool, origin: [f32; 2], start: f32, span: f32) -> Option<String> {
+/// The act line a drag on a border says now: the share its pointer is at; let go with Escape, the share the border
+/// had at the press (the drag's own way back: `layout.undo` is another change's).
+fn resized(d: &mut Drag, split: &str, border: usize, row_wise: bool, origin: [f32; 2], start: f32, span: f32, share: f32) -> Option<String> {
+    let line = |share: f32| format!("layout.resize split={} border={border} share={share:.4}", word(split));
     match d.phase {
-        Phase::Down => { d.data = 0.0; None }
+        // What the drag holds on to: the share at the press, negative once the border has been moved.
+        Phase::Down => { d.data = share; None }
         Phase::Move => {
             let [x, y] = d.window_point();
             let along = if row_wise { x - origin[0] } else { y - origin[1] };
             if span <= 0.0 { return None }
-            d.data = 1.0;
-            Some(format!("layout.resize split={} border={border} share={:.4}", word(split), ((along - start) / span).clamp(0.08, 0.92)))
+            d.data = -d.data.abs();
+            Some(line((along - start) / span))
         }
-        // A drag let go with Escape puts the border back where it was.
-        Phase::Up => (d.cancelled() && d.data > 0.0).then(|| "layout.undo".to_string()),
+        Phase::Up => (d.cancelled() && d.data < 0.0).then(|| line(-d.data)),
     }
 }
 
@@ -190,7 +192,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             let Some(line @ Node::Split { dir, .. }) = s.layout.tree().at(path) else { continue };
             let Some(id) = line.id() else { continue };
             let sized = |i: usize| { let b = kid_boxes[i]; b.cols > 0.0 && b.rows > 0.0 && !line.kids()[i].leaves().iter().all(|t| s.layout.collapsed.has(t)) };
-            for i in 0..kid_boxes.len().saturating_sub(1) { if sized(i) && sized(i + 1) { area = area.child(grip(id, i, *dir, kid_boxes[i], kid_boxes[i + 1], origin, &k)) } }
+            // The first side's part of the two, as the layout holds it: where a drag let go with Escape goes back to.
+            let share = |i: usize| { let w = line.weights(); let two = w[i] + w[i + 1]; if two > 0.0 { (w[i] / two) as f32 } else { 0.5 } };
+            for i in 0..kid_boxes.len().saturating_sub(1) { if sized(i) && sized(i + 1) { area = area.child(grip(id, i, *dir, kid_boxes[i], kid_boxes[i + 1], share(i), origin, &k)) } }
         }
         for (path, at) in &base.docks { if let Some(Node::Dock { side, open: false, .. }) = s.layout.tree().at(path) { area = area.child(dock_strip(*side, *at, width, height, &k)) } }
     }

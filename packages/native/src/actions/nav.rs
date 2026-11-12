@@ -4,7 +4,6 @@ use super::{Action, Actor, App, Notice, Outcome};
 use serde_json::json;
 
 use crate::actline::Args;
-use crate::keys;
 use crate::layout::{self, Refusal, Request, TileSpec};
 
 static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open a note: the layout says in which tile (the tile it comes from when that reads notes, else where its opens land, else the first reader), and makes a new reader beside one that holds unsaved text. The reader remembers where from; the tree unfolds to it. An agent's lands without taking the person's keys")
@@ -29,13 +28,6 @@ static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow 
 pub(super) fn placed(row: &ActionRow) -> bool { std::ptr::eq(row, &OPEN) }
 
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &BACK, run: back }, Action { row: &FOLLOW, run: follow }];
-
-/// Why the one editor won't take another note: it holds unsaved text, which stays where it is.
-pub(super) fn holds(app: &App, id: &str) -> Option<String> {
-    if !app.unsaved() || app.editing.as_ref().is_none_or(|e| e.note == id) { return None }
-    let save = keys::cap("edit.save").map_or(String::new(), |cap| format!(" ({cap})"));
-    Some(format!("This note has unsaved text. Save it{save} or discard it before opening another."))
-}
 
 /// The note `id` opens: the layout says in which tile (`place`), and makes the room when it needs to (a new reader
 /// beside one that is pinned or holds unsaved text). `remember`: where it came from is somewhere to go back to.
@@ -78,7 +70,8 @@ fn back(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let history = app.ui(&reader).history.clone();
     let Some(at) = history.len().checked_sub(steps) else { return Outcome::refused("there is nowhere to go back to") };
     let id = history[at].clone();
-    if app.editing.as_ref().is_some_and(|e| e.tile == reader) && let Some(why) = holds(app, &id) { app.st.notice = Some(Notice::problem(why.clone())); return Outcome::refused(why) }
+    // A reader that holds unsaved text stays on its note: the fact the layout's own rules read, in its words.
+    if let Some(why) = app.holds_edit(&reader) { if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
     if app.editing.as_ref().is_some_and(|e| e.tile == reader && e.note != id) { app.st.editing = None }
     // Going back isn't itself a place to go back from.
     app.show(&reader, &id, false);

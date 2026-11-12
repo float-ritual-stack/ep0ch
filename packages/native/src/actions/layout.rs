@@ -24,7 +24,7 @@ static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a
 
 static RESIZE: ActionRow = ActionRow::new("layout.resize", Touches::Shape, "move the border between two tiles of a split: share is the part of the two the first one gets. The split is named by its id (peek gives each one's)")
     .args(&[("split", ArgSpec::text("the split's id, as peek gives it (s2)")), ("border", ArgSpec::number("which border, from 0")), ("share", ArgSpec::number("the first side's part of the two, 0.08 to 0.92"))])
-    .keys(&[KeyRow::via("a drag on the border between two tiles")])
+    .keys(&[KeyRow::via("a drag on the border between two tiles; Escape while it is held puts the border back where it was")])
     .examples(&[Example { act: "layout.resize border=0 share=0.3 split=s1", does: "gives the first tile of split s1 three tenths of it and its neighbour", safe: Some(true) }]);
 
 static UNDO: ActionRow = ActionRow::new("layout.undo", Touches::Shape, "put the arrangement back as it was before the last change to it (a split, a move, a close, a resize, a screen opened), a step at a time")
@@ -35,6 +35,19 @@ static UNDO: ActionRow = ActionRow::new("layout.undo", Touches::Shape, "put the 
 pub(super) fn resizes(row: &ActionRow) -> bool { std::ptr::eq(row, &RESIZE) }
 
 pub static ACTIONS: &[Action] = &[Action { row: &DOCK, run: dock }, Action { row: &RESIZE, run: resize }, Action { row: &UNDO, run: undo }];
+
+/// Two arrangements sit alike: the same tiles in the same places, with shares as near as a pointer can say them.
+pub(super) fn same_shape(a: &Layout, b: &Layout) -> bool {
+    fn near(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => (a.as_f64().unwrap_or(0.0) - b.as_f64().unwrap_or(0.0)).abs() < 1e-4,
+            (Value::Array(a), Value::Array(b)) => a.len() == b.len() && a.iter().zip(b).all(|(a, b)| near(a, b)),
+            (Value::Object(a), Value::Object(b)) => a.len() == b.len() && a.iter().all(|(k, v)| k == "focus" || b.get(k).is_some_and(|w| near(v, w))),
+            _ => a == b,
+        }
+    }
+    near(&a.save(), &b.save())
+}
 
 /// How many arrangements `layout.undo` goes back through.
 const JOURNAL: usize = 100;
@@ -59,10 +72,15 @@ impl App {
         }
     }
 
-    /// Whether another arrangement may take this one's place (a screen opened, a step undone): the layout's own
-    /// rule, asked as `by`. Why not, in its words.
-    pub(super) fn may_replace(&self, with: &str, by: &Actor) -> Result<(), String> {
-        self.asked(by, |ctx| layout::apply(&self.layout, &Op::Load { name: with.to_string() }, ctx)).map(|_| ()).map_err(|Refusal(why)| why)
+    /// Another arrangement takes this one's place (a screen opened, a step undone), as `by`: the layout's own rules
+    /// say whether, asked of every tile that would go, and where the keys are after. The arrangement before is
+    /// answered, for whoever keeps the way back; why not, in the layout's words.
+    pub(super) fn replace(&mut self, with: &str, to: Layout, keys: bool, by: &Actor) -> Result<Layout, String> {
+        let op = Op::Load { name: with.to_string(), to: Some(Box::new(to)), keys };
+        let done = self.asked(by, |ctx| layout::apply(&self.layout, &op, ctx)).map_err(|Refusal(why)| why)?;
+        let before = std::mem::replace(&mut self.st.layout, done.layout);
+        self.settled();
+        Ok(before)
     }
 
     /// The arrangement is `next`: the one before is somewhere to go back to, the state of tiles that are gone is
@@ -70,15 +88,26 @@ impl App {
     pub(super) fn arranged(&mut self, next: Layout, changed: bool) {
         if next == self.st.layout { return }
         // The keys moving is no change to go back through; a border dragged is one change, however many moves it took.
-        let shape = |l: &Layout| { let mut l = l.clone(); l.focus = String::new(); l.touched = Vec::new(); l };
-        if changed && shape(&next) != shape(&self.st.layout) {
-            if self.st.journal.len() >= JOURNAL { self.st.journal.remove(0); }
-            self.st.journal.push((self.st.layout.clone(), None));
-        }
+        if changed && next.shape() != self.st.layout.shape() { self.stepped((self.st.layout.clone(), None)) }
         self.st.layout = next;
+        self.settled();
+        self.keep();
+    }
+
+    /// An arrangement to go back to, the newest last.
+    pub(super) fn stepped(&mut self, before: (Layout, Option<crate::screen::Screen>)) {
+        if self.st.journal.len() >= JOURNAL { self.st.journal.remove(0); }
+        self.st.journal.push(before);
+    }
+
+    /// What follows from the arrangement having changed: the state of tiles that are gone is let go, and a draft
+    /// with nothing unsaved ends with its tile (one that holds unsaved text never goes: the layout refuses that).
+    fn settled(&mut self) {
         let here = self.st.layout.all();
         self.st.tiles.retain(|tile, _| here.contains(tile));
-        self.keep();
+        if self.st.editing.as_ref().is_some_and(|e| !here.contains(&e.tile)) { self.st.editing = None }
+        // The editor takes what is typed only while its tile has the keys.
+        self.st.editor.focused = self.st.editing.as_ref().is_some_and(|e| e.tile == self.st.layout.focus);
     }
 
     /// The arrangement and what each tile shows, written to the file they are kept in.
@@ -127,23 +156,19 @@ fn resize(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (again, steps) = (app.st.dragging == dragging, app.st.journal.len());
     let outcome = app.reshape(&Op::Resize { split, path: None, border, share: args.number("share").unwrap_or(0.5) }, by);
     if outcome.ok && again && app.st.journal.len() > steps { app.st.journal.pop(); }
+    // A drag that came back to where it started (let go with Escape) is no change at all: it leaves no step.
+    if outcome.ok && again && app.st.journal.last().is_some_and(|(before, screen)| screen.is_none() && same_shape(before, &app.st.layout)) { app.st.journal.pop(); }
     if outcome.ok { app.st.dragging = dragging }
     outcome
 }
 
 fn undo(app: &mut App, _: &Args, by: &Actor) -> Outcome {
-    // The layout's own rules say whether another arrangement may take this one's place.
-    if let Err(why) = app.may_replace("the arrangement before", by) { return Outcome::refused(why) }
-    let Some((before, screen)) = app.st.journal.pop() else { return Outcome::refused("the arrangement is as it started: there is nothing to undo") };
+    let Some((before, screen)) = app.st.journal.last().cloned() else { return Outcome::refused("the arrangement is as it started: there is nothing to undo") };
+    // The layout's own rules say whether the arrangement before may take this one's place, and where the keys are then.
+    if let Err(why) = app.replace("the arrangement before", before, false, by) { return Outcome::refused(why) }
+    app.st.journal.pop();
     // A step that opened another screen is taken back whole: the arrangement is the screen's it was of.
     if let Some(screen) = screen { app.st.screen = screen }
-    // The keys stay on a tile that is still there.
-    let focus = Some(app.layout.focus.clone()).filter(|tile| before.all().contains(tile)).unwrap_or_else(|| before.focus.clone());
-    let mut before = before;
-    before.focus = focus;
-    app.st.layout = before;
-    let here = app.st.layout.all();
-    app.st.tiles.retain(|tile, _| here.contains(tile));
     app.keep();
     Outcome::done()
 }

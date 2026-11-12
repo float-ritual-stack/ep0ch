@@ -299,7 +299,11 @@ pub enum Op {
     Reveal { tile: Id },
     Tab { tile: Id, by: Option<i64> },
     Zoom { tile: Id, on: Option<bool>, reach: Option<String> },
-    Load { name: String },
+    /// Another arrangement takes this one's place (a screen opened, a step undone). `to`: the arrangement that
+    /// would, so the rules are asked of what would go; none asks only whether one may. `keys`: the person's keys go
+    /// where the arrangement arriving says (a screen opened), else stay on the tile that has them when it is still
+    /// there (a step undone). An agent's load never moves them.
+    Load { name: String, to: Option<Box<Layout>>, keys: bool },
     Fill { container: String, order: Vec<Id>, fresh: Vec<(TileSpec, Option<String>)>, drop: Vec<Id>, weights: Vec<(Id, f64)>, names: Vec<(Id, String)>, select: Vec<Id> },
     Source { container: String, source: String },
     FlowWiden { tile: Id },
@@ -511,6 +515,10 @@ impl Layout {
         out
     }
 
+    /// Its shape: itself, but for where the keys are and the order tiles were given them in. The keys moving is no
+    /// change to go back through.
+    pub fn shape(&self) -> Layout { Layout { focus: String::new(), touched: Vec::new(), ..self.clone() } }
+
     /// A copy with no zoom: where things sit under one.
     fn unzoomed(&self) -> Layout { Layout { zoom: None, ..self.clone() } }
 
@@ -565,7 +573,7 @@ pub(crate) const MARK_THEM: &str = "block.mark gets their attention";
 pub(crate) fn held_back(why: &str, what: &str, way: Option<&str>) -> String { format!("{why}; an agent doesn't {what}{}", way.map_or(String::new(), |way| format!(" · {way}"))) }
 pub(crate) fn typing_in(label: &str, what: &str, way: Option<&str>) -> String { held_back(&format!("the person is typing in {label}"), what, way) }
 pub(crate) fn keys_in(label: &str, what: &str, typing: bool) -> String { if typing { typing_in(label, what, Some(MARK_THEM)) } else { held_back(&format!("{label} has the person's keys"), what, Some(MARK_THEM)) } }
-pub(crate) fn holds_edit(label: &str) -> String { format!("{label} holds an edit or a comment; it stays on its note until that's saved or closed") }
+pub fn holds_edit(label: &str) -> String { format!("{label} holds an edit or a comment; it stays on its note until that's saved or closed") }
 
 /// Why an agent is refused by a tile's limit on agents (the door's `agentRefusal`).
 pub(crate) fn agent_refusal(level: &str, tile: &str, what: &str, by: &str, command: Option<&str>) -> Option<String> {

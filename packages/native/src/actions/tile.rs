@@ -85,9 +85,7 @@ fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 }
 
 fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
-    let tile = target(app);
-    if app.layout.tree().leaves().len() <= 1 && !app.layout.is_float(&tile) { return Outcome::refused(format!("{} is the screen's last tile: it stays (the screen is never blank)", app.layout.name(&tile))) }
-    app.reshape(&Op::Close { tile, gone: false }, by)
+    app.reshape(&Op::Close { tile: target(app), gone: false }, by)
 }
 
 fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {

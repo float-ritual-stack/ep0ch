@@ -64,7 +64,7 @@ fn op_of(v: &Value, kind_of: &dyn Fn(&str) -> String) -> Op {
         "reveal" => Op::Reveal { tile: tile() },
         "tab" => Op::Tab { tile: tile(), by: v.get("by").and_then(Value::as_i64) },
         "zoom" => Op::Zoom { tile: tile(), on: flag(v, "on"), reach: text(v, "reach") },
-        "load" => Op::Load { name: text(v, "name").unwrap() },
+        "load" => Op::Load { name: text(v, "name").unwrap(), to: None, keys: false },
         "fill" => Op::Fill {
             container: text(v, "container").unwrap(), order: texts(v, "order"),
             fresh: v.get("fresh").and_then(Value::as_array).map(|l| l.iter().map(|t| (spec(text(t, "id").unwrap(), text(t, "kind")), text(t, "name"))).collect()).unwrap_or_default(),

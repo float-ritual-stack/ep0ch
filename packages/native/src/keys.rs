@@ -8,11 +8,14 @@
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
 //!   same table.
+//! - **Rune's focus follows the layout's** (`follow`, the one caller of `Tx::focus`): a press inside a tile gives it
+//!   the keys by `tile.focus`, and the tile the layout names is the one Rune focuses. A tile's root is made to
+//!   hold the keys by `tile`.
 //! - **Esc closes one thing at a time**: `esc_steps` is the rows bound to Escape in the order their layers are
 //!   tried, and the hint under the bar and the editor reads it.
 use std::sync::LazyLock;
 
-use rune::{Chord, ChordKey, Key, KeyEvent, Mods, TextEdit, Tx};
+use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, TextEdit, Tx};
 use rune_kit::{TextArea, TextInput};
 use serde_json::{Value, json};
 
@@ -58,12 +61,13 @@ impl Whereabouts {
 }
 
 impl App {
-    /// Where the person's keys are now.
+    /// Where the person's keys are now: in the bar while it is open, else on the tile the layout says has them,
+    /// in its draft when that tile holds one. A draft open on another tile is not where they are.
     pub fn person(&self) -> Whereabouts {
         let focus = self.layout.name(&self.layout.focus);
         if self.bar.open {
             Whereabouts { layer: Layer::Bar, focus, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
-        } else if let Some(e) = &self.editing {
+        } else if let Some(e) = self.editing.as_ref().filter(|e| e.tile == self.layout.focus) {
             let tile = self.layout.name(&e.tile);
             Whereabouts { layer: Layer::Draft, focus, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
@@ -151,9 +155,10 @@ pub fn rows() -> Value {
     json!(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from })).collect::<Vec<_>>())
 }
 
-/// The chords of a sequence pressed so far. The table's to hold: nothing else reads it.
+/// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
+/// Rune's focus as it was last read, and the focus last asked of Rune (with the tiles shown then).
 #[derive(Default)]
-pub struct Held(Vec<KeyEvent>);
+pub struct Held { seq: Vec<KeyEvent>, seen: Option<String>, asked: Option<(String, Vec<String>)> }
 
 enum Found {
     Run(&'static Bind),
@@ -179,7 +184,7 @@ fn find(layer: Layer, seq: &[KeyEvent], tx: &Tx) -> Found {
 /// every field's before its editor.
 pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
     let layer = s.person().layer;
-    let mut seq = std::mem::take(&mut s.held().0);
+    let mut seq = std::mem::take(&mut s.held().seq);
     seq.push(e.clone());
     match find(layer, &seq, tx) {
         Found::Run(bind) => {
@@ -187,9 +192,60 @@ pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
             s.effects(tx);
             true
         }
-        Found::Wait => { s.held().0 = seq; true }
+        Found::Wait => { s.held().seq = seq; true }
         Found::No => false,
     }
+}
+
+/// A tile's root, made to hold the keys: a press anywhere inside it gives it Rune's focus (which `follow` hears),
+/// and a key while it or anything in it has them is asked of the table before Rune's own focus navigation.
+pub fn tile(root: El) -> El { root.focusable(true).on_key(press) }
+
+/// The tile an element's key is under (`tile/<name>` or `tile/<name>/…`), among the tiles there are.
+fn tile_of(key: &str, names: &[String]) -> Option<String> {
+    let rest = key.strip_prefix("tile/")?;
+    names.iter().filter(|name| rest == name.as_str() || rest.strip_prefix(name.as_str()).is_some_and(|r| r.starts_with('/'))).max_by_key(|name| name.len()).cloned()
+}
+
+/// Rune's focus and the layout's, kept one: called from `poll`, which every frame starts with. The only caller of
+/// `Tx::focus`. True when the layout's focus moved.
+///
+/// - **Rune to layout:** when Rune's focus moved by itself into another tile (a press it answered), or a press put
+///   the caret in the draft of a tile that hasn't the keys, that is the person asking: it becomes `tile.focus`.
+///   The move this function asked for comes back a frame later looking the same, and is not the person.
+/// - **Layout to Rune:** when the tile the layout names changed, or the tiles shown did, Rune is asked once to
+///   focus it (never every frame). While a field has the keys (the bar, a draft) the field's own `TextEdit::focused`
+///   says so and nothing is asked.
+pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
+    let names: Vec<String> = s.shown_tiles().iter().map(|id| s.layout.name(id)).collect();
+    let now = tx.focused().map(str::to_owned);
+    let moved = now != s.held().seen;
+    s.held().seen = now.clone();
+    // The layout's say changed since the last frame (an act moved the keys, the bar or a draft closed): it wins, and
+    // whatever Rune did with its focus meanwhile (a closing bar hands it back to where it was) is not the person.
+    if let Some(asked) = wanted(s, &names) { return ask(s, asked, tx) }
+    let focus = s.layout.name(&s.layout.focus);
+    let echo = s.held().asked.as_ref().and_then(|(key, _)| tile_of(key, &names));
+    let pressed = now.as_deref().filter(|_| moved && !s.bar.open).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
+    // The caret is in a draft whose tile hasn't the keys: a press put it there.
+    let drafted = s.editing.as_ref().filter(|e| s.editor.focused && e.tile != s.layout.focus && !s.bar.open).map(|e| s.layout.name(&e.tile));
+    let Some(tile) = drafted.or(pressed) else { return false };
+    let changed = s.act(&format!("tile.focus tile={}", word(&tile)), Actor::Person).ok;
+    if let Some(asked) = wanted(s, &names) { ask(s, asked, tx); }
+    changed
+}
+
+/// What Rune is to be asked now, when that is not what it was asked last: the tile with the keys (and the tiles
+/// shown, so it is asked again when they change), or nothing while a field has them.
+fn wanted(s: &mut App, names: &[String]) -> Option<Option<(String, Vec<String>)>> {
+    let want = (s.person().layer == Layer::Tile).then(|| (format!("tile/{}", s.layout.name(&s.layout.focus)), names.to_vec()));
+    (want != s.held().asked).then_some(want)
+}
+
+fn ask(s: &mut App, asked: Option<(String, Vec<String>)>, tx: &mut Tx) -> bool {
+    if let Some((key, _)) = &asked { tx.focus(key.clone(), false) }
+    s.held().asked = asked;
+    false
 }
 
 /// The adapter every field's keys go through: the table first; then, in a note's source, plain Return types a line

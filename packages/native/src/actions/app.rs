@@ -355,6 +355,10 @@ impl App {
         layout::Facts { kind, notes: row.is_some_and(|r| r.notes), lists: row.is_some_and(|r| r.lists), follower: row.is_some_and(|r| r.follower), showing: row.filter(|r| r.notes).and_then(|_| self.note_of(tile)), editing, ..layout::Facts::default() }
     }
 
+    /// Why a tile stays on its note: it holds unsaved text. The fact is the one the layout's rules read
+    /// (`Facts.editing`) and the words are the layout's, so nothing restates either.
+    pub(in crate::actions) fn holds_edit(&self, tile: &str) -> Option<String> { self.facts(tile).editing.map(|_| layout::holds_edit(&self.layout.name(tile))) }
+
     /// Everything wanted now: what each tile on screen reads (a hidden tab asks nothing and keeps what it showed),
     /// the bar's question, and the outline's screens.
     pub fn wants(&self) -> Vec<Want> {

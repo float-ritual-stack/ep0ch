@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Editing, Notice, Outcome, nav, word};
+use super::{Action, Actor, App, Notice, Outcome, nav, word};
 use crate::actline::Args;
 use crate::store::Reply;
 
@@ -46,7 +46,7 @@ pub static ACTIONS: &[Action] = &[Action { row: &NEW, run: new }, Action { row: 
 
 fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // The person's new note opens in the editor: text the editor holds unsaved stays where it is.
-    if by.is_person() && let Some(why) = nav::holds(app, "") {
+    if by.is_person() && let Some(why) = app.editing.as_ref().map(|e| e.tile.clone()).and_then(|tile| app.holds_edit(&tile)) {
         app.st.notice = Some(Notice::problem(why.clone()));
         return Outcome::refused(why);
     }
@@ -73,8 +73,7 @@ fn created(app: &mut App, reply: Reply) {
     app.show(&reader, &id, true);
     app.st.bar.open = false;
     // A new note opens to be written, at the revision the service made it at.
-    app.st.editor = super::draft::focused(&text);
-    app.st.editing = Some(Editing { tile: reader, note: id, revision, base: text });
+    app.begin(reader, id, revision, text, &reply.by);
     app.keep();
     app.wrote(&[parent]);
 }
