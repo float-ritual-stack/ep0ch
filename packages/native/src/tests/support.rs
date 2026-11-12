@@ -112,6 +112,8 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
         "search" if words.trim().is_empty() => answer(json!({ "type": "list", "arrange": "rows", "rows": [], "empty": "Type to search." })),
         "search" => answer(json!({ "type": "list", "arrange": "rows", "rows": [note("beans", &format!("found for {words}"), "Plot")] })),
         "query" | "lanes" | "facets" if words == "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
+        // A long list: every row is listed, and a window builds only the ones in view.
+        "query" if words == "type=seed" => answer(json!({ "type": "list", "arrange": "rows", "rows": (0..600).map(|i| note(&format!("seed{i}"), &format!("Seed packet {i}"), "2026-03-01")).collect::<Vec<_>>() })),
         "query" | "lanes" => {
             let mut beans = note("beans", "Water the beans", "2026-03-01");
             beans["chips"] = json!([{ "key": "type", "value": "chore" }, { "key": "area", "value": "plot" }]);
@@ -161,12 +163,15 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
     }
 }
 
-pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden {
+pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
+
+/// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden {
     let (asked, said): (Asked, Said) = Default::default();
     let texts: Rc<RefCell<std::collections::HashMap<String, (u64, String)>>> = Default::default();
     let screens: Rc<RefCell<Value>> = Rc::new(RefCell::new(json!([])));
     let listed = screens.clone();
-    let shipped = Rc::new(std::cell::Cell::new(true));
+    let shipped = Rc::new(std::cell::Cell::new(with_screens));
     let installed = shipped.clone();
     let answers: Answers = Box::new(move |ask| {
         let note = ask["blockId"].as_str().unwrap_or("").to_string();

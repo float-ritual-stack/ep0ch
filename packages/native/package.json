@@ -5,7 +5,7 @@
   "description": "ep0ch as a native window: a Rust app drawn with Rune (src/, Cargo.toml) that speaks the outline host's socket and draws what `notes.page` answers. resolve.ts names the outline and host by the door's own rule, once at launch.",
   "scripts": {
     "resolve": "bun resolve.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && bun ../../scripts/native-forkable"
   },
   "dependencies": {
     "@ep0ch/door": "workspace:*"

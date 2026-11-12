@@ -162,7 +162,7 @@ fn header(cx: &TileCx, answer: &ListAnswer, k: &Kit) -> Option<El> {
     if answer.truncated { strip = strip.child(text(match answer.total { Some(total) => format!("The first {} of {total}.", answer.list.rows.len()), None => format!("The first {}: there are more.", answer.list.rows.len()) }).key(cx.key("more")).font(k.ty.small).color(c.text_faint)); any = true }
     let narrowed = &cx.ui.narrowed;
     let on = |key: &str, value: &str| narrowed.iter().any(|(k_, v)| k_ == key && v == value);
-    let mut chips = row().key(cx.key("facets")).w_full().gap(6.0).flex_wrap();
+    let mut chips = row().key(cx.key("chips")).w_full().gap(6.0).flex_wrap();
     let mut shown = 0;
     // What it is narrowed by first: each a chip that takes it back.
     for (key, value) in narrowed { chips = chips.child(chip(cx, key, value, format!("{key}={value} ×"), true, "narrowed", k)); shown += 1 }
