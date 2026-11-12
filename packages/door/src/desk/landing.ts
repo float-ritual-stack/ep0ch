@@ -119,10 +119,11 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
   // The target as it's drawn (zoomed, it has the screen): what the person sees is what the sides are weighed by.
   const order = besideOrder(b, rects(s, ctx.area, holds).get(b.target)), was = rects({ ...s, zoom: null }, ctx.area, holds).get(b.target);
   let refused: string | null = null, first: { d: D; at: Place<I>; why: string } | null = null;
-  let squeezed = false, best: { d: D; at: Place<I>; fit: number } | null = null;
+  let tried = 0, squeezes = 0, best: { d: D; at: Place<I>; fit: number; short: boolean } | null = null;
   for (const at of order) {
-    // A tab behind the target is for keeping it room (`keeps`): taken only when a place would squeeze a target that has it.
-    if (at.kind === "tabs" && b.tab && !squeezed) continue;
+    // A tab behind the target is for keeping it room (`keeps`): taken when every place beside it would cut the target under
+    // what it keeps, or under what it has when that is less (PIE-1757: a 44×10 edit split to 24 columns or 5 rows).
+    if (at.kind === "tabs" && b.tab && (!tried || squeezes < tried)) continue;
     const d = attempt(s, { ...op, at }, ctx);
     if (typeof d === "string") { refused ??= d; continue; }
     const placed = rects({ ...d, zoom: null }, ctx.area, holds), size = placed.get(op.tile), kept = placed.get(b.target);
@@ -134,12 +135,11 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
       d.answer = { ...d.answer, where: whereWord(at), ...(first ? { why: `${first.why}, so it went ${at.kind === "split" && at.dir === "down" ? "below it" : at.kind === "edge" ? `along the screen's ${at.dir} edge` : at.kind === "tabs" ? `into a tab behind ${name}` : `${PLACE_WORDS[(at as { dir: Dir }).dir]} ${name}`}` } : {}) };
       return d;
     }
-    // The target had its room whole: a tab behind it keeps that, where a split here would take it (Codex on #1452: a
-    // 44×12 edit, below too short for the answer to read).
-    squeezed ||= short && !!was && was.cols >= (b.keeps?.cols ?? 0) && was.rows >= (b.keeps?.rows ?? 0);
-    // Nothing reading, the place nearest reading is taken (PIE-1757: below a 42×3 reader, an answer tile 0 rows tall).
+    tried++; if (short) squeezes++;
+    // Nothing reading, the place nearest reading is taken (PIE-1757: below a 42×3 reader, an answer tile 0 rows tall), one
+    // that leaves the target what it keeps before one that doesn't.
     const fit = Math.min(size.cols / needs.cols, size.rows / needs.rows);
-    if (!best || fit > best.fit) best = { d, at, fit };
+    if (!best || (best.short && !short) || (best.short === short && fit > best.fit)) best = { d, at, fit, short };
     first ??= { d, at, why: short ? `${name} would keep ${kept!.cols}×${kept!.rows}, under the ${keeps.cols}×${keeps.rows} it reads at` : narrowWhy(name, size, needs) };
   }
   const floats = (why: string): D | string => {
