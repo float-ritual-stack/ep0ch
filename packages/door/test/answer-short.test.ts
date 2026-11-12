@@ -41,7 +41,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an answer beside a short 44-co
     };
     tmux("new-session", "-d", "-s", "door", "-x", String(cols), "-y", String(rows), "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
     const capture = () => tmux("capture-pane", "-p", "-t", "door");
-    await until(() => capture().includes(title), "the pane's reader", 15_000);
+    await until(() => capture().includes(title), "the pane's reader", 15_000).catch(e => { tmux("kill-session", "-t", "door"); throw e; });
     return {
       capture,
       keys: (...keys: string[]) => { tmux("send-keys", "-t", "door", ...keys); },
