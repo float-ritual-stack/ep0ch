@@ -221,7 +221,7 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
-A scene is a file of act lines, `scenes/<name>.act`: `bar`, `edit`, `find`, `query`, and `plan`, `figures`,
+A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, and `plan`, `figures`,
 `callouts` (which open notes of the showcase outline by title). `--act <file>` runs any file of them before the
 first frame. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/tree/row/<id>`, `tile/reader/child/<id>`, `tile/reader/part/<n>/<id>`,

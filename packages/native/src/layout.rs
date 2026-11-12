@@ -15,8 +15,8 @@ pub mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use placement::{Destination, Landing, Placement, Request, Route, place, placement};
-pub use tree::{Axis, Dir, Id, Node, Path, Place, Policy, Rect, TileSpec};
+pub use placement::{Request, place};
+pub use tree::{Axis, Dir, Id, Node, Place, Policy, Rect, TileSpec};
 use tree::{Effective, Geometry, Layer, Placed, SPINE, SlidDock, chain_of, effective, node_chain, normalise};
 
 /// A map that keeps the order its keys were first set in, as the door's do.

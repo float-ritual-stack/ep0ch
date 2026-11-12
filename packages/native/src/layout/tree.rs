@@ -211,7 +211,6 @@ pub enum Node {
     Dock { side: Dir, open: bool, kid: Box<Node>, view: Option<Vec<Id>>, keeps: bool, meta: Meta },
 }
 
-pub fn leaf(spec: TileSpec) -> Node { Node::Leaf(spec) }
 pub fn split_of(dir: Axis, kids: Vec<Node>, weights: Option<Vec<f64>>) -> Node {
     let weights = weights.unwrap_or_else(|| kids.iter().map(|_| 1.0).collect());
     Node::Split { dir, weights, kids, key: None, pair: false, meta: Meta::default() }
@@ -272,13 +271,12 @@ impl Node {
 
 // ── finding ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-/// What a step names in the tree: a tile, or a line by its key.
+/// What a step names in the tree: a tile. (A line by its key is found by `node_by_key`.)
 #[derive(Clone, Copy)]
-pub enum Target<'a> { Tile(&'a str), Key(&'a str) }
+pub enum Target<'a> { Tile(&'a str) }
 
 fn is_target(n: &Node, target: Target) -> bool {
     match (target, n) {
-        (Target::Key(key), n) => n.is_line() && n.key() == Some(key),
         (Target::Tile(id), Node::Leaf(s)) => s.id == id,
         (Target::Tile(id), Node::Tabs { kids, .. }) => kids.iter().any(|s| s.id == id),
         _ => false,
@@ -805,13 +803,6 @@ pub fn normalise(n: Node, top: bool) -> Node {
     }
 }
 
-/// Container ids a layout brought from elsewhere are forgotten where `gone` says so, to be stamped again.
-pub fn forget_ids(n: &mut Node, gone: &dyn Fn(u64) -> bool) {
-    if n.is_leaf() { return }
-    if let Some(meta) = n.meta_mut() && let Some(id) = &meta.id && stamped(id).is_none_or(|(_, num)| gone(num)) { meta.id = None }
-    for k in n.kids_mut() { forget_ids(k, gone) }
-}
-
 /// A stamped id's letter and number: `s12` is ('s', 12).
 pub fn stamped(id: &str) -> Option<(char, u64)> {
     let mut chars = id.chars();
@@ -864,10 +855,6 @@ fn spine_order(flow: &Node, shown: &[usize], spines: &[usize], policy: &str) -> 
 /// How much of itself a flow column shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cover { Full, Peek, Spine }
-
-impl Cover {
-    pub fn word(self) -> &'static str { match self { Cover::Full => "full", Cover::Peek => "peek", Cover::Spine => "spine" } }
-}
 
 #[derive(Clone, Debug)]
 pub struct Squeezed { pub i: usize, pub cover: Cover, pub width: f64, pub natural: f64 }
@@ -1142,15 +1129,15 @@ impl Geometry<'_> {
             let rect = if vertical { Rect { row: area.row + start, rows: end - start, ..own } } else { Rect { col: area.col + start, cols: end - start, ..own } };
             let mut placed = Placed::default();
             self.place_body(dock, &mut d.clone(), rect, None, &mut placed);
-            out.push(SlidDock { path: d.clone(), rect, placed });
+            out.push(SlidDock { placed });
             if let Node::Dock { kid, view: None, .. } = dock { let mut inner = d.clone(); inner.push(0); self.slide(kid, &mut inner, rect, out) }
         }
     }
 }
 
-/// An open dock that slides over the layout: its box and the tiles in it.
+/// An open dock that slides over the layout: the tiles in it, where they sit.
 #[derive(Clone, Debug)]
-pub struct SlidDock { pub path: Path, pub rect: Rect, pub placed: Placed }
+pub struct SlidDock { pub placed: Placed }
 
 // ── the saved forms ───────────────────────────────────────────────────────────────────────────────────────────
 

@@ -293,8 +293,6 @@ impl App {
     pub fn page(&self) -> Option<&Page> { self.store.read::<Page>(&self.page_ask(&self.subject()?)) }
     /// The reader's page to draw.
     pub fn shown(&self) -> Option<&Page> { self.reader().and_then(|reader| self.shown_of(&reader)) }
-    /// The reader's page hasn't come yet.
-    pub fn loading(&self) -> bool { self.reader().is_some_and(|reader| self.loading_of(&reader)) }
 
     /// A tile's page, once it has come.
     pub fn page_of(&self, tile: &str) -> Option<&Page> { self.store.read::<Page>(&self.page_ask(&self.note_of(tile)?)) }

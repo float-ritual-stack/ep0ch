@@ -4,7 +4,7 @@
 use serde_json::{Map, Value, json};
 
 use super::step::{put_at, spine_weights};
-use super::tree::{self, Axis, Cover, Dir, Id, Layer, Node, Path, Place, Rect, Target, TileSpec, chain_of, effective, flow_holding, node_by_key, parent_of};
+use super::tree::{self, Axis, Cover, Dir, Id, Layer, Node, Rect, Target, TileSpec, chain_of, effective, flow_holding, node_by_key, parent_of};
 use super::{Applied, At, Beside, Ctx, Fold, Layout, MARK_THEM, Op, Refusal, apply, attempt, holds_edit, typing_in};
 
 /// The size a tile opened beside another reads at.
@@ -533,27 +533,3 @@ pub(super) fn beside_attempt(s: &Layout, op: &Op, b: &Beside, ctx: &Ctx) -> Resu
     took.answer.insert("why".into(), json!(format!("{narrow}, and it went {place}{}", if b.prefers == "there" { ", as asked" } else { "" })));
     Ok(took)
 }
-
-/// The place a tile would go back to, were it closed and brought back (the door's `returnPlace`, without the
-/// shells an undo restores): what `layout.undo` needs only for a tile, and a drop needs for none.
-pub fn where_is(layout: &Layout, tile: &str) -> Option<Place> {
-    let chain = chain_of(layout.tree(), tile);
-    for path in chain.iter().rev() {
-        match layout.tree().at(path)? {
-            Node::Tabs { kids, .. } => if let Some(other) = kids.iter().find(|s| s.id != tile) { return Some(Place::Tabs { target: other.id.clone(), index: kids.iter().position(|s| s.id == tile), behind: false }) },
-            line if line.is_line() => {
-                let i = line.kids().iter().position(|k| k.has(tile))?;
-                let next = line.kids().get(i + 1);
-                if let Some(sibling) = next.or_else(|| i.checked_sub(1).and_then(|j| line.kids().get(j))) {
-                    let dir = match (line.dir()?, next.is_some()) { (Axis::Row, true) => Dir::Left, (Axis::Row, false) => Dir::Right, (Axis::Col, true) => Dir::Up, (Axis::Col, false) => Dir::Down };
-                    return Some(Place::Split { target: sibling.leaves().into_iter().next()?, dir, pair: false, weight: line.weights().get(i).copied() });
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn unused(_: Path) {}

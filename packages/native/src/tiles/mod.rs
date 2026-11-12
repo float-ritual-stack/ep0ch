@@ -88,9 +88,6 @@ pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &tree::DRAWER, &about::DRAWER]
 
 pub fn drawer(id: &str) -> Option<&'static Drawer> { DRAWERS.iter().copied().find(|drawer| drawer.id == id) }
 
-/// The drawer of a tile's kind.
-pub fn drawer_of(spec: &TileSpec) -> Option<&'static Drawer> { kind(&spec.kind).and_then(|row| drawer(row.drawer)) }
-
 /// A tile whose kind this window can't draw: its spec as data, never hidden.
 pub fn as_data(spec: &TileSpec, name: &str, k: &Kit) -> El {
     let mut data = serde_json::Map::new();
@@ -100,6 +97,14 @@ pub fn as_data(spec: &TileSpec, name: &str, k: &Kit) -> El {
     col().key(format!("tile/{name}/data")).w_full().padding(12.0).gap(6.0)
         .child(text(format!("This window draws no {} tile: its spec, as it was written.", spec.kind)).font(k.ty.small).color(k.c.text_muted).wrap())
         .child(text(serde_json::to_string_pretty(&Value::Object(data)).unwrap_or_default()).font(k.ty.mono).color(k.c.text_base).wrap().selectable(true))
+}
+
+/// The catalogue as `actions` over the control socket lists it: each kind as its own row says it, and each drawer.
+pub fn described() -> Value {
+    json!({
+        "kinds": KINDS.iter().map(|row| json!({ "kind": row.kind, "about": row.about, "drawer": row.drawer, "notes": row.notes, "lists": row.lists, "follower": row.follower })).collect::<Vec<_>>(),
+        "drawers": DRAWERS.iter().map(|drawer| json!({ "id": drawer.id, "takesKeys": drawer.takes_keys })).collect::<Vec<_>>(),
+    })
 }
 
 /// The kinds this window draws, as it tells the service when it asks for screens.
