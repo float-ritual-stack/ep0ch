@@ -39,6 +39,7 @@ pub(super) fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
     // What was there is one step back: the arrangement, and the screen it was of when this opens another (a reset
     // is the same screen, read again).
     let was = std::mem::replace(&mut app.st.screen, screen);
+    app.seen();
     // A window's first screen has nothing before it to go back to.
     let first = was.is_nowhere();
     let left = Some(was).filter(|was| was.name != app.st.screen.name);
@@ -94,6 +95,8 @@ fn saved(app: &mut App, reply: Reply) {
         spec["name"] = json!(name);
         spec["title"] = result["title"].clone();
         app.st.screen = Screen { name: name.clone(), title: result["title"].as_str().unwrap_or(&name).to_string(), from: From::Note { id: id.clone(), revision: result["revision"].as_u64().unwrap_or(0) }, spec: Some(spec), problems: Vec::new() };
+        // The list of screens moves next because of this save: the arrangement is of the screen as it is listed then.
+        app.st.screen_wrote = true;
         app.keep();
     }
     let ask = app.screens_ask();

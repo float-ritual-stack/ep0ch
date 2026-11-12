@@ -218,9 +218,21 @@ fn what_an_open_screen_says_of_itself_is_the_service_s_row_and_the_file_keeps_no
     screens_are(&mut g, json!([moved]));
     assert_eq!(g.app.act("open id=beans", agent()).answer["tile"], "seeds", "an open lands where the screen says now");
     assert!(g.app.notice.as_ref().is_some_and(|notice| notice.said.contains("The screen beds changed in the outline")), "the change is said: {:?}", g.app.notice);
-    // The file holds the screen's name and the revision of its note, never its spec.
+    // The file holds the screen's name and the revision of the note it was laid out from, never its spec.
     let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    assert_eq!((kept["screen"].as_str(), kept["note"]["revision"].as_u64(), kept.get("spec")), (Some("beds"), Some(3), None), "{kept}");
+    assert_eq!((kept["screen"].as_str(), kept["note"]["revision"].as_u64(), kept.get("spec")), (Some("beds"), Some(2), None), "{kept}");
+    // A window opened again on that file follows the service's row from its first answer, and says nothing: the
+    // arrangement was kept after the change was said. A note changed while it is shut is said when it opens.
+    let again = |rows: Value| { let mut g = garden(ok()); g.app = std::mem::replace(&mut g.app, App::new(Box::new(Standin { answers: Box::new(|_| Err(("failed", "gone".into()))), asked: Default::default(), said: Default::default() }), "garden")).arranged_in(file.clone()); screens_are(&mut g, rows); g };
+    let mut same = row_of(json!({ "lands": "seeds", "toolbar": ["back", "note.new"], "layout": { "focus": "beds", "root": root } }));
+    same["note"]["revision"] = json!(3);
+    let mut g = again(json!([same.clone()]));
+    let landed = g.app.act("open id=shed", agent());
+    assert_eq!((g.app.screen.name.as_str(), landed.answer["tile"].as_str()), ("beds", Some("seeds")), "opened again, the screen's own word is the service's");
+    assert!(!g.app.notice.as_ref().is_some_and(|notice| notice.said.contains("changed in the outline")), "{:?}", g.app.notice);
+    same["spec"]["lands"] = json!("bed");
+    let g = again(json!([same]));
+    assert!(g.app.notice.as_ref().is_some_and(|notice| notice.said.contains("The screen beds changed in the outline")), "changed while the window was shut: {:?}", g.app.notice);
     let _ = std::fs::remove_file(&file);
 }
 

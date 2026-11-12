@@ -127,7 +127,7 @@ impl App {
         let extension = match &self.screen.from { From::Extension(id) => Some(id.clone()), _ => None };
         // The screen is kept by its name and the revision of the note it was laid out from, never as a copy of its
         // spec: what a screen says of itself is the service's row for it, read when the window opens again.
-        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "layout": self.layout.save(), "tiles": tiles });
+        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "seen": self.screen_seen.as_ref().map(|(_, mark)| mark), "layout": self.layout.save(), "tiles": tiles });
         if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
         if let Err(e) = std::fs::write(path, serde_json::to_vec_pretty(&kept).unwrap_or_default()) { eprintln!("ep0ch-native: can't keep the arrangement in {}: {e}", path.display()) }
     }
@@ -143,6 +143,8 @@ impl App {
             // (`App::spec_now`), once it has listed the screens.
             let from = match kept["note"]["id"].as_str() { Some(id) => From::Note { id: id.to_string(), revision: kept["note"]["revision"].as_u64().unwrap_or(0) }, None => From::Extension(kept["extension"].as_str().unwrap_or_default().to_string()) };
             self.st.screen = Screen { name: name.to_string(), title: kept["title"].as_str().unwrap_or(name).to_string(), from, spec: None, problems: Vec::new() };
+            // What the screen was when the arrangement was laid out: a note changed while the window was shut is said when it opens.
+            self.st.screen_seen = kept["seen"].as_str().map(|mark| (name.to_string(), mark.to_string()));
         }
         self.st.tiles.clear();
         for (name, ui) in kept["tiles"].as_object().into_iter().flatten() {
@@ -187,7 +189,7 @@ fn undo(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Err(why) = app.replace("the arrangement before", before, false, by) { return Outcome::refused(why) }
     app.st.journal.pop();
     // A step that opened another screen is taken back whole: the arrangement is the screen's it was of.
-    if let Some(screen) = screen { app.st.screen = screen }
+    if let Some(screen) = screen { app.st.screen = screen; app.seen() }
     app.keep();
     Outcome::done()
 }

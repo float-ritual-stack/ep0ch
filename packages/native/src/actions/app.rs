@@ -127,6 +127,11 @@ pub struct State {
     pub aimed: Option<Id>,
     /// The tile the act being run is about, as the dispatcher found it (`App::target` with what the action wants).
     pub about: Option<Id>,
+    /// The screen the arrangement was laid out from, as the service listed it then (its name and a mark of its spec),
+    /// which answer of the list that was read from, and whether this window's own save is what moves it next.
+    pub screen_seen: Option<(String, String)>,
+    pub screens_epoch: u64,
+    pub screen_wrote: bool,
     /// The border being dragged (its split and which border): its moves are one change to go back through.
     pub dragging: Option<(String, usize)>,
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
@@ -204,6 +209,9 @@ impl App {
                 journal: Vec::new(),
                 aimed: None,
                 about: None,
+                screen_seen: None,
+                screens_epoch: 0,
+                screen_wrote: false,
                 dragging: None,
                 pictured: HashMap::new(),
                 editor: Text::new(""),
@@ -614,18 +622,35 @@ impl App {
         }
     }
 
-    /// The note the open screen is saved as changed since this arrangement was laid out from it (another door saved
-    /// it, someone edited its blocks): said once, with the act that lays the window out as it is now. What the
-    /// screen says of itself (`spec_now`) is followed at once; the arrangement is the person's until they reset it.
+    /// The screen this arrangement is of changed in the outline since it was laid out (another door saved it,
+    /// someone edited its blocks, the window was shut meanwhile): said once, with the act that lays the window out
+    /// as it is now. What the screen says of itself (`spec_now`) is followed at once; the arrangement is the
+    /// person's until they reset it. Looked at when the list of screens is answered anew, never each frame.
     fn screen_moved(&mut self) {
-        let Some((id, revision)) = self.screen.note().map(|(id, revision)| (id.to_string(), revision)) else { return };
-        let Some(now) = self.served_row().filter(|row| row["note"]["id"].as_str() == Some(id.as_str())).and_then(|row| row["note"]["revision"].as_u64()) else { return };
-        if now == revision { return }
-        self.st.screen.from = crate::screen::From::Note { id, revision: now };
+        let epoch = self.store.epoch(&self.screens_ask());
+        if epoch == self.st.screens_epoch { return }
+        self.st.screens_epoch = epoch;
+        // (A save of this window's own is what moved it: that is no news.)
+        let wrote = std::mem::take(&mut self.st.screen_wrote);
+        let Some(now) = self.seen_of() else { return };
+        let before = self.st.screen_seen.replace(now.clone());
+        if before.as_ref() == Some(&now) { return }
         self.keep();
-        // (A save of this window's own lands the revision it wrote before the list says so: that is no news.)
-        if now > revision && revision > 0 { self.st.notice = Some(Notice::info(format!("The screen {} changed in the outline since this arrangement was laid out. {} lays it out as it is now.", self.screen.name, super::label("screen.reset")))) }
+        if !wrote && before.is_some_and(|(name, _)| name == now.0) {
+            self.st.notice = Some(Notice::info(format!("The screen {} changed in the outline since this arrangement was laid out. {} lays it out as it is now.", now.0, super::label("screen.reset"))));
+        }
     }
+
+    /// The open screen as the service lists it now, in a word: its name and a mark of its spec.
+    fn seen_of(&self) -> Option<(String, String)> {
+        let spec = self.served_row()?.get("spec").filter(|spec| spec.is_object())?;
+        // (FNV-1a over the spec as the service wrote it: the same words, the same mark, in every run.)
+        let mark = spec.to_string().bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+        Some((self.screen.name.clone(), format!("{mark:016x}")))
+    }
+
+    /// The arrangement is of the screen as the service lists it now: what a later change is measured against.
+    pub(in crate::actions) fn seen(&mut self) { self.st.screen_seen = self.seen_of() }
 
     /// Lands everything asked so far, and what that asked in turn: for a blocking link, whose answers are already here.
     pub fn settle(&mut self) -> bool {
