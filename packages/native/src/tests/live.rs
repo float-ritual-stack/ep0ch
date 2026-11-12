@@ -350,6 +350,12 @@ fn live_the_shipped_screens_open_from_the_bar_and_every_list_is_the_service_s() 
         // A card picked opens where the lanes' opens land.
         assert!(act(&mut app, &format!("list.pick id={north} tile=lanes")).ok);
         assert_eq!(app.note_of("reader").as_deref(), Some(north.as_str()));
+        // Arranged as a table where its screen names no columns: the service says them, the title and then the
+        // properties the cards carry, so a table never shows less than the rows did.
+        assert!(act(&mut app, "list.layout layout=table tile=lanes").ok);
+        let table = app.list_of("lanes").expect("the table came").clone();
+        assert_eq!((table.list.arrange.as_str(), table.list.columns.first().map(String::as_str), table.list.headers.len()), ("table", Some("title"), table.list.columns.len()));
+        assert!(table.list.columns.iter().any(|column| column == "crop") && table.list.rows.iter().all(|row| row.cells.len() == table.list.columns.len()), "{:?}", table.list.columns);
 
         // The navigator: facets, and the matches of what they leave.
         pick(&mut app, "navigator");

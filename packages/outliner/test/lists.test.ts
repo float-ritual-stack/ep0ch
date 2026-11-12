@@ -85,6 +85,19 @@ test("query: a question's matches, sorted and grouped by any property name, with
   expect(none.hint).toContain("soil");
 });
 
+test("query: arranged as a table with no columns named, its columns are the title and the properties the matches carry", async () => {
+  const { list } = await setup();
+  // `list.layout layout=table` on a tile whose spec names no columns: a table of titles alone would show less than rows do.
+  const table = await list("query", { query: "type=bed", sort: "title asc", arrange: "table" });
+  expect(table.list).toMatchObject({ arrange: "table", columns: ["title", "crop", "stage", "type"], headers: ["title", "crop", "stage", "type"] });
+  expect(table.list.rows.map(r => r.cells)).toEqual([["Herb spiral", "thyme", "sown", "bed"], ["North bed", "peas", "sown", "bed"], ["South bed", "beans", "planned", "bed"]]);
+  // The columns the asker names stand as named, and rows asked for stay rows with no cells.
+  expect((await list("query", { query: "type=bed", arrange: "table", columns: "title crop" })).list.columns).toEqual(["title", "crop"]);
+  const rows = await list("query", { query: "type=bed", arrange: "rows" });
+  expect(rows.list.columns).toBeUndefined();
+  expect(rows.list.rows.every(r => r.cells === undefined)).toBe(true);
+});
+
 test("lanes: the matches grouped by a property name into lanes, and refused in words when none is named", async () => {
   const { list, client, north, south, herbs } = await setup();
   const board = await list("lanes", { query: "type=bed", group: "stage", sort: "title asc" });

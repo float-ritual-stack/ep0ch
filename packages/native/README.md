@@ -10,6 +10,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 
 ![The board: lanes grouped by a property its screen names, a card open beside them, dark](docs/board-dark.png)
 ![The navigator: facets, what they leave, and a reader, dark](docs/navigator-dark.png)
+![The board's cards as a table: the title and the properties they carry as columns, under their groups, dark](docs/table-dark.png)
 
 ![A note with a query-backed component, light](docs/note-light.png)
 ![Live figures answered by the service, dark](docs/figures-dark.png)
@@ -41,7 +42,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 |---|---|
 | Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
-| Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way, `list.sort by=<any property>` orders them; a card pressed opens beside |
+| Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
 | See what changed | Last callers: the notes people and agents edited, newest first; a row opens its note beside |
 | Arrange the window | `tile.split` (a second reader on the same note, or `kind=`), a tile's title dragged onto another tile (`tile.move to= side=`: a side of it, or its middle for a tab), a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`; `layout.undo` takes each back |

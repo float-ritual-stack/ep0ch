@@ -120,15 +120,21 @@ function cell(note: Listed, column: string): string {
 const facetsOf = (found: Found) => found.facets?.length ? { facets: found.facets.map(f => ({ key: f.key, count: f.count, values: f.values.map(v => ({ value: v.value, count: v.count })), ...(f.more ? { more: f.more } : {}) })) } : {};
 const countOf = (found: Found) => found.completeness.kind === "truncated" ? { truncated: true, ...(found.completeness.matched !== undefined ? { total: found.completeness.matched } : {}) } : {};
 
+/** The most property columns a table has when its asker names none. */
+const TABLE_COLUMNS = 6;
+
 /**
  * A question's matches (`query`, the views' grammar) as rows: sorted and grouped by the property names asked, each row
- * with the properties it carries as chips and, when `columns` names some, a cell a column. Grouped, the groups are the
+ * with the properties it carries as chips and, when `columns` names some (or it is asked as a table), a cell a column. Grouped, the groups are the
  * list's sections (`arrange: "lanes"` draws each as a lane); the facets are counted over every match.
  */
 async function matches(own: Own, request: ListsRequest, lanes = false): Promise<Answered> {
   if (lanes && !request.group?.trim()) throw new Refusal("invalid", "lists.read from=lanes groups its matches into lanes: name the property with group=<a property name>");
   const found = await asked(own, request, { facets: true });
-  const columns = names(request.columns);
+  const named = names(request.columns);
+  const arrange = lanes ? "lanes" : (["rows", "table", "lanes", "grid"] as const).find(a => a === request.arrange) ?? (named.length ? "table" : "rows");
+  // A table nobody named columns for shows the title and the properties its matches carry (the facets' keys, as counted): no list of keys is kept here.
+  const columns = named.length || arrange !== "table" ? named : ["title", ...(found.facets ?? []).slice(0, TABLE_COLUMNS).map(f => f.key)];
   const rows = found.blocks.map(note => row({
     id: note.id, label: titled(note.title), detail: day(note.updatedAt),
     ...(note.properties?.length ? { chips: note.properties.slice(0, 8).map(p => ({ key: p.key, value: p.value })) } : {}),
@@ -137,7 +143,6 @@ async function matches(own: Own, request: ListsRequest, lanes = false): Promise<
     do: opens(note.id),
   }));
   const groups: ListGroup[] | undefined = found.groups?.map(g => ({ name: g.value ?? "", label: g.value ?? `no ${request.group}`, count: g.count, ids: g.ids }));
-  const arrange = lanes ? "lanes" : (["rows", "table", "lanes", "grid"] as const).find(a => a === request.arrange) ?? (columns.length ? "table" : "rows");
   const list: ListPrimitive = {
     type: "list", arrange, rows, ...(columns.length ? { columns, headers: columns } : {}), ...(groups ? { groups } : {}),
     empty: (request.query ?? "").trim() ? "Nothing matches." : "Every note matches an empty question: say which with a property (type=bed).",

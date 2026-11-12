@@ -176,7 +176,8 @@ fn header(cx: &TileCx, answer: &ListAnswer, k: &Kit) -> Option<El> {
     if shown > 0 { strip = strip.child(chips); any = true }
     // A table's header: a column a property, a press sorts by it.
     if answer.list.arrange == "table" && !answer.list.headers.is_empty() {
-        let mut heads = row().key(cx.key("columns")).w_full().h(HEAD).gap(8.0).center_y();
+        // (Inset as the rows under it are, so a header sits over its column.)
+        let mut heads = row().key(cx.key("columns")).w_full().h(HEAD).gap(8.0).center_y().px(4.0);
         for (i, head) in answer.list.headers.iter().enumerate() {
             let column = answer.list.columns.get(i).unwrap_or(head);
             let sorted = answer.sort.as_deref().is_some_and(|sort| sort.split_whitespace().next() == Some(column.as_str()));
