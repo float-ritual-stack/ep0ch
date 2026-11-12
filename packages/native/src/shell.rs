@@ -57,7 +57,9 @@ fn dropped(d: &Drag, boxes: &[(String, [f32; 4])], origin: [f32; 2], dragged: &s
 /// it has the keys, what the service says is wrong with it. An unchanged tile is not drawn again.
 fn version(s: &App, cx: &tiles::TileCx, drawer: &tiles::Drawer, problems: &[String], dark: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (cx.id, &cx.name, &cx.spec.kind, cx.spec.fields.len(), cx.focused, dark, problems, (drawer.version)(cx), s.online, &s.machine).hash(&mut h);
+    // Its spec's fields by what they say, not how many there are: a query edited in place is another tile to draw.
+    let fields = serde_json::to_string(&cx.spec.fields).unwrap_or_default();
+    (cx.id, &cx.name, &cx.spec.kind, fields, cx.focused, dark, problems, (drawer.version)(cx), s.online, &s.machine).hash(&mut h);
     for (role, ask) in (drawer.asks)(cx) { (role, s.store().epoch(&ask), s.store().waiting(&ask), s.store().refusal(&ask).is_some()).hash(&mut h) }
     h.finish()
 }

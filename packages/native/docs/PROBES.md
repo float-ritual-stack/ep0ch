@@ -362,10 +362,13 @@ registers the kind that replaces it, in one wave.
 a second one. The resolution moves to where both doors read it: `screens.list` as it validates, or outline-core over
 the served rows.
 
+**As built (sweep 1):** `screens.list` serves each tile's kind resolved (`canonKind`, then `replaces`), so a window
+finds its drawer by the kind the row says. The door's `resolveKind` still answers for layouts the door keeps itself.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
-(DESIGN.md §5, §6.1). Five tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
+(DESIGN.md §5, §6.1). Six tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
 own functions on made-up garden layouts and never edited by hand.
 
 | Table | Asks | Holds the answer of |
@@ -373,6 +376,7 @@ own functions on made-up garden layouts and never edited by hand.
 | `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal in words |
 | `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves |
 | `act-lines.json` | an act line; a `tile=` | the line's words, its request, its arguments typed by the action; the address it is |
+| `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
 
@@ -385,7 +389,7 @@ scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check
   what they ask against the door's source: every operation, node kind, place, policy field, open rule, alt rule and
   wire verb, and every agent-gated operation asked by an agent.
 - **Read without the door:** outline-core's `test/screen-spec.test.ts` reads every table through `screen-spec.ts`,
-  `action-row.ts` and `action-line.ts`. Nothing in cargo reads them yet: that is W2's first test.
+  `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place and address tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
 - **Where the door decides today:** `LAYOUT_FAMILIES` in the door's `test/one-owner.test.ts`.
 
 Three things the tables record as the door does them, for W2 to match or to raise:
