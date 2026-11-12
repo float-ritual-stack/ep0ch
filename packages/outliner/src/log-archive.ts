@@ -63,6 +63,12 @@ export function writeSegment(root: string, outline: string, ranges: readonly Log
   if (have ? first.after !== have.lsn || first.prev !== have.digest : entries[0]!.op !== "g") {
     throw new Error(`these entries don't follow ${outline}'s archive of log ${logId} (it holds through ${have?.lsn ?? "nothing"}, they follow ${first.after})`);
   }
+  // And each range after the first follows the one before it, entry for entry.
+  for (let i = 1; i < ranges.length; i++) {
+    const before = ranges.slice(0, i).flatMap(r => r.entries).at(-1);
+    const r = ranges[i]!;
+    if (before && (r.after !== before.lsn || r.prev !== entryDigest(before))) throw new Error(`these entries don't follow each other: a range follows ${r.after}, after one that ends at ${before.lsn}`);
+  }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const genesis = entries.filter(e => e.op === "g").at(-1);
   const file = join(dir, `${pad(entries[0]!.lsn)}-${pad(entries.at(-1)!.lsn)}${genesis ? `.g${pad(genesis.lsn)}` : ""}.jsonl`);
@@ -137,7 +143,16 @@ export function appendToArchive(root: string, outline: string, ranges: readonly 
     if (entryDigest(entries[at]!) !== have.digest) throw new Error(`${outline}'s log differs from its archive at entry ${have.lsn}`);
     rest = entries.slice(at + 1);
   } else if (ranges[0]!.after === have.lsn && ranges[0]!.prev === have.digest) rest = entries;
-  else throw new Error(`these entries don't meet ${outline}'s archive (it holds through ${have.lsn}; they run ${entries[0]?.lsn ?? "?"} to ${entries.at(-1)?.lsn ?? "?"})`);
+  else if (entries.some(e => e.op === "g")) {
+    // The sender kept only what follows a newer genesis (its archive was trimmed after direct uploads): this archive's
+    // chain is kept aside, and a new one starts at that genesis.
+    const from = entries.findIndex(e => e.op === "g");
+    renameSync(join(root, outline, logId), join(root, outline, `${logId}~${have.lsn}`));
+    const kept = entries.slice(from);
+    const last = ranges.at(-1)!;
+    const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: kept[0]!.lsn - 1, head: last.head, prev: null, entries: kept, complete: last.complete }]);
+    return { lsn: kept.at(-1)!.lsn, file };
+  } else throw new Error(`these entries don't meet ${outline}'s archive (it holds through ${have.lsn}; they run ${entries[0]?.lsn ?? "?"} to ${entries.at(-1)?.lsn ?? "?"})`);
   if (!rest.length) return { lsn: have.lsn, file: null };
   const last = ranges.at(-1)!;
   const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: have.lsn, head: last.head, prev: have.digest, entries: rest, complete: last.complete }]);

@@ -659,6 +659,21 @@ export class OutlineHost {
     return (await this.open(name)).store.log.apply(range);
   }
 
+  /**
+   * A follower's copy replaced by one rebuilt beside it (outline-follower.ts): marked busy so no open lands meanwhile,
+   * the served one closed (a close that fails leaves it as it was), then the rebuilt file renamed in.
+   */
+  async replaceCopy(name: string, file: string): Promise<void> {
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is already being changed`);
+    this.busy.add(name);
+    try {
+      await this.closeOutline(name);
+      const database = this.layout.database(name);
+      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
+      renameSync(file, database);
+    } finally { this.busy.delete(name); }
+  }
+
   async closeOutline(nameInput: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
     await this.opening.get(name)?.catch(() => undefined);

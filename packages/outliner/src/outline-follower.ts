@@ -17,7 +17,7 @@
 // A copy older than this build's schema (a deploy here while the home sleeps) is taken up by `migrate` and served,
 // stale, until the home's own migration writes the genesis it rebuilds from.
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { isMachineName, isOutlineName, outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -27,7 +27,7 @@ import { applyRange, RangeRefused, type LogRange } from "./change-log";
 type Env = Record<string, string | undefined>;
 
 /** The outliner's OutlineHost, as much of it as a follower uses. Loaded when the first copy is served. */
-interface FolderHost { readonly socketPath: string; start(): Promise<void>; close(): Promise<void>; applyLog(name: string, range: LogRange): Promise<number>; closeOutline(name: string): Promise<unknown>; open(name: string): Promise<{ store: { log: { cursor(): { lsn: number; logId: string } }; outlineInstanceId: string } }> }
+interface FolderHost { readonly socketPath: string; start(): Promise<void>; close(): Promise<void>; applyLog(name: string, range: LogRange): Promise<number>; closeOutline(name: string): Promise<unknown>; replaceCopy(name: string, file: string): Promise<void>; open(name: string): Promise<{ store: { log: { cursor(): { lsn: number; logId: string } }; outlineInstanceId: string } }> }
 type FolderHostClass = new (o: { outlinesFolder: string; readOnly: boolean; log: (line: string) => void; copy?: { machine: string; state: string } }) => FolderHost;
 /** Loaded by a name the type checker doesn't follow: a client package checks this file by its own settings, not the host's. */
 const OUTLINE_HOST_MODULE = "./outline-host";
@@ -92,14 +92,26 @@ export type Migrated = { from: number; to: number } | { from: number | null; err
 /** Takes a follower's copy up to the schema this build opens, in place (the copy is the follower's own file). */
 export type MigrateCopy = (file: string) => Promise<Migrated | null>;
 
-/** No migration: a copy at another schema than `schema` is refused with what puts it right. */
-export const refuseOtherSchemas = (schema: () => number | null): MigrateCopy => async file => {
+/**
+ * The migration scripts this build carries (`scripts/migrations/<NNNN>-*.ts`, the ones `ep0ch install --apply` runs),
+ * run in order on a follower's copy: each is a one-off from NNNN-1 to NNNN, so a copy older than the oldest script
+ * left isn't migrated. Every process that can own a copy's loop takes it up the same way (the default).
+ */
+export const migrateWithScripts = (schema: () => number | null, folder = join(import.meta.dir, "../scripts/migrations")): MigrateCopy => async file => {
   const from = userVersionOf(file), to = schema();
   if (from === null) return { from, error: "its schema version can't be read" };
-  if (to === null || from === to) return null;
-  return from > to
-    ? { from, error: `it is schema ${from}, newer than the schema ${to} this build opens; on this machine: ep0ch install --apply`, newer: true }
-    : { from, error: `it is schema ${from}, older than the schema ${to} this build opens` };
+  if (to === null) return { from, error: "this build's schema version can't be told" };
+  if (from === to) return null;
+  if (from > to) return { from, error: `it is schema ${from}, newer than the schema ${to} this build opens; on this machine: ep0ch install --apply`, newer: true };
+  let names: string[] = [];
+  try { names = readdirSync(folder); } catch { /* none: refused below */ }
+  for (let v = from + 1; v <= to; v++) {
+    const script = names.find(n => n.startsWith(`${String(v).padStart(4, "0")}-`) && n.endsWith(".ts"));
+    if (!script) return { from, error: `no migration script takes schema ${v - 1} to ${v} (it was deleted once the machines that matter ran it)` };
+    const run = Bun.spawnSync([process.execPath, join(folder, script), file], { stdout: "pipe", stderr: "pipe", cwd: join(folder, "../..") });
+    if (run.exitCode !== 0 || userVersionOf(file) !== v) return { from, error: `${script} failed on the copy (${`${run.stderr}${run.stdout}`.trim().split("\n").at(-1)?.slice(0, 200) || `exit ${run.exitCode}`})` };
+  }
+  return { from, to };
 };
 
 /** Which copy is served: its path under the mirrors folder, when a range last landed here, and the log position it holds. */
@@ -121,7 +133,7 @@ export interface OutlineFollowerOptions<B> {
   now?: () => number;
   /** The schema this build opens; null when it can't be told. */
   schema?: () => number | null;
-  /** Takes an older copy up to `schema`; default: refuses any other schema. */
+  /** Takes an older copy up to `schema`; default: the migration scripts this build carries (`migrateWithScripts`). */
   migrate?: MigrateCopy;
   /** Who logs (`mcp follow`, `web follow`). */
   label?: string;
@@ -226,6 +238,8 @@ class FollowLoop {
   }
 
   private stale(why: string): void {
+    // A loop that was stopped writes nothing: another process may own the folder now.
+    if (this.stopped) return;
     const since = this.status.copiedAt;
     if (this.status.stale?.why !== why) this.say(`stale: ${why}`);
     this.status = { ...this.status, stale: { since, why } };
@@ -274,6 +288,7 @@ class FollowLoop {
       for (;;) {
         const at = opened.store.log.cursor();
         const range = await ask(at.lsn);
+        if (this.stopped) return;
         try { await host.applyLog(this.outline, range); }
         catch (e) {
           if (!(e instanceof RangeRefused)) throw e;
@@ -300,6 +315,7 @@ class FollowLoop {
   }
 
   private landed(range: LogRange, homeInstanceId: string | null): void {
+    if (this.stopped) return;
     const last = range.entries.at(-1);
     this.status = {
       cursor: last?.lsn ?? range.after, logId: range.logId, asOf: last?.at ?? this.status.asOf ?? new Date(this.o.now()).toISOString(),
@@ -325,7 +341,7 @@ class FollowLoop {
       openFollowerSchema(db, first.logId);
       for (;;) {
         applyRange(db, range, SCHEMA_VERSION);
-        if (range.complete) break;
+        if (range.complete || this.stopped) break;
         range = await ask(range.entries.at(-1)!.lsn);
       }
       instance = (db.query("SELECT value FROM metadata WHERE key = 'outline_instance_id'").get() as { value: string } | null)?.value ?? null;
@@ -336,9 +352,12 @@ class FollowLoop {
       throw e;
     }
     db.close();
-    if (existsSync(this.file)) await this.folder.owner!.closeOutline(this.outline).catch(() => {});
-    removeDatabase(this.file);
-    renameSync(aside, this.file);
+    if (this.stopped) { removeDatabase(aside); return; }
+    // The served copy closed first, and no open meanwhile; one that doesn't close stays as it is.
+    if (existsSync(this.file)) {
+      try { await this.folder.owner!.replaceCopy(this.outline, aside); }
+      catch (e) { removeDatabase(aside); this.stale(`the copy here couldn't be replaced: ${(e as Error).message}`); return; }
+    } else renameSync(aside, this.file);
     this.say(`copy made from ${this.folder.machine}'s log (${why}), at ${range.entries.at(-1)?.lsn ?? range.after}`);
     this.landed(range, instance);
   }
@@ -375,7 +394,7 @@ export class OutlineFollower<B> {
     this.log = options.log ?? console.error;
     this.now = options.now ?? Date.now;
     this.schema = options.schema ?? (() => null);
-    this.migrate = options.migrate ?? refuseOtherSchemas(this.schema);
+    this.migrate = options.migrate ?? migrateWithScripts(this.schema);
     this.label = options.label ?? "follow";
     this.everyMs = options.everyMs ?? FOLLOW_EVERY_MS;
     const outlines = options.outlines;
@@ -425,12 +444,11 @@ export class OutlineFollower<B> {
       let entry = f.loops.get(this.outline);
       if (!entry) {
         const loop = new FollowLoop(f, this.outline, { log: this.log, now: this.now, schema: this.schema, migrate: this.migrate, label: this.label, reach: this.reach, everyMs: this.everyMs });
-        f.loops.set(this.outline, entry = { loop, users: 0 });
+        f.loops.set(this.outline, entry = { loop, users: 1 });
         loop.start();
         const first = loop.pull();
         if (!this.exists() || !readStatus(this.dir, this.outline)?.copiedAt) await Promise.race([first, Bun.sleep(FIRST_COPY_WAIT_MS)]);
-      }
-      entry.users++;
+      } else entry.users++;
     }
     return f;
   }

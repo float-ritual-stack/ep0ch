@@ -159,7 +159,10 @@ export function writeGenesis(database: Database, schema: number): number {
     // and the `g` says how many rows follow it: compaction's measure of the outline.
     const rows = logHead(database) - g.lsn;
     database.query("UPDATE change_log SET txn = ? + (lsn - ?) / ? WHERE lsn >= ?").run(txn, g.lsn, GENESIS_CHUNK, g.lsn);
-    database.query("UPDATE change_log SET row = ? WHERE lsn = ?").run(JSON.stringify({ schema, rows }), g.lsn);
+    // AUTOINCREMENT's high-water marks go with it: an id given out once (an edit-activity cursor) is never given again.
+    const sequences = Object.fromEntries((database.query("SELECT name, seq FROM sqlite_sequence").all() as { name: string; seq: number }[])
+      .filter(r => LOG_TABLES[r.name] === "replicated").map(r => [r.name, r.seq]));
+    database.query("UPDATE change_log SET row = ? WHERE lsn = ?").run(JSON.stringify({ schema, rows, sequences }), g.lsn);
     database.query("UPDATE log_state SET txn = ? WHERE id = 1").run(txn + Math.floor(rows / GENESIS_CHUNK) + 1);
     return g.lsn;
   }).immediate();
@@ -313,6 +316,12 @@ export function applyEntries(database: Database, entries: readonly LogEntry[], s
           const at = (JSON.parse(e.row ?? "{}") as { schema?: number }).schema;
           if (at !== schema) throw new RangeRefused(`the range holds a genesis at schema ${at}, and this copy is ${schema}`, false);
           clearReplicated(database, [...tables.values()]);
+          const sequences = (JSON.parse(e.row ?? "{}") as { sequences?: Record<string, number> }).sequences ?? {};
+          for (const [name, seq] of Object.entries(sequences)) {
+            if (!tables.has(name)) continue;
+            database.query("DELETE FROM sqlite_sequence WHERE name = ?").run(name);
+            database.query("INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)").run(name, seq);
+          }
           continue;
         }
         const t = tables.get(e.tbl);
