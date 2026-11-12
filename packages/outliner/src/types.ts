@@ -2437,6 +2437,13 @@ export type OutlinerRequestAction =
       mutation?: MutationProvenance;
     }
   | {
+      id: string; action: "log.range";
+      /** The cursor (ADR 0009): the log's entries after this lsn are answered; 0 starts at the newest genesis. */
+      after: number;
+      /** At most about this many entries (default 2,000, at most 20,000); a range never ends inside a transaction. */
+      limit?: number;
+    }
+  | {
       id: string; action: "changes.since";
       /** The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. */
       sequence: number;

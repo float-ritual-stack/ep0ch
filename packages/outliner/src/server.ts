@@ -2713,6 +2713,7 @@ export class OutlinerServer {
           this.extensionRules.doorEvent(request.body);
           result = wired(action, { received: true }); break;
         case "events.subscribe": result = wired(action, { subscribed: true, client: subscribedClient ?? request.client }); break;
+        case "log.range": result = wired(action, this.store.logRange(request.after, request.limit)); break;
         case "changes.since":
           result = // The feed is also how a client catches up on what it missed, so it holds everything unless asked: `hide`/`only` are for readers.
           wired(action, this.store.changes.since(request.sequence, request.limit, request.machinery === undefined ? "show" : parseMachineryMode(request.machinery)));

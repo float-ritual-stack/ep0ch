@@ -188,6 +188,8 @@ export const ACTIONS = {
   "capture.owner.handoff": {},
   "capture.retitle": { event: savedBlock },
   "changes.since": { read: true },
+  // A follower answers its home's log onward (ADR 0009), so a copy answers it; an extension's call doesn't make it.
+  "log.range": { copy: true },
   "checklist.query": {},
   "checklist.search": { whole: true },
   "checklist.update": { event: ifChanged },

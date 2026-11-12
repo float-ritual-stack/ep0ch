@@ -149,6 +149,7 @@ export interface WireAnswers {
   "capture.owner.handoff": { token: string; };
   "capture.retitle": Block;
   "changes.since": ChangeFeedPage;
+  "log.range": import("./change-log").LogRange;
   "checklist.query": ChecklistCollection;
   "checklist.search": ChecklistSearchCollection;
   "checklist.update": ChecklistUpdateReceipt;

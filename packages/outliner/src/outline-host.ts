@@ -48,6 +48,7 @@ import {
   type OutlinerServiceStatus,
 } from "./types";
 import { probeSocket } from "./socket-probe";
+import type { LogRange } from "./change-log";
 import { answerWebSessions, WebSessions } from "./web-sessions";
 import { copyAnswers, isHostAction } from "./actions";
 import { readMcpAccessFiles } from "./mcp-access-files";
@@ -107,8 +108,11 @@ export interface OutlineHostOptions {
    * (`copyAnswers` in actions.ts: `outlines.list` among them). It never creates, imports or deletes an outline.
    */
   readOnly?: boolean;
-  /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
-  copy?: { address: string; state: string };
+  /**
+   * Read-only copies of another machine's outlines (the followers' folder, ADR 0009): each outline here is
+   * `<name>@<machine>`, its shares and readers kept in `<state>/<name>/` (its OutlinerServer's `copy`, PIE-1091).
+   */
+  copy?: { machine: string; state: string };
   /** Which absolute paths are on this machine's disk: all, unless a test's two machines share one disk (PIE-1644). */
   filesHere?: (path: string) => boolean;
 }
@@ -657,6 +661,14 @@ export class OutlineHost {
    * Stops serving one outline and releases its database. It is not a lock: its next request opens it again, and
    * live panes reconnect at once. Close the panes first to keep it closed.
    */
+  /**
+   * A follower's copy here takes a range of its home's log (outline-follower.ts, ADR 0009), through the store that
+   * answers its reads: nothing else opens the file. Refused (RangeRefused) unless the range follows the copy's cursor.
+   */
+  async applyLog(name: string, range: LogRange): Promise<number> {
+    return (await this.open(name)).store.applyLogRange(range);
+  }
+
   async closeOutline(nameInput: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
     await this.opening.get(name)?.catch(() => undefined);
@@ -833,7 +845,7 @@ export class OutlineHost {
       await this.giveWay();
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}) });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: { address: `${name}@${this.options.copy.machine}`, state: join(this.options.copy.state, name) } } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.extensionPages.giveWay = this.giveWay;
