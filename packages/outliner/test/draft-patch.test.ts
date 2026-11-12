@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, rebaseSpans, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult } from "../src/draft-patch";
+import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult, type PropertiesPatched } from "../src/draft-patch";
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -644,6 +644,26 @@ describe("draft.patch over the protocol", () => {
     const later = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "beans   here", "beans here")], mutation: TIDY });
     expect(later).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
     expect(door.requests.every(request => request.kind === "read")).toBe(true);
+  }, 20_000);
+
+  // PIE-1756: an agent's properties.patch on a held note is the hold's, never a whole-text write under the draft.
+  test("an agent's property stamp lands in the held draft; a silent door refuses it; the person's own stays the store's", async () => {
+    const { store, client } = await service();
+    const note = store.create("Beds by the fence\n[touches::1]\nthe compost is warm");
+    const door = await fakeDoor(client, "door-stamp", note.id, `${note.text}, turn it`, note.revision);
+    const stamp = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: note.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation });
+    expect(await stamp(TIDY)).toMatchObject({ revision: note.revision, draft: { holder: "door-stamp", text: "Beds by the fence\n[touches::2]\nthe compost is warm, turn it" } });
+    expect(door.text).toBe("Beds by the fence\n[touches::2]\nthe compost is warm, turn it");
+    expect(store.require(note.id).text).toBe(note.text);
+    // The person's own write (a card moved, the props panel) is theirs to save where they made it: the store's.
+    const own = await stamp({ author: "user" });
+    expect(own).toMatchObject({ revision: note.revision + 1, text: "Beds by the fence\n[touches::2]\nthe compost is warm" });
+    expect(own.draft).toBeUndefined();
+    // A door that stops answering keeps its hold: refused, and nothing is written under its draft.
+    const quiet = store.create("Seed tray\n[touches::4]");
+    await fakeDoor(client, "door-quiet", quiet.id, quiet.text, quiet.revision, { answer: false, leaseMs: 6_000 });
+    await expect(client.request({ action: "properties.patch", blockId: quiet.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: TIDY })).rejects.toThrow("didn't answer");
+    expect(store.require(quiet.id)).toMatchObject({ text: quiet.text, revision: quiet.revision });
   }, 20_000);
 
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {

@@ -928,7 +928,7 @@ export function blockTarget(m: Msg, o: {
         const next: PropertyList | null = await o.board.previewPropertyList(text).catch(() => null);
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
         if (!s.open || d.body !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
-        const change = next ? propertyChange(d.baseProps, next) : "";
+        const change = next ? propertyChange(d.saveProps, next) : "";
         if (change) {
           // Leaving by a click isn't the second save a property change asks for: it's kept unsent.
           if (away) { const why = `it changes properties (${change}); ctrl+s twice saves it`; return { ok: false, why, said: why }; }

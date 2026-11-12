@@ -313,14 +313,19 @@ export class DraftPatchRouter {
    * edit there is, so the person's typing stays and the save carries both; never a whole-text write that stales it.
    * `set` and `add` read the draft as typed (a second stamp before the save counts from the first); ordinal
    * operations read the saved revision they name and rebase onto the draft. One span per changed line keeps a
-   * passage being typed between two chips out of the patch. Null when nobody holds the note: the store writes it.
+   * passage being typed between two chips out of the patch. Null when nobody holds the note, or the person writes it
+   * (a card moved, the props panel: theirs to save where they made it): the store writes it. A door that holds it and
+   * doesn't answer refuses it, as `run` does, and nothing is written under its draft.
    */
   async patchProperties(input: { blockId: string; expectedRevision?: number; operations: PropertyPatchOperation[]; mutation: MutationProvenance }): Promise<PropertiesPatched | null> {
     const saved = this.deps.store.requireActive(input.blockId);
     checkPropertyPatch(saved, input.expectedRevision, input.operations);
-    if (!this.isHeld(saved.id)) return null;
+    if (input.mutation.author !== "agent" || !this.isHeld(saved.id)) return null;
     const draft = await this.read(saved.id);
-    if (draft.route !== "draft") return null;
+    if (draft.route !== "draft") {
+      if (this.isHeld(saved.id)) throw new Refusal("busy", `not applied: the door holding a draft of ${saved.id} didn't answer; nothing was written, try again once it does`);
+      return null;
+    }
     const keyed = input.operations.every(op => op.op === "set" || op.op === "add");
     const [text, revision] = keyed ? [draft.text, draft.revision] : [saved.text, saved.revision];
     const patches = changedLineSpans(text, patchPropertyText(text, keyedPropertyOps(text, input.operations)));

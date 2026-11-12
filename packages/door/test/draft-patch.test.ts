@@ -195,12 +195,12 @@ describe("a patch in a draft being typed in", () => {
     const words = d.applyPatch({ patchId: "w", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::1] mulched")] }, STAMP);
     expect(words).toEqual({ applied: false, reason: "it changes the block being typed in" });
     expect(d.applyPatch({ patchId: "s1", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::2]")] }, STAMP)).toEqual({ applied: true });
-    expect(d.baseProps).toEqual([{ key: "touches", value: "2" }]);
+    expect(d.saveProps).toEqual([{ key: "touches", value: "2" }]);
     expect([d.row, d.col]).toEqual([2, "the compost is warm".length]);
     // The person's own chip edit is theirs: the check still sees it.
     d.row = 1; d.col = d.lines[1]!.length;
     for (const c of " [moved::yes]") d.key(char(c));
-    expect(d.baseProps).toEqual([{ key: "touches", value: "2" }]);
+    expect(d.saveProps).toEqual([{ key: "touches", value: "2" }]);
     // On the cursor's own line: waits for the person.
     const here = d.applyPatch({ patchId: "s2", revision: 2, patches: [span(d.text, "[touches::2] [moved::yes]", "[touches::3] [moved::yes]")] }, STAMP);
     expect(here.applied).toBe(false);
@@ -517,6 +517,35 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       expect(stamped).toMatchObject({ text: "Seed tray\n[touches::5]", revision: 2 });
       expect(stamped.draft).toBeUndefined();
     } finally { e.s.dispose(); }
+  }, 30_000);
+
+  test("the save asks only about chips the person changed: a stamp taken back with ctrl+z, or one beside theirs", async () => {
+    const stamp = (id: string) => agent.request("properties.patch", { blockId: id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: { author: "agent", actorId: "stamp" } });
+    const save = (e: Awaited<ReturnType<typeof editing>>) => NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
+    const said = (e: Awaited<ReturnType<typeof editing>>) => e.s.render(100, 12, e.h).lines.map(visible).join("\n");
+    // Stamped, then ctrl+z: the draft is back to the saved chips, and one ctrl+s saves the words.
+    const a = await editing("Pea rows\n[touches::1]\nsow them thin");
+    try {
+      a.type(" in March");
+      await stamp(a.id);
+      expect(a.d.text).toContain("[touches::2]");
+      a.s.key(ctrl("z"), a.h);
+      expect(a.d.text).toBe("Pea rows\n[touches::1]\nsow them thin in March");
+      await save(a);
+      expect((await board.get(a.id))!.text).toBe("Pea rows\n[touches::1]\nsow them thin in March");
+    } finally { a.s.dispose(); }
+    // Stamped, then the person adds a chip of their own: the save names theirs only, and the second ctrl+s saves both.
+    const b = await editing("Bean poles\n[touches::1]\ntie them in");
+    try {
+      await stamp(b.id);
+      b.d.row = 1; b.d.col = b.d.lines[1]!.length;
+      b.type(" [moved::yes]");
+      await save(b);
+      expect(said(b)).toContain("this save changes properties: +moved: yes");
+      expect(said(b)).not.toContain("touches: ");
+      await save(b);
+      expect((await board.get(b.id))!.text).toBe("Bean poles\n[touches::2] [moved::yes]\ntie them in");
+    } finally { b.s.dispose(); }
   }, 30_000);
 
   test("rich tables: streamed rows remain editable while the current cell stays put", async () => {

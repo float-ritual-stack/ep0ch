@@ -1147,11 +1147,7 @@ export class Draft {
       }
     }
     // A cursor at the ask's end stays there, on the line it was typing: the answer opens below it.
-    // An agent's stamp is its change, not the person's: the save's "this changes properties" check starts from it
-    // (PIE-1756), so ctrl+s saves the stamp and the typing at once, and still asks about a chip the person changed.
-    const stamps = own ? [] : located.spans.flatMap(sp => chipsOnly(text.slice(sp.start, sp.end), sp.replacement) ? [[text.slice(sp.start, sp.end), sp.replacement] as const] : []);
     this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : undefined);
-    for (const [before, after] of stamps) this.baseProps = chipsMoved(this.baseProps, before, after);
     const latest = this.undos.at(-1);
     if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
@@ -1163,6 +1159,16 @@ export class Draft {
       }
     }
     return { applied: true };
+  }
+
+  /**
+   * The properties a save compares the draft with (PIE-1756): the saved note's, moved by the agents' chip stamps still
+   * in the history since the last save (one taken back with ctrl+z, or reverted, moves them back), so "this save
+   * changes properties" asks only about chips the person changed.
+   */
+  get saveProps(): PropertyList {
+    const from = this.undos.findLastIndex(step => step.saved !== undefined) + 1;
+    return this.undos.slice(from).reduce((props, step) => step.unit?.by.kind === "agent" && chipsOnly(step.before, step.after) ? chipsMoved(props, step.before, step.after) : props, this.baseProps);
   }
 
   /** Plan a run's inverse using the same compare as undo, without changing the live draft or caret. */
