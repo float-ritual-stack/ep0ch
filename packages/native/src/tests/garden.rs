@@ -20,7 +20,7 @@ fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
     assert_eq!(actions(&asked), ["ping", "events.subscribe", "blocks.read", "screens.list", "notes.page"], "who answers and who this window is, then the tree's top level, the outline's screens and the first note's page: asked once, though three tiles show it");
     // The window registers as itself, for the acts of the scripts it starts and nothing else of the event feed.
     let hello = asked.borrow()[1].clone();
-    assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act"])));
+    assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act", "scripts.ended"])));
     assert_eq!((app.at.outline.as_str(), app.machine.as_str()), ("garden", "box"));
     assert_eq!(app.page().unwrap().title, "Plot");
     assert_eq!(listed(&app), [(0, "Plot".to_string()), (0, "Shed".to_string())], "only the top level was asked for");

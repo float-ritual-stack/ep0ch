@@ -53,6 +53,9 @@ pub struct Said {
     pub line: u64,
     pub words: String,
     pub ok: bool,
+    /// The run it is waiting on, when the service is still running it (its id, what it is called here, who pressed):
+    /// its end says the rest.
+    pub run: Option<(String, String, Actor)>,
 }
 
 static NO_UI: std::sync::LazyLock<TileUi> = std::sync::LazyLock::new(TileUi::default);
@@ -450,6 +453,7 @@ impl App {
                 Landed::Answer(key) => self.landed(&key),
                 Landed::Reply(reply) => (reply.then)(self, reply),
                 Landed::Call { at, call } => super::script::called(self, &at, &call),
+                Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
                 Landed::Lost { detail } => {
                     self.st.online = false;
                     self.st.notice = Some(Notice::problem(format!("Offline: {detail}")));

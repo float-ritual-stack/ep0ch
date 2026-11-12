@@ -125,7 +125,7 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
             },
             "events.subscribe" => Ok(json!({ "subscribed": true })),
             // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
-            "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "done", "message": "swept the shed", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
+            "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "running", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
             "scripts.answer" => Ok(json!({ "accepted": true })),
             action => Err(("failed", format!("no action {action}"))),
         }

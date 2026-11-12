@@ -87,7 +87,7 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     assert_eq!((run["blockId"].as_str(), run["line"].as_u64(), run["clientId"].as_str()), (Some("plot"), Some(13), Some(client.as_str())), "by its note and line, with this window named for its acts");
     assert_eq!(run["mutation"]["author"], "user", "recorded as whoever pressed");
     let reader = rt.state.reader().unwrap();
-    assert_eq!(rt.state.ui(&reader).said.as_ref().unwrap().words, "Tidy the shed ran, as you: swept the shed");
+    assert_eq!(rt.state.ui(&reader).said.as_ref().unwrap().words, "Tidy the shed: running…", "the service took it and is running it");
     assert!(rt.find("tile/reader/part/5/said").is_some(), "said under the button that was pressed");
 
     // The run's script acts in this window: the call is aimed at this client, run by the dispatcher, and answered.
@@ -111,6 +111,14 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     unasked["event"]["script"]["requestedBy"] = json!({ "author": "agent", "actorId": "compost-agent" });
     rt.update({ let said = said.clone(); move |s, _| host_says(s, &said, unasked.clone()) });
     assert!(answers(&asked)[2]["error"].is_string() && rt.state.editing.is_none(), "a script nobody pressed acts as the script: the person's editor is not its to open");
+
+    // The run ends: the service says so, and the tile says how it went, where it was pressed. Another run's end is not this one's.
+    let ended = |run: &str, reason: &str, message: &str| json!({ "event": { "domain": "script", "action": "scripts.ended", "ended": { "run": run, "reason": reason, "message": message, "requestedBy": { "author": "user" }, "written": [], "undo": true } } });
+    rt.update({ let (said, line) = (said.clone(), ended("run-9", "failed", "another window's")); move |s, _| host_says(s, &said, line.clone()) });
+    assert_eq!(rt.state.ui(&reader).said.as_ref().unwrap().words, "Tidy the shed: running…");
+    rt.update({ let (said, line) = (said.clone(), ended("run-1", "done", "swept the shed")); move |s, _| host_says(s, &said, line.clone()) });
+    let last = rt.state.ui(&reader).said.clone().unwrap();
+    assert_eq!((last.words.as_str(), last.ok, last.run), ("Tidy the shed ran, as you: swept the shed", true, None));
 }
 
 #[test]

@@ -29,6 +29,8 @@ use crate::client::Link;
 pub const WATCH_BUDGET: usize = 64;
 /// The event a script's act arrives as (outline-core's `ScriptActionCall`, the service's `scripts.act`).
 const SCRIPT_ACT: &str = "scripts.act";
+/// The event a script run's end arrives as (outline-core's `ScriptEnded`).
+const SCRIPT_ENDED: &str = "scripts.ended";
 /// How many answers nobody shows are kept for `last` and a quick return.
 const IDLE_KEPT: usize = 128;
 
@@ -164,6 +166,8 @@ pub enum Landed {
     /// The service asks this window to run an action for a script (a `script` event aimed at this client): the
     /// dispatcher runs it and `answer` says how it went.
     Call { at: OutlineAt, call: Call },
+    /// A script run ended (the service's `scripts.ended`): which, how, and its last word.
+    Ended { run: String, reason: String, message: String },
 }
 
 /// An action a script asks this window to run (outline-core's `ScriptActionCall`), as the wire said it.
@@ -230,10 +234,10 @@ impl Store {
     pub fn client(&self) -> &str { &self.client }
 
     /// Registers this window on a link as a client that runs actions (`events.subscribe`): the service then sends
-    /// it the acts of the scripts it started, and nothing else of the event feed.
+    /// it the acts of the scripts it started and how each run ended, and nothing else of the event feed.
     pub fn register(&mut self, at: &OutlineAt) {
         let client = json!({ "clientId": self.client, "role": "observer", "contextId": self.client, "app": "native" });
-        self.send(at, "events.subscribe", json!({ "client": client, "kinds": [SCRIPT_ACT] }));
+        self.send(at, "events.subscribe", json!({ "client": client, "kinds": [SCRIPT_ACT, SCRIPT_ENDED] }));
     }
 
     /// Answers a script's act (`scripts.answer`): what the action answered, or why it didn't run.
@@ -429,6 +433,10 @@ impl Store {
                 } else if line["event"]["action"] == SCRIPT_ACT {
                     let call = &line["event"]["script"];
                     if call["targetClientId"] == self.client.as_str() && let Some(call) = Call::read(call) { landed.push(Landed::Call { at: at.clone(), call }) }
+                } else if line["event"]["action"] == SCRIPT_ENDED {
+                    let ended = &line["event"]["ended"];
+                    let text = |key: &str| ended[key].as_str().unwrap_or("").to_string();
+                    landed.push(Landed::Ended { run: text("run"), reason: text("reason"), message: text("message") });
                 } else if line["link"] == "lost" {
                     self.out.retain(|_, out| match out { Out::Read(key) => self.slots.get(key).is_none_or(|slot| slot.ask.at != at), Out::Reply { at: theirs, .. } => *theirs != at });
                     for slot in self.slots.values_mut().filter(|slot| slot.ask.at == at) { slot.out = None }

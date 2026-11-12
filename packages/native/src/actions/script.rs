@@ -53,27 +53,54 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         return Outcome { answer: json!({ "ran": "here", "act": act, "ok": outcome.ok, "answer": outcome.answer }), ..outcome };
     }
     let (at, client) = (app.at.clone(), app.store.client().to_string());
+    // The run answers when it has ended, and its acts come back here meanwhile: its answer is never waited for in
+    // place, even by a window that waits for every other (a headless render), or the run would wait on this window.
+    let waits = std::mem::replace(&mut app.store.blocking, false);
     app.store.write(&at, "scripts.sequence", json!({ "blockId": block, "line": line, "clientId": client }), by, ran, json!({ "tile": tile, "block": block, "line": line, "label": label }));
+    app.store.blocking = waits;
     say(app, &tile, &block, line, format!("{label}: running…"), true);
     Outcome::answer(json!({ "ran": "service", "block": block, "line": line }))
 }
 
 /// What a press did, kept on the tile it was pressed in: the part on that line says it.
 fn say(app: &mut App, tile: &str, block: &str, line: u64, words: String, ok: bool) {
-    app.ui_mut(tile).said = Some(Said { block: block.to_string(), line, words, ok });
+    app.ui_mut(tile).said = Some(Said { block: block.to_string(), line, words, ok, run: None });
 }
 
-/// The service ran the button (or refused to): what it says of the run, on the tile.
+/// How a run went, in words: the service's last word on it when it has one.
+fn went(label: &str, by: &Actor, reason: &str, message: &str) -> (String, bool) {
+    let more = if message.is_empty() { String::new() } else { format!(": {message}") };
+    match reason {
+        "failed" => (format!("{label} failed{more}"), false),
+        "stopped" => (format!("{label} was stopped{more}"), false),
+        _ => (format!("{label} ran, as {}{more}", by.label()), true),
+    }
+}
+
+/// The service took the button (or refused to): a run that has ended says how it went; one still running is waited
+/// for, by its id, and its end says the rest (`ended`).
 fn ran(app: &mut App, reply: Reply) {
     let text = |key: &str| reply.ctx[key].as_str().unwrap_or("").to_string();
     let (tile, block, label, line) = (text("tile"), text("block"), text("label"), reply.ctx["line"].as_u64().unwrap_or(0));
-    let (words, ok) = match &reply.result {
-        Ok(result) if result["state"] == "failed" => (format!("{label} failed: {}", result["message"].as_str().unwrap_or("its run says no more")), false),
-        Ok(result) => (format!("{label} ran, as {}{}", reply.by.label(), result["message"].as_str().filter(|m| !m.is_empty()).map_or(String::new(), |m| format!(": {m}"))), true),
-        Err(refusal) => (format!("{label} didn't run: {}", refusal.error), false),
-    };
-    say(app, &tile, &block, line, words, ok);
+    match &reply.result {
+        Ok(result) if result["state"] == "running" => {
+            say(app, &tile, &block, line, format!("{label}: running…"), true);
+            if let Some(said) = app.ui_mut(&tile).said.as_mut() { said.run = result["undo"].as_str().map(|run| (run.to_string(), label.clone(), reply.by.clone())) }
+            return;
+        }
+        Ok(result) => { let (words, ok) = went(&label, &reply.by, result["state"].as_str().unwrap_or("done"), result["message"].as_str().unwrap_or("")); say(app, &tile, &block, line, words, ok) }
+        Err(refusal) => say(app, &tile, &block, line, format!("{label} didn't run: {}", refusal.error), false),
+    }
     // What the run wrote is read now rather than when the watch says so.
+    app.wrote(&[Some(block)]);
+}
+
+/// A run ended: the tile that waits on it says how, under the button that started it.
+pub(in crate::actions) fn ended(app: &mut App, run: &str, reason: &str, message: &str) {
+    let waiting = app.tiles.iter().find_map(|(tile, ui)| ui.said.as_ref().and_then(|said| said.run.as_ref().filter(|(id, _, _)| id == run).map(|(_, label, by)| (tile.clone(), said.block.clone(), said.line, label.clone(), by.clone()))));
+    let Some((tile, block, line, label, by)) = waiting else { return };
+    let (words, ok) = went(&label, &by, reason, message);
+    say(app, &tile, &block, line, words, ok);
     app.wrote(&[Some(block)]);
 }
 
