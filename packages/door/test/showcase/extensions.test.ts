@@ -28,6 +28,7 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
+import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules and settings", () => {
   const h = useShowcaseScreen();
@@ -756,7 +757,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   test("extension settings (PIE-1343, PIE-1709): tidy's settings row says its defaults; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the settings screen at it, a command typed in place as one line; yo's try says its model's own words; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-settings" }, as: "test-agent" })).toMatchObject({ key: "ext-settings" });
-    await until(() => screen().includes("Agents can't set each other off"), "tidy's page", 10_000)
+    await until(() => marks["ext-settings"]!.every(m => screen().includes(m)), "tidy's page", 10_000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     const rowOf = async (query: string) => (await app.act({ action: "bar.open", args: { scope: "&", query }, as: "test-agent" }) as { rows: { label: string; detail: string }[] }).rows;
     // Its default is said from its schema; the file is the one on the host, in the preview, not on the row (PIE-1284).
