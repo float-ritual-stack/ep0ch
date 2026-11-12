@@ -97,6 +97,16 @@ export class AnswerTile implements Pane {
     if (reader instanceof ReaderPane && reading(reader)) return true;   // a door just restored: its note isn't read yet
     return reader instanceof ReaderPane && this.shown(reader.surface.draft?.text ?? reader.msg?.text ?? "") !== undefined;
   }
+  /**
+   * Its reader left this desk (closed, gathered into a group, put in the drawer, PIE-1716): it closes as an attached tile
+   * does, unless the reader is back by the time the close comes round, with no undo step of its own. Drawn, it sees that
+   * itself; a tab behind its reader isn't drawn, so the desk says so as the reader goes (PIE-1757).
+   */
+  readerLeft(desk: Pick<DeskApi, "paneNamed" | "dismiss">) {
+    if (this.closing || desk.paneNamed?.(this.source) instanceof ReaderPane) return;
+    this.closing = true;
+    queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+  }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
   private shownLive: boolean | null = null;
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
@@ -104,10 +114,7 @@ export class AnswerTile implements Pane {
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
     // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
     // back). The next ask opens one beside the reader where it is now.
-    if (!(reader instanceof ReaderPane)) {
-      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); }); }
-      return this.said("The answer's reader has gone.", w, h);
-    }
+    if (!(reader instanceof ReaderPane)) { this.readerLeft(desk); return this.said("The answer's reader has gone.", w, h); }
     this.closing = false;
     // Its reader hasn't read its note yet (a door just restored, CodeRabbit on #1435): nothing is gone, and nothing is
     // known yet that a save should change.

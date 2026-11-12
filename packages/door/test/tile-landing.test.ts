@@ -51,7 +51,10 @@ describe("where a new tile beside another lands: one rule, one try (PIE-1559)", 
     ["an answer beside a 44×16 edit: a tab behind it, the edit kept whole", 44, 16, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
     ["^T's picker (wide, dir right) beside a 44×40 reader: below, as before answers took a side (Codex on #1452)", 44, 40, { prefers: "width", dir: "right", needs: { cols: 6, rows: MIN_ROWS } }, "down"],
     ["an answer beside a 44×12 edit, below too short for the answer: a tab behind it, the edit kept whole (Codex on #1452)", 44, 12, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
-    ["an answer beside a 42×3 reader, nowhere reading: the place nearest reading, never 0 rows below", 42, 3, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "right"],
+    ["an answer beside a 42×3 edit, every split cutting it: a tab behind it, never 0 rows below", 42, 3, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
+    ["a tile with no tab to fall back on beside a 42×3 reader, nowhere reading: the place nearest reading, never 0 rows below", 42, 3, { prefers: "width", dir: "right", pair: true, weight: 0.45 }, "right"],
+    ...([7, 8, 9, 10] as const).map(rows => [`an answer beside a 44×${rows - 2} edit (a 44×${rows} door), every split cutting it: a tab behind it (the walk on 83245f03)`, 44, rows - 2, { prefers: "width" as const, dir: "right" as const, pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"] as [string, number, number, Omit<Beside, "kind" | "target">, string]),
+    ["an answer beside an 85×6 edit: right keeps its rows and 47 columns, so no tab", 85, 6, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "right"],
     ["the trail as a pair: below a tall reader", 60, 40, { prefers: "width", needs: { cols: 18, rows: MIN_ROWS }, strict: true, pair: true, weight: 0.45 }, "down"],
   ];
   for (const [what, cols, rows, b, where] of TABLE) test(`${what} (${cols}×${rows}): ${where}`, () => {
@@ -180,6 +183,24 @@ describe("an answer tile keeps a narrow reader's width (PIE-1757)", () => {
     expect({ below: answer.row > asked.row && answer.col === asked.col, cols: answer.cols }).toEqual({ below: true, cols: asked.cols });
     expect(new Map(readers().map(t => [t.name, t.rect.cols]))).toEqual(before);
     expect(d.answerSide(grow)).toBe("down");
+    (d as { dispose?: () => void }).dispose?.();
+  });
+
+  // The walk on 83245f03: a 44×8 reader, every split cutting it, gets its answer as a tab behind it; gathered into a group,
+  // the reader takes nothing hidden with it: the tab behind, never drawn to see its reader go, closes all the same.
+  test("a 44×8 reader: the answer a tab behind it; the reader gathered, the hidden answer closes", async () => {
+    const { ReaderPane } = await import("../src/desk/panes");
+    const area = { col: 0, row: 0, cols: 44, rows: 8 }, d = new Desk(undefined, { area });
+    Object.assign(d as object, { rootArea: area });
+    const reader = [...(d as unknown as { panes: Map<number, unknown> }).panes.values()].find(p => p instanceof ReaderPane) as InstanceType<typeof ReaderPane>;
+    for (const t of d.layoutGet().tiles as { name: string; kind: string }[]) if ((d as any).paneNamed(t.name) !== reader) await d.dispatch.act({ action: "tile.close", tile: t.name }, PERSON).catch(() => {});
+    const name = (d.layoutGet().tiles as { name: string }[])[0]!.name;
+    await d.answerTile(reader, ask, PERSON);
+    expect(d.answerSide(reader)).toBe("tab");
+    expect((d.layoutGet().tiles as { kind: string; rect: Rect }[]).find(t => t.kind === "reader")!.rect.cols).toBe(44);
+    await d.dispatch.act({ action: "tile.group", tile: name }, PERSON);
+    await Bun.sleep(0);
+    expect((d.layoutGet().tiles as { kind: string }[]).filter(t => t.kind === "answer")).toEqual([]);
     (d as { dispose?: () => void }).dispose?.();
   });
 });

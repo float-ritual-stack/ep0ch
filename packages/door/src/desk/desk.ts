@@ -716,7 +716,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (how === "end") return this.dropTile(id, by);
     if (!p) return;
     if (how === "rebuilt") { p.dispose?.(); tileRegistry.release(p); }
-    this.forgetTile(id, p);
+    this.forgetTile(id, p); if (how === "carry" && p instanceof ReaderPane) for (const a of this.panes.values()) if (a instanceof AnswerTile) a.readerLeft(this);   // once it's gone, each sees whether its own went: a tab behind it isn't drawn to (PIE-1757)
   }
   /**
    * What's out of step between the instances, the records kept by tile id and the LayoutState (PIE-1559): a tile the
