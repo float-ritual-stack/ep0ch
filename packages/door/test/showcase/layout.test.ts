@@ -1157,6 +1157,16 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect(d.pane("a").inner.pane("source")).toBe(source);
       expect(app.drawer.desk!.pane("source")).toBeUndefined();
     }
+    // On a locked screen the group stays: its shape is the lock's (CodeRabbit on #1475). Unlocked, its tile goes back in.
+    await d.dispatch.act({ action: "layout.lock", tile: "board", args: { on: true } }, { kind: "user" });
+    try {
+      await d.dispatch.act({ action: "tile.drawer", tile: "a/source", args: {} }, { kind: "user" });
+      await Bun.sleep(50);
+      expect(names()).toContain("a");
+    } finally { await d.dispatch.act({ action: "layout.lock", tile: "board", args: { on: false } }, { kind: "user" }); }
+    await app.dispatch.act({ action: "tile.drawer", tile: "source", args: { on: false } }, { kind: "user" });
+    await d.dispatch.act({ action: "layout.move", tile: "source", args: { into: "a" } }, { kind: "user" });
+    await until(() => !!(d.pane("a") as any)?.inner?.pane("source"), "source back in group A");
     // Its last tile closed: the group goes too, and the undo brings both back.
     await d.dispatch.act({ action: "tile.close", tile: "a/source", args: {} }, { kind: "user" });
     await until(() => !names().includes("a"), "group A gone with its tile");

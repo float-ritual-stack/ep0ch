@@ -736,11 +736,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (id === undefined) return;
     // This desk took part in that step already (the drawer a group's tile went to): the close is part of its entry, whose shape before has the group.
     const txn = step?.txn, open = !!txn && this.history.isOpen(txn), joined = !!txn && !!this.history.newest() && this.history.forTxn(txn) === this.history.newest();
-    if (step?.shape && !joined) this.settled = step.shape;
-    const close = (by?: Actor) => this.ask({ op: "close", tile: id, gone: true }, by), r = ((a: Result<number>) => (a.ok ? a : close()))(close(step?.by ?? USER));
-    if (r.ok && joined) this.asked.set(r, { ...this.asked.get(r)!, left: true });
-    if (r.ok) TXN.run({ ...TXN.getStore(), ...(txn ? { txn } : {}) }, () => { this.commit(r); this.tileLeaves(id, "end"); });
-    if (txn && !open) this.history.close(txn);
+    // Asked as any close of it by that actor (CodeRabbit on #1475): a locked screen, a policy or an agent's level keeps the group, said where it is.
+    const r = this.ask({ op: "close", tile: id }, step?.by ?? USER);
+    if (!r.ok) { this.ctx?.flash(`${this.nameOf(id)} stays, with nothing in it: ${r.refused}`); return this.redraw(); }
+    if (joined) this.asked.set(r, { ...this.asked.get(r)!, left: true }); else if (step?.shape) this.settled = step.shape;
+    TXN.run({ ...TXN.getStore(), ...(txn ? { txn } : {}) }, () => { this.commit(r); this.tileLeaves(id, "end"); }); if (txn && !open) this.history.close(txn);
     this.save(); this.redraw();
   }
   /**
