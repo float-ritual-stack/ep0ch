@@ -73,7 +73,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   "list.blocks": def({
     summary: "the lists drawn here (an inline ::links, an extension's list view, a links tile's rows): each one's number, title, ^name key, whether the person is in it, its filter and the row its preview shows, every row numbered (kind, text, the block it stands for, the selected one), and what each agent has picked or filtered in it. Reads only",
     keys: "",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { host }, actor) {
       const who = actorKey(actor), lists = host.lists();

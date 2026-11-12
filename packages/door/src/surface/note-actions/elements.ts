@@ -66,7 +66,7 @@ export const ELEMENT_DEFS = {
   }),
   "elements": def({
     summary: "list what [ ] steps through in this reader, in reading order: links, figure rows, embeds, comment marks (the current one marked)",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       await surface.whole();

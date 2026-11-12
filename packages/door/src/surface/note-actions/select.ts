@@ -31,7 +31,7 @@ export const SELECT_DEFS = {
   }),
   "blocks": def({
     summary: "list the code blocks, quotes and callouts this reader draws, in reading order: number, kind, size, note lines and first words (the current one marked). block.copy n= copies one's content",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       await surface.whole();

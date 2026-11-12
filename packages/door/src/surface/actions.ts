@@ -6,7 +6,8 @@ export { ActionRefused, actRequestOf, lineWords, type ActRequest } from "@ep0ch/
 // resolve, follow a link) and a host adds (open a note in a reader, move a card), with typed arguments.
 // Keys call them, and so does the control socket (`ep0ch-door act`), through the same code. An agent's
 // action is never silent: the status bar says "an agent (<id>) …", the reader it touched says what it
-// did, and what it writes is recorded as `author: agent` with its actor id.
+// did, and what it writes is recorded as `author: agent` with its actor id. A read (ActionDef.reads: layout.get,
+// view.get) changes nothing, so it says nothing (PIE-1772).
 import type { Actor } from "../socket";
 import { actorName, parseActor } from "@ep0ch/outline-core/attribution";
 import { checkToolArgs, closest, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
@@ -154,6 +155,14 @@ export interface ActionDef<A, H> {
   keys?: Keys;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
   touches: Touches;
+  /**
+   * An agent's run of it only reads (PIE-1772): it answers what is there and changes nothing, on screen or in the outline
+   * (layout.get, view.get, marks.list). So it says nothing on the person's screen: every other agent action is said there
+   * with who ran it (App.act). One that runs otherwise for whoever stands as the person (search opens the power bar,
+   * revisions its list, tile.info card= its card: an agent in yolo stands as them) is no read, nor is a run that writes
+   * anything (a mark, a setting, a hint shown). `actions` lists it as `reads`.
+   */
+  reads?: true;
   /** tile= names where something lands, rather than what this action works on. */
   landing?: true;
   /**
@@ -318,7 +327,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[]; /** The door's own words it takes besides `args` (ArgSpec.doorWord), by name. */ doorWords?: readonly string[]; /** The kind of tile it brings onto the screen (ActionDef.opens). */ opens?: string }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** An agent's run of it only reads, so it isn't said on the person's screen (ActionDef.reads). */ reads?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[]; /** The door's own words it takes besides `args` (ArgSpec.doorWord), by name. */ doorWords?: readonly string[]; /** The kind of tile it brings onto the screen (ActionDef.opens). */ opens?: string }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -360,7 +369,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
       // The door's own words are taken, never described as the part's (ArgSpec.doorWord).
       const all = Object.entries((d.args ?? {}) as Record<string, ArgSpec>), doorWords = all.filter(([, a]) => a.doorWord).map(([k]) => k);
       const args = doorWords.length ? Object.fromEntries(all.filter(([, a]) => !a.doorWord)) : d.args as Record<string, ArgSpec>;
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args, ...(doorWords.length ? { doorWords } : {}), scope: this.scope, touches: d.touches, ...(d.opens ? { opens: d.opens } : {}), replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args, ...(doorWords.length ? { doorWords } : {}), scope: this.scope, touches: d.touches, ...(d.reads ? { reads: true as const } : {}), ...(d.opens ? { opens: d.opens } : {}), replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 
@@ -790,11 +799,13 @@ export function agentWords(id: string): string {
  * A context whose flashes say who did it: while an agent's action runs (and when its save or send lands
  * later), every message it raises starts with "an agent (<id>) · ". Everything else passes through.
  */
-export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: Actor): T {
+export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: Actor, quiet = false): T {
   if (actor.kind !== "agent") return ctx;
   const prefix = `${agentLabel(actor)} · `;
   return new Proxy(ctx, {
     get(target, p) {
+      // An agent's read (ActionDef.reads, PIE-1772) says nothing: what it would say to the person (status.speed's line) is its answer.
+      if (p === "flash" && quiet) return () => {};
       // How long it stays (Ctx.flash's `ms`) passes through: the shell's "q goes back" is meant to stay 6s.
       if (p === "flash") return (m: string, ...rest: unknown[]) => (target.flash as (m: string, ...r: unknown[]) => void).call(target, m.startsWith(prefix) ? m : prefix + m, ...rest);
       const v = Reflect.get(target, p, target);

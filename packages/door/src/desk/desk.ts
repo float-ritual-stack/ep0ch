@@ -85,7 +85,7 @@ import {
   agentLevel, allTiles, answerLands, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
+  foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -5892,14 +5892,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile in a container that shuts its dock instead (the board's outline and backlinks, `shuts`): it does.
     if (chainOf(this.root, t.id).some(c => c.policy?.shuts)) return this.shutDockOf(t, actor);
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
-    const r = this.ask({ op: "close", tile: t.id }, actor);
+    const r = this.ask({ op: "close", tile: t.id, heir: true }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    if (nn?.clearsOnClose?.()) {
-      nn.clearContent!();
-      this.doorKeys.stopTyping(this, nn);
-      this.redraw();
-      return { ...this.tileAnswer(t.id), state: "empty" };
-    }
+    if (nn?.clearsOnClose?.()) { nn.clearContent!(); this.doorKeys.stopTyping(this, nn); this.redraw(); return { ...this.tileAnswer(t.id), state: "empty" }; }
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {
@@ -5909,8 +5904,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = this.panes.get(t.id)!.kind;
     const n = String(this.numberOf(t.id));
     // Retiring the source's peeks belongs to the same undo as closing the source.
-    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
-    TXN.run({ ...scope, txn }, () => { this.commit(r); this.tileLeaves(t.id, "end", actor); });
+    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`, closing = this.panes.get(t.id), shown = this.showing(closing);
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.handNote(r.answer, closing, shown, actor); this.tileLeaves(t.id, "end", actor); });
     if (!scope?.txn) this.history.close(txn);
     // Where the person's keys went (the top float or the container's tile, home, or back to the tile it was opened from)
     // is the close's answer, applied as it was committed (`commit`).
@@ -5918,6 +5913,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...answer, pane: n, kind };
   }
 
+  /** The close's heir (landing.ts's closeHeir, PIE-1772: here, or across an edge as an open finds it) shows the closed reader's note `m`, placed as any open into it is, and takes its trail. */
+  private handNote(a: Record<string, unknown>, from: Pane | undefined, m: Msg | null, by: Actor) {
+    const across = typeof a.heirAcross === "string" ? this.resolveTile(a.heirAcross, { shown: true }) : null, d = across?.desk ?? this, id = across ? d.idNamed(across.tile.id!) : typeof a.heir === "string" ? this.idNamed(a.heir) : undefined, to = id === undefined ? undefined : d.panes.get(id);
+    try { if (m && to instanceof ReaderPane && (!across || heirTakes(id!, d.layoutCtx(by))) && d.placeNote(m, { from: id!, to: id!, note: m.id, keys: false }, by) && from instanceof ReaderPane) to.surface.takeHistory(from.surface); } catch (e) { this.ctx.flash(`${d.nameOf(id!)} couldn't take ${subject(m!)}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
   private async closeNewNote(id: number, rd: ReaderPane) {
     if (this.entered.in(rd)) this.entered.clear();
@@ -7090,7 +7090,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
-    if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
+    if (actor.kind === "agent" || !this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
     this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);
@@ -8325,9 +8325,9 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
     args: { text: { type: "string", optional: true, about: "words to show; absent lists the tile's controls" }, for: { type: "string", optional: true, kind: "tile", about: "the tile to anchor beside" } },
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
-  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
+  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", reads: true, touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.never": def({ summary: "show this hint on the status line from now on", keys: "alt+N, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintNever(h.reader) }),
-  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
+  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", reads: true, touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
   "hints.set": def({ summary: "keep a hint as a card, a status line or off across restarts", keys: [{ keys: "c s o", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on a hint's setting" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: { id: { type: "string", about: "hint id from hints.list" }, to: { type: "string", about: "card, status or off" } }, examples: [{ act: "hints.set id=tile.collapse to=status", does: "keeps folding hints on the status line" }], run: (a, h) => h.d.hintsSet(a.id, a.to as HintSetting) }),
   "hints.reset": def({ summary: "reset all personal hint settings to their defaults", keys: [{ keys: "R", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on reset" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintsReset() }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
@@ -8361,7 +8361,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "screen.spec": def({
     summary: "the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind), key map, hint, band and where opens land: the data a screen note holds. Nothing on screen moves; layout.get says how it's laid out now",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return { spec: specData(d.spec) }; },
   }),

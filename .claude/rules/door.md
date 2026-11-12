@@ -26,7 +26,8 @@ Claude Code loads it when you touch a file under `packages/door/`; other tools r
   (`packages/door/src/surface/actions.ts`); the key binding and the click call the same action. The parity tests
   (`test/parity-*.test.ts`) catch one that isn't.
 - An agent's action never takes the person's focus, selection or keys, and it is always attributed
-  (`author: agent` with its actor id, and said on screen).
+  (`author: agent` with its actor id, and said on screen). A read says nothing: its `ActionDef` declares `reads`
+  (PIE-1772), never a list in the toast code.
 - Snapshots that changed are looked at. Interaction changes get a real-pane pass (the recipe is in the ep0ch-core
   skill).
 

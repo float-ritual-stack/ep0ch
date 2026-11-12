@@ -32,7 +32,7 @@ export const PROPS_DEFS = {
   }),
   "props.copy": def({
     summary: "a property's value, returned (the person's own y copies it to their clipboard; an agent's never does)", keys: "i, tab, y",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: ROW_ARGS,
     examples: [
       { act: "props.copy key=sun", does: "returns the sun property's value; the person's clipboard gets it too" },

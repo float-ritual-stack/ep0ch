@@ -499,6 +499,20 @@ export class Dispatcher {
     return def ? { ...def, keys: withBound(name, def.keys, effective(this.host.bindings?.() ?? [])) } : def;
   }
 
+  /**
+   * Whether `req` only reads (ActionDef.reads, PIE-1772): the def of the set that would run it, as `refusedNow` finds it
+   * (a tile kind's, a mounted screen's), declares it. An agent's run of a read isn't said on the person's screen.
+   */
+  reads(req: ActRequest, actor: Actor): boolean {
+    try {
+      req = this.mountedRequest(this.pointed(rewritten(req, actor), actor));
+      const r = this.owner(req, actor);
+      if (!r) return false;
+      if (!("set" in r)) { const d = r.delegate(req); return !!d?.reads(r.request ? r.request(req) : req, actor); }
+      return r.set.def(req.action)?.reads === true;
+    } catch { return false; }
+  }
+
   unknownAction(name: string): string {
     // An action something not installed here would answer (an extension's `ext.form.fill`, a kit's script): its name and install.
     const missing = notInstalled(name);
@@ -866,12 +880,12 @@ export class Dispatcher {
     const trace = beginTrace(req.action, tile);
     return messageContext.run({ ...messageContext.getStore(), action: req.action, tile, trace, note: at.tile?.shows ?? undefined }, () => {
       for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
-      const hooked = this.host.beforeAction?.(req.action);
+      const quiet = actor.kind === "agent" && def.reads === true, hooked = !quiet && this.host.beforeAction?.(req.action);   // an agent's read touches nothing the person has up, a hint card included (PIE-1772)
       if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
       const confirmation = ++this.nextConfirmation;
       const ctx = this.host.ctx();
       const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
-      const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+      const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor, quiet) : ctx, ...(given !== undefined ? { given } : {}) });
       // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
       const run = () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
       const recordedArgs = { ...seen };

@@ -133,7 +133,8 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   recorded (attribution, `[from::]`, revisions, undo), never what permits it.
 - **Mouse and agents are first-class.** Every action works by mouse, keys and `act` (one `ActionSet` action). An
   agent's action never takes the person's focus, selection or keys, and is always attributed (`author: agent` with its
-  actor id, and said on screen).
+  actor id, and said on screen). A read that changes nothing (`layout.get`, `view.get`: its `ActionDef` says `reads`)
+  says nothing (PIE-1772).
 
 ## Capture is more reliable than interpretation
 
