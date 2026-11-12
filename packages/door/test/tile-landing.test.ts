@@ -49,6 +49,8 @@ describe("where a new tile beside another lands: one rule, one try (PIE-1559)", 
     ["an answer as a pair asked above a narrow reader: above", 44, 30, { prefers: "width", dir: "up", pair: true, weight: 0.45 }, "up"],
     ["an answer beside a 44×30 edit: below, the edit keeping room to type", 44, 30, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "down"],
     ["an answer beside a 44×16 edit: a tab behind it, the edit kept whole", 44, 16, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
+    ["^T's picker (wide, dir right) beside a 44×40 reader: below, as before answers took a side (Codex on #1452)", 44, 40, { prefers: "width", dir: "right", needs: { cols: 6, rows: MIN_ROWS } }, "down"],
+    ["an answer beside a 44×12 edit, below too short for the answer: a tab behind it, the edit kept whole (Codex on #1452)", 44, 12, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
     ["an answer beside a 42×3 reader, nowhere reading: the place nearest reading, never 0 rows below", 42, 3, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "right"],
     ["the trail as a pair: below a tall reader", 60, 40, { prefers: "width", needs: { cols: 18, rows: MIN_ROWS }, strict: true, pair: true, weight: 0.45 }, "down"],
   ];

@@ -58,7 +58,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
  * - `width`: a list or program that wants width (the keys window, the trail, ctrl+t's picker): `splitAxis` wide; below a
  *   tile too narrow to halve into `needs.cols`, along the screen's bottom edge one already narrower; the screen's edge
  *   last, which a container that takes only its own kind never refuses (none for a pair: it stays with its tile). With
- *   a `dir` (an answer tile, on the side last chosen, PIE-1757): that side while halving leaves the target `needs.cols`,
+ *   a `dir` on a pair (an answer tile, on the side last chosen, PIE-1757): that side while halving leaves the target `needs.cols`,
  *   else below, so a narrow reader's edit keeps its width; asked above or below, it holds at any width
  * - `height`: under it, beside when it's too short to halve (the tune inspector)
  * Nothing reading: `strict` refuses (the trail, whose reader has a history picker instead); else the place nearest reading.
@@ -91,11 +91,12 @@ export function besideOrder<I>(b: Beside<I>, r: Rect | undefined): Place<I>[] {
     case "height": return at(r && r.rows < MIN_ROWS * 2 ? ["right", "down"] : ["down", "right"]);
     case "width": {
       const min = b.needs?.cols ?? OPEN_READS.cols;
-      // Above or below keeps the target its width, so a side asked that way holds however narrow it is.
-      const across = b.dir === "up" || b.dir === "down" ? b.dir : "down";
+      // A pair (an attached tile, the side last chosen) takes its side; above or below keeps the target its width, so a
+      // side asked that way holds however narrow it is. Any other opener's `dir` is no side for width (^T's picker).
+      const side = b.pair ? b.dir : undefined, across = side === "up" || side === "down" ? side : "down";
       if (r && r.cols < min) return at(["edge-down", across, "right"]);
       if (r && Math.floor(r.cols / 2) < min) return at([across, "edge-down", "right"]);
-      if (b.dir) return at([b.dir, b.dir === across ? "right" : "down", "edge-right"]);
+      if (side) return at([side, side === across ? "right" : "down", "edge-right"]);
       return at(r && splitAxis(r, true) === "row" ? ["right", "down", "edge-right"] : ["down", "right", "edge-right"]);
     }
   }
@@ -120,7 +121,7 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
   let refused: string | null = null, first: { d: D; at: Place<I>; why: string } | null = null;
   let squeezed = false, best: { d: D; at: Place<I>; fit: number } | null = null;
   for (const at of order) {
-    // A tab behind the target is for keeping it room (`keeps`): taken only when a place the tile reads in would squeeze it.
+    // A tab behind the target is for keeping it room (`keeps`): taken only when a place would squeeze a target that has it.
     if (at.kind === "tabs" && b.tab && !squeezed) continue;
     const d = attempt(s, { ...op, at }, ctx);
     if (typeof d === "string") { refused ??= d; continue; }
@@ -133,7 +134,9 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
       d.answer = { ...d.answer, where: whereWord(at), ...(first ? { why: `${first.why}, so it went ${at.kind === "split" && at.dir === "down" ? "below it" : at.kind === "edge" ? `along the screen's ${at.dir} edge` : at.kind === "tabs" ? `into a tab behind ${name}` : `${PLACE_WORDS[(at as { dir: Dir }).dir]} ${name}`}` } : {}) };
       return d;
     }
-    squeezed ||= short && size.cols >= needs.cols && size.rows >= needs.rows;
+    // The target had its room whole: a tab behind it keeps that, where a split here would take it (Codex on #1452: a
+    // 44×12 edit, below too short for the answer to read).
+    squeezed ||= short && !!was && was.cols >= (b.keeps?.cols ?? 0) && was.rows >= (b.keeps?.rows ?? 0);
     // Nothing reading, the place nearest reading is taken (PIE-1757: below a 42×3 reader, an answer tile 0 rows tall).
     const fit = Math.min(size.cols / needs.cols, size.rows / needs.rows);
     if (!best || fit > best.fit) best = { d, at, fit };
