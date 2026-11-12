@@ -260,6 +260,31 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     assert_eq!(sits_as_laid(&rt), ["tree", "reader", "props", "backlinks"]);
 }
 
+/// A screen opened by mistake is taken back whole: `layout.undo` puts back the arrangement and the screen it is of,
+/// so a save after it is never another screen's note written over with this one's tiles.
+#[test]
+fn undo_after_a_screen_is_opened_goes_back_to_the_screen_it_was() {
+    let mut g = garden(ok());
+    screens_are(&mut g, json!([screen_row("beds", json!({ "focus": "bed", "root": leaf("reader", "bed") }), json!([]))]));
+    assert!(act(&mut g.app, "tile.split").ok);
+    let before = g.app.layout.save();
+    assert!(act(&mut g.app, "screen.open name=beds").ok);
+    assert_eq!((g.app.screen.name.as_str(), g.app.screen.note()), ("beds", Some(("beds-note", 2))));
+    assert!(act(&mut g.app, "layout.undo").ok);
+    assert_eq!(g.app.layout.save(), before, "the arrangement is the one before the screen was opened");
+    assert_eq!((g.app.screen.name.as_str(), g.app.screen.note()), ("desk", None), "and it is that screen's again, not the one undone");
+    let saved = act(&mut g.app, "screen.save");
+    assert!(!saved.ok && saved.said.contains("ships with this window"), "a save now is the desk's, never written over beds: {}", saved.said);
+    assert!(!g.asked.borrow().iter().any(|a| a["action"] == "screens.save"));
+    // One more step back is the split, on the same screen.
+    assert!(act(&mut g.app, "layout.undo").ok);
+    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()), ("desk", vec!["tree", "reader", "props", "backlinks"]));
+    // A reset is the same screen read again: undone, the screen stays as it is served now.
+    assert!(act(&mut g.app, "screen.open name=beds").ok && act(&mut g.app, "tile.split").ok && act(&mut g.app, "screen.reset").ok);
+    assert!(act(&mut g.app, "layout.undo").ok);
+    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.len()), ("beds", 2));
+}
+
 /// The host says a line to a drawn window, and what follows lands on its next frames.
 fn host_says_window(rt: &mut Runtime<App>, said: &Said, line: Value) {
     said.borrow_mut().push_back(line);

@@ -73,7 +73,7 @@ impl App {
         let shape = |l: &Layout| { let mut l = l.clone(); l.focus = String::new(); l.touched = Vec::new(); l };
         if changed && shape(&next) != shape(&self.st.layout) {
             if self.st.journal.len() >= JOURNAL { self.st.journal.remove(0); }
-            self.st.journal.push(self.st.layout.clone());
+            self.st.journal.push((self.st.layout.clone(), None));
         }
         self.st.layout = next;
         let here = self.st.layout.all();
@@ -134,7 +134,9 @@ fn resize(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 fn undo(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     // The layout's own rules say whether another arrangement may take this one's place.
     if let Err(why) = app.may_replace("the arrangement before", by) { return Outcome::refused(why) }
-    let Some(before) = app.st.journal.pop() else { return Outcome::refused("the arrangement is as it started: there is nothing to undo") };
+    let Some((before, screen)) = app.st.journal.pop() else { return Outcome::refused("the arrangement is as it started: there is nothing to undo") };
+    // A step that opened another screen is taken back whole: the arrangement is the screen's it was of.
+    if let Some(screen) = screen { app.st.screen = screen }
     // The keys stay on a tile that is still there.
     let focus = Some(app.layout.focus.clone()).filter(|tile| before.all().contains(tile)).unwrap_or_else(|| before.focus.clone());
     let mut before = before;

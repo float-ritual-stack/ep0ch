@@ -38,11 +38,12 @@ fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
     if let Some(e) = &app.editing && app.unsaved() && next.spec(&e.tile).is_none() { return Outcome::refused("a note is open with unsaved text: save or discard it before the screen changes under it") }
     if app.editing.as_ref().is_some_and(|e| next.spec(&e.tile).is_none()) { app.st.editing = None }
     let said = screen.problems.iter().filter(|p| p.tile.is_none()).map(|p| p.said.clone()).collect::<Vec<_>>().join(" · ");
-    app.st.screen = screen;
-    let before = app.st.layout.clone();
+    // What was there is one step back: the arrangement, and the screen it was of when this opens another (a reset
+    // is the same screen, read again).
+    let was = std::mem::replace(&mut app.st.screen, screen);
+    let before = (app.st.layout.clone(), Some(was).filter(|was| was.name != app.st.screen.name));
     app.st.layout = Layout::default();
     app.arranged(next, true);
-    // What was there is one step back.
     if let Some(last) = app.st.journal.last_mut() { *last = before } else { app.st.journal.push(before) }
     if !said.is_empty() { app.st.notice = Some(Notice::problem(said.clone())) }
     Outcome { said, ..Outcome::answer(json!({ "screen": app.screen.name, "tiles": app.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>() })) }

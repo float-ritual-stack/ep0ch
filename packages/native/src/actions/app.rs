@@ -116,8 +116,9 @@ pub struct State {
     pub tiles: HashMap<Id, TileUi>,
     /// The area the layout fills, in cells: the window's, as the shell last measured it.
     pub area: Rect,
-    /// The arrangements before each change, oldest first: what `layout.undo` goes back through.
-    pub journal: Vec<Layout>,
+    /// The arrangements before each change, oldest first: what `layout.undo` goes back through. A step that opened
+    /// another screen holds the screen it left, so undone it is that screen's arrangement again.
+    pub journal: Vec<(Layout, Option<Screen>)>,
     /// The tile the act being run is aimed at (`tile=`).
     pub aimed: Option<Id>,
     /// The border being dragged (its split and which border): its moves are one change to go back through.
