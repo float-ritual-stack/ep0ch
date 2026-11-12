@@ -70,10 +70,28 @@ describe("the tables ask everything the door's layout decides", () => {
     expect(gated.filter(op => !byAgent.has(op)).sort()).toEqual([]);
   });
 
+  // What the source declares, read where it is declared: the kinds of node a saved tree has (outline-core's saved forms)
+  // and the places a tile can be put (`At`, its `Place`s and a `Beside`, with the ways a `Beside` prefers).
+  const core = readFileSync(join(import.meta.dir, "../../outline-core/src/screen-spec.ts"), "utf8");
+  const declared = (text: string, from: string, to: string, word: string): string[] => {
+    const at = text.indexOf(from);
+    return at < 0 ? [] : [...new Set([...text.slice(at, text.indexOf(to, at)).matchAll(new RegExp(`\\b${word}: "([\\w.-]+)"`, "g"))].map(m => m[1]!))].sort();
+  };
+  const src = (file: string) => readFileSync(join(import.meta.dir, "../src/desk", file), "utf8");
+  const nodeKinds = [...new Set([...declared(core, "// ── saved forms ──", "\nconst DIRS", "t"), ...declared(core, "export interface TileSpec {", "\n}", "t")])].sort();
+  const placeKinds = [...new Set([...declared(source, "export type At<I = number> =", ";\n", "kind"), ...declared(src("layout.ts"), "export type Place<I> =", ";\n", "kind"), ...declared(src("landing.ts"), "export interface Beside<I = number> {", "\n}", "kind")])].sort();
+  const prefers = [...src("landing.ts").slice(src("landing.ts").indexOf("export type Prefers =")).split(";")[0]!.matchAll(/"([\w-]+)"/g)].map(m => m[1]!);
+
+  test("the source still declares its node kinds and places where this test reads them", () => {
+    for (const kind of ["leaf", "split", "tabs"]) expect(nodeKinds).toContain(kind);
+    for (const kind of ["split", "tabs", "edge", "beside"]) expect(placeKinds).toContain(kind);
+    expect(prefers.length).toBeGreaterThan(3);
+  });
+
   test("every container kind, floats too, in both tables", () => {
     for (const rows of [layoutRows, placeRows] as Row[][]) {
       const kinds = new Set(rows.flatMap(r => nodes(r.layout.root).map(n => n.t)));
-      expect([...kinds].sort()).toEqual(["columns", "dock", "flow", "leaf", "split", "tabs"]);
+      expect([...kinds].sort()).toEqual(nodeKinds);
       expect(rows.some(r => r.layout.floats?.length)).toBe(true);
       expect(new Set(rows.flatMap(r => nodes(r.layout.root).filter(n => n.t === "split").map(n => n.dir)))).toEqual(new Set(["row", "col"]));
     }
@@ -100,8 +118,8 @@ describe("the tables ask everything the door's layout decides", () => {
 
   test("every place a new tile can be put", () => {
     const at = new Set(layoutRows.filter(r => r.op.op === "open" && r.op.at).map(r => r.op.at.kind));
-    expect([...at].sort()).toEqual(["beside", "edge", "float", "in", "kept", "next", "split", "tabs"]);
-    expect(new Set(layoutRows.filter(r => r.op.op === "open" && r.op.at?.kind === "beside").map(r => r.op.at.prefers))).toEqual(new Set(["there", "beside", "axis", "width", "height"]));
+    expect([...at].sort()).toEqual(placeKinds);
+    expect(new Set(layoutRows.filter(r => r.op.op === "open" && r.op.at?.kind === "beside").map(r => r.op.at.prefers))).toEqual(new Set(prefers));
     expect(layoutRows.some(r => r.op.op === "open" && r.op.placement)).toBe(true);
   });
 
