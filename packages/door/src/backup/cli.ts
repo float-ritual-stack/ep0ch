@@ -7,7 +7,7 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { blockCount, drill, drillHere, hostCopy, hostStartCommand, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
+import { blockCount, drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, mirror, runAll, snapshot, takeLock } from "./jobs";
 import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
@@ -55,6 +55,7 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
     case "snapshot": {
       const s = readBackupState(c.state);
       const r = await snapshot(c, s, { say, force: args.includes("--force"), ...(args.includes("--verbose") ? { verbose: true } : {}) });
+      if (r.uploaded.length) await maintain(c, s, { uploaded: true, say });
       writeBackupState(c.state, s);
       return r.failed.length ? 1 : 0;
     }

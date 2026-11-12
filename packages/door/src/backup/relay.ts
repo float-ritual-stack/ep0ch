@@ -131,7 +131,7 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     const up = await backupFile(c, repo, o.part, o.outline, seq, got, o.machine);
     if ("error" in up) return { ok: true, mirror, uploadError: up.error };
     // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
-    await forget(c, repo, false, { host: o.machine, wait: "30s" });
+    await forget(c, repo, { host: o.machine, wait: "30s" });
     return { ok: true, mirror, snapshot: up.id };
   } finally {
     for (const f of tmpFiles) rmSync(f, { force: true });
