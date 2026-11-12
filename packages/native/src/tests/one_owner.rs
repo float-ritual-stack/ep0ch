@@ -68,7 +68,8 @@ fn state_changes_only_under_actions_and_the_store() {
     // Everywhere else, a handler that gets the App does one thing with it: runs an act line.
     for (path, text) in texts.iter().filter(|(path, _)| !path.starts_with("actions/") && !["store.rs", "keys.rs", "control.rs", "main.rs"].contains(&path.as_str())) {
         for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
-            let hands_on = line.contains(".act(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            // (`act_in` is an act line run from the tile it was pressed in: the dispatcher's own, as `act` is.)
+            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
             assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
         }
     }
@@ -261,7 +262,13 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
     none("a second writer of an act line's word", strays("pub fn word(value", |path| path == "actline.rs"));
     none("a value quoted for an act line by hand (JSON's quoting reads back as another value)", ["json!(value).to_string()", "json!(s).to_string()"].iter().flat_map(|quote| strays(quote, |_| false)).collect());
     none("a request written as a line outside the grammar's own file (build a `Request` and call `act_request`)", calls("line_of", |path| path == "actline.rs" || path == "parts.rs" || path == "tiles/page.rs" || path == "tiles/prim.rs"));
-    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_request(").count() == 2, "a button's act and a script's call are requests handed to the dispatcher, never a line read again");
+    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 2, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    // Where a press happened is no name for a tile: what comes from a tile goes through `App::act_from`, the one place
+    // that says whether it is about that tile, and nothing writes a `tile=` onto a line or a request for it.
+    // (The shell's drag names the tile dragged, and the grammar's own file writes a request's `tile` back as its word.)
+    none("a tile written onto a line for where it was pressed (hand the request to `App::act_from`)", ["{} tile={}", "{line} tile={}", "{act} tile={}"].iter().flat_map(|written| strays(written, |path| path == "shell.rs" || path == "actline.rs")).collect());
+    none("a request aimed at the tile it comes from outside the dispatcher (`App::act_from`)", ["request.tile = Some(", "tile: Some(app.layout.name("].iter().flat_map(|aimed| strays(aimed, |_| false)).collect());
+    assert_eq!(code("actions/mod.rs").matches("req.tile = Some(").count(), 1, "the dispatcher's `act_from` is the one place a request takes the tile it comes from");
 
     // What a list is, and how its rows sit under headers: one port of `listSections`, one drawer of a row.
     none("a second copy of a list's sections", strays("fn sections(", |path| path == "page.rs"));

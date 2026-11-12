@@ -61,7 +61,7 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if by.is_person() && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
         // The rule's action is a request as it stands (its arguments are data): run as one, from the tile it was made in.
         let given = rule.as_ref().and_then(|rule| rule["args"].as_object()).cloned().unwrap_or_default();
-        return app.act_request(crate::actline::Request { action: action.to_string(), tile: Some(app.layout.name(&from)), by: None, args: given }, by.clone());
+        return app.act_from(crate::actline::Request { action: action.to_string(), tile: None, by: None, args: given }, &app.layout.name(&from), by.clone());
     }
     let parent = args.text("near").map(str::to_string).or_else(|| app.subject());
     if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.target(About::Tree)) { app.ui_mut(&tree).unfolded.insert(p.clone()); }

@@ -63,8 +63,8 @@ pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     // The row's own act line, as the request it reads as, from this tile: where a note lands is the layout's to
     // say, and who may run it the dispatcher's.
-    let request = match crate::actline::parse(&line) { Ok(request) => crate::actline::Request { tile: Some(app.layout.name(&tile)), ..request }, Err(why) => return Outcome::refused(format!("the row {} runs a line that doesn't read: {}", row.label, why.0)) };
-    let ran = app.act_request(request, by.clone());
+    let request = match crate::actline::parse(&line) { Ok(request) => request, Err(why) => return Outcome::refused(format!("the row {} runs a line that doesn't read: {}", row.label, why.0)) };
+    let ran = app.act_from(request, &app.layout.name(&tile), by.clone());
     if ran.ok && folder { fold(app, &tile, &row.id, Some(true)) }
     Outcome { answer: json!({ "ran": line, "answer": ran.answer }), ..ran }
 }

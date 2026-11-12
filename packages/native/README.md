@@ -136,7 +136,9 @@ src/ (Rust, Rune)                                      the outline host
   the one named, else the one with the keys when it is of that sort, else the nearest; a tile named that is not
   of the sort is refused), checks the actor against what the row touches there, runs it and records the step. A
   request that was never a line (a script's call, a row's pick) goes in as it is (`act_request`); a line is
-  written by one writer (`actline::word`). `App`'s state is
+  written by one writer (`actline::word`). A press comes from its tile without naming it (`App::act_from`): a
+  note's button that edits runs in its reader, and one that folds the tree or sorts a list runs where the same
+  line typed in the bar would. `App`'s state is
   private to `actions/`: a view reads everything and changes nothing except by a line.
 - **An action describes itself** (`actions/row.rs`, outline-core's `ActionRow`): its name, summary, arguments,
   what it touches, its keys and its menu labels. Nothing restates them: a button names its act line and is

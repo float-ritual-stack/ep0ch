@@ -215,6 +215,21 @@ impl App {
         outcome
     }
 
+    /// Runs a request that comes from a tile and may name none: a button pressed in a note, a row picked in a list, a
+    /// script's call, a press a drawer drew. A tile it names itself is the one it runs in (`act_request` holds it to
+    /// that). Naming none, it is about the tile it comes from when its action acts in a tile of that sort (a note's
+    /// button that edits, a tree's row that opens); else it names none, and is about the tile the one rule finds
+    /// (`App::target`), as the same line typed in the bar would be: where a press happened is no name for a tile.
+    pub fn act_from(&mut self, mut req: actline::Request, from: &str, by: Actor) -> Outcome {
+        if req.tile.is_none() && let Some(action) = find(&req.action) && self.layout.named(from).is_some_and(|tile| self.is_a(&tile, action.about)) { req.tile = Some(from.to_string()) }
+        self.act_request(req, by)
+    }
+
+    /// Runs a line pressed in a tile, as `act_from` runs a request: what a drawer's press is.
+    pub fn act_in(&mut self, line: &str, from: &str, by: Actor) -> Outcome {
+        match actline::parse(line) { Ok(req) => self.act_from(req, from, by), Err(_) => self.act(line, by) }
+    }
+
     /// The tile an address names in this window, as `by` says it (`^` is from the tile with the person's keys):
     /// the layout's resolver, asked by every argument that names a tile.
     pub(in crate::actions) fn tile_named(&self, address: &str, by: &Actor) -> Result<String, String> {

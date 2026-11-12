@@ -76,6 +76,39 @@ fn a_button_whose_act_line_this_window_has_runs_here_as_whoever_pressed_and_says
     assert!(app.ui(&app.reader().unwrap()).said.as_ref().unwrap().words.ends_with("as an agent (compost-agent)"));
 }
 
+/// A press comes from its tile; it doesn't name it. A note's button whose act is about another sort of tile (a
+/// tree's fold, a list's sort) runs where the same line typed in the bar would (the one rule, `App::target`), never
+/// refused for the reader it was pressed in. A line that names a tile itself is still held to it, and an act about
+/// a note runs in the reader the button is in, whichever tile has the keys.
+#[test]
+fn a_button_s_act_about_another_sort_of_tile_runs_where_the_one_rule_says_not_refused_for_the_reader_it_is_in() {
+    let button = |line: u64, label: &str, act: &str| part("example", "button", line, json!({ "name": "button" }), json!({ "type": "button", "label": label, "act": act }));
+    let mut rt = example_window(&json!({ "page": { "title": "Rota", "text": "Rota", "chips": [], "hero": null, "parts": [
+        button(1, "Unfold the plot", "tree.fold id=example open=true"),
+        button(2, "Sort the outline", "list.sort by=title"),
+        button(3, "Sort the reader", "list.sort by=title tile=reader"),
+        button(4, "Write it", "edit"),
+    ] } }));
+    let tree = rt.state.layout.named("tree").expect("the desk has a tree");
+    let pressed = |rt: &mut rune::Runtime<crate::actions::App>, label: &str| { let line = format!("button.press label=\"{label}\""); let mut out = None; rt.update(|s, _| out = Some(s.act(&line, crate::actions::Actor::Person))); rest(rt); out.unwrap() };
+    let folded = pressed(&mut rt, "Unfold the plot");
+    assert!(folded.ok && rt.state.ui(&tree).unfolded.contains("example"), "a fold pressed in a note unfolds the tree: {}", folded.said);
+    let sorted = pressed(&mut rt, "Sort the outline");
+    assert!(sorted.ok && rt.state.ui(&tree).chosen.get("sort").map(String::as_str) == Some("title"), "a sort pressed in a note sorts the list the one rule finds: {}", sorted.said);
+    // The step is the act as it ran: it named no tile, and none was written into it.
+    let step = rt.state.steps.iter().rev().find(|step| step.action == "list.sort").unwrap();
+    assert_eq!(step.line(), "list.sort by=title");
+    // A tile the line names itself is the one it runs in, or it is refused: never swapped.
+    let wrong = pressed(&mut rt, "Sort the reader");
+    assert!(!wrong.ok && wrong.said.contains("reader is no list"), "{}", wrong.said);
+    // An act about a note runs in the reader the button is in, though the tree has the keys.
+    rt.update(|s, _| { s.act("tile.focus tile=tree", crate::actions::Actor::Person); });
+    let edited = pressed(&mut rt, "Write it");
+    assert!(edited.ok, "{}", edited.said);
+    assert_eq!(rt.state.editing.as_ref().map(|e| rt.state.layout.name(&e.tile)).as_deref(), Some("reader"));
+    assert_eq!(rt.state.steps.iter().rev().find(|step| step.action == "edit").unwrap().line(), "edit tile=reader");
+}
+
 #[test]
 fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_window_is_run_and_answered() {
     let Garden { app, asked, said, .. } = garden(ok());

@@ -49,10 +49,10 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     let read = actline::parse(&act).ok();
     let here = part["sequence"] != true && read.as_ref().is_some_and(|req| super::find(&req.action).is_some());
-    if let Some(mut request) = read.filter(|_| here) {
-        // Its act line as the request it reads as, aimed at the tile it was pressed in unless it names one itself.
-        if request.tile.is_none() { request.tile = Some(name.clone()) }
-        let outcome = app.act_request(request, by.clone());
+    if let Some(request) = read.filter(|_| here) {
+        // Its act line as the request it reads as, from the tile it was pressed in: about that tile when its action
+        // acts in a tile of that sort, unless it names one itself (`App::act_from`).
+        let outcome = app.act_from(request, &name, by.clone());
         let did = if outcome.ok { format!("{label} ran {act}{}, as {}", if outcome.said.is_empty() { String::new() } else { format!(": {}", outcome.said) }, by.label()) } else { format!("{label} didn't run {act}: {}", outcome.said) };
         say(app, &tile, &block, line, did, outcome.ok);
         return Outcome { answer: json!({ "ran": "here", "act": act, "ok": outcome.ok, "answer": outcome.answer }), ..outcome };
@@ -126,7 +126,9 @@ pub(in crate::actions) fn called(app: &mut App, at: &OutlineAt, call: &Call) {
     }
     // `tile` among its arguments names the tile, as `tile=` on a line does.
     let named = args.remove("tile").and_then(|tile| tile.as_str().map(str::to_string));
-    let outcome = app.act_request(actline::Request { action: call.action.clone(), tile: named.or_else(|| call.tile.clone()), by: None, args }, by);
+    // The tile the run was pressed in is where the call comes from, not a tile it names (`App::act_from`).
+    let request = actline::Request { action: call.action.clone(), tile: named, by: None, args };
+    let outcome = match &call.tile { Some(from) => app.act_from(request, from, by), None => app.act_request(request, by) };
     app.st.agent_said = Some(if outcome.ok { format!("{} · {}", call.script, call.action) } else { format!("{} · {} refused: {}", call.script, call.action, outcome.said) });
     app.store.answer(at, &call.request, if outcome.ok { Ok(outcome.answer) } else { Err(outcome.said) });
 }
