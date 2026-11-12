@@ -10,7 +10,7 @@ import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTex
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
 import { setWorkProperty } from "../src/work-tools";
-import { restore } from "../src/work-later";
+import { park, restore } from "../src/work-later";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerEvent } from "../src/types";
 
@@ -667,10 +667,10 @@ describe("draft.patch over the protocol", () => {
     // A second stamp counts from the first, in both.
     expect(await stamp(TIDY)).toMatchObject({ revision: note.revision + 2, text: "Beds by the fence\n[touches::3]\nthe compost is warm", draft: { text: "Beds by the fence\n[touches::3]\nthe compost is warm, turn it" } });
     expect(door.revision).toBe(note.revision + 2);
-    // The person's own write stays the store's alone, as before.
+    // The person's own write from another shell goes through the hold too (PIE-1760).
     const own = await stamp({ author: "user" });
-    expect(own).toMatchObject({ revision: note.revision + 3, text: "Beds by the fence\n[touches::4]\nthe compost is warm" });
-    expect(own.draft).toBeUndefined();
+    expect(own).toMatchObject({ revision: note.revision + 3, text: "Beds by the fence\n[touches::4]\nthe compost is warm", draft: { text: "Beds by the fence\n[touches::4]\nthe compost is warm, turn it" } });
+    expect(door.revision).toBe(note.revision + 3);
     // A door that stops answering keeps its hold: refused, and nothing is written.
     const quiet = store.create("Seed tray\n[touches::4]");
     await fakeDoor(client, "door-quiet", quiet.id, quiet.text, quiet.revision, { answer: false, leaseMs: 6_000 });
@@ -691,11 +691,28 @@ describe("draft.patch over the protocol", () => {
   test("a parked ticket restored while it's being typed in keeps its stage in the saved ticket (PIE-1756)", async () => {
     const { store, client } = await service();
     const ticket = store.create("Fix the shed roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01]\n\nTar paper first.");
-    await fakeDoor(client, "door-later", ticket.id, ticket.text, ticket.revision);
+    const door = await fakeDoor(client, "door-later", ticket.id, `${ticket.text} Nails too.`, ticket.revision);
     const restored = await restore(client as never, ticket.id, "asked again: the roof leaks", undefined, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
-    expect(restored.text).toContain("[work-stage::queued]");
-    expect(store.require(ticket.id).text).toContain("[work-stage::queued]");
-    expect(store.require(ticket.id).text).toContain("**Back from later, 2026-11-12:** asked again: the roof leaks");
+    // One write (PIE-1760): the stage and the dated line, saved and in the draft, which stands on that revision.
+    const line = "**Back from later, 2026-11-12:** asked again: the roof leaks";
+    expect(restored.revision).toBe(ticket.revision + 1);
+    for (const part of ["[work-stage::queued]", "[restored::2026-11-12: asked again, loki-test]", `Tar paper first.\n\n${line}`]) expect(restored.text).toContain(part);
+    expect(restored.text).not.toContain("wreckage");
+    expect(store.require(ticket.id)).toMatchObject({ revision: restored.revision, text: restored.text });
+    expect(door.revision).toBe(restored.revision);
+    for (const part of ["[work-stage::queued]", "[restored::2026-11-12: asked again, loki-test]", `Tar paper first. Nails too.\n\n${line}`]) expect(door.text).toContain(part);
+  });
+
+  test("a ticket the door won't take a write on waits in the groom's report, and the run goes on (PIE-1760)", async () => {
+    const { store, client } = await service();
+    const held = store.create("Paint the fence [type::roadmap-item] [work-stage::queued] [work-id::GATE-2]\n\nTwo coats.");
+    const free = store.create("Oil the hinge [type::roadmap-item] [work-stage::queued] [work-id::GATE-3]\n\nOnce a year.");
+    await fakeDoor(client, "door-busy", held.id, held.text, held.revision, { refuse: "it changes the block being typed in" });
+    const report = await park(client as never, { apply: true, olderThanDays: 0, where: "type=roadmap-item work-id", now: new Date(Date.now() + 30 * 86_400_000), actor: "loki-test" });
+    expect(report.rows.find(r => r.id === held.id)).toMatchObject({ outcome: "waits", why: expect.stringContaining("block being typed in") });
+    expect(report.rows.find(r => r.id === free.id)).toMatchObject({ outcome: "parked" });
+    expect(store.require(held.id).text).toBe(held.text);
+    expect(store.require(free.id).text).toContain("[work-stage::later]");
   });
 
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {

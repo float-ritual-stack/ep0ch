@@ -82,6 +82,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       const at = rest.indexOf(flag);
       if (at >= 0 && rest[at + 1]) { process.env[name] = rest[at + 1]; rest = [...rest.slice(0, at), ...rest.slice(at + 2)]; }
     }
+    // `--as <id>` is the door's word for an agent writer (its help); the outliner's is `--actor` (PIE-1760).
+    rest = rest.map((arg, i) => arg === "--as" && rest[i + 1] && !rest[i + 1]!.startsWith("--") ? "--actor" : arg);
     if (op === undefined || op === "help" || op === "--help") io.out(WORK_USAGE);
     const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
     const run = Bun.spawn([process.execPath, cli, "work", ...rest], { stdio: ["inherit", "inherit", "inherit"], env: process.env });

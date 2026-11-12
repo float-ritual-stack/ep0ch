@@ -589,6 +589,49 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     } finally { b.s.dispose(); }
   }, 30_000);
 
+  // PIE-1760: whoever writes it. Evan's own `ep0ch work stage` from another shell, typed on the title line where the
+  // chips are; a restore's dated line while he types in the last paragraph; the props panel's write from this door.
+  test("the person's own stage change from another shell lands while he types on the title line, and ^S saves once", async () => {
+    const e = await editing("Mend the gate [type::roadmap-item] [work-stage::queued]\n\nThe latch sticks.");
+    try {
+      e.d.row = 0; e.d.col = "Mend the gate".length;
+      e.type(" by the shed");
+      const shell = await agent.request("properties.patch", { blockId: e.id, operations: [{ op: "set", key: "work-stage", value: "doing" }], mutation: { author: "user" } });
+      expect(shell).toMatchObject({ revision: 2, text: "Mend the gate [type::roadmap-item] [work-stage::doing]\n\nThe latch sticks." });
+      expect(e.d.text).toBe("Mend the gate by the shed [type::roadmap-item] [work-stage::doing]\n\nThe latch sticks.");
+      expect(e.d.base).toBe(2);
+      expect(e.s.render(80, 12, e.h).lines.map(visible).join("\n")).not.toContain("changed elsewhere");
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
+      expect((await board.get(e.id))!).toMatchObject({ revision: 3, text: "Mend the gate by the shed [type::roadmap-item] [work-stage::doing]\n\nThe latch sticks." });
+    } finally { e.s.dispose(); }
+  }, 30_000);
+
+  test("a dated line comes in below the cursor while he types at the end, saved at once, and his typing goes on above it", async () => {
+    const e = await editing("Fix the shed roof [type::roadmap-item] [work-stage::later]\n\nTar paper first");
+    try {
+      e.type(", then");
+      const back = await agent.request("properties.patch", { blockId: e.id, operations: [{ op: "set", key: "work-stage", value: "queued" }, { op: "line", text: "**Back from later, 2026-11-12:** asked again" }], mutation: { author: "agent", actorId: "jev/work-later" } });
+      expect(back.text).toBe("Fix the shed roof [type::roadmap-item] [work-stage::queued]\n\nTar paper first\n\n**Back from later, 2026-11-12:** asked again");
+      expect(e.d.text).toBe("Fix the shed roof [type::roadmap-item] [work-stage::queued]\n\nTar paper first, then\n\n**Back from later, 2026-11-12:** asked again");
+      e.type(" nails");
+      expect(e.d.text).toContain("Tar paper first, then nails\n\n**Back from later");
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
+      expect((await board.get(e.id))!.text).toBe("Fix the shed roof [type::roadmap-item] [work-stage::queued]\n\nTar paper first, then nails\n\n**Back from later, 2026-11-12:** asked again");
+    } finally { e.s.dispose(); }
+  }, 30_000);
+
+  test("a property write from the door that holds the draft (the props panel's) lands in it without waiting on itself", async () => {
+    const e = await editing("Seed tray [touches::1]\n\nsow thin");
+    try {
+      e.type(" and water");
+      const started = Date.now();
+      const own = await board.request("properties.patch", { blockId: e.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: { author: "user" } });
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(own).toMatchObject({ revision: 2, text: "Seed tray [touches::2]\n\nsow thin" });
+      expect(e.d.text).toBe("Seed tray [touches::2]\n\nsow thin and water");
+    } finally { e.s.dispose(); }
+  }, 30_000);
+
   test("rich tables: streamed rows remain editable while the current cell stays put", async () => {
     const e = await editing("Seed plan\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\n\n@tidy add a table\n");
     await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
