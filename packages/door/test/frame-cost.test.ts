@@ -21,7 +21,7 @@ function client(video: Video, cellH = 18) {
     backlog: () => 0, onDrain: () => {}, close: () => {},
   };
   const term = new SessionTerm();
-  const hello: Hello = { proto: PROTOCOL, remote: false, cols: COLS, rows: ROWS, cellW: 9, cellH, kitty: true, pid: 4242 };
+  const hello: Hello = { proto: PROTOCOL, remote: false, cols: COLS, rows: ROWS, cellW: 9, cellH, kitty: true, pst: false, tree: false, sized: false, acks: false, pid: 4242 };
   const c = term.attach(link, hello);
   c.painter.video = video;
   const take = () => { const b = bytes; bytes = 0; return b; };
@@ -63,7 +63,7 @@ describe("what a frame costs per video mode at the mini's size (PIE-1500)", () =
       let out = "";
       const link: Link = { send: m => { if (m.t === "output") out += m.text; }, backlog: () => 0, onDrain: () => {}, close: () => {} };
       const term = new SessionTerm();
-      const c = term.attach(link, { proto: PROTOCOL, remote: false, cols: COLS, rows: ROWS, cellW: 9, cellH: 18, kitty: true, sized: true, pid: 1 });
+      const c = term.attach(link, { proto: PROTOCOL, remote: false, cols: COLS, rows: ROWS, cellW: 9, cellH: 18, kitty: true, pst: false, tree: false, sized: true, acks: false, pid: 1 });
       c.painter.video = video;
       term.show(lines, [sized]);
       expect(out.includes("\x1b]66;")).toBe(expectSized);

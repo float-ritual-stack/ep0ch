@@ -1,3 +1,4 @@
+import { ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { draftView } from "../src/draft-view";
 import { changesOf, proposed } from "./wire";
 // draft.patch (pi-herdr-outliner PIE-501): an agent's compare-and-swap on a span lands in the draft the person
@@ -39,6 +40,42 @@ describe("an answer landing under the ask the cursor is on (PIE-1585)", () => {
   const reply = (d: Draft, patchId = "p1", extra: { replyGroup?: string; observed?: string; replacement?: string } = {}) =>
     d.applyPatch({ patchId, revision: 1, replyTo: ASK, ...(extra.replyGroup ? { replyGroup: extra.replyGroup } : {}),
       patches: [span(d.text, extra.observed ?? ASK, extra.replacement ?? `${ASK}\n${answer}`)] }, YO);
+
+  // PIE-1743: an ask being typed is sent when the cursor leaves its line. An answer landing above it moves the line down
+  // with the cursor on it: that is not leaving, and the ↓ after it still tells the service.
+  test("an answer landing above the ask being typed doesn't count as leaving it; the ↓ after it does", () => {
+    const B = "@yo which notes are drafts";
+    const d = new Draft("note-2", 1, `Shed door\n${ASK}\n${B}\nend`);
+    let touches = 0;
+    d.onPersonTyped = () => touches++;
+    d.row = 2; d.col = B.length - 1;
+    d.key({ kind: "char", ch: "s" });
+    d.key({ kind: "backspace" });
+    const typed = touches;
+    expect(d.applyPatch({ patchId: "p2", revision: 1, replyTo: ASK, patches: [span(d.text, ASK, `${ASK}\n${answer}`)] }, YO)).toEqual({ applied: true });
+    expect([d.lines[d.row], touches]).toEqual([B, typed]);
+    d.key({ kind: "down" });
+    expect(touches).toBe(typed + 1);
+  });
+
+  // Codex on #1445: off the line and back before the service read it, the ask waits at the cursor; leaving it again,
+  // untyped, still tells the service, or it never goes until a save.
+  test("an ask waiting at the cursor: leaving its line again without typing tells the service again", () => {
+    const B = "@yo which notes are drafts";
+    const d = new Draft("note-3", 1, `Shed door\n${B}\nend`);
+    let touches = 0;
+    d.onPersonTyped = () => touches++;
+    d.row = 1; d.col = B.length;
+    d.key({ kind: "char", ch: "s" });
+    d.key({ kind: "backspace" });
+    d.key({ kind: "down" });
+    d.key({ kind: "up" });
+    // The read landed with the cursor back on it: the service says it waits.
+    d.progress({ line: B, state: "queued", warning: ASK_AT_CURSOR });
+    const before = touches;
+    d.key({ kind: "down" });
+    expect(touches).toBe(before + 1);
+  });
 
   test("the cursor at the ask's end: it lands below and the cursor stays where it was, and typing goes on the ask", () => {
     const d = asking();
@@ -825,6 +862,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     e.type("the  vice   and the clamps");
     e.d.newline(false); e.s.render(50, 12, e.h);
     e.type("@tidy");
+    // Off the line it was written on: an ask being typed waits for the person (PIE-1743).
+    e.d.newline(false); e.s.render(50, 12, e.h);
     const saved = (await board.get(e.id))!.text;
     await until(() => e.d.text.includes("the vice and the clamps"), "@tidy's answer in the draft", 20_000);
     expect(e.d.writers.map(actorIdOf)).toContain("ext:tidy");

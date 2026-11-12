@@ -6,7 +6,6 @@ export { databases };
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
 // here writes a database, starts a host or changes a config.
-import { Database } from "bun:sqlite";
 import { drawerProgram } from "../desk/drawer-program";
 import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -24,6 +23,7 @@ import { configuredMachineName, dialsIn, suggestedMachineName } from "@ep0ch/out
 import { tossHealth } from "@ep0ch/outliner/echo-health";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
+import { readStoppedOutline } from "@ep0ch/outliner/outline-file";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type PublisherFacts, codeKey, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
 import { chooseLinkDir, linkCandidates } from "./plan";
 
@@ -555,26 +555,31 @@ export async function schemaCode(root: string, commit?: string, env?: Env): Prom
   return schemaCodeOf(shown.code === 0 ? shown.out : null, listed.code === 0 ? listed.out.split("\n") : [], `couldn't read ${SCHEMA_FILE} at ${commit.slice(0, 7)}: ${shown.err || `exit ${shown.code}`}`);
 }
 
-/** An outline database's schema version, read-only (a served file too: nothing is written, no lock is taken). */
-export function outlineSchema(d: DatabaseFacts): OutlineSchema {
+/**
+ * An outline's schema version (PIE-1750). While a host serves the folder, its answer (`outlines.list`): nothing here opens
+ * a live outline. With no host answering the file is stopped, and the outliner's own read-only look reads it (install's
+ * migration step, which stops the host first, reads them this way).
+ */
+export function outlineSchema(d: DatabaseFacts, host?: Pick<HostFacts, "running" | "outlines" | "socket">): OutlineSchema {
   // A 0-byte file (a name something claimed and never filled) is reported as empty, not read as "schema 0": it must never hold an install back (PIE-938).
   try {
     if (statSync(d.path).size === 0 && !(existsSync(`${d.path}-wal`) && statSync(`${d.path}-wal`).size > 0)) return { ...d, version: 0, empty: true };
   } catch { /* unreadable: said below */ }
-  try {
-    const db = new Database(d.path, { readonly: true });
-    try {
-      db.run("PRAGMA busy_timeout = 2000");
-      return { ...d, version: (db.query("PRAGMA user_version").get() as { user_version: number }).user_version };
-    } finally { db.close(); }
-  } catch (e) { return { ...d, version: null, error: (e as Error).message }; }
+  if (host?.running) {
+    const o = host.outlines.find(x => x.name === d.name);
+    if (o?.schema !== undefined) return { ...d, version: o.schema };
+    const older = host.outlines.length > 0 && host.outlines.every(x => x.schema === undefined);
+    return { ...d, version: null, error: older ? `the host at ${host.socket} runs older code, which doesn't say an outline's schema` : o ? `the host at ${host.socket} couldn't read it` : `the host at ${host.socket} doesn't list it` };
+  }
+  try { return { ...d, version: readStoppedOutline(d.path).schema }; }
+  catch (e) { return { ...d, version: null, error: (e as Error).message }; }
 }
 
-/** The schema the checkout opens now, origin/main's when it's behind, and each outline's. */
-export async function schemaFacts(repo: RepoFacts, dbs: readonly DatabaseFacts[], env?: Env): Promise<SchemaFacts> {
+/** The schema the checkout opens now, origin/main's when it's behind, and each outline's (from its host while one runs). */
+export async function schemaFacts(repo: RepoFacts, dbs: readonly DatabaseFacts[], env?: Env, host?: Pick<HostFacts, "running" | "outlines" | "socket">): Promise<SchemaFacts> {
   const c = repo.checkout;
   const [head, upstream] = await Promise.all([schemaCode(repo.root), c.git && c.upstream && c.behind > 0 ? schemaCode(repo.root, c.upstream, env) : undefined]);
-  return { head, ...(upstream ? { upstream } : {}), outlines: dbs.map(outlineSchema) };
+  return { head, ...(upstream ? { upstream } : {}), outlines: dbs.map(d => outlineSchema(d, host)) };
 }
 
 /** Which outline `folder` opens, by the rule (`EP0CH_WS`, the nearest `.ep0ch`); never a guess. */
@@ -749,7 +754,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     dialsIn: { file: outlineLayout(folder).dialsIn, configured: dialsIn(folder) },
     echonet: tossHealth(folder),
     databases: dbs,
-    schema: await part("the outlines' schema", schemaFacts(repo, dbs, env)),
+    schema: await part("the outlines' schema", schemaFacts(repo, dbs, env, host)),
     here,
     door: await part("the door this folder reaches", import("../door-resolve").then(m => m.resolveDoor(env, o.cwd ?? process.cwd())).catch(() => undefined)).then(r => (r ? { rule: r.rule, text: r.text } : undefined)),
     // What this folder's outline's drawer runs: its session's saved choice, else the person's default, as the drawer reads them.

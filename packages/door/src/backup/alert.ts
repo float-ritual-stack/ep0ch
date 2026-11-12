@@ -48,10 +48,10 @@ export interface MirrorState {
   folder?: string;
   snapshot?: string;
   seq?: number | null;
-  /** The snapshot's time (or, from sqlite3_rsync, when it was copied; a copy found there, its file's time). */
+  /** The snapshot's time (a copy found there, its file's time). */
   at?: string;
-  /** Where the copy came from: a snapshot, sqlite3_rsync, or found in the folder (Litestream's, a lost state file). */
-  source?: "restic" | "rsync" | "found" | "relay";
+  /** Where the copy came from: a snapshot, a relay, or found in the folder (Litestream's, a lost state file). */
+  source?: "restic" | "found" | "relay";
   refreshed?: string;
   /** The outline's change on its machine when last asked over ssh, and when. */
   remoteSeq?: number | null;
@@ -62,6 +62,16 @@ export interface MirrorState {
   behindSince?: string;
   error?: string;
 }
+
+export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; cleared?: string }
+
+/** Forget failing this many runs in a row is an incident: one failure is a live lock the next run waits out. */
+export const FORGET_FAILS = 2;
+/** The prune runs once a day; after one fails, again this long after. */
+export const PRUNE_EVERY_MS = 24 * 3_600_000;
+/** A run that uploads nothing still forgets when none did for this long: KEEP's windows move on without new snapshots. */
+export const FORGET_EVERY_MS = 6 * 3_600_000;
+export const PRUNE_RETRY_MS = 3 * 3_600_000;
 
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
 export interface Drill { at: string; ok: boolean; detail: string; via?: string }
@@ -84,6 +94,13 @@ export interface BackupState {
   mirrors: Record<string, MirrorState>;
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
+  /**
+   * The last retention (restic forget, after an upload; PIE-1755): when, whether it worked, and how many runs in a row
+   * it failed since when, with restic's reason (a lock: who holds it). `cleared`: a stale lock it removed first.
+   */
+  forget?: ForgetState;
+  /** The last daily prune (its own step since PIE-1755), in the same shape: `lastPrune` is when one last finished. */
+  prune?: ForgetState;
   drill?: Drill;
   /** A drill that was due and couldn't run (the repository out of reach, and the hub too): since when, and why. */
   drillWaiting?: { since: string; why: string };
@@ -93,6 +110,11 @@ export interface BackupState {
    */
   route?: { via: string; since: string; why: string };
   netmail?: NetmailState;
+  /**
+   * The outline host didn't answer the job (PIE-1750): since when, why, and the command that starts it. Kept apart from
+   * the outlines, so a run that knows none yet still fails, and cleared by a run the host answers.
+   */
+  host?: { failingSince: string; error: string; fix: string };
   /** Litestream replicators a change stopped and starting them again failed (outliner litestream-guard `stuckPauses`). */
   guard?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[];
 }
@@ -148,6 +170,22 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
         detail: `${machine}'s copy of ${name} hasn't taken the newer snapshot since ${hhmm(m.behindSince!)}${m.error ? `: ${m.error}` : ""}`,
         fix: `${cmd.run}   (its log: ${cmd.log})` });
     }
+  }
+  if (s.host && late(s.host.failingSince)) {
+    out.push({ key: `host:${machine}`, since: s.host.failingSince, title: `the outline host on ${machine} doesn't answer the backup job`,
+      detail: `nothing has been copied since ${hhmm(s.host.failingSince)}: ${s.host.error}`, fix: s.host.fix });
+  }
+  const f = s.forget;
+  if (f && !f.ok && f.failures >= FORGET_FAILS) {
+    out.push({ key: `forget:${machine}`, since: f.since ?? f.at, title: `old backups on ${machine} aren't pruned`,
+      detail: `restic forget has failed ${f.failures} runs in a row since ${hhmm(f.since ?? f.at)}: ${f.error ?? "?"}; new snapshots still land, but none are let go, so the repository grows`,
+      fix: `${cmd.run}   (it clears a stale lock itself; a lock that stays is held by a live restic, named above; its log: ${cmd.log})` });
+  }
+  const p = s.prune;
+  if (p && !p.ok && p.failures >= FORGET_FAILS) {
+    out.push({ key: `prune:${machine}`, since: p.since ?? p.at, title: `the backups' space on ${machine} isn't freed`,
+      detail: `restic prune has failed ${p.failures} times in a row since ${hhmm(p.since ?? p.at)}: ${p.error ?? "?"}; old snapshots are let go, but the space they held isn't given back`,
+      fix: `${cmd.run}   (it tries the prune again ${PRUNE_RETRY_MS / 3_600_000} hours after a failure; EP0CH_BACKUP_PRUNE_MINUTES in ~/.config/ep0ch/backup.env gives it longer; its log: ${cmd.log})` });
   }
   for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
     if (!late(x.failingSince)) continue;

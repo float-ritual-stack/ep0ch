@@ -270,7 +270,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     // The one matcher ranks them: the name that starts with what's typed first, one that only holds it after.
     expect(p.items[0]!.label).toBe("@tidy");
     expect(p.items[0]!.detail).toBeTruthy();
-    expect(p.items[0]!.docs).toContain("once the line is quiet");
+    expect(p.items[0]!.docs).toContain("once you leave it (or save)");
     s.key({ kind: "enter" }, h);
     await until(() => !completionOf(d), "the insertion");
     expect(d.lines.at(-1)).toBe("@tidy ");

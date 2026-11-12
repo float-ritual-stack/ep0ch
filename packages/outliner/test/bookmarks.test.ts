@@ -141,7 +141,7 @@ describe("canonical bookmarks", () => {
       author: "user",
       actorId: "test",
     });
-    store.move(target.id, parent.id);
+    store.move(target.id, parent.id, undefined, { author: "user" });
     const resolved = store.resolveBookmark(added.record.id);
 
     expect(resolved.target?.id).toBe(target.id);

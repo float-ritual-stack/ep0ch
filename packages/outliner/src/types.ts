@@ -3,7 +3,7 @@ import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, 
 export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
-export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineBackup, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -179,7 +179,7 @@ export type PropertyMatchContext = import("@ep0ch/outline-core/protocol").Proper
 export type PropertyPatchOperation =
   | { op: "replace"; ordinal: number; key?: string; value: string }
   | { op: "remove"; ordinal: number }
-  | { op: "append"; key: string; value: string };
+  | { op: "append"; key: string; value: string } | { op: "set"; key: string; value: string } | { op: "add"; key: string; by: number }; // set/add: by key, on the text now, no revision (PIE-1752)
 
 export interface PropertyCatalogItem {
   key: string;
@@ -1667,7 +1667,7 @@ export interface ComputedExecutionResult {
  * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
  * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string; /** PIE-1747: a host on another refuses it. */ protocol?: number };
 
 export type OutlinerRequestAction =
   | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest | import("./marks").MarkRequest))
@@ -1680,7 +1680,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.import"; path: string; name: string }
   | { id: string; action: "outlines.attach"; name: string; create?: boolean }
   | { id: string; action: "outlines.pane"; paneId: string; hostname: string }
-  | { id: string; action: "outlines.close"; name: string }
+  | { id: string; action: "outlines.close"; name: string } | { id: string; action: "outlines.backup"; name: string; out: string }
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "outlines.archive"; name: string }
   | { id: string; action: "outlines.unarchive"; name: string }
@@ -1908,7 +1908,7 @@ export type OutlinerRequestAction =
   | {
       id: string;
       action: "create";
-      parentId?: string | null; position?: number; requestId?: string;
+      parentId?: string | null; position?: number; requestId?: string; /** PIE-1752: the parent's child with this property when there is one. */ keyed?: { key: string; value: string };
       text: string;
       author?: BlockAuthor;
       provenance?: BlockProvenance;
@@ -2205,7 +2205,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "drafts.release"; holdId: string }
   /**
    * The person typed in the draft a hold keeps (capability `drafts.touch`): the service reads the draft from the
-   * holding door and runs a request line written there once it is quiet. Answers `{ touched: true }` at once.
+   * holding door and runs a request line written there once it is quiet and the cursor is off its line (PIE-1743). Answers `{ touched: true }` at once.
    */
   | { id: string; action: "drafts.touch"; holdId: string }
   /** The holding door's answer to a `draft` event; never queued behind the request waiting for it. */
@@ -2294,7 +2294,7 @@ export type OutlinerRequestAction =
   /** The open proposals beside a note, each with the line it is drawn after (PIE-725, `DraftProposalsBeside`). */
   | { id: string; action: "draft.proposals.list"; blockId: string }
   /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
-  | ({ id: string; action: "move"; blockId: string; expectedRevision: number; mutation?: MutationProvenance } & import("@ep0ch/outline-core/protocol").NoteMoveIntent)
+  | ({ id: string; action: "move"; blockId: string; expectedRevision: number; mutation: MutationProvenance } & import("@ep0ch/outline-core/protocol").NoteMoveIntent)
   /**
    * `expectedRevision`: trash only the block as read; a block changed since is refused and stays. `ifEmpty`: trash
    * only a block with no text and no children ("Block is not empty"); a child added doesn't change the revision.
@@ -2373,7 +2373,7 @@ export type OutlinerRequestAction =
       id: string;
       action: "properties.patch";
       blockId: string;
-      expectedRevision: number;
+      /** Left out only when every operation is `set` or `add`. */ expectedRevision?: number;
       operations: PropertyPatchOperation[];
       mutation: MutationProvenance;
       /** A stamp, not an edit (PIE-1457): the block keeps its updated date, so views sorted by it don't take it as news. */

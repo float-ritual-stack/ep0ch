@@ -1,0 +1,10 @@
+### Only the host opens a live outline file: backups, setup facts and about are the host's answers (PIE-1750)
+
+- **The backup job asks the host:** `outlines.list` says each outline's newest change and schema, and the host's new `outlines.backup` makes the copy (VACUUM INTO in a worker of the host's own, on a read-only connection), so the host answers every door and agent while it copies. The job checks the copy and uploads it as before. A host that doesn't answer means nothing is copied that run: the run fails (even a first run that knows no outlines yet), sends no heartbeat, and the line says the command that starts it. After 2 hours it's an incident on the door's status bar.
+- **`ep0ch backup copy <outline> <file>`:** a consistent, integrity-checked copy of a live outline made by its host, for scripts that used `sqlite3 .backup` on the live file (the nightly `ep0ch-snapshot`, `try-it.sh --copy`).
+- **Snapshots copy the same way:** `outline.snapshot` no longer starts a second process reading the live file; the host's worker copies it, and a process of its own only checks the copy.
+- **Install asks the host too:** the schema check and the pre-install backup come from the running host; with no host answering, the files are stopped and read as before.
+- **About and access for an unopened outline:** one read-only look by the host (`outline-file.ts`), shared with the list's change and schema.
+- **Another machine's change counts come from its host:** `EP0CH_BACKUP_MIRRORS=<machine>=<ssh>` runs `ep0ch outline list --json` there instead of `sqlite3` on its files. The `sqlite3_rsync` copy is gone; mirrors come from the snapshots.
+- **Busy waits that went with them:** the client-side `busy_timeout`s are gone. The store's `busy_timeout` and the dispatcher's busy retry stay while Litestream keeps the file open; PIE-1751 removes them.
+- **Run:** `ep0ch install --apply` on float-2 and the laptop (host and job together), then swap the `sqlite3 .backup` line in float-2's `~/.local/bin/ep0ch-snapshot` for `ep0ch backup copy`.

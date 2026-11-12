@@ -4,6 +4,7 @@
 // `artifacts.show`; on a machine whose artifacts are kept on another (artifact-machine.ts), every store action goes
 // there, so a name, its page and its frame are that store's. What can't be found says what was tried, on which
 // machines, and the one thing to do; never a socket, a store or a command to move files.
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
@@ -12,7 +13,6 @@ import { artifactMachine, askMachine, MachineUnreachable, readElsewhere } from "
 import type { ArtifactStore } from "./artifact-store";
 import { localMachineName } from "./machine-name";
 import { MediaCopier, readMachineFile } from "./media-copies";
-import { COPY_NEEDS_BYTES } from "./artifact-store";
 import type { MediaRead } from "@ep0ch/outline-core/media-copy";
 import { createHash } from "node:crypto";
 import type { OutlinerStore } from "./store";
@@ -77,7 +77,7 @@ async function showArtifact(host: ArtifactLineHost, store: string | null, reques
   if (!isPath) {
     try { return await ask({ action: "artifacts.show", name: asked, ...framed }); }
     catch (error) {
-      if (!/No artifact is called|has no version/.test(error instanceof Error ? error.message : String(error))) throw error;
+      if (refusalKindOf(error) !== "not-found") throw error;
       throw new Error(`No artifact is called “${asked}” on ${store ?? here}${store ? `, where ${here}'s artifacts are kept` : ""}: write the file's path instead, [artifact::/path/to/${reference!.name}.html]`);
     }
   }
@@ -92,7 +92,7 @@ async function showArtifact(host: ArtifactLineHost, store: string | null, reques
     // read as it always has. Any store is asked by the hash first, and handed the bytes when it can't find them.
     if (!copy.row.copied_at && !store && !host.copyOf && machine === here) return local({ ...request, ...framed });
     try { return await ask({ action: "artifacts.show", name: asked, ...framed, copy: named }); }
-    catch (error) { if (!(error instanceof Error && error.message.includes(COPY_NEEDS_BYTES))) throw error; }
+    catch (error) { if (refusalKindOf(error) !== "unavailable") throw error; }
     let bytes = copy.bytes;
     if (!bytes) {
       const read = machine === here ? readMachineFile(copy.path, undefined, true) : await askMachine<MediaRead>(host.outlinesFolder!, machine, { action: "media.read", path: copy.path, artifact: true }, 60_000);

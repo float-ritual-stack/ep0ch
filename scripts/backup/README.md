@@ -11,21 +11,41 @@ writes from the templates here:
 Install fills in the bun and checkout paths and rewrites a file only while it keeps its "Written by `ep0ch install`"
 line.
 
+## Only the host opens a live outline
+
+The job, install and `ep0ch backup copy` ask the outline host and never open an outline's file (PIE-1750): its
+`outlines.list` says each outline's change and schema, and `outlines.backup` makes the copy in a worker of the
+host's own, so the host keeps answering while it copies. A host that doesn't answer means nothing is copied that run, said with the command that starts it. The
+files they do open are copies (a snapshot, a restore, a mirror). A script that needs a copy runs
+`ep0ch backup copy <outline> <file>`, never `sqlite3 .backup` on the live file.
+
 ## What a run does
 
-1. **Snapshot.** For each `<outlines>/<name>.sqlite` whose change feed (`max(change_id)`) moved since its newest
-   snapshot: a consistent copy (`VACUUM INTO` from a read-only connection, `integrity_check`), uploaded with
+1. **Snapshot.** For each outline the host lists whose change feed (`max(change_id)`, the host's `outlines.list`) moved
+   since its newest snapshot: a consistent copy the host makes (`outlines.backup`: `VACUUM INTO` in a host worker, one
+   read transaction while the writes go on), checked here (`integrity_check`), uploaded with
    `restic backup --stdin` as `/<name>.sqlite`, tagged `ep0ch-outline`, `outline=<name>`, `seq=<change>`, `schema=<user_version>`. An outline
    that hasn't changed (same change feed and same schema version: a migration is a change) isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
    nothing to repair; the next run tries again. A repository that isn't there yet is made (`restic init`).
-2. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day: every snapshot of the 48 hours before the newest,
+2. **Retention**, decided every run on its own (after an upload, after a failed forget, or 6 hours since the last; not
+   while the repository is out of reach): `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
+   --keep-daily 30 --keep-weekly 12`, never with `--prune`: every snapshot of the 48 hours before the newest,
    and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that changes rarely
-   keeps older history, since only hours and days with a snapshot count).
+   keeps older history, since only hours and days with a snapshot count). forget takes the repository exclusively, so a
+   lock left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
+   (restic's exit 11), the job runs `restic unlock` (stale locks only, never `--remove-all`) and tries once more with
+   `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an incident (`forget:<machine>`), with the lock's holder.
+2b. **Prune**, once a day after a forget, as its own step: `restic prune --max-repack-size 1G`, stopped after
+   `EP0CH_BACKUP_PRUNE_MINUTES` (40; the unit allows 50). The bound lets a backlog finish over a few days instead of
+   starting over every run and being stopped at the limit; a stopped one is said as `timed out after 40 min` and tried
+   again 3 hours on. It clears a stale lock the same way. Failing twice in a row is an incident (`prune:<machine>`).
+   Its limit is fitted inside what's left of the run's 50 minutes (the unit's `TimeoutStartSec`, `RUN_LIMIT_MS`), and
+   each forget and prune is saved as a failure before it starts, so a run systemd stops mid-prune still counts and
+   still waits its hours. Uploads clear a stale lock too: a hard-killed prune's exclusive lock refuses them otherwise.
 3. **Mirrors** (`EP0CH_BACKUP_MIRRORS`): each other machine's newest snapshot of each outline replaces
    `~/outline-mirrors/<machine>/<name>.sqlite` (atomic rename) when it's newer than the copy there. With
-   `<machine>=<ssh-name>` and `sqlite3_rsync` on both machines, the outline is also copied straight from it when it
-   answers; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
+   `<machine>=<ssh-name>`, that machine's host is asked over ssh how far each outline is (`ep0ch outline list --json`
+   there), so changes no snapshot holds yet are said; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
    is active or enabled, the copy goes to `~/outline-mirrors/.restic/<machine>/` instead, so the two never write one
    file; once it's disabled and stopped, a copy Litestream left there is read first and only a newer snapshot replaces it.
 3b. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host

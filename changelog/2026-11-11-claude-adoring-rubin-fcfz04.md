@@ -6,4 +6,4 @@
 - **`blocks.read` lists the notes under a note** (`under: <id>`, or `null` for the top level) in order, and can be watched: what a tree's open folder shows.
 - **The native window speaks the socket itself.** No bridge process: the door's rule names the outline once at launch, then the window asks, watches and writes directly. Saving never closes its editor, and nothing but Discard drops unsaved text.
 - **Pictures in a page:** `notes.page` names a note's pictures (a media line's file, an svg fence's own text) with the layout the note asks for, and its header image as `hero`. The native window draws them: the header as a band above the title, PNG, JPEG and SVG where they stand, mermaid fences as diagrams.
-- **Run:** `ep0ch install --apply` (PROTOCOL 322: host and clients together).
+- **Run:** `ep0ch install --apply` (PROTOCOL 323: host and clients together).

@@ -27,8 +27,26 @@ export class AnswerTile implements Pane {
   private closing = false;
   /** Where `f` folds the answer, as its reader was last drawn: the edit open on the note, else the reader (PIE-1741). */
   private foldsIn: keyof typeof FOLD_WHERE = "note";
-  constructor(public source: string, public ask: string, public fold?: string) {}
-  title() { return this.ask; }
+  /**
+   * The ask as the saved note has it, while the tile follows words typed on it in an edit (PIE-1757): an edit put aside
+   * leaves the note as it was, and the tile says that ask's state, never that its ask is gone.
+   */
+  saved?: string;
+  constructor(public source: string, public ask: string, public fold?: string, saved?: string) { if (saved) this.saved = saved; }
+  /** The tile follows ask `to` (the cursor's, PIE-1722): the saved words it stood for stay known while `to` isn't saved. */
+  followAsk(to: string, fold: string | undefined, savedText: string | undefined) {
+    const inSaved = (a: string | undefined) => !!a && !!savedText?.split("\n").includes(a);
+    this.saved = inSaved(to) ? undefined : inSaved(this.ask) ? this.ask : this.saved;
+    Object.assign(this, { ask: to, fold, top: 0 });
+  }
+  /** The ask it shows in `text`: its own words when they're there, else the saved ones it stands for, else none. */
+  shown(text: string): string | undefined {
+    const lines = text.split("\n");
+    return lines.includes(this.ask) ? this.ask : this.saved && lines.includes(this.saved) ? this.saved : undefined;
+  }
+  /** The ask it shows as its reader was last drawn: its own words, or the saved ones an edit put aside left (PIE-1757). */
+  private showing?: string;
+  title() { return this.showing ?? this.ask; }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() {
     // What f folds first: the footer is cut to the tile's width, and a 38-column tile showed only the scroll (PIE-1741).
@@ -38,15 +56,16 @@ export class AnswerTile implements Pane {
       { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link or press a button", also: "2–9" },
     ]);
   }
-  spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
+  spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold, ...(this.saved ? { saved: this.saved } : {}) } }; }
   answer(text: string) {
-    const lines = text.split("\n"), folds = foldPoints(text);
+    const lines = text.split("\n"), folds = foldPoints(text), ask = this.shown(text);
+    if (!ask) return undefined;
     // Its ask's answer and nothing else: the agent's answer callout right under a line saying the ask (a heading or a
     // callout of the person's there, or the ask gone, is no answer: CodeRabbit on #1428).
-    const answers = (p: { line: number }) => p.line > 0 && lines[p.line - 1] === this.ask && ANSWER_FOLD.test(lines[p.line] ?? "");
+    const answers = (p: { line: number }) => p.line > 0 && lines[p.line - 1] === ask && ANSWER_FOLD.test(lines[p.line] ?? "");
     // The fold it was opened on (one of several lines saying the ask), else the one under its first: a save can give the
     // same fold another key (PIE-1711, "Waiting for the answer…" over an answer already in the note).
-    return (this.fold ? folds.find(p => p.key === this.fold && answers(p)) : undefined) ?? folds.find(p => answers(p) && p.line === lines.indexOf(this.ask) + 1);
+    return (this.fold ? folds.find(p => p.key === this.fold && answers(p)) : undefined) ?? folds.find(p => answers(p) && p.line === lines.indexOf(ask) + 1);
   }
   key(k: Key, desk: DeskApi) {
     const c = ch(k);
@@ -76,7 +95,7 @@ export class AnswerTile implements Pane {
   live(desk: Pick<DeskApi, "paneNamed">): boolean {
     const reader = desk.paneNamed?.(this.source);
     if (reader instanceof ReaderPane && reading(reader)) return true;   // a door just restored: its note isn't read yet
-    return reader instanceof ReaderPane && (reader.surface.draft?.text ?? reader.msg?.text ?? "").split("\n").includes(this.ask);
+    return reader instanceof ReaderPane && this.shown(reader.surface.draft?.text ?? reader.msg?.text ?? "") !== undefined;
   }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
   private shownLive: boolean | null = null;
@@ -94,7 +113,8 @@ export class AnswerTile implements Pane {
     // known yet that a save should change.
     if (reading(reader)) return this.said("Reading its note…", w, h);
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
-    const lines = text.split("\n"), fold = this.answer(text), live = lines.includes(this.ask);
+    const lines = text.split("\n"), fold = this.answer(text), ask = this.shown(text), live = ask !== undefined;
+    this.showing = ask;
     if (this.shownLive !== null && this.shownLive !== live) queueMicrotask(() => desk.keepLayout?.());
     this.shownLive = live;
     // Its ask is gone from the note (taken out, or the reader gone on to another note): no answer is coming, so it says so
@@ -103,11 +123,14 @@ export class AnswerTile implements Pane {
     this.links = [];
     const draft = reader.surface.draft;
     this.foldsIn = draft ? "edit" : "note";
-    const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
-    const status = draft?.askStatus(this.ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
+    const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(ask));
+    const status = draft?.askStatus(ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
+    // Its words not sent yet, or asked and nothing written back yet: what the line says, not an answer under it that was to
+    // other words (loki on #1445: an answered ask typed on showed the old answer beside "asks once you leave").
+    const progress = draft?.liveAsk(ask), pending = !!progress && (progress.state === "queued" || (progress.state === "working" && !progress.blocks));
     // The answer's lines are the note's (as the reader holds it, typed or saved): its buttons press as they do there (PIE-1699).
-    const body = fold ? lines.slice(fold.line + 1, fold.end) : [];
-    const doc = fold
+    const body = fold && !pending ? lines.slice(fold.line + 1, fold.end) : [];
+    const doc = fold && !pending
       ? reader.surface.snippetDoc(body.map(l => stripQuotes(l, 1)).join("\n"), w, reader.host(desk), this.links, false, undefined, body.map((_, i) => fold.line + 1 + i))
       : reader.surface.snippetDoc(status || "Waiting for the answer…", w, reader.host(desk), this.links);
     this.ranges = doc.links;
@@ -175,7 +198,7 @@ export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
-  make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined),
+  make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined, s.state?.saved as string | undefined),
   // A click on a link or a button presses it; the keys stay in the edit beside it (PIE-1722).
   clickKeepsKeys: (p, x, y) => (p as AnswerTile).hits(x, y),
   // One whose ask is gone isn't kept: a door opened next would bring back a dead tile to close (PIE-1733).

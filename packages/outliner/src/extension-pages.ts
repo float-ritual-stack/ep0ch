@@ -513,14 +513,7 @@ export class ExtensionPages {
    * service writes always lands (a person's own page named `extensions`). One in Trash gives its name up.
    */
   private createAddressed(text: string, parentId: string | null, author: "system" | "agent", provenance?: { actorId: string }): Block {
-    for (let n = 1; ; n++) {
-      const attempt = n === 1 ? text : text.replace(/\[page::([^\]\n]+)\]/, (_, address: string) => `[page::${address}-${n}]`);
-      try {
-        return this.store.create(attempt, parentId, author, provenance);
-      } catch (error) {
-        if (n >= 9 || !/is already the page of/.test(error instanceof Error ? error.message : String(error))) throw error;
-      }
-    }
+    return this.store.create(text, parentId, author, provenance, { freePage: true });
   }
 
   /** The text with the block's own page address in place of the one it was made with (createAddressed may have changed it). */

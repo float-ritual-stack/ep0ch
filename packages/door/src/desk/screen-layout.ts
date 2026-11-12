@@ -36,7 +36,7 @@ import { agentRefusal, type AgentLevel } from "../surface/agent-level";
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
   chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
-  pair, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
+  pair, pairSide, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
 export { clone as copyTree } from "./layout";
@@ -211,7 +211,7 @@ export type At<I = number> = (Place<I>
   | { kind: "next"; from: I }
   | { kind: "float"; rect?: Rect; near?: I } | { kind: "kept" /* the dock that keeps work: keptInDock (PIE-1679) */ }) & { restore?: ReturnShell[] };
 
-export { besideOrder, type Beside, type Prefers } from "./landing";
+export { answerLands, besideOrder, type Beside, type Prefers } from "./landing";
 import type { Beside } from "./landing";
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
@@ -762,7 +762,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
 function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
   if (!leaves(t).length && at.kind === "edge") t = leaf(id);
   else if (at.kind === "edge" || at.kind === "kept") t = at.kind === "kept" ? keptInDock(t, [id]) : edge(t, id, at.dir);
-  else if (at.kind === "tabs") t = tabInto(t, at.target, id, at.index);
+  else if (at.kind === "tabs") t = tabInto(t, at.target, id, at.index, !!at.behind);
   else if (at.kind === "split") t = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
   else if (at.kind === "in") {
     const target = at.node ? nodeById(t, at.node)! : node(t, at.key)!;

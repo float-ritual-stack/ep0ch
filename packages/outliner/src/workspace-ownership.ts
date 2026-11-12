@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { Database } from "bun:sqlite";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -18,13 +19,13 @@ export function acquireLockFile(lockPath: string, what = "Outliner workspace"): 
     // it would own nothing. Held only when the file locked is still the one there.
     const after = statSync(lockPath, { throwIfNoEntry: false })?.ino;
     if (after === undefined || (before !== undefined && before !== after)) {
-      throw new Error(`${what} is already owned: ${lockPath.replace(/\.owner\.sqlite$/, "")} (its lock was replaced while opening it)`);
+      throw new Refusal("conflict", `${what} is already owned: ${lockPath.replace(/\.owner\.sqlite$/, "")} (its lock was replaced while opening it)`);
     }
     return () => ownership.close();
   } catch (error) {
     ownership.close();
     if (error instanceof Error && "code" in error && error.code === "SQLITE_BUSY") {
-      throw new Error(`${what} is already owned: ${lockPath.replace(/\.owner\.sqlite$/, "")}`, { cause: error });
+      throw new Refusal("conflict", `${what} is already owned: ${lockPath.replace(/\.owner\.sqlite$/, "")}`, { cause: error });
     }
     throw error;
   }

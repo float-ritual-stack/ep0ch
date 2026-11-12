@@ -28,7 +28,7 @@ class Term {
   static async attach(path: string, cols: number, rows: number): Promise<Term> {
     const sock = await new Promise<Socket>((res, rej) => { const s = connect(path, () => res(s)); s.once("error", rej); });
     const c = new Term(sock, cols, rows);
-    const hello: Hello = { proto: PROTOCOL, remote: false, cols, rows, cellW: 9, cellH: 16, kitty: false, pid: 4242 };
+    const hello: Hello = { proto: PROTOCOL, remote: false, cols, rows, cellW: 9, cellH: 16, kitty: false, pst: false, tree: false, sized: false, acks: false, pid: 4242 };
     c.send({ t: "hello", hello });
     return c;
   }

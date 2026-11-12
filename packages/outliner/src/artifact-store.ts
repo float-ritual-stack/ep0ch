@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { homedir } from "node:os";
 import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { localMachineName } from "./machine-name";
@@ -120,7 +121,7 @@ export class ArtifactStore {
     if (!parsed) throw new Error("Use an artifact name, or <name>@<number> for a snapshot.");
     const { name, version } = parsed, pin = version?.toString();
     const folder = pin ? join(this.root, "snapshots", name, pin, "files") : join(this.live, name);
-    if (!existsSync(folder)) throw new Error(pin && existsSync(join(this.live, name))
+    if (!existsSync(folder)) throw new Refusal("not-found", pin && existsSync(join(this.live, name))
       ? `${name} has no version ${pin} on ${localMachineName(dirname(this.root))}: write [artifact::${name}] for the newest`
       : `No artifact is called “${ref}” on ${localMachineName(dirname(this.root))}: write the file's path instead, [artifact::/path/to/${name}.html]`);
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -371,9 +372,9 @@ export class ArtifactStore {
       if (copy.base64 !== undefined) bytes = Buffer.from(copy.base64, "base64");
       else {
         const config = mediaBucketConfig();
-        if (!config || "problem" in config) throw new Error(`${copy.path} from ${copy.machine}: ${COPY_NEEDS_BYTES}`);
+        if (!config || "problem" in config) throw new Refusal("unavailable", `${copy.path} from ${copy.machine}: ${COPY_NEEDS_BYTES}`);
         try { bytes = await new MediaBucket(config).get(copy.sha256); }
-        catch { throw new Error(`${copy.path} from ${copy.machine} isn't in the media bucket: ${COPY_NEEDS_BYTES}`); }
+        catch { throw new Refusal("unavailable", `${copy.path} from ${copy.machine} isn't in the media bucket: ${COPY_NEEDS_BYTES}`); }
       }
       if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== copy.sha256) throw new Error(`${copy.path}'s bytes aren't the file ${copy.machine} read: save its note again`);
       const name = entry?.name ?? this.freshName(paths, copy.path);

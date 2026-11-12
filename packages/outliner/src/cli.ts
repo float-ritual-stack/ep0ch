@@ -640,7 +640,6 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
       console.log(WORK_USAGE);
       process.exit(0);
     }
-    await client.requireCompatibleService();
     if (group === "note") {
       if (operation !== "section") throw new Error("note expects: section <block> <heading> --file <path>|--stdin");
       const { values, positionals } = parse({ file: { type: "string" }, stdin: { type: "boolean" } });
@@ -814,7 +813,6 @@ async function gateCliWrite(author: string, values: { actor?: string; session?: 
   if (author !== "agent") return null;
   const [{ gate }, { agentWrite }, { AGENT_TOOL_DEFINITIONS }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("@ep0ch/outline-core/agent-tool-definitions")]);
   const refuse = (why: string): never => { console.error(`error: ${why}`); process.exit(1); };
-  await client.requireCompatibleService();
   const { level, where } = await localAgentLevel();
   let given = args;
   if (level === "propose" && resolve) given = await resolve(args).catch((e: unknown) => refuse(e instanceof Error ? e.message : String(e)));
@@ -872,7 +870,6 @@ async function runAgentCommand(args: string[]): Promise<number> {
     const input: unknown = JSON.parse(values.stdin ? await Bun.stdin.text() : values.json!);
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("the input is a JSON object");
     const actor = values.actor?.trim() ? writerProvenance(values) : undefined;
-    await client.requireCompatibleService();
     // A write's answer carries the note as the door draws it (PIE-588): this checkout's door draws it, on this socket.
     Object.assign(client, {
       draw: doorDrawer(paths),
@@ -904,7 +901,6 @@ switch (command) {
       strict: true,
     });
     if (!values.block || !values["tidy-above"]) throw new Error("patch-demo requires --block <id> and --tidy-above <mark line>");
-    await client.requireCompatibleService();
     const { tidyAboveMark } = await import("./draft-patch-demo");
     const read = await client.request<{ text: string; revision: number; route: string }>({ action: "drafts.read", blockId: values.block }, 10_000);
     const span = tidyAboveMark(read.text, values["tidy-above"]);
@@ -943,7 +939,6 @@ switch (command) {
     if (offset !== undefined && (!/^\d+$/.test(values.offset!) || !Number.isSafeInteger(offset))) {
       throw new Error("--offset must be a non-negative integer");
     }
-    await client.requireCompatibleService();
     directResult = await readSavedView(client, positionals[0]!, {
       ...(values.limit === undefined ? {} : { limit: parseLimit(values.limit, 200) }),
       ...(offset === undefined ? {} : { offset }),
@@ -961,7 +956,6 @@ switch (command) {
     if (line !== undefined && (!/^\d+$/.test(values.line!) || !Number.isSafeInteger(line))) {
       throw new Error("--line must be a non-negative integer");
     }
-    await client.requireCompatibleService();
     request = { action: "resources.projection.read", blockId: positionals[0]!, ...(line === undefined ? {} : { line }) };
     break;
   }
@@ -973,7 +967,6 @@ switch (command) {
     if ((values.text !== undefined) === Boolean(values.stdin)) {
       throw new Error("properties-preview requires either --text or --stdin");
     }
-    await client.requireCompatibleService();
     request = { action: "properties.preview", text: values.stdin ? await Bun.stdin.text() : values.text! };
     break;
   }
@@ -1008,8 +1001,6 @@ switch (command) {
       ...(values.facets === undefined ? {} : { facets: values.facets.split(",").map((key) => key.trim()).filter(Boolean) }),
       ...(values["facet-values"] === undefined ? {} : { facetValues: Number(values["facet-values"]) }),
     };
-    // An older service ignores `where` and would return unfiltered results.
-    if (query.where !== undefined || query.facets !== undefined) await client.requireCompatibleService();
     request = {
       action: "blocks.query",
       query,
@@ -1023,7 +1014,6 @@ switch (command) {
       options: { fields: { type: "string" } },
     });
     if (positionals.length === 0) throw new Error("read requires one or more block IDs");
-    await client.requireCompatibleService();
     request = {
       action: "blocks.read",
       ids: positionals,
@@ -1049,7 +1039,6 @@ switch (command) {
     const body = values.stdin ? await Bun.stdin.text() : values.text!;
     const start = values.start === undefined ? undefined : Number(values.start);
     if (start !== undefined && (!Number.isSafeInteger(start) || start < 0)) throw new Error("--start must be a non-negative UTF-16 source offset");
-    await client.requireCompatibleService();
     // An agent's comment says which agent (--author agent --actor <id>); the person's stays the default.
     const author = writerAuthor(values.author, values.actor);
     if (author === "system") throw new Error("--author must be user or agent for a comment");
@@ -1082,7 +1071,6 @@ switch (command) {
       throw new Error("capture requires --text or stdin");
     }
     const text = values.text ?? await Bun.stdin.text();
-    await client.requireCompatibleService();
     request = {
       action: "capture.create",
       requestId: values["request-id"] ?? crypto.randomUUID(),
@@ -1138,7 +1126,6 @@ switch (command) {
       return { ...a, parent: placement.parentId ?? "root" };
     });
     if (proposedNote) { directResult = proposedNote; break; }
-    await client.requireCompatibleService();
     request = {
       action: "notes.create",
       text: values.text ?? "",
@@ -1231,7 +1218,6 @@ switch (command) {
       },
       strict: true,
     });
-    if (values.actor !== undefined) await client.requireCompatibleService();
     request = {
       action: "activity.recent",
       ...(values.actor !== undefined ? { actorId: values.actor } : {}),
@@ -1457,7 +1443,6 @@ switch (command) {
     if (!Number.isSafeInteger(sequence)) {
       throw new Error("changes requires --since <sequence>, a non-negative integer");
     }
-    await client.requireCompatibleService();
     request = {
       action: "changes.since",
       sequence,
@@ -1490,13 +1475,6 @@ switch (command) {
     process.exit(2);
 }
 
-// Older services treat an absent timestamp token as an unconditional update.
-// Never send the integer contract to one of those services.
-if (request && "expectedRevision" in request) await client.requireCompatibleService();
-// An older service would move or trash without recording who did it.
-if (request && (["move", "delete", "trash.restore"].includes(request.action) || "kinds" in request)) {
-  await client.requireCompatibleService();
-}
 let result: unknown;
 try {
   result = request ? await client.request(request) : directResult;
