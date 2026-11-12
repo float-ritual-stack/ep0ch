@@ -9,6 +9,8 @@
 //! - `shell.rs`: tiles and screens: one test a container kind, where opens land, a screen saved, broken and reset.
 //! - `lists.rs`: one list, whatever it is of: lanes, a table, facets as chips, the shipped screens opened from the bar.
 //! - `actline.rs`: the act-line grammar and the action rows against outline-core's fixtures.
+//! - `parts.rs`: a page's parts through the primitive registry: every type has a builder, a button runs here or is
+//!   the service's, a script's act is run and answered, and every component's own example is drawn (the coverage table).
 //! - `control.rs`: an agent over the control socket.
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
 //! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
@@ -22,6 +24,7 @@ mod live;
 mod one_owner;
 mod owners;
 mod parity;
+mod parts;
 mod shell;
 mod store;
 mod support;

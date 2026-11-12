@@ -59,9 +59,9 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
         act(&mut app, &format!("open id={}", plan["id"].as_str().unwrap()));
         let page = app.page().expect("the page came");
         assert_eq!(page.title, "Plan");
-        let todo = |app: &App| -> Vec<String> { app.page().unwrap().parts.iter().flat_map(|part| match part { crate::page::Part::Rows { groups, .. } => groups.iter().flat_map(|g| g.rows.iter().map(|r| r.text.clone())).collect(), _ => Vec::new() }).collect() };
+        let todo = |app: &App| -> Vec<String> { app.page().unwrap().parts.iter().filter(|part| part["view"]["type"] == "list").flat_map(|part| part["view"]["rows"].as_array().cloned().unwrap_or_default()).map(|row| row["label"].as_str().unwrap_or("").to_string()).collect() };
         assert_eq!(todo(&app), ["Lift the onions"]);
-        assert!(matches!(&page.parts[0], crate::page::Part::Prose { markdown } if markdown.contains(&format!("[Shed](ep0ch:b/{})", shed["id"].as_str().unwrap()))));
+        assert!(page.parts[0]["view"]["text"].as_str().is_some_and(|text| text.contains(&format!("[Shed](ep0ch:b/{})", shed["id"].as_str().unwrap()))));
 
         // The bar's notes are the service's search: what a word typed costs, said for the record (DESIGN.md §7).
         let asked = std::time::Instant::now();
@@ -191,6 +191,79 @@ fn live_a_screen_is_saved_as_a_note_listed_broken_and_reset_over_the_socket() {
         assert!(act(&mut app, "screen.save").ok);
         assert!(app.notice.as_ref().is_some_and(|n| n.said.starts_with("Saved over the screen garden-work")), "{:?}", app.notice);
         assert_eq!(app.screen.note().map(|(id, _)| id.to_string()), Some(note));
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
+/// A note's buttons against a real host: one whose act line this window has runs here, recorded as whoever pressed;
+/// one with steps is the service's to run, and the act its run sends back is run by this window's dispatcher and
+/// answered, so the run ends and says so.
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_button_runs_here_and_one_with_steps_is_run_by_the_service_and_answered_over_the_socket() {
+    use crate::actions::Actor;
+    use crate::client::Socket;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-buttons-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(20));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        asking(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true }));
+        let mut raw = Socket::connect(&path);
+        let mut ask = |request: Value| asking(&mut raw, request);
+        let shed = ask(json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": "Shed [type::place]\nWhere the tools live.", "author": "user" }));
+        let shed = shed["id"].as_str().unwrap().to_string();
+        let plan = ask(json!({ "id": "c", "action": "create", "outline": "scratch", "parentId": null, "author": "user",
+            "text": format!("Plan [type::plan]\n::button{{label=\"Sow the peas\" act=\"note.new text=Peas\"}}\n\n::button{{label=\"Open the shed\"}}\nopen id={shed}\n::") }));
+        let plan = plan["id"].as_str().unwrap().to_string();
+
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        assert!(act(&mut app, &format!("open id={plan}")).ok);
+        let framed: Vec<(String, u64, bool)> = app.page().expect("the page came").parts.iter().map(|part| (part["view"]["type"].as_str().unwrap_or("").to_string(), part["line"].as_u64().unwrap(), part["sequence"] == true)).collect();
+        assert_eq!(framed, [("button".to_string(), 1, false), ("button".to_string(), 3, true)], "the service found both buttons and says which is its own to run");
+        let reader = app.reader().unwrap();
+        let said = |app: &App| app.ui(&reader).said.clone().map(|said| (said.words, said.ok));
+
+        // An agent presses the first: its act line runs here, and the note it makes is recorded as the agent's.
+        let outcome = app.act("button.press label=\"Sow the peas\"", Actor::Agent("compost-agent".into()));
+        assert!(outcome.ok && outcome.answer["ran"] == "here", "{} {}", outcome.said, outcome.answer);
+        app.settle();
+        assert_eq!(said(&app), Some(("Sow the peas ran note.new text=Peas, as an agent (compost-agent)".to_string(), true)));
+        for _ in 0..100 { if app.page().is_some_and(|page| !page.children.is_empty()) { break } std::thread::sleep(Duration::from_millis(50)); app.take(); }
+        let made = app.page().unwrap().children.first().expect("the note it made is under the plan").id.clone();
+        let record = ask(json!({ "id": "d", "action": "blocks.records", "outline": "scratch", "ids": [made] }));
+        assert_eq!((record["records"][0]["author"].as_str(), record["records"][0]["actor"].as_str()), (Some("agent"), Some("compost-agent")), "{record}");
+
+        // The person presses the second: the service runs its step, which is an act for this window. It comes back
+        // as a call, the dispatcher runs it (the reader opens the shed) and answers, and the run says it is done.
+        let outcome = act(&mut app, "button.press line=4");
+        assert!(outcome.ok && outcome.answer["ran"] == "service", "{} {}", outcome.said, outcome.answer);
+        for _ in 0..200 { std::thread::sleep(Duration::from_millis(50)); app.take(); if said(&app).is_some_and(|(words, _)| !words.ends_with("running…")) && app.subject().as_deref() == Some(shed.as_str()) { break } }
+        assert_eq!(app.subject().as_deref(), Some(shed.as_str()), "the run's open ran here: {:?}", said(&app));
+        let (words, ok) = said(&app).unwrap();
+        assert!(ok && words.starts_with("Open the shed ran, as you"), "{words}");
+        let step = app.steps.iter().rev().find(|step| step.action == "open").unwrap();
+        assert!(step.ok && step.by == Actor::Person, "the person's press is the run's consent: its act is theirs");
     });
     let _ = host.kill();
     let _ = host.wait();

@@ -18,6 +18,7 @@ mod keys;
 mod layout;
 mod list;
 mod page;
+mod parts;
 mod screen;
 mod shell;
 mod store;

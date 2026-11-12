@@ -5,7 +5,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NotePage, PagePart } from "@ep0ch/outline-core/note-page";
+import type { NotePage, PagePart, PagePrimitive } from "@ep0ch/outline-core/note-page";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -34,8 +34,11 @@ async function setup() {
   return { client, create, page, socket };
 }
 
-const part = <K extends PagePart["kind"]>(page: NotePage, kind: K, title?: string) =>
-  page.parts.find((p): p is Extract<PagePart, { kind: K }> => p.kind === kind && (title === undefined || ("title" in p && p.title === title)))!;
+const part = (page: NotePage, kind: PagePart["kind"], title?: string) => page.parts.find(p => p.kind === kind && (title === undefined || p.title === title))!;
+/** A part's view as the primitive type it is said to be. */
+const view = <T extends PagePrimitive["type"]>(p: PagePart, type: T) => { expect(p.view.type).toBe(type); return p.view as Extract<PagePrimitive, { type: T }>; };
+/** A part as it was written: its note's text at its span. */
+const written = (page: NotePage, p: PagePart) => page.text.slice(p.span.start, p.span.end);
 
 test("a page is the title, the chips and the body in order: prose as Markdown, each component with the service's answer", async () => {
   const { create, page } = await setup();
@@ -77,6 +80,20 @@ test("a page is the title, the chips and the body in order: prose as Markdown, e
     "",
     "::button{label=\"Sweep\" act=\"note.new\"}",
     "",
+    "::box{pad.x=1}",
+    "Inside the box.",
+    "::graph-meter",
+    "---",
+    "limit: 10",
+    "---",
+    "- beds: 4",
+    "::",
+    "::",
+    "",
+    "::trellis",
+    "nobody answers this",
+    "::",
+    "",
     "The last word.",
   ].join("\n"));
 
@@ -84,43 +101,75 @@ test("a page is the title, the chips and the body in order: prose as Markdown, e
   expect(p).toMatchObject({ blockId: plan.id, revision: plan.revision, title: "Plan for Saturday", chips: [{ key: "type", value: "plan" }], text: plan.text });
   expect(p.properties).toContainEqual({ key: "type", value: "plan" });
   expect(p.author).toBe("user");
-  expect(p.parts.map(x => x.kind)).toEqual(["prose", "rows", "prose", "figure", "view", "rows", "component", "prose"]);
+  expect(p.parts.map(x => x.kind)).toEqual(["prose", "links", "prose", "figure", "view", "links", "button", "box", "component", "prose"]);
+  // Every part says where it is written: the note, its first line, and its place in the note's text.
+  for (const x of p.parts) expect(x).toMatchObject({ type: "part", block: plan.id, line: p.text.slice(0, x.span.start).split("\n").length - 1 });
 
   // Prose: references and page links as Markdown links, two written lines two lines, a callout's header a lead, code untouched.
-  const prose = p.parts.filter(x => x.kind === "prose").map(x => x.markdown);
+  const prose = p.parts.filter(x => x.kind === "prose").map(x => view(x, "markdown").text);
   expect(prose[0]).toBe(`Start at the [Shed](ep0ch:b/${shed.id}), then [the onions](ep0ch:b/${onions.id}) and the [Seed list](ep0ch:p/Seed%20list).  \nA second line.`);
   // A page link whose page exists is written to its note; the one above has no page yet and keeps its address.
   const list = await create("Seed list [page::Seed list]");
-  expect((await page(plan.id)).parts[0]).toMatchObject({ markdown: expect.stringContaining(`[Seed list](ep0ch:b/${list.id})`) });
+  expect((await page(plan.id)).parts[0]).toMatchObject({ view: { type: "markdown", text: expect.stringContaining(`[Seed list](ep0ch:b/${list.id})`) } });
   expect(prose[1]).toMatch(/^> \*\*.+ Bring gloves\*\*  \n> The brambles are back\./);
   expect(prose[1]).toContain(`\`\`\`\n((${shed.id})) stays as written in code\n\`\`\``);
   expect(prose[2]).toBe("The last word.");
 
   // A `::links` query: the matches, each the note it opens.
-  const plot = part(p, "rows", "On the plot");
+  const plot = part(p, "links", "On the plot"), list0 = view(plot, "list");
   expect(plot).toMatchObject({ name: "links", query: "type=chore area=plot", status: "live · 2 matches" });
-  expect(plot.groups.map(g => [g.name, g.rows.map(r => r.text).sort()])).toEqual([["Matches", ["Lift the onions", "Water the beans"]]]);
-  expect(plot.groups[0]!.rows.find(r => r.text === "Lift the onions")!.id).toBe(onions.id);
-  expect(plot.source).toBe("::links{query=\"type=chore area=plot\" title=\"On the plot\"}\n::");
+  expect(list0.groups).toEqual([{ name: "Matches", label: "Matches", count: 2 }]);
+  expect(list0.rows.map(r => [r.group, r.label]).sort()).toEqual([["Matches", "Lift the onions"], ["Matches", "Water the beans"]]);
+  expect(list0.rows.find(r => r.label === "Lift the onions")!.do).toEqual({ open: onions.id });
+  expect(written(p, plot)).toBe("::links{query=\"type=chore area=plot\" title=\"On the plot\"}\n::");
 
-  // A figure: the props it draws from, answered, and the same results as Markdown.
+  // A figure: the primitives it draws as, from the props the outline answered.
   const stat = part(p, "figure");
   expect(stat).toMatchObject({ name: "graph-stat", figure: "stat", title: "Chores" });
-  expect((stat.props.items as { label: string; value: string }[]).map(i => [i.label, i.value])).toEqual([["to do", "1"], ["done", "1"]]);
-  expect(stat.markdown).toContain("to do");
+  expect(view(stat, "row").children).toEqual([{ type: "stat", label: "to do", value: "1" }, { type: "stat", label: "done", value: "1" }]);
 
   // A query-backed table is a view: the view's own list.
   const table = part(p, "view");
   expect(table).toMatchObject({ name: "graph-table", title: "Every chore", query: "type=chore" });
-  expect(table.view.rows.map(r => r.label).sort()).toEqual(["Lift the onions", "Water the beans"]);
+  expect(view(table, "list").rows.map(r => r.label).sort()).toEqual(["Lift the onions", "Water the beans"]);
 
   // A query the service can't read: its words, and the source to show.
-  const bad = part(p, "rows", "Not chores");
-  expect(bad.groups).toEqual([]);
+  const bad = part(p, "links", "Not chores");
+  expect(view(bad, "list").rows).toEqual([]);
   expect(bad.error).toMatch(/NOT/);
 
+  // A button: a labelled press, with the line a press names it by.
+  const sweep = part(p, "button");
+  expect(sweep).toMatchObject({ name: "button", line: p.text.split("\n").indexOf("::button{label=\"Sweep\" act=\"note.new\"}"), view: { type: "button", label: "Sweep", act: "note.new" } });
+  expect(sweep).not.toHaveProperty("sequence");
+
+  // A box: the parts written inside it, each with its own place.
+  const box = view(part(p, "box"), "box");
+  expect(box.children.map(c => c.type === "part" && [c.kind, c.view.type])).toEqual([["prose", "markdown"], ["figure", "stack"]]);
+  expect(box.children[1]).toMatchObject({ figure: "meter", view: { children: [{ type: "bar", label: "beds", value: 4, max: 10 }] } });
+  expect(written(p, box.children[0] as PagePart)).toBe("Inside the box.");
+
   // A component the service answers nothing for: as written.
-  expect(part(p, "component")).toEqual({ kind: "component", name: "button", source: "::button{label=\"Sweep\" act=\"note.new\"}" });
+  expect(part(p, "component")).toMatchObject({ name: "trellis", view: { type: "source", text: "::trellis\nnobody answers this\n::" } });
+});
+
+test("the service's word on a button: a look it doesn't read stops no press, a slot left empty is what it needs", async () => {
+  const { create, page } = await setup();
+  const note = await create([
+    "Shed jobs [type::plan]",
+    "::button{label=\"Fold\" act=\"dock.toggle side=right\" tone=sparkly}",
+    "",
+    "::button{label=\"Open a bed\" act=\"open id={bed}\" bed=}",
+    "",
+    "::button{label=\"Open another\" act=\"open id={bed}\" bed= tone=sparkly}",
+  ].join("\n"));
+  const [look, slot, both] = (await page(note.id)).parts;
+  // The look is said and the button is still a press: the door runs it too (its `runPress` stops only a button that names nothing).
+  expect(look).toMatchObject({ kind: "button", error: expect.stringContaining("tone=sparkly"), view: { type: "button", label: "Fold", act: "dock.toggle side=right" } });
+  expect(look).not.toHaveProperty("needs");
+  // An empty slot is what a press has nothing to fill: the part names it, and says what to write first.
+  expect(slot).toMatchObject({ kind: "button", needs: ["bed"], error: "no bed yet: write bed= on its line", view: { type: "button", label: "Open a bed" } });
+  expect(both).toMatchObject({ needs: ["bed"], error: expect.stringMatching(/^no bed yet: write bed= on its line · the button doesn't read tone=sparkly/) });
 });
 
 test("a note with no body has no parts; one in Trash is refused; the request needs its note", async () => {
@@ -162,7 +211,7 @@ test("a watched page is told when its answer changes, whatever changed it, and i
   line.on("data", chunk => { buffer += chunk; for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) { said.push(JSON.parse(buffer.slice(0, at))); buffer = buffer.slice(at + 1); } });
   const until = async <T>(find: () => T | undefined): Promise<T> => { for (let i = 0; i < 400; i++) { const found = find(); if (found !== undefined) return found; await Bun.sleep(10); } throw new Error("nothing came"); };
   const ask = async (id: string, more: Record<string, unknown> = {}) => { line.write(JSON.stringify({ id, action: "notes.page", blockId: plan.id, watch: "page", ...more }) + "\n"); return until(() => said.find(m => m.id === id)); };
-  const todo = (m: any) => (m.result.parts as PagePart[]).flatMap(part => part.kind === "rows" ? part.groups.flatMap(g => g.rows.map(r => r.text)) : []);
+  const todo = (m: any) => (m.result.parts as PagePart[]).flatMap(part => part.view.type === "list" ? part.view.rows.map(r => r.label) : []);
 
   const first = await ask("a");
   expect(first.result.generation).toBe(0);
@@ -214,10 +263,11 @@ test("pictures: a media line where it stands, an svg fence as its own text, and 
   // The first `[layout::hero]` line is the header: above the title, so not among the parts.
   expect(p.hero).toEqual({ path: "banner.png", width: "fit", alt: "The beds in June", fit: "cover", focus: { x: 0.25, y: 0.5 }, dim: 0.3 });
   expect(p.parts.map(x => x.kind)).toEqual(["prose", "picture", "prose", "picture", "prose"]);
-  expect(p.parts[1]).toEqual({ kind: "picture", source: "[img::beds.svg] [size::full] [height::9] [alt::Four beds]", path: "beds.svg", width: "full", height: 9, alt: "Four beds" });
+  expect(p.parts[1]!.view).toEqual({ type: "picture", path: "beds.svg", width: "full", height: 9, alt: "Four beds" });
+  expect(written(p, p.parts[1]!)).toBe("[img::beds.svg] [size::full] [height::9] [alt::Four beds]");
   // A picture fence is the picture: its text, with no file to read.
-  expect(p.parts[3]).toMatchObject({ kind: "picture", width: "fit", height: 6, svg: expect.stringContaining("<rect") });
-  expect(p.parts[3]).not.toHaveProperty("path");
+  expect(p.parts[3]).toMatchObject({ kind: "picture", view: { type: "picture", width: "fit", height: 6, svg: expect.stringContaining("<rect") } });
+  expect(p.parts[3]!.view).not.toHaveProperty("path");
   // An artifact line isn't a picture: it stays in the prose as written.
-  expect(p.parts[4]).toMatchObject({ kind: "prose", markdown: expect.stringContaining("[artifact::rota.html]") });
+  expect(p.parts[4]).toMatchObject({ kind: "prose", view: { type: "markdown", text: expect.stringContaining("[artifact::rota.html]") } });
 });

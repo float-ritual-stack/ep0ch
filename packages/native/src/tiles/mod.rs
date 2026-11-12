@@ -10,6 +10,7 @@
 //! - **A kind this window has no drawer for** is drawn as its spec, as data, with what the service said is wrong.
 pub mod list;
 pub mod page;
+pub mod prim;
 
 use rune::{El, col, text};
 use rune_kit::Kit;
@@ -44,9 +45,9 @@ impl TileCx<'_> {
         move |s: &mut App| { s.act(&line, Actor::Person); }
     }
     /// A press that says something happened here to a note: `open` sends it where this tile's opens land.
-    pub fn emit(&self, verb: &str, subject: &str) -> impl Fn(&mut App) + Clone + 'static {
-        self.act(match verb { "open" => format!("open id={}", word(subject)), other => format!("tile.emit verb={other} id={}", word(subject)) })
-    }
+    pub fn emit(&self, verb: &str, subject: &str) -> impl Fn(&mut App) + Clone + 'static { self.act(TileCx::says(verb, subject)) }
+    /// The act line that says something happened to a note: what `emit` runs, for a press that is a line already.
+    pub fn says(verb: &str, subject: &str) -> String { match verb { "open" => format!("open id={}", word(subject)), other => format!("tile.emit verb={other} id={}", word(subject)) } }
 }
 
 /// One answer shape, drawn.
@@ -96,5 +97,6 @@ pub fn described(app: &App) -> Value {
     json!({
         "kinds": app.kinds().iter().map(|row| json!({ "kind": row.kind, "name": row.name, "about": row.about, "drawer": row.drawer, "fields": row.fields, "replaces": row.replaces, "extension": row.extension, "drawn": drawer_of(row).is_some() })).collect::<Vec<_>>(),
         "drawers": DRAWERS.iter().map(|drawer| json!({ "id": drawer.id, "about": drawer.about, "notes": drawer.notes, "lists": drawer.lists, "takesKeys": drawer.takes_keys })).collect::<Vec<_>>(),
+        "primitives": prim::described(),
     })
 }

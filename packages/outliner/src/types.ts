@@ -989,8 +989,8 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
-  /** The program a client says it is (a door says `door`): what a script's `act()` looks for, not a clientId prefix. */
-  app?: "door";
+  /** The program a client says it is (a door says `door`, the native window `native`): what a script's `act()` looks for, not a clientId prefix. A press names its own client, whichever it is (`scripts.sequence`'s `clientId`). */
+  app?: "door" | "native";
   /** The host outline this pane is on; a hosted outline stamps its own name. */
   outline?: string;
   navigationProtection?: string | null;

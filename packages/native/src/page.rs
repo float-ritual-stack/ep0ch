@@ -1,5 +1,6 @@
 //! What the service answers, as this app reads it off the wire: a list (`lists.read`, outline-core's list-row.ts)
 //! and a note's page (`notes.page`, outline-core's note-page.ts). Shapes only: nothing here decides.
+//! A page's body stays the data it came as: each part a primitive, drawn by its type (`parts.rs`, `tiles/prim.rs`).
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -20,25 +21,6 @@ pub struct NoteRow {
 pub struct Chip {
     pub key: String,
     pub value: String,
-}
-
-/// One row of a links group or a fields list: what it says, the note it opens (none: it opens nothing), a quiet word after it.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct PageRow {
-    pub text: String,
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Group {
-    pub name: String,
-    #[serde(default)]
-    pub rows: Vec<PageRow>,
-    #[serde(default)]
-    pub empty: Option<String>,
 }
 
 /// A row of a list, as the service lists it (outline-core's `ListRow`): what it shows and the act line a pick runs.
@@ -196,65 +178,23 @@ pub struct Picture {
 }
 
 impl Picture {
+    /// The picture a primitive is: a page's `picture`, or a view's `image` (its `src` a file, `size: full` the width there is).
+    pub fn of(prim: &Value) -> Option<Picture> {
+        match prim["type"].as_str()? {
+            "picture" => Picture::deserialize(prim).ok(),
+            "image" => {
+                let text = |key: &str| prim[key].as_str().map(str::to_string);
+                (prim["src"].is_string() || prim["svg"].is_string()).then(|| Picture {
+                    path: text("src"), svg: text("svg"), alt: text("alt"), width: if prim["size"] == "full" { "full".into() } else { "fit".into() },
+                    height: prim["height"].as_f64().map(|rows| rows as f32), fit: text("fit"), dim: None, problems: Vec::new(),
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// What names this picture among the ones the window holds: its file's path, or its own text.
     pub fn key(&self) -> String { self.path.clone().unwrap_or_else(|| format!("svg:{}", self.svg.as_deref().unwrap_or(""))) }
-}
-
-/// What every component part carries (outline-core's note-page.ts): its name and source as written, and the service's word on its answer.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Frame {
-    pub name: String,
-    #[serde(default)]
-    pub title: Option<String>,
-    pub source: String,
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-/// A part of a page, as `notes.page` answers it.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Part {
-    Prose { markdown: String },
-    /// A `::graph-*` figure: the props it draws from, answered, and the same results as Markdown.
-    Figure {
-        #[serde(flatten)]
-        frame: Frame,
-        figure: String,
-        #[serde(default)]
-        props: Value,
-        #[serde(default)]
-        markdown: Option<String>,
-    },
-    /// A `::view` or a query-backed table: the view's own list.
-    View {
-        #[serde(flatten)]
-        frame: Frame,
-        view: ListView,
-        #[serde(default)]
-        truncated: bool,
-    },
-    /// A `::links` and its kin, or a `::fields`: named groups of rows.
-    Rows {
-        #[serde(flatten)]
-        frame: Frame,
-        #[serde(default)]
-        groups: Vec<Group>,
-    },
-    /// A picture where it stands in the note.
-    Picture {
-        #[serde(flatten)]
-        picture: Picture,
-    },
-    /// A component the service answers nothing for: its source.
-    Component {
-        #[serde(flatten)]
-        frame: Frame,
-    },
 }
 
 /// `notes.page`'s answer: everything drawn of one note.
@@ -267,8 +207,12 @@ pub struct Page {
     pub text: String,
     #[serde(default)]
     pub chips: Vec<Chip>,
+    /// The body, in order: each a `part` primitive (outline-core's `PagePart`), read by its `type` and nothing else.
     #[serde(default)]
-    pub parts: Vec<Part>,
+    pub parts: Vec<Value>,
+    /// Every picture the page shows, found once an answer.
+    #[serde(skip)]
+    pictured: std::sync::OnceLock<Vec<Picture>>,
     /// The note's header image, drawn above the title.
     #[serde(default)]
     pub hero: Option<Picture>,
@@ -293,8 +237,12 @@ pub struct FacetValue {
 }
 
 impl Page {
-    /// Every picture the page shows: its header image, then the ones in its body.
-    pub fn pictures(&self) -> impl Iterator<Item = &Picture> {
-        self.hero.iter().chain(self.parts.iter().filter_map(|part| match part { Part::Picture { picture } => Some(picture), _ => None }))
+    /// Every picture the page shows: its header image, then the ones in its body, wherever a part holds one.
+    pub fn pictures(&self) -> &[Picture] {
+        self.pictured.get_or_init(|| {
+            let mut found: Vec<Picture> = self.hero.iter().cloned().collect();
+            for part in &self.parts { crate::parts::walk(part, &mut |prim| found.extend(Picture::of(prim))) }
+            found
+        })
     }
 }

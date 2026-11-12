@@ -45,6 +45,20 @@ pub struct TileUi {
     pub narrowed: Vec<(String, String)>,
     /// What the person chose for a list here, by the parameter's name (its sort, its group, how it is arranged): over its spec's.
     pub chosen: BTreeMap<String, String>,
+    /// What a press in this tile last did, said on the part that was pressed.
+    pub said: Option<Said>,
+}
+
+/// What a press did, and where it was pressed: the note and the line of the part.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Said {
+    pub block: String,
+    pub line: u64,
+    pub words: String,
+    pub ok: bool,
+    /// The run it is waiting on, when the service is still running it (its id, what it is called here, who pressed):
+    /// its end says the rest.
+    pub run: Option<(String, String, Actor)>,
 }
 
 static NO_UI: std::sync::LazyLock<TileUi> = std::sync::LazyLock::new(TileUi::default);
@@ -476,6 +490,8 @@ impl App {
     pub fn start(&mut self) {
         let at = self.at.clone();
         self.store.request(&at, "ping", json!({}), &Actor::Person, hello, Value::Null);
+        // The window says who it is, so a script it starts can send its acts back here (`actions/script.rs`).
+        self.store.register(&at);
         self.pump();
     }
 
@@ -549,6 +565,8 @@ impl App {
             match one {
                 Landed::Answer(key) => self.landed(&key),
                 Landed::Reply(reply) => (reply.then)(self, reply),
+                Landed::Call { at, call } => super::script::called(self, &at, &call),
+                Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
                 Landed::Lost { detail } => {
                     self.st.online = false;
                     self.st.notice = Some(Notice::problem(format!("Offline: {detail}")));

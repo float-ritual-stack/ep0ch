@@ -27,6 +27,10 @@ use crate::client::Link;
 
 /// How many watched answers the service keeps for one connection (outline-core's `WATCH_LIMITS.perConnection`).
 pub const WATCH_BUDGET: usize = 64;
+/// The event a script's act arrives as (outline-core's `ScriptActionCall`, the service's `scripts.act`).
+const SCRIPT_ACT: &str = "scripts.act";
+/// The event a script run's end arrives as (outline-core's `ScriptEnded`).
+const SCRIPT_ENDED: &str = "scripts.ended";
 /// How many answers nobody shows are kept for `last` and a quick return.
 const IDLE_KEPT: usize = 128;
 
@@ -159,6 +163,39 @@ pub enum Landed {
     Reply(Reply),
     /// A link ended; `detail` says how.
     Lost { detail: String },
+    /// The service asks this window to run an action for a script (a `script` event aimed at this client): the
+    /// dispatcher runs it and `answer` says how it went.
+    Call { at: OutlineAt, call: Call },
+    /// A script run ended (the service's `scripts.ended`): which, how, and its last word.
+    Ended { run: String, reason: String, message: String },
+}
+
+/// An action a script asks this window to run (outline-core's `ScriptActionCall`), as the wire said it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Call {
+    /// What `answer` names it by.
+    pub request: String,
+    pub action: String,
+    pub args: Map<String, Value>,
+    /// Who the call is: the script, by the id the service records it under.
+    pub script: String,
+    /// The run is the person's own press: its acts are theirs.
+    pub pressed: bool,
+    /// The tile an agent's press was asked from, when it named one.
+    pub tile: Option<String>,
+}
+
+impl Call {
+    fn read(call: &Value) -> Option<Call> {
+        Some(Call {
+            request: call["requestId"].as_str()?.to_string(),
+            action: call["action"].as_str().unwrap_or("").to_string(),
+            args: call["args"].as_object().cloned().unwrap_or_default(),
+            script: call["actor"]["actorId"].as_str().unwrap_or("script").to_string(),
+            pressed: call["requestedBy"]["author"] == "user",
+            tile: call["at"]["tile"].as_str().map(str::to_string),
+        })
+    }
 }
 
 struct Wire {
@@ -182,10 +219,33 @@ pub struct Store {
     pub blocking: bool,
     /// Who the person's writes are recorded as.
     person: String,
+    /// The name this window is registered under on each link: what a script's act is aimed at.
+    client: String,
 }
 
 impl Store {
-    pub fn new() -> Store { Store { person: "ep0ch-native".into(), ..Store::default() } }
+    pub fn new() -> Store {
+        static WINDOWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = WINDOWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Store { person: "ep0ch-native".into(), client: format!("native-{}-{n}", std::process::id()), ..Store::default() }
+    }
+
+    /// The name this window is registered under: a press names it, so a script's acts come back here.
+    pub fn client(&self) -> &str { &self.client }
+
+    /// Registers this window on a link as a client that runs actions (`events.subscribe`): the service then sends
+    /// it the acts of the scripts it started and how each run ended, and nothing else of the event feed.
+    pub fn register(&mut self, at: &OutlineAt) {
+        let client = json!({ "clientId": self.client, "role": "observer", "contextId": self.client, "app": "native" });
+        self.send(at, "events.subscribe", json!({ "client": client, "kinds": [SCRIPT_ACT, SCRIPT_ENDED] }));
+    }
+
+    /// Answers a script's act (`scripts.answer`): what the action answered, or why it didn't run.
+    pub fn answer(&mut self, at: &OutlineAt, request: &str, result: Result<Value, String>) {
+        let mut said = json!({ "requestId": request, "clientId": self.client });
+        match result { Ok(result) => said["result"] = result, Err(error) => said["error"] = json!(error) }
+        self.send(at, "scripts.answer", said);
+    }
 
     /// The link to an outline's host: made, or made again (its watches and whatever was out ended with the old one).
     pub fn link(&mut self, at: &OutlineAt, link: Box<dyn Link>) {
@@ -370,6 +430,13 @@ impl Store {
                     }
                 } else if line["event"]["action"] == "queries.changed" {
                     for change in line["event"]["changes"].as_array().into_iter().flatten() { self.changed(&at, change) }
+                } else if line["event"]["action"] == SCRIPT_ACT {
+                    let call = &line["event"]["script"];
+                    if call["targetClientId"] == self.client.as_str() && let Some(call) = Call::read(call) { landed.push(Landed::Call { at: at.clone(), call }) }
+                } else if line["event"]["action"] == SCRIPT_ENDED {
+                    let ended = &line["event"]["ended"];
+                    let text = |key: &str| ended[key].as_str().unwrap_or("").to_string();
+                    landed.push(Landed::Ended { run: text("run"), reason: text("reason"), message: text("message") });
                 } else if line["link"] == "lost" {
                     self.out.retain(|_, out| match out { Out::Read(key) => self.slots.get(key).is_none_or(|slot| slot.ask.at != at), Out::Reply { at: theirs, .. } => *theirs != at });
                     for slot in self.slots.values_mut().filter(|slot| slot.ask.at == at) { slot.out = None }
