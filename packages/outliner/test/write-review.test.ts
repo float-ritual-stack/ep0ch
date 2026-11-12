@@ -21,7 +21,11 @@ type Answer = { type: string; choice?: string; confidence?: number; probabilitie
 /** What the fake Jev says to a question: by default a choice of its first option, unsure, and every noul a no. */
 type Answers = (id: string, q: Question, state: Record<string, unknown>) => Answer | undefined;
 
-async function setup(answers: Answers = () => undefined, o: { facetsDelayMs?: number; jevDelayMs?: number } = {}) {
+/**
+ * `view`: each write also comes back drawn, as the door draws it (a second `ep0ch show` per write). Off for the tests
+ * about the review's words: the outliner's preload turns it off, and the CLI's env drops every OUTLINER_ (PIE-1762).
+ */
+async function setup(answers: Answers = () => undefined, o: { facetsDelayMs?: number; jevDelayMs?: number; view?: boolean } = {}) {
   const asked: { state: Record<string, unknown>; questions: Record<string, Question> }[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
@@ -55,7 +59,7 @@ async function setup(answers: Answers = () => undefined, o: { facetsDelayMs?: nu
   cleanups.push(async () => { fake.stop(true); await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
   const cliEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^(HERDR_|OUTLINER_|EP0CH_)/.test(k)) cliEnv[k] = v;
-  Object.assign(cliEnv, env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
+  Object.assign(cliEnv, env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` }, o.view ? {} : { OUTLINER_WRITE_VIEW: "off" });
   const agent = async (operation: string, input: unknown, actor = "loki/claude-code@float-box", extraEnv: Record<string, string> = {}) => {
     const child = Bun.spawn(["bun", "src/cli.ts", "agent", operation, "--stdin", "--actor", actor, "--session", "s-9"], {
       cwd: join(import.meta.dir, ".."), env: { ...cliEnv, ...extraEnv }, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",
@@ -595,7 +599,7 @@ const kindsByWords: Answers = (id, _q, state) => {
 };
 
 test("a mixed section answers with the note as drawn and a finding naming its fact, decision and open lines; its patch clears it (PIE-588)", async () => {
-  const { store, agent, asked } = await setup(kindsByWords);
+  const { store, agent, asked } = await setup(kindsByWords, { view: true });
   const made = await agent("create", { parent: "root", text: MIXED });
   expect(made.exitCode, made.stderr).toBe(0);
   // Each written line of the section was asked what it records, on its own.
@@ -719,7 +723,7 @@ test("an id written bare is quoted with its link, and the patch that links it cl
 });
 
 test("a figure write comes back with the figure as the door draws it, and its live count answered (PIE-721, PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
   const figure = ["Bean beds", "", "::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }, { label: sown, query: \"type=bed sown=yes\" }]", "---", "::"].join("\n");
   const started = Date.now();
@@ -736,7 +740,7 @@ test("a figure write comes back with the figure as the door draws it, and its li
 }, 30_000);
 
 test("a patch deep in a long section is drawn: its rows, under the section's heading if it's near, within the budget (PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   const rows = Array.from({ length: 60 }, (_, k) => `- Row ${k + 1}: the bed by the fence was weeded and watered.`);
   const made = await agent("create", { parent: "root", text: ["Bed log", "## Weeding", ...rows].join("\n") });
   expect(made.exitCode, made.stderr).toBe(0);
@@ -750,7 +754,7 @@ test("a patch deep in a long section is drawn: its rows, under the section's hea
 }, 30_000);
 
 test("a patch in two sections far apart draws each change under its own heading, within the budget (PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   const rows = (what: string) => Array.from({ length: 30 }, (_, k) => `- ${what} ${k + 1}: done by the shed.`);
   const made = await agent("create", { parent: "root", text: ["Bed log", "## Weeding", ...rows("Weed"), "## Sowing", ...rows("Sow")].join("\n") });
   expect(made.exitCode, made.stderr).toBe(0);
@@ -775,7 +779,7 @@ test("a patch in two sections far apart draws each change under its own heading,
 }, 30_000);
 
 test("a patch inside a figure's source far from another change draws the figure and the other change (PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
   const rows = Array.from({ length: 40 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
   const figure = ["::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }]", "---", "::"];
@@ -795,7 +799,7 @@ test("a patch inside a figure's source far from another change draws the figure 
 }, 30_000);
 
 test("a patch inside a figure's source and the line after it draws the figure too (PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
   const rows = Array.from({ length: 30 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
   const figure = ["::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }]", "---", "::"];
@@ -814,7 +818,7 @@ test("a patch inside a figure's source and the line after it draws the figure to
 }, 30_000);
 
 test("a patch in more places than the drawing holds names the ones it left out (PIE-588)", async () => {
-  const { store, agent } = await setup();
+  const { store, agent } = await setup(undefined, { view: true });
   const rows = Array.from({ length: 90 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
   const made = await agent("create", { parent: "root", text: ["Bed log", ...rows].join("\n") });
   const note = store.require(made.json.id);
