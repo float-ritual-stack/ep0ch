@@ -222,7 +222,9 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
             if open.contains(&"graph-stat") {
                 stat["open"] = json!(true);
                 stat["view"] = json!({ "type": "box", "children": [{ "type": "blockdown", "text": "A row of numbers, each over its label." }, { "type": "box", "title": "As written", "children": [{ "type": "source", "text": "::graph-stat\nbeds: 4\n::" }] },
-                    { "type": "box", "title": "As drawn", "children": [part("plot", "figure", 1, json!({ "name": "graph-stat", "figure": "stat" }), json!({ "type": "row", "children": [{ "type": "stat", "label": "beds", "value": "4" }] }))] }] });
+                    { "type": "box", "title": "As drawn", "children": [part("plot", "figure", 1, json!({ "name": "graph-stat", "figure": "stat" }), json!({ "type": "row", "children": [{ "type": "stat", "label": "beds", "value": "4" }] })),
+                        // (An example may list notes: a list under a row of the list it is shown in.)
+                        part("plot", "links", 5, json!({ "name": "links", "title": "The beds" }), json!({ "type": "list", "rows": [{ "id": "beans", "label": "Water the beans", "act": opens("beans") }] }))] }] });
             }
             Ok(json!({ "from": from, "list": { "type": "list", "arrange": "rows", "title": "Components · 2", "groups": [{ "name": "layout", "label": "layout", "count": 1 }, { "name": "figures", "label": "figures", "count": 1 }],
                 "rows": [{ "id": "callout", "label": "Callouts", "detail": "`> [!type]` at the start of a quote", "mark": "callout", "group": "layout", "folds": true }, stat] }, "open": open.iter().filter(|id| **id == "graph-stat").collect::<Vec<_>>(), "anyChange": true }))

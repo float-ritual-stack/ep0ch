@@ -202,7 +202,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         }
         for (path, at) in &base.docks { if let Some(Node::Dock { side, open: false, .. }) = s.layout.tree().at(path) { area = area.child(dock_strip(*side, *at, width, height, &k)) } }
     }
-    let mut body = col().key("shell").w_full().h_full().child(toolbar(s, &k));
+    // (The window's own ground is the theme's page: a light theme's translucent surfaces read as light over it.)
+    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child(toolbar(s, &k));
     if let Some(n) = notice(s, &k) { body = body.child(el().w_full().px(10.0).pb(6.0).child(n)) }
     // What a tile draws over the window (the list that completes what is typed in it, at its caret), while the bar is
     // away. The caret is read only while there is something to hang on it: a view that reads it runs again when it moves.

@@ -149,7 +149,7 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
     // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
     let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
-    if let Some(view) = &r.view { whole = whole.child(el().w_full().px(8.0).child(prim::build(view, &PrimCx::of(cx).at(format!("{}row/{}/view", at.under, r.id)), k))) }
+    if let Some(view) = &r.view { whole = whole.child(el().w_full().px(8.0).child(prim::build(view, &PrimCx::of(cx).at(format!("{}row/{}/view", at.under, r.id)).in_row(), k))) }
     whole
 }
 
@@ -263,8 +263,9 @@ fn lanes_el(cx: &TileCx, at: &Place, view: &Rc<ListView>, sections: &[Section], 
 /// A `list` primitive on a page (a view in a note, its links, the notes under it), drawn by the list drawer: the
 /// same sections, headers and rows a list tile draws, built only where they are in view of the page's scroll. A
 /// pick runs the row's own act line from the page's tile. `key`: the element the list is; `under`: what its rows
-/// are keyed under.
-pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, k: &Kit) -> El {
+/// are keyed under. `in_row`: it is under a row of another list (an example drawn in the library), where its rows
+/// are built whole, the first few of them: rows built only in view can't hold a list built only in view.
+pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, in_row: bool, k: &Kit) -> El {
     let view: ListView = serde::Deserialize::deserialize(prim).unwrap_or_default();
     let (at, view) = (Place::page(cx, under), Rc::new(view));
     let mut out = col().key(key).w_full().gap(2.0);
@@ -277,13 +278,18 @@ pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, k: &Kit) -> 
         // A page has no height of its own to give a lane: each shows a few rows and scrolls the rest.
         let kit = k.clone();
         let (place, name) = (at.clone(), cx.name.clone());
-        return out.child(lanes_el(cx, &at, &view, &sections, &move |part, rows| list::bounded(&format!("tile/{name}/{}{part}/rows", place.under), PAGE_LANE, &kit, rows), k));
+        let app = cx.app;
+        return out.child(lanes_el(cx, &at, &view, &sections, &move |part, rows| { let key = format!("tile/{name}/{}{part}/rows", place.under); if in_row { list::whole(key, app, PAGE_LANE, &kit, rows) } else { list::bounded(&key, PAGE_LANE, &kit, rows) } }, k));
     }
     // One section with one declared group needs no header of its own: the part's frame names it.
     let plain = sections.len() == 1 && view.groups.len() == 1 && !sections[0].rows.is_empty();
     let drawn = if plain { sections[0].rows.iter().copied().map(Item::Row).collect() } else { items(&sections) };
-    out.child(list::rows(at.key(cx, "rows"), listed(cx, &at, &view, drawn, k)))
+    let rows = listed(cx, &at, &view, drawn, k);
+    out.child(if in_row { list::whole(at.key(cx, "rows"), cx.app, IN_ROW, k, rows) } else { list::rows(at.key(cx, "rows"), rows) })
 }
+
+/// The most rows of a list drawn under a row of another list.
+const IN_ROW: usize = 24;
 
 /// The most rows a lane shows on a page before it scrolls.
 const PAGE_LANE: usize = 8;

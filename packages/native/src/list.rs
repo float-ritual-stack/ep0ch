@@ -35,3 +35,13 @@ where K: for<'a> Fn(&'a App, usize) -> Cow<'a, str> + 'static, B: Fn(&App, usize
     let height = (list.count.max(1) as f32 * list.height).min(list.height * shown as f32);
     k.scroll_bar(col().key(format!("{key}-scroll")).w_full().h(height).scroll(ScrollSpec { stick_bottom: false }).child(rows(key, list)))
 }
+
+/// The first `most` rows built outright, in a plain column, then how many more there are: for a list drawn under a
+/// row of another list, where rows built only in view have no scroll of their own to be in view of. The same key and
+/// builder a row.
+pub fn whole<K, B>(key: impl Into<String>, s: &App, most: usize, k: &Kit, list: Rows<K, B>) -> El
+where K: for<'a> Fn(&'a App, usize) -> Cow<'a, str> + 'static, B: Fn(&App, usize) -> El + 'static {
+    let shown = (0..list.count.min(most)).fold(col().key(key.into()).w_full(), |out, i| out.child((list.build)(s, i)));
+    if list.count <= most { return shown }
+    shown.child(rune::text(format!("and {} more", list.count - most)).font(k.ty.small).color(k.c.text_faint).px(8.0).py(4.0))
+}

@@ -692,6 +692,13 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         let stat = rows(&app, "components").into_iter().find(|row| row.id == "graph-stat").unwrap();
         let drawn = stat.view.as_ref().and_then(|view| view["children"].as_array()).and_then(|children| children.iter().find(|child| child["title"] == "As drawn")).cloned().expect("its example, drawn");
         assert!(drawn["children"].as_array().unwrap().iter().any(|part| part["type"] == "part" && part["view"]["type"] == "row"), "{drawn}");
+        // One whose example lists notes: a list inside what a row shows under itself.
+        let picked = act(&mut app, "list.pick id=view tile=components");
+        assert!(picked.ok, "{}", picked.said);
+        let tile = app.layout.named("components").unwrap();
+        assert!(app.unfolds(&tile) && app.list_ask(&tile).is_some_and(|ask| app.store().refusal(&ask).is_none()), "{:?}", app.list_ask(&tile).and_then(|ask| app.store().refusal(&ask).cloned()));
+        let view = rows(&app, "components").into_iter().find(|row| row.id == "view").unwrap();
+        assert!(view.open && view.view.is_some(), "the view component's example is answered: {:?}", view.label);
     });
     let _ = host.kill();
     let _ = host.wait();

@@ -28,8 +28,9 @@ impl Default for Pictures {
 
 impl Pictures {
     /// A picture that finishes decoding wakes the window to draw it: the cache is made again with the window's
-    /// waker, and what was decoded without one is asked again.
-    pub fn woken_by(&mut self, waker: Arc<dyn Fn() + Send + Sync>) { *self = Pictures { cache: ImageCache::new(waker), held: HashMap::new() } }
+    /// waker. What is held already stays held: a headless render reads its pictures before the window, and its
+    /// waker, exist, and the one frame it draws shows them.
+    pub fn woken_by(&mut self, waker: Arc<dyn Fn() + Send + Sync>) { self.cache = ImageCache::new(waker) }
     pub fn get(&self, key: &str) -> Option<&Shown> { self.held.get(key) }
     pub fn holds(&self, key: &str) -> bool { self.held.contains_key(key) }
     /// Only these are kept: what no page shows any more is let go.

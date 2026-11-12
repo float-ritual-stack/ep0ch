@@ -277,6 +277,11 @@ fn the_library_s_components_fold_and_an_open_one_draws_its_own_example() {
     let drawn = keyed(&rt, "tile/components/row/graph-stat/view");
     assert!(drawn.len() > 4, "what it is, as written, as drawn: {drawn:?}");
     assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("4")), "the example's stat is drawn");
+    // An example that lists notes is a list under a row of this list: its rows are built whole (rows built only in
+    // view can't hold rows built only in view), and a press on one is the row's own act line, as on a page.
+    let nested: Vec<String> = keyed(&rt, "tile/components/row/graph-stat/view").into_iter().filter(|key| key.ends_with("/beans")).collect();
+    assert_eq!(nested.len(), 1, "{:?}", keyed(&rt, "tile/components/row/graph-stat/view"));
+    assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Water the beans") && e.path.contains("tile/components/row/graph-stat/view")));
 }
 
 /// The hint row under a field says the keys of where the person is: the editor's while they write, and the open

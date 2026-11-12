@@ -1,0 +1,4 @@
+# A note with pictures (scenes/about.seed.ts writes it, and draws its files into a scratch folder): a header image,
+# a picture, one nobody took, an svg fence and a mermaid fence.
+bar.open scope=search query="The plot in June"
+bar.pick n=1

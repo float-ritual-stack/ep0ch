@@ -71,14 +71,19 @@ pub struct PrimCx<'a> {
     /// The part whose own view this is: a button there is the note's button, pressed by its line.
     own: Option<&'a Value>,
     depth: usize,
+    /// It is under a row of a list (what the row shows under itself): a list here is built whole, since rows built
+    /// only in view can't hold rows built only in view.
+    in_row: bool,
 }
 
 impl<'a> PrimCx<'a> {
-    pub fn of(tile: &'a TileCx<'a>) -> PrimCx<'a> { PrimCx { tile, key: String::new(), own: None, depth: 0 } }
+    pub fn of(tile: &'a TileCx<'a>) -> PrimCx<'a> { PrimCx { tile, key: String::new(), own: None, depth: 0, in_row: false } }
     /// The same place, under another key of the tile.
-    pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth } }
-    fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1 } }
-    fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1 } }
+    pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth, in_row: self.in_row } }
+    /// The same place, as what a list's row shows under itself.
+    pub fn in_row(mut self) -> PrimCx<'a> { self.in_row = true; self }
+    fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1, in_row: self.in_row } }
+    fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1, in_row: self.in_row } }
     /// The key of what is being built: a part's own view is `<part>/view`, under its frame; what it holds is keyed
     /// under the part (`sub`), so a row of a part's list is `part/<n>/<id>`.
     pub(super) fn key(&self) -> String { if self.own.is_some() { self.sub("view") } else { self.tile.key(&self.key) } }
@@ -252,7 +257,7 @@ fn track(_: &Value, cx: &PrimCx, k: &Kit) -> El { el().key(cx.key()).w_full().h(
 
 /// A list: the list drawer's own (`tiles/list.rs`), so a view in a note, its links and the notes under it draw as
 /// a list tile draws the same rows.
-fn listed(prim: &Value, cx: &PrimCx, k: &Kit) -> El { super::list::on_page(prim, cx.tile, cx.key(), &cx.key, k) }
+fn listed(prim: &Value, cx: &PrimCx, k: &Kit) -> El { super::list::on_page(prim, cx.tile, cx.key(), &cx.key, cx.in_row, k) }
 
 /// A terminal row in points: a note gives a picture's height in rows, as the door reads it.
 const ROW_POINTS: f32 = 20.0;

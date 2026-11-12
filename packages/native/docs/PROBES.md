@@ -22,7 +22,8 @@ down for native to be tested against, are [below](#the-contract-tables).
 
 Three more things turned up, two of them bugs in the spike. They are reported and not fixed
 ([Found on the way](#found-on-the-way)). W5 added one more answer, from building on it: how Rune's text editing
-carried a block editor ([12](#12-the-block-editor-w5)).
+carried a block editor ([12](#12-the-block-editor-w5)). W6 added what a selection in drawn text gives a window, and
+what a list inside a list's row does ([13](#13-selections-and-what-else-w6-met)).
 
 ## How to run
 
@@ -467,6 +468,29 @@ What could not be done:
 **DESIGN.md §1 Draft:** stands, with `buf: keys::Text` as written. **§7 Draft safety:** the mirror is a file of the
 window's own beside the arrangement's, written as typed, not `edit-recovery.*` (that is the service's record of a
 merge after a conflict, which this window doesn't start yet).
+
+## 13. Selections, and what else W6 met
+
+**A selection in drawn text is the runtime's, and an element hears it.** Run: `src/tests/review.rs`.
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Can the window know which words are selected in a note it only reads? | **Yes.** `El::on_selection_change` on the note's column hears the whole selection once it is made (not while it is dragged), with the words as copying takes them. | `a_comment_is_written_on_the_words_selected_and_sent_by_the_key_that_saves` |
+| Can a test select as a drag would? | **Yes.** `Tx::select_all_text(key)` on an element selects every selectable text inside it; `Runtime::selected_text` reads it back. A prose part's text is keyed by the kit (`b0`) under the part's own key, so the part is what is named. | the same test |
+| Are the selected words the note's text? | **Only inside one run of plain words.** The words are as drawn: a link's label without its target, bold without its marks, two paragraphs with one line break between. The service looks a quote up exactly (outline-core's `findPassage`), so such a comment is refused with the nearest words. | `live_a_note_is_commented_on_…` (the refusal), README "Not here yet" |
+| Can a row of the one virtual list be any height, with a list inside it? | **Any height, yes. A virtual list inside it, no.** A row with a change, a thread or an example under it is measured as it is built. But `El::virtual_rows` inside a row of `virtual_rows` panics the frame ("virtual stack must be inside a scroll viewport"): the first component picked in the library whose example lists notes took the window down. A list under a row is built whole, its first rows (`list::whole`). | `the_library_s_components_fold_and_an_open_one_draws_its_own_example` (red without it) |
+
+Three things turned up on the way, each fixed:
+
+- **A headless render lost its pictures.** `init` reads a page and its pictures before the window exists; `setup` then
+  handed the pictures their waker by making the whole holder again, so the one frame drew "on its way…" for every one.
+  The waker now replaces only the cache (`Pictures::woken_by`). The README's picture of a note with pictures had been
+  the spike's since W2 for this reason.
+- **A light theme drew dark tiles.** The kit's light surfaces are translucent and the window had no ground of its own
+  under them. The shell's root is filled with the theme's page (`shell.rs`), and `docs/note-light.png` is the proof
+  the theme switches.
+- **A press on a row with something drawn under it** landed on what was under it: the row's own line is keyed
+  `…/row/<id>/head`, which is what a test, a script and an agent press once a row is open.
 
 ## The contract tables
 
