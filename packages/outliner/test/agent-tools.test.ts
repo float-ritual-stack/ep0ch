@@ -670,17 +670,13 @@ test("dropped structure and the short diff", () => {
   expect(shortDiff("same", "same")).toBe("");
 });
 
-test("an actor filter reaches the service, and a service on another protocol is never asked", async () => {
+test("an actor filter reaches the service", async () => {
   const { cli } = await setup();
   expect((await cli(["activity", "--author", "agent", "--actor", "garden-agent"])).exitCode).toBe(0);
-
   const sent: unknown[] = [];
-  const older = {
-    request: async <T>(input: unknown) => { sent.push(input); return { entries: [], cursor: 0 } as T; },
-    requireCompatibleService: async () => { throw new Error("this Outliner client speaks protocol 83 and the outline host protocol 82"); },
-  };
-  await expect(changesSince(older, { since: "2026-03-01T00:00:00Z", actor: "garden-agent" })).rejects.toThrow("the outline host protocol 82");
-  expect(sent).toEqual([]);
+  const service = { request: async <T>(input: unknown) => { sent.push(input); return { entries: [], cursor: 0 } as T; }, requireCompatibleService: async () => undefined };
+  await changesSince(service, { since: "2026-03-01T00:00:00Z", actor: "garden-agent" });
+  expect(JSON.stringify(sent)).toContain("garden-agent");
 });
 
 test("view-order reads a view's hand-set order and puts members first, by id or Work ID, as the agent", async () => {
@@ -821,7 +817,18 @@ test("a write measures the note: a 200-character title and a wall each answer a 
   expect(patched.json.next).toContain(clean.id);
   const commented = await agent("comment", { ref: clean.id, whole: true, body: wall });
   expect(commented.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 1")]);
-  const set = await agent("set-property", { ref: clean.id, revision: store.require(clean.id).revision, key: "status", value: "draft" });
+  // PIE-1745: a reply and a comment's edit are written the same way, so they are measured the same way. An edit is
+  // told what it brought in: a wall it kept is the comment's, not the edit's.
+  const quiet = await agent("comment", { ref: clean.id, whole: true, body: "Labels?" });
+  expect(quiet.json.warnings).toBeUndefined();
+  const replied = await agent("reply", { thread: quiet.json.thread, body: wall });
+  expect(replied.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 1")]);
+  const edited = await agent("edit-comment", { mark: quiet.json.thread, observed: "Labels?", body: wall });
+  expect(edited.exitCode, edited.stderr).toBe(0);
+  expect(edited.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 1")]);
+  const kept = await agent("edit-comment", { mark: quiet.json.thread, observed: wall, body: wall.replace("Nobody", "No one") });
+  expect(kept.json.warnings).toBeUndefined();
+  const set =await agent("set-property", { ref: clean.id, revision: store.require(clean.id).revision, key: "status", value: "draft" });
   expect(set.json.next).toBeUndefined();
   expect(set.json.warnings).toBeUndefined();
 });

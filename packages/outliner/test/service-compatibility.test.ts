@@ -32,7 +32,11 @@ async function fakeService(status: Record<string, unknown>): Promise<{ socket: s
       if (!text.includes("\n")) return;
       const request = JSON.parse(text.slice(0, text.indexOf("\n")));
       actions.push(request.action);
-      connection.end(`${JSON.stringify(request.action === "ping"
+      // A host refuses a request on another protocol (PIE-1747), as every host from then on does.
+      const refused = request.protocol !== undefined && request.protocol !== status.protocolVersion;
+      connection.end(`${JSON.stringify(refused
+        ? { id: request.id, ok: false, kind: "invalid", error: `this client speaks protocol ${request.protocol} and the outline host protocol ${status.protocolVersion}: ${request.protocol < (status.protocolVersion as number) ? "update the client" : "restart the outline host on current code"}` }
+        : request.action === "ping"
         ? { id: request.id, ok: true, result: { status: "ready", ...status } }
         : { id: request.id, ok: false, error: `Unknown action: ${request.action}` })}\n`);
     });
@@ -63,16 +67,17 @@ test("the same protocol is accepted; an older or newer one is refused before any
 
   const older = await fakeService({ protocolVersion: PROTOCOL - 1 });
   await expect(new OutlinerClient(older.socket).requireCompatibleService()).rejects.toThrow(
-    `this Outliner client speaks protocol ${PROTOCOL} and the outline host protocol ${PROTOCOL - 1}: restart the outline host on current code`,
+    `this client speaks protocol ${PROTOCOL} and the outline host protocol ${PROTOCOL - 1}: restart the outline host on current code`,
   );
   const newer = await fakeService({ protocolVersion: PROTOCOL + 1 });
   await expect(new OutlinerClient(newer.socket).requireCompatibleService()).rejects.toThrow(
-    `this Outliner client speaks protocol ${PROTOCOL} and the outline host protocol ${PROTOCOL + 1}: update the Outliner client`,
+    `this client speaks protocol ${PROTOCOL} and the outline host protocol ${PROTOCOL + 1}: update the client`,
   );
   expect([...older.actions, ...newer.actions]).toEqual(["ping", "ping"]);
 });
 
-test("the CLI refuses a service on another protocol without sending its request", async () => {
+// PIE-1747: the CLI asks nothing first; its one request says its protocol and the host refuses it, writing nothing.
+test("the CLI's request on another protocol is refused by the host, with what to restart", async () => {
   const { socket, actions } = await fakeService({ protocolVersion: PROTOCOL - 1 });
   const root = temporaryDirectory();
   const child = Bun.spawn([process.execPath, "src/cli.ts", "changes", "--since", "0"], {
@@ -84,7 +89,7 @@ test("the CLI refuses a service on another protocol without sending its request"
   const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   expect(exitCode).toBe(1);
   expect(stderr).toContain("restart the outline host on current code");
-  expect(actions).toEqual(["ping"]);
+  expect(actions).toEqual(["changes.since"]);
 });
 
 test("a missing protocol number is refused like an older service", () => {

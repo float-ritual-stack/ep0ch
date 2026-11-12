@@ -3327,7 +3327,7 @@ describe("createTreeController", () => {
         if (input.action === "update" && input.text !== undefined) return store.update(input.blockId, input.text, input.expectedRevision) as T;
         if (input.action === "move") {
           if (++moves === 1) throw new Error("Transient move failure");
-          return store.move(input.blockId, input.parentId!, input.position) as T;
+          return store.move(input.blockId, input.parentId!, input.position, { author: "user" }) as T;
         }
         return fallback(input);
       };

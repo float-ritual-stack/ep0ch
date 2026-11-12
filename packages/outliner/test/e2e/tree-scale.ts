@@ -132,7 +132,7 @@ const result = await runHerdrScenario({
         frame => treeRows(frame).filter(row => row.includes(`Scale source 00 UPDATED-${i}`)).length === 2);
       await s.waitVisible(remote.detail, `Scale source 00 UPDATED-${i}`);
       mutations.push(performance.now() - started);
-      await s.client.request({ action: "move", blockId: editable.id, expectedRevision: editable.revision, parentId: root.id, position: i % 2 });
+      await s.client.request({ action: "move", blockId: editable.id, expectedRevision: editable.revision, parentId: root.id, position: i % 2, mutation: { author: "user" } });
       await selected(editable.id);
       assert.equal((await s.client.request<Block>({ action: "get", blockId: editable.id })).revision, editable.revision);
     }

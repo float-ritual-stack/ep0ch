@@ -161,7 +161,7 @@ describe("backlink source facets", () => {
       { author: "user", actorId: "test" },
     );
     // A reply can be filed elsewhere; its thread is still parent-annotation, not its tree parent.
-    workspace.move(reply.id, host.id);
+    workspace.move(reply.id, host.id, undefined, { author: "user" });
     const query = { targetBlockId: target.id, limit: 10 };
     const collection = client
       ? await client.request<BacklinkCollection>({ action: "references.backlinks", query })

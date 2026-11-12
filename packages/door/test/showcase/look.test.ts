@@ -1162,7 +1162,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   test("artifacts from a remote session use the laptop link or copy a clickable URL", async () => {
     const session = new SessionTerm(), bytes: string[] = [];
     const pressing = session.attach({ send(m) { if (m.t === "output") bytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, {
-      proto: PROTOCOL, cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false, pid: 123, remote: true,
+      proto: PROTOCOL, cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false, pst: false, tree: false, sized: false, acks: false, pid: 123, remote: true,
     });
     serveAs(session);
     const remoteApp = new App(session as any, board, Date.now(), () => {}), showcase = new Showcase();

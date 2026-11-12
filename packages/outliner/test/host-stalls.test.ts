@@ -250,7 +250,7 @@ test("a write patches the graph, and the patched graph is the one a fresh read g
       ["an edit", () => store.update(notes[1]!.id, "Row 1, sown [row::9]\n- [x] sow [crop::bean]", store.require(notes[1]!.id).revision)],
       ["a new note", () => store.create("Row 12 [row::1]", bed.id)],
       ["a new note first among its siblings", () => store.create("Row 13 [row::2]", bed.id, "agent", { actorId: "moss" })],
-      ["a move", () => store.move(notes[2]!.id, bed.id, 0)],
+      ["a move", () => store.move(notes[2]!.id, bed.id, 0, { author: "user" })],
       ["a trash", () => store.delete(notes[3]!.id)],
       ["a restore", () => store.restore(notes[3]!.id)],
       ["a nested trash", () => { store.create("Under row 5", notes[5]!.id); store.delete(notes[5]!.id); }],

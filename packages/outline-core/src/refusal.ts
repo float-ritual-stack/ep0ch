@@ -22,7 +22,7 @@ export const isRefusalKind = (value: unknown): value is RefusalKind => typeof va
 
 /** An error that knows its kind: what the throw sites that clients act on throw. */
 export class Refusal extends Error {
-  constructor(readonly kind: RefusalKind, message: string) { super(message); this.name = "Refusal"; }
+  constructor(readonly kind: RefusalKind, message: string, options?: ErrorOptions) { super(message, options); this.name = "Refusal"; }
 }
 
 /** The kind an error carries, else `failed`: the one read every envelope and every client makes. */

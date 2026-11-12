@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { scratchDir } from "./scratch-outline";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, Socket } from "node:net";
 import { hostname, tmpdir } from "node:os";
@@ -3538,4 +3539,35 @@ test("targets ephemeral attention, advances atomically, stales on edits, and exp
     action: "attention.get",
     targetClientId: "attention-detail-one",
   })).toEqual(expect.objectContaining({ marks: [], pendingCount: 0 }));
+});
+
+// PIE-1747: every request says its protocol, so no caller asks the host first. A request on another protocol is
+// refused before anything is read or written, with both numbers and the side to update; the client sends its own.
+test("a request on another protocol is refused before it writes; the client's own requests carry this one", async () => {
+  const directory = scratchDir("protocol-said");
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "outliner.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const raw = (request: Record<string, unknown>) => new Promise<OutlinerResponse>((resolve, reject) => {
+    const connection = createConnection(socket);
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("error", reject);
+    connection.on("connect", () => connection.write(`${JSON.stringify({ id: "raw", ...request })}\n`));
+    connection.on("data", chunk => { buffer += chunk; const n = buffer.indexOf("\n"); if (n >= 0) { connection.destroy(); resolve(JSON.parse(buffer.slice(0, n))); } });
+  });
+  const before = store.sequence;
+  const older = await raw({ action: "create", text: "Seed tray", protocol: PROTOCOL - 1 });
+  expect(older).toMatchObject({ ok: false, kind: "invalid" });
+  if (older.ok) throw new Error("expected a refusal");
+  expect(older.error).toContain(`speaks protocol ${PROTOCOL - 1} and the outline host protocol ${PROTOCOL}: update the client`);
+  const newer = await raw({ action: "create", text: "Seed tray", protocol: PROTOCOL + 1 });
+  if (newer.ok) throw new Error("expected a refusal");
+  expect(newer.error).toContain("restart the outline host");
+  expect(store.sequence).toBe(before);
+  // A client's request needs no ping first: it carries PROTOCOL, and the host takes it.
+  const made = await new OutlinerClient(socket).request<Block>({ action: "create", text: "Seed tray" });
+  expect(store.require(made.id).text).toBe("Seed tray");
 });

@@ -20,6 +20,7 @@
  * is patched under a revision check. This file owns the grammar checks and the
  * holds; `src/server.ts` routes.
  */
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { fragmentAnchors } from "./fragments";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -273,7 +274,7 @@ export class DraftHolds {
   heartbeat(holdId: string, revision?: number): DraftHold {
     this.expire();
     const hold = this.holds.get(holdId);
-    if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
+    if (!hold) throw new Refusal("not-found", "This draft hold has expired or was released; hold the draft again");
     if (revision !== undefined) {
       if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("A draft hold's revision is a positive integer");
       hold.revision = revision;

@@ -187,7 +187,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
         say(`✓ ${outline} (change ${made.seq}, schema ${made.schema}, ${made.bytes} bytes) → ${dest}; integrity ok`);
         return 0;
       } catch (e) {
-        io.err(`ep0ch backup copy: ${(e as Error).message}${/ENOENT|ECONNREFUSED/.test(String((e as Error).message)) ? `; the outline host doesn't answer at ${c.host}: ${hostStartCommand()}` : ""}`);
+        io.err(`ep0ch backup copy: ${(e as Error).message}${["ENOENT", "ECONNREFUSED"].includes(String((e as NodeJS.ErrnoException).code)) ? `; the outline host doesn't answer at ${c.host}: ${hostStartCommand()}` : ""}`);
         return 1;
       }
     }

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ExtensionSchedule, LoadedExtension } from "./extension-manifest";
@@ -146,7 +147,7 @@ export interface ExtensionSchedulesOptions {
  * extension's folder and the entry: the user folder's copy is one entry for every outline it serves.
  */
 const hostHolders = new Map<string, ExtensionSchedules>();
-const hostRunning = new Set<string>();
+const hostRunning = new Map<string, ExtensionSchedules>();
 /**
  * A host-wide entry's latest run, whichever runner ran it (its schedule's run, or `ext run` in another outline): each
  * runner works out `next` from it, so a handover or a run asked for elsewhere never repeats or restarts the interval.
@@ -158,6 +159,8 @@ const MAX_MESSAGE = 300;
 export class ExtensionSchedules {
   private kept = new Map<string, Kept>();
   private readonly running = new Set<string>();
+  /** Entries asked to run again once the run going now ends (`runAfter`, PIE-1752). */
+  private readonly again = new Set<string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
 
@@ -279,16 +282,30 @@ export class ExtensionSchedules {
     }
     if (this.isRunning(entry)) {
       const elsewhere = this.holder(entry) !== this ? this.holder(entry).options.outline?.() : undefined;
-      throw new Error(`${extensionId}'s ${entryName} is running now${elsewhere ? ` (in ${elsewhere})` : ""}; it runs once at a time`);
+      throw new Refusal("busy", `${extensionId}'s ${entryName} is running now${elsewhere ? ` (in ${elsewhere})` : ""}; it runs once at a time`);
     }
     return this.runOne(entry);
+  }
+
+  /**
+   * Runs one entry now, or, when it's running, once more as soon as that run ends (a packet that arrived mid-toss): the
+   * one asking never waits and retries (PIE-1752). Two asks while it runs are one run after it.
+   */
+  async runAfter(extensionId: string, entryName: string): Promise<void> {
+    const entry = this.entries().find((candidate) => candidate.extension.id === extensionId && candidate.entry === entryName);
+    if (!entry) return void await this.runNow(extensionId, entryName);
+    // The runner running it now takes the ask (a host-wide entry can be running somewhere other than its holder).
+    const hostKey = this.hostKey(entry);
+    const runner = (hostKey && hostRunning.get(hostKey)) || this.holder(entry);
+    if (runner.isRunning(entry)) { runner.again.add(runner.key(entry)); return; }
+    await runner.runOne(entry);
   }
 
   private async runOne(entry: ScheduledEntry): Promise<ScheduleRun> {
     const key = this.key(entry);
     const hostKey = this.hostKey(entry);
     this.running.add(key);
-    if (hostKey) hostRunning.add(hostKey);
+    if (hostKey) hostRunning.set(hostKey, this);
     const started = this.now;
     let run: ScheduleRun;
     try {
@@ -306,6 +323,7 @@ export class ExtensionSchedules {
     this.kept.set(key, { firstSeen, last: run, next: new Date(nextRun(entry.schedule, started)).toISOString() });
     this.save();
     this.options.ran?.(entry.extension.id);
+    if (this.again.delete(key) && !this.stopped) void this.runOne(entry).catch(() => {});
     return run;
   }
 

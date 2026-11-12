@@ -19,6 +19,7 @@ const owners = {
   "heading-regex": "outline-core's HEADING_LINE in packages/outline-core/src/style-cascade.ts, or headerLine/titleWords in packages/outline-core/src/header-line.ts:54 and :128",
   "host-ctx-cast": "the typed SurfaceHost.ctx in packages/door/src/surface/note.ts:180; extend its Ctx contract instead of casting it",
   "unused-export": "the declaration without `export`, or none: an export nothing imports (tests count) is dead code",
+  "error-words": "the refusal's kind: refusalKindOf(error) from packages/outline-core/src/refusal.ts, and a Refusal with its kind at the throw site (PIE-1746); an OS error's `code`. The one baseline site reads Claude Code's own error, which has only words",
 };
 type Pattern = keyof typeof owners;
 type Site = { file: string; line: number; key: string };
@@ -129,6 +130,10 @@ function scan() {
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
         const name = node.expression.name.text;
         if (door && name === "padEnd") add("pad-end", node);
+        // Deciding from an error's words (PIE-1746): a regex tested on its message, or the message searched.
+        const subject = node.arguments[0]?.getText(source) ?? "";
+        if (name === "test" && ts.isRegularExpressionLiteral(node.expression.expression) && /\b(?:e|err|error)\b.*\bmessage\b|String\((?:e|err|error)\)/.test(subject)) add("error-words", node);
+        if (["includes", "startsWith", "endsWith", "match"].includes(name) && /\b(?:e|err|error)\.message$/.test(node.expression.expression.getText(source))) add("error-words", node);
         if (name === "reduce" && /\.slice\(\s*0\s*,/.test(node.expression.expression.getText(source)) &&
           /\.length\s*\+\s*1\b/.test(node.arguments[0]?.getText(source) ?? "")) add("line-offset-reduce", node);
       }

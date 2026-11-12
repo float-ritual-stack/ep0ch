@@ -1,4 +1,4 @@
-import { blockNotFound, type RefusalKind } from "@ep0ch/outline-core/refusal";
+import { type RefusalKind, blockNotFound, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import { grammarWarning, type OutlinerRequestProblem } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
@@ -292,11 +292,8 @@ export interface McpReachability extends McpSource {
 }
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
-/** The outliner's PropertyPatchOperation. */
-export type PropertyPatch =
-  | { op: "replace"; ordinal: number; value: string }
-  | { op: "append"; key: string; value: string }
-  | { op: "remove"; ordinal: number };
+/** The outliner's PropertyPatchOperation, imported rather than copied (PIE-1752 added `set` and `add`). */
+export type PropertyPatch = import("@ep0ch/outliner/wire").PropertyPatchOperation;
 
 /** One property change a planned move makes: `from` null when the key is appended. */
 export type PlannedChange = import("@ep0ch/outliner/wire").ViewWriteChange;
@@ -1244,14 +1241,12 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * After a failed write: is it a revision conflict? The service says so only in words today
-   * ("changed since editing began"), which could be reworded, so the door also reads the block again:
-   * a revision past `expected` is a conflict whatever the message said. Returns that current block.
+   * After a failed write: is it a revision conflict? The refusal's kind says so (`stale-revision`), and a revision past
+   * `expected` is one too (a write that failed for another reason while the note moved on). Returns the current block.
    */
   private async conflictCheck(blockId: string, expected: number, e: unknown): Promise<{ conflict: boolean; now: Msg | null }> {
-    const worded = /changed since editing began/i.test(e instanceof Error ? e.message : String(e));
     const now = await this.get(blockId);
-    return { conflict: worded || (now?.revision !== undefined && now.revision !== expected), now };
+    return { conflict: refusalKindOf(e) === "stale-revision" || (now?.revision !== undefined && now.revision !== expected), now };
   }
 
 
@@ -1677,7 +1672,7 @@ export class SocketBoard implements Board {
   private async touch(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
     if (h.gone || !h.holdId) return;
     try { await this.request("drafts.touch", { holdId: h.holdId }); }
-    catch (e) { if (/expired or was released/.test(e instanceof Error ? e.message : String(e))) { h.holdId = null; await this.holdOn(h); } }
+    catch (e) { if (refusalKindOf(e) === "not-found") { h.holdId = null; await this.holdOn(h); } }
   }
 
   private holdOn(h: { blockId: string; revision: number; holdId: string | null; asking?: Promise<void>; gone: boolean }): Promise<void> {

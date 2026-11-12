@@ -110,3 +110,23 @@ test("a host-wide schedule's holder that stops serving the extension lets anothe
     shed.stop();
   }
 });
+
+test("asked to run after while it runs, an entry runs once more when that run ends, and two asks are one run (PIE-1752)", async () => {
+  const now = Date.parse("2026-10-10T09:00:00.000Z");
+  const ran: string[] = [];
+  const release = Promise.withResolvers<void>();
+  const garden = runner("garden", extension("/made-up/user-extensions/feed-4", { every: "1h" }), () => now, ran, release.promise);
+  try {
+    const first = garden.runNow("feed", "action:pull");
+    await Bun.sleep(5);
+    await garden.runAfter("feed", "action:pull");
+    await garden.runAfter("feed", "action:pull");
+    expect(ran).toEqual(["garden action:pull"]);
+    release.resolve();
+    await first;
+    await Bun.sleep(5);
+    expect(ran).toEqual(["garden action:pull", "garden action:pull"]);
+  } finally {
+    garden.stop();
+  }
+});
