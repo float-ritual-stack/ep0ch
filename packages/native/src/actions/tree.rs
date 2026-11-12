@@ -4,7 +4,7 @@ use super::{Action, Actor, App, Outcome, nav};
 use crate::actline::Args;
 
 static PICK: ActionRow = ActionRow::new("tree.pick", Touches::Nothing, "pick a row of the outline tree by id. The person's opens its note and unfolds what is under it; on the note already open it folds or unfolds instead. An agent's shows the row's note in the reader, as `open` does, and folds nothing")
-    .args(&[("id", ArgSpec::text("a block id: the row that stands for it").kind("note")), ("open", ArgSpec::flag("open it (the default)").optional())])
+    .args(&[("id", ArgSpec::text("a block id: the row that stands for it").kind("note"))])
     .keys(&[KeyRow::via("a press on a row of the tree")])
     .examples(&[Example { act: "tree.pick id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens that row's note and unfolds what is under it", safe: None }]);
 
