@@ -10,7 +10,8 @@ import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, clientProtocolMismatch, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -960,6 +961,7 @@ export class OutlineHost {
       return;
     }
     if (request && hostAction) {
+      if (request.protocol !== undefined && request.protocol !== PROTOCOL) { fail(new Refusal("invalid", clientProtocolMismatch(request.protocol))); return; } // PIE-1747
       if (this.options.readOnly && !copyAnswers(request.action)) {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
         return;

@@ -49,9 +49,10 @@ export function keyedPropertyOps(text: string, operations: PropertyPatchOperatio
   return operations.map(op => {
     if (op.op !== "set" && op.op !== "add") return op;
     if (op.op === "add" && !Number.isFinite(op.by)) throw new Refusal("invalid", `add needs a number for ${op.key}`);
-    const ordinal = tokens.findIndex(token => token.key === op.key);
+    const key = normalizePropertyKey(op.key);
+    const ordinal = tokens.findIndex(token => token.key === key && token.scope === "block");
     const value = op.op === "set" ? op.value : String((Number(tokens[ordinal]?.value) || 0) + op.by);
-    return ordinal < 0 ? { op: "append", key: op.key, value } : { op: "replace", ordinal, value };
+    return ordinal < 0 ? { op: "append", key, value } : { op: "replace", ordinal, value };
   });
 }
 

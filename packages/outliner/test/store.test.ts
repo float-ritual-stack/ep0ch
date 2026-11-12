@@ -2341,6 +2341,12 @@ Second paragraph`;
     const counted = store.patchProperties(touch.id, undefined, [{ op: "add", key: "touches", by: 1 }, { op: "add", key: "removed", by: 3 }, { op: "set", key: "added", value: "5" }]);
     expect(counted.text).toBe("a.ts [touches::2] [added::5] edited\n[removed::3]");
     expect(() => store.patchProperties(touch.id, undefined, [{ op: "append", key: "x", value: "y" }])).toThrow("needs expectedRevision");
+    // A body chip with the same key is prose, not the note's own: set and add touch the header's, matched by its normalized key.
+    const prose = store.create("b.ts [count::1]\nwe saw [count::9] in the log", parent.id);
+    expect(store.patchProperties(prose.id, undefined, [{ op: "add", key: "Count", by: 1 }]).text).toBe("b.ts [count::2]\nwe saw [count::9] in the log");
+    // A keyed create with a request id keeps its receipt: the same id with other text is refused.
+    store.create("2026-10-11 [file-day::2026-10-11]", parent.id, "agent", undefined, { requestId: "day-11", keyed: { key: "file-day", value: "2026-10-11" } });
+    expect(() => store.create("other [file-day::2026-10-11]", parent.id, "agent", undefined, { requestId: "day-11", keyed: { key: "file-day", value: "2026-10-11" } })).toThrow("already used with different input");
   });
 
   test("a create with freePage takes the next free name a live note doesn't hold, and a name Trash holds as asked (PIE-1752)", () => {

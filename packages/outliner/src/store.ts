@@ -830,10 +830,9 @@ export class OutlinerStore {
   create(text: string, parentId: string | null = null, author: BlockAuthor = "user", provenance?: BlockProvenance,
     place: { id?: string; position?: number; requestId?: string; freePage?: true; keyed?: { key: string; value: string } } = {}): Block & { deduplicated?: true } {
     // `keyed` (PIE-1752): the parent's live child carrying `[key::value]` when there is one, read and made in one step.
-    const kept = place.keyed && this.database.query(`SELECT b.id FROM blocks b JOIN block_properties p ON p.block_id = b.id WHERE p.scope = 'block' AND p.key = ? AND p.value = ? AND b.parent_id IS ? AND b.effective_deleted_root_id IS NULL ORDER BY b.created_at, b.id LIMIT 1`).get(place.keyed.key, place.keyed.value, parentId) as { id: string } | null;
-    if (kept) return { ...this.require(kept.id), deduplicated: true };
-    return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author },
-      () => this.createAt(place.freePage ? this.freePageFromCurrentRead(text)?.text ?? text : text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
+    const kept = (k: { key: string; value: string }) => this.database.query(`SELECT b.id FROM blocks b JOIN block_properties p ON p.block_id = b.id WHERE p.scope = 'block' AND p.key = ? AND p.value = ? AND b.parent_id IS ? AND b.effective_deleted_root_id IS NULL ORDER BY b.created_at, b.id LIMIT 1`).get(k.key, k.value, parentId) as { id: string } | null;
+    return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author, keyed: place.keyed },
+      () => { const found = place.keyed && kept(place.keyed); return found ? { ...this.require(found.id), deduplicated: true as const } : this.createAt(place.freePage ? this.freePageFromCurrentRead(text)?.text ?? text : text, parentId, author, provenance, this.createdTime(), place.position, place.id); }, id => this.require(id));
   }
 
   /** Its one `[page::x]` as the next free `x-2`, `x-3`… when another live note holds `x` (a restore's, `freePage`'s); else null. */

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { scratchDir } from "./scratch-outline";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, Socket } from "node:net";
 import { hostname, tmpdir } from "node:os";
@@ -3543,7 +3544,7 @@ test("targets ephemeral attention, advances atomically, stales on edits, and exp
 // PIE-1747: every request says its protocol, so no caller asks the host first. A request on another protocol is
 // refused before anything is read or written, with both numbers and the side to update; the client sends its own.
 test("a request on another protocol is refused before it writes; the client's own requests carry this one", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-protocol-said-"));
+  const directory = scratchDir("protocol-said");
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const socket = join(directory, "outliner.sock");
   const server = new OutlinerServer(store, socket);

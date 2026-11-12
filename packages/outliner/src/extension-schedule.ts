@@ -147,7 +147,7 @@ export interface ExtensionSchedulesOptions {
  * extension's folder and the entry: the user folder's copy is one entry for every outline it serves.
  */
 const hostHolders = new Map<string, ExtensionSchedules>();
-const hostRunning = new Set<string>();
+const hostRunning = new Map<string, ExtensionSchedules>();
 /**
  * A host-wide entry's latest run, whichever runner ran it (its schedule's run, or `ext run` in another outline): each
  * runner works out `next` from it, so a handover or a run asked for elsewhere never repeats or restarts the interval.
@@ -294,16 +294,18 @@ export class ExtensionSchedules {
   async runAfter(extensionId: string, entryName: string): Promise<void> {
     const entry = this.entries().find((candidate) => candidate.extension.id === extensionId && candidate.entry === entryName);
     if (!entry) return void await this.runNow(extensionId, entryName);
-    const holder = this.holder(entry);
-    if (holder.isRunning(entry)) { holder.again.add(holder.key(entry)); return; }
-    await holder.runOne(entry);
+    // The runner running it now takes the ask (a host-wide entry can be running somewhere other than its holder).
+    const hostKey = this.hostKey(entry);
+    const runner = (hostKey && hostRunning.get(hostKey)) || this.holder(entry);
+    if (runner.isRunning(entry)) { runner.again.add(runner.key(entry)); return; }
+    await runner.runOne(entry);
   }
 
   private async runOne(entry: ScheduledEntry): Promise<ScheduleRun> {
     const key = this.key(entry);
     const hostKey = this.hostKey(entry);
     this.running.add(key);
-    if (hostKey) hostRunning.add(hostKey);
+    if (hostKey) hostRunning.set(hostKey, this);
     const started = this.now;
     let run: ScheduleRun;
     try {
@@ -321,7 +323,7 @@ export class ExtensionSchedules {
     this.kept.set(key, { firstSeen, last: run, next: new Date(nextRun(entry.schedule, started)).toISOString() });
     this.save();
     this.options.ran?.(entry.extension.id);
-    if (this.again.delete(key)) void this.runOne(entry).catch(() => {});
+    if (this.again.delete(key) && !this.stopped) void this.runOne(entry).catch(() => {});
     return run;
   }
 
