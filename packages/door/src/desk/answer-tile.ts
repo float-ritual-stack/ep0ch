@@ -39,7 +39,7 @@ export class AnswerTile implements Pane {
   followAsk(to: string, fold: string | undefined, savedText: string | undefined) {
     const inSaved = (a: string | undefined) => !!a && !!savedText?.split("\n").includes(a);
     this.saved = inSaved(to) ? undefined : inSaved(this.ask) ? this.ask : this.saved;
-    Object.assign(this, { ask: to, fold, top: 0 });
+    Object.assign(this, { ask: to, fold, top: 0, showing: undefined });   // its title says `to` in the frame that shows it (PIE-1771: it waited for the frame after)
   }
   /** The ask it shows in `text`: its own words when they're there, else the saved ones it stands for, else none. */
   shown(text: string): string | undefined {

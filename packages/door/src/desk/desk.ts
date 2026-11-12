@@ -82,7 +82,7 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
-  agentLevel, allTiles, answerLands, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, answerLands, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
@@ -114,7 +114,7 @@ import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { kept } from "./kept-desk";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -4774,7 +4774,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || !!rd.surface.draft?.views.raw.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));
+        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
@@ -4783,7 +4783,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ` + partsHint(tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, action: "tile.open", args: this.openKindArgs(x.key, this.prefix === "addtab")! }))))
-        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -5317,7 +5317,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
       const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
       const re = wKey(RESIZE_ALIAS[rc] ?? rc);
-      if (re?.sticky && re.how.k === "run") { this.armResize(); return this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
+      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
       this.leaveResize();
       this.redraw();
       return this.key(k, this.ctx);
@@ -5344,10 +5344,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
-      case "run": { const up = holdingDesk(e, this.holder); if (up) return up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile));
-        const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
+      case "run": { const up = holdingDesk(e, this.holder);   // a key about the group or mount holding this desk is that desk's (a group's resize keys size the group, PIE-1771)
+        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
-        if (e.sticky) { this.armResize(); this.ctx.flash("resize · - + < > · h j k l · = evens · esc done", RESIZE_IDLE_MS); }
+        if (e.sticky) { this.armResize(); this.ctx.flash(`resize${up && e.holder ? " the group" : ""} · - + < > · h j k l · = evens · esc done`, RESIZE_IDLE_MS); }
         return done;
       }
       case "special": return this.wSpecial[e.key as WSpecialKey](me, flash);
@@ -5751,7 +5751,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into: [number, WireVerb, string, AltRule | undefined][] = [];
     for (const { from: z, to, verb, rule } of this.layout.wires) if (inside.has(to) && !inside.has(z)) into.push([z, verb, this.tileId(to), rule]);
     const gid = this.nextId;
-    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group") }, actor);
+    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group"), ...("t" in sub && sub.t === "split" ? { room: sub.dir } : {}) }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     const given = new Map(ids.map(id => [this.nameOf(id), this.beneath.restore(id) ?? this.panes.get(id)!] as const));   // a reader in place goes in as its list (PIE-1516)
     const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
@@ -5781,7 +5781,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (n.t === "dock") return this.prune(n.kid, keep);
     const kids: LNode[] = [], weights: number[] = [];
-    n.kids.forEach((k, i) => { const x = this.prune(k, keep); if (x) { kids.push(x); weights.push(n.weights[i] ?? 1); } });
+    n.kids.forEach((k, i) => { const x = this.prune(k, keep); if (x) { kids.push(x); weights.push((n.weights[i] ?? 1) * (n.t === "split" ? keptShare(k, id => keep.has(id), n.dir) : 1)); } });   // each kid the room its kept tiles had (PIE-1771)
     if (!kids.length) return null;
     if (kids.length === 1) return kids[0]!;
     return { t: "split", dir: n.t === "split" ? n.dir : "row", kids, weights };
