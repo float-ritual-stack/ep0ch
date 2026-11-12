@@ -73,8 +73,8 @@ As built in W2 (outline-core's `screen-note.ts`, which holds the whole form): a 
 an object, a typed argument) is the block's own ```json fence. `screens.save` is the one writer of the form.
 
 - **Shipped screens and kinds:** `screens[]` and `tiles[]` of one extension, `packages/outliner/extensions/screens/`, served by `extensions.list` and read through the same `screens.list` (bb: core uses the path it exposes). The door's literals for them are deleted in the same wave. Not built yet (W3): native compiles in `screens/desk.json` and a static kind catalogue (`tiles/mod.rs`), and the door's literals stand, so `desk` names two default screens, one a door.
-- **Kinds:** extension tile rows already come in three shapes, each bound to a drawer with no client code: `render` to `view`, `view` query to `list`, `command` to `pty`. One new field, `drawer`, names a client-drawn kind (`reader`). `screens.list` serves each tile's kind already resolved (a retired name, a name an extension's kind `replaces`), so no client maps old names.
-- **The live arrangement:** a state file an outline, `native-<outline>.layout.json` beside the control socket, as the door keeps `desk.json`. No machinery note until the door moves too.
+- **Kinds:** extension tile rows already come in three shapes, each bound to a drawer with no client code: `render` to `view`, `view` query to `list`, `command` to `pty`. One new field, `drawer`, names a client-drawn kind (`reader`). `screens.list` serves each tile's kind already resolved (a retired name, a name an extension's kind `replaces`), with what a retired name said as the tile's fields (outline-core's `canonLeaf`: a `pinned`, and a `detail` that names a page, are readers with `mode: pinned`), so no client maps old names.
+- **The live arrangement:** a state file per outline, `native-<outline>.layout.json` beside the control socket, as the door keeps `desk.json`. No machinery note until the door moves too.
 
 | Spike | Becomes |
 |---|---|

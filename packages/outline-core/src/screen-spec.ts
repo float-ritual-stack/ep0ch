@@ -137,6 +137,17 @@ export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolea
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** A kind as a saved layout or policy names it: `detail` and `pinned` are readers now (the other retired names resolve in the registry). */
 export const canonKind = (kind: string): string => (kind === "detail" || kind === "pinned" ? "reader" : kind);
+/**
+ * A tile saved under one of those two names, as the reader it is now with what the name said as its fields: a `detail`
+ * started held, or pinned when it names a `page`; a `pinned` is pinned to its page. The one reading of the two names:
+ * the door's canonSpec and the service's `screens.list` both ask it, so a kind served resolved keeps its pin. (Which
+ * page a `pinned` with none means is the door's own setting, its "now" page: the door adds that itself.)
+ */
+export function canonLeaf<S extends { kind: string; mode?: string; page?: string }>(s: S): S {
+  if (s.kind === "detail") return { ...s, kind: "reader", mode: s.mode ?? (s.page ? "pinned" : "held") };
+  if (s.kind === "pinned") return { ...s, kind: "reader", mode: "pinned" };
+  return s;
+}
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
 /** A size in cells from a policy, or undefined when it isn't one. */

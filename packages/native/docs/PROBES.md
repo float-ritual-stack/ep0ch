@@ -362,8 +362,9 @@ registers the kind that replaces it, in one wave.
 a second one. The resolution moves to where both doors read it: `screens.list` as it validates, or outline-core over
 the served rows.
 
-**As built (sweep 1):** `screens.list` serves each tile's kind resolved (`canonKind`, then `replaces`), so a window
-finds its drawer by the kind the row says. The door's `resolveKind` still answers for layouts the door keeps itself.
+**As built (sweep 1):** `screens.list` serves each tile's kind resolved (`canonLeaf`, then `replaces`), so a window
+finds its drawer by the kind the row says, and a pin a retired name said (`pinned`, a `detail` with a page) comes with
+it as `mode: pinned`. The door's `resolveKind` still answers for layouts the door keeps itself.
 
 ## The contract tables
 

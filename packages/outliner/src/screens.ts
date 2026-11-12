@@ -15,7 +15,7 @@
  * like any other note. One reader, one writer: no client reads a screen note's text.
  */
 import { addressProblems, readScreenNote, screenNoteBlocks, screenNoteName, SCREEN_TYPE, type NoteBlock, type WrittenBlock } from "@ep0ch/outline-core/screen-note";
-import { canonKind, readSpec, savedNodes, screenNameProblem, screenSlug, type ScreenSpec } from "@ep0ch/outline-core/screen-spec";
+import { canonKind, canonLeaf, readSpec, savedNodes, screenNameProblem, screenSlug, type ScreenSpec } from "@ep0ch/outline-core/screen-spec";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { MutationProvenance } from "./types";
 
@@ -98,15 +98,16 @@ function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: Read
 
 /**
  * `spec` with each tile's kind as the kind it is: a retired name (`detail`, `pinned`) and a name an extension's kind
- * replaces read as the kind that took their place. The one place a served screen's kinds are resolved: a client finds
- * its drawer by the kind the row says, and keeps no map from old names of its own.
+ * replaces read as the kind that took their place, with what the retired name said as the tile's fields (outline-core's
+ * `canonLeaf`: a pin is still a pin). The one place a served screen's kinds are resolved: a client finds its drawer by
+ * the kind the row says, and keeps no map from old names of its own.
  */
 function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>): ScreenSpec {
   const served = structuredClone(spec);
   for (const leaf of [...savedNodes(served.layout.root), ...(served.layout.floats ?? []).map(f => f.tile)]) {
     if (leaf?.t !== "leaf" || typeof leaf.kind !== "string") continue;
-    const kind = canonKind(leaf.kind);
-    leaf.kind = replaced.get(kind) ?? kind;
+    Object.assign(leaf, canonLeaf(leaf as { kind: string; mode?: string; page?: string }));
+    leaf.kind = replaced.get(leaf.kind) ?? leaf.kind;
   }
   return served;
 }

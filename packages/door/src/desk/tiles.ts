@@ -21,7 +21,7 @@ import { tileRegistry } from "./tile-registry";
 // A tile as saved (TileSpec), a layout as saved (LayoutSpec) and the rule for a tile's name are outline-core's
 // (screen-spec.ts): what every client that reads a screen shares.
 export { ID_SHAPE, tileNameProblem, type LayoutSpec, type SavedFloat, type SavedTree, type TileSpec } from "@ep0ch/outline-core/screen-spec";
-import type { LayoutSpec, SavedTree, TileSpec } from "@ep0ch/outline-core/screen-spec";
+import { canonLeaf, type LayoutSpec, type SavedTree, type TileSpec } from "@ep0ch/outline-core/screen-spec";
 
 /**
  * Where an open from a tile goes when it has no link: the first reader that isn't pinned, (`next`) a new column after
@@ -59,15 +59,19 @@ export { isTileKind };
 export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: string; note?: string; nav?: unknown; wasFollowing?: boolean; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
-  if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
+  // `detail` and `pinned` are readers, with what each name said as fields: outline-core's one reading of the two
+  // (canonLeaf), which `screens.list` serves a screen note's tiles by too. A `pinned` that names no page is pinned to
+  // this door's "now" page.
+  const was = out.kind;
+  Object.assign(out, canonLeaf(out));
+  if (was === "pinned") out.page ??= nowPage().address;
   // The kinds that were a second copy of another (PIE-1528) keep what they were as that kind's own fields; the kind's
   // `replaces` (resolveKind, below) gives the name. thread: the links tile with Children alone; tags: the facets tile
-  // opened on the tags facet, with no calendar; board and river: the screen mount; pinned: a reader pinned to its page.
+  // opened on the tags facet, with no calendar; board and river: the screen mount.
   const o = out as typeof out & { linkGroups?: string; args?: Record<string, unknown>; screen?: string; label?: string };
   if (out.kind === "thread") o.linkGroups ??= "children";
   else if (out.kind === "tags") o.args = { open: ["tag"], calendar: false, ...o.args };
   else if (out.kind === "board" || out.kind === "river") o.screen ||= out.kind;
-  else if (out.kind === "pinned") { out.kind = "reader"; out.mode = "pinned"; out.page ??= nowPage().address; }
   // A retired kind another kind replaces (PIE-1514) reads as that kind, and saves under it.
   out.kind = resolveKind(out.kind);
   // The reader modes before the pin (PIE-1207): `held` is any reader now (it names a new tile a detail, and the reader
