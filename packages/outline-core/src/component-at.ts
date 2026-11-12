@@ -41,8 +41,8 @@ export const componentStarts = (lines: readonly string[]): Map<number, Component
 
 /**
  * The component that starts at line `i` of `lines`, or null when the line starts none. The order is the readers' own:
- * a collection, then a links list, a `::use`, a `::button` (at its line's start: one inside a list item or a quote is
- * its container's line, read with `buttonCallAt`), `::fields` and `::if`, a figure, a box, then whatever block is left.
+ * a collection, then a links list, a `::use`, a `::button` (one inside a list item or a quote too: its `prefix` says so),
+ * `::fields` and `::if`, a figure, a box, then whatever block is left.
  */
 export function componentAt(lines: readonly string[], i: number, starts: ReadonlyMap<number, ComponentBlock> = componentStarts(lines)): ComponentAt | null {
   const block = starts.get(i);
@@ -53,7 +53,7 @@ export function componentAt(lines: readonly string[], i: number, starts: Readonl
   const use = useCallAt(lines, i);
   if (use) return { kind: "use", end: i, call: use };
   const button = buttonCallAt(lines, i);
-  if (button && !button.prefix) return { kind: "button", end: button.endLine, call: button };
+  if (button) return { kind: "button", end: button.endLine, call: button };
   const site = siteBlockAt(lines, i, starts);
   if (site?.kind === "fields") return { kind: "fields", end: site.end, site };
   if (site?.kind === "if") return { kind: "if", end: site.end, site };
