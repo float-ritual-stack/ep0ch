@@ -1,21 +1,23 @@
 # Native ep0ch: what the W0 probes found
 
-**Every question [DESIGN.md](DESIGN.md) left "not verified" now has an answer, seven of them from running code.** Six
-are a plain yes. The live window is yes while it draws and no while it is hidden; the door's pty host is no. Each no
-names what it changes. The probes are a crate of their own, [`../probes/`](../probes), on the app's Rune rev; nothing
-in it is a dependency of the app.
+**Every question [DESIGN.md](DESIGN.md) left "not verified" now has an answer: seven from running code, four from
+reading it.** Six are a plain yes. The live window is yes while it draws and no while it is hidden; the door's pty host
+is no. Each no names what it changes. The probes are a crate of their own, [`../probes/`](../probes), on the app's Rune
+rev; nothing in it is a dependency of the app.
 
 | # | Question | Answer | Evidence | What it changes in DESIGN.md |
 |---|---|---|---|---|
 | 1 | Can focus be set from code, so Rune's focus follows `Layout.focus`? | **Yes.** `Tx::focus(key, ring)` from any handler, `update` or `poll`. One reconciler in `poll` does both directions. | `tests/focus.rs`, 12 tests | §4 "Which tile has focus" gains the reconciler and three rules ([1](#1-focus)). |
 | 2 | Can a kit `TextInput` or `TextArea` be wrapped so the key table sees chords first, the field gets text second, the rest goes up? | **Yes,** by one closure given to every field's `on_key`. "Up" is the window's `on_key` only. | `tests/field.rs`, 13 tests | §4 "How a field passes keys" stands. Two additions: Return in a note's source, and where Up and Down go ([2](#2-the-field-adapter)). |
 | 3 | Can a drag handler read other tiles' rects for a drop side, and can dividers be dragged with `on_drag`? | **Yes** to both. The view reads `Cx::layout` and the handler captures the rects. | `tests/drag.rs`, 9 tests | §7 Mouse stands as written ([3](#3-drags)). |
-| 4 | Can a live window return its element tree and a PNG, and run an act line from another thread? | **Yes while it draws. No while it is hidden,** covered or minimised: then acts and state answer, the tree and the picture do not. | `tests/live_window.rs`, `src/bin/probe-live.rs` | §5 Control: `peek`'s facts come from state; its tree and `snap` need a drawn frame ([4](#4-the-live-window)). |
+| 4 | Can a live window return its element tree and a PNG, and run an act line from another thread? | **Yes while it draws. No while it is hidden:** then acts and state answer, the tree and the picture do not. Covered and minimised were not run. | `tests/live_window.rs`, `src/bin/probe-live.rs` | §5 Control: `peek`'s facts come from state; its tree and `snap` need a drawn frame ([4](#4-the-live-window)). |
 | 5 | Can N dynamic tiles be drawn from a `HashMap<TileId, TileUi>` without the kit's `fn(&mut S)` accessors, keys namespaced `tile/<name>/…`? | **Yes.** Fields, buttons and a `TabStrip`'s handlers take a tile id. `SplitView` panes, kit `Tree`, `Table` and a strip's drag state do not. | `tests/tiles.rs`, 5 tests; `src/accessors.rs`, 7 doctests | §7 "Typed handlers" stands. One addition: one `TabDragState` for the window ([5](#5-tiles-from-a-map)). |
 | 6 | Does a per-tile `memo(tile.id, version)` skip an unchanged tile's view? | **Yes: zero draws.** It takes about a millisecond off a 4 to 5 ms frame; the rest is Rune's own work per mounted element. | `tests/memo.rs`, 8 tests | §5 Frame cost stands. The version is everything the drawer reads ([6](#6-the-per-tile-memo)). |
 | 7 | Terminal: what does a grid cost per frame, and do wide cells stay on the column grid? | **0.4 to 3.8 ms a frame** as text rows. **One text per row drifts; rows cut at wide cells do not.** | `tests/terminal.rs`, 9 tests | W8: the `pty` drawer draws rows cut at wide cells. No `Pixels` image ([7](#7-the-terminal)). |
 | 8 | What does the door's pty host protocol give a second client? | **Nothing: there is no second client.** A second hello takes the host and the first daemon is let go. | read: `door/src/session/pty-host.ts` | §7 "Pty hosts" and W8 gain a host protocol change, or native keeps a host of its own ([8](#8-the-doors-pty-host)). |
-| 9 | Does libghostty-vt have a usable Rust binding? | **Yes, on crates.io:** `libghostty-vt` 0.2.2. It builds Ghostty's source with Zig. Not built here. | `cargo search`, `cargo info`; the crate's source read | W8's feature names it; every machine that builds the feature needs Zig ([9](#9-libghostty-vt)). |
+| 9 | Does libghostty-vt have a usable Rust binding? | **Yes, on crates.io:** `libghostty-vt` 0.2.2. It builds Ghostty's source with Zig. Not built here. | `cargo search`, `cargo info`; the crate's source read | W8's feature names it; a machine that builds the feature needs Zig, or a library built elsewhere ([9](#9-libghostty-vt)). |
+| 10 | What shape does `drafts.answer` have today? | **`{requestId, clientId, answer}` or `error`.** A read answers the holder's text. A patch is placed by the holder, which answers `applied`, never ranges. | read: `outliner/src/draft-patch.ts`, `server.ts`, `door/src/socket.ts` | §3 `draft.patch` for a native holder is a new ask kind beside today's three ([10](#10-draftsanswer)). |
+| 11 | Does `replaces` give an extension kind a bare name? | **Yes, for a name no live kind has.** The old name opens the kind that replaces it, and the tile saves under the full name. | read: `door/src/desk/tile-kinds.ts`, `outliner/src/extension-manifest.ts` | §2 Kinds stands if the door's literal goes first. Saved screens name `<extension>.<kind>` ([11](#11-replaces)). |
 
 Three more things turned up, two of them bugs in the spike. They are reported and not fixed
 ([Found on the way](#found-on-the-way)).
@@ -36,6 +38,9 @@ cargo test --release --test memo measure -- --nocapture --test-threads 1
 - **Pictures:** `EP0CH_PROBE_SNAPS=<folder>` makes the terminal tests write what each way drew.
 - **Numbers below** are release builds on four cores with no GPU. The renderer's times are lavapipe's, so they bound
   nothing on a laptop; the CPU's times are the ones to read.
+- **A second run** of the memo and terminal measurements, with other builds busy on the same four cores, took up to
+  1.5 times as long (the largest split grid 5.6 ms a frame, not 3.8). Element counts, tiles drawn and the order of
+  the three ways were the same. Read the tables as ratios.
 
 ## 1. Focus
 
@@ -129,8 +134,9 @@ What `AppHandle::update` offers:
 - **It takes no focus and no pointer.** The probe's dispatcher refused the one line that asked for focus as an agent.
 - **`update_if`** is the same for a read: return false and nothing redraws.
 
-**The no:** a hidden, covered or minimised window draws no frame, so `on_frame_drawn` and the compositor never run.
-`peek`'s tree and `snap` then wait for nothing; the probe refuses after three seconds and says why.
+**The no:** a hidden window draws no frame, so `on_frame_drawn` and the compositor never run. `peek`'s tree and `snap`
+then wait for nothing; the probe refuses after three seconds and says why. Only `hide` was run: whether a covered or
+minimised window draws is the platform's, and the same refusal covers it without knowing which.
 
 **DESIGN.md §5 Control:**
 
@@ -305,8 +311,55 @@ opencode's process daemon (`packages/process-daemon/SPEC.md`, protocol 8) is the
 - **opencode does not use it:** it checks in its own FFI declarations and builds Ghostty at its own pinned revision
   with Zig 0.16.
 
-**DESIGN.md W8:** the `pty` cargo feature depends on `libghostty-vt`. Zig joins the build requirements of every
-machine that builds the feature; without the feature nothing changes.
+- **Without Zig, two ways, neither tried:** `libghostty-vt-sys` has `link-dynamic` and `pkg-config` features for a
+  library already on the machine. `ghostty-vt-rs-sys` 0.3.0 (`nklmilojevic/ghostty-vt-rs`, MIT) says it ships prebuilt
+  static libraries; it is raw FFI, and which platforms it covers was not read.
+
+**DESIGN.md W8:** the `pty` cargo feature depends on `libghostty-vt`. A machine that builds the feature needs Zig, or
+one of the two ways above once W8 has tried it; without the feature nothing changes.
+
+## 10. `drafts.answer`
+
+**The holder answers an ask of the service's; it never sends a buffer by itself. Read, not run.**
+
+- **The ask:** an event `{domain: "draft", action: "draft.<kind>", blockId, draft}`. `draft` holds the ask, a
+  `requestId`, the `holdId` and `targetClientId`, the holder's client id. Three kinds: `read`, `patch`, `revert`.
+- **The answer:** the request `drafts.answer {requestId, clientId, answer}`, or `error` in place of `answer`. The
+  service says `{accepted: true}`. It is taken at once, never queued behind the request that waits for it.
+- **`answer` by kind:**
+  - `read`: `{text, revision}`, the draft as the holder has it now.
+  - `patch`: `{applied: true, inverse?: {before, text, revision}}` or `{applied: false, reason}`.
+  - `revert`: `{reverted}`.
+- **Who places a patch:** the holder. A `patch` ask carries `patches` (each `{observed, replacement, range?}`, the
+  range a hint) and `revision`; the door finds the spans in its own buffer.
+- **Time:** 2.5 seconds (`DRAFT_HOLDER_TIMEOUT_MS`). A holder that is late keeps its hold and is asked only reverts
+  after that; patches fail into proposals.
+- **A wrong `clientId`, or a `requestId` nothing waits for, is refused.**
+
+**DESIGN.md §3:** "the holder sends its buffer in `drafts.answer`, the host places the patch and returns resolved
+ranges" is half there. `read` already gives the host the buffer. Nothing hands ranges back today: that ask is W5's
+wire change, and the door's `patch` can stay as it is.
+
+## 11. `replaces`
+
+**An extension's kind is named `<extension id>.<kind>`. `replaces` lets a retired name open it. Read, not run.**
+
+- **In the manifest:** `tiles[].replaces`, up to eight names, "full names, as a layout saved them". It rides on the
+  tile's row in `extensions.list`.
+- **In the door:** `registerTileKind` keeps one map from an old name to the kind that serves it, and `resolveKind`
+  reads it for every lookup by name. So `tile reader` in a screen note opens `screens.reader` when that kind says
+  `replaces: ["reader"]`.
+- **Only a name no live kind has.** Registering a kind that replaces a name the door still has is refused ("the door
+  has a kind by that name"). A manifest that replaces one of its own kinds is refused when it loads.
+- **It saves under the full name.** A tile opened as `reader` is written back as `screens.reader`.
+- **When the extension goes,** the old name goes with it: the map drops every name that pointed at the kind.
+
+**DESIGN.md §2:** "Kinds" stands, with an order: the door's literal for a kind is deleted before the screens extension
+registers the kind that replaces it, in one wave.
+
+**Hydra risk for W2:** the map from an old name to its kind lives in the door (`resolveKind`). Native must not write
+a second one. The resolution moves to where both doors read it: `screens.list` as it validates, or outline-core over
+the served rows.
 
 ## Found on the way
 
@@ -322,6 +375,7 @@ machine that builds the feature; without the feature nothing changes.
 
 - **IME:** Return and Escape during composition never reach the adapter (Rune's README, step 1). Read, not run.
 - **GPU cost:** every render time here is lavapipe's.
+- **Covered and minimised windows:** Xvfb has no window manager, so only `hide` was run.
 - **A real pty:** the stream is canned. No program, no parser, no input latency.
 - **Several windows:** one window, one `AppHandle`. A torn-out tab's second window was not opened.
 - **macOS:** everything ran on Linux under X11.
