@@ -160,7 +160,9 @@ export const marks: Record<string, string[]> = {
   "sh-lines": ["Shell lines keep their output", "ls | as files"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "Your GitHub notifications"],
-  "ext-settings": ["Agents can't set each other off"],
+  // Tidy's page as its header draws it (the host writes the button from the manifest), so a longer README can't
+  // push the mark below the tile (PIE-1753).
+  "ext-settings": ["Ask @tidy to format", "[⚙ settings]"],
   // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
   forms: ["Reading log", "Shed repairs"],
   // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
