@@ -896,7 +896,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
     const facts = new Map<number, TileFacts>();
     return {
-      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
+      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : this.inGroup() ? { goes: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
       actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },

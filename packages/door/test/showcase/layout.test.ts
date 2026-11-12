@@ -1137,6 +1137,26 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   }, 40_000);
 
 
+  test("a group left with nothing goes, giving its room back, and one undo brings it back whole (PIE-1775)", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" });
+    screen();
+    const d = S().stages.get(S().sel).top;
+    const names = () => d.layoutGet().tiles.map((t: any) => t.name as string);
+    expect(names()).toContain("a");
+    // Group A's one tile to the drawer: the group goes with it, its room to the tiles beside.
+    await d.dispatch.act({ action: "tile.drawer", tile: "a/source", args: {} }, { kind: "user" });
+    await until(() => !names().includes("a"), "group A gone");
+    expect(app.drawer.desk!.pane("source")).toBeDefined();
+    // ^W B: one undo, group A back with its tile and its wire across the edge.
+    await d.dispatch.press("layout.undo", { anywhere: true });
+    await until(() => names().includes("a"), "group A back");
+    expect(d.pane("a").inner.layoutGet().tiles.map((t: any) => t.name)).toEqual(["source"]);
+    expect(app.drawer.desk!.pane("source")).toBeUndefined();
+    await app.dispatch.press("host.toggle", { open: false });
+  }, 40_000);
+
   test("groups (PIE-1073): act and a click choose the same cross-group wire, including a tile outside and in the drawer", async () => {
     (app as any).lastInput = 0;
     await sc.dispatch.press("section.leave");
