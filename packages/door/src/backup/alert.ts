@@ -69,6 +69,8 @@ export interface ForgetState { at: string; ok: boolean; failures: number; since?
 export const FORGET_FAILS = 2;
 /** The prune runs once a day; after one fails, again this long after. */
 export const PRUNE_EVERY_MS = 24 * 3_600_000;
+/** A run that uploads nothing still forgets when none did for this long: KEEP's windows move on without new snapshots. */
+export const FORGET_EVERY_MS = 6 * 3_600_000;
 export const PRUNE_RETRY_MS = 3 * 3_600_000;
 
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */

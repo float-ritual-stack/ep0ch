@@ -40,6 +40,8 @@ export const DEFAULT_SECRETS = "hetzner-s3,restic";
  * there (the laptop's ssh name for float-2). An empty `EP0CH_MCP_HUB=` line in the file says "none" and stays.
  */
 export const DEFAULT_HUB = "float-2";
+/** How long systemd lets one run take (`TimeoutStartSec` in scripts/backup/ep0ch-backup.service): the job's deadline. */
+export const RUN_LIMIT_MS = 50 * 60_000;
 /** The tag every outline snapshot carries; `outline=<name>` and `seq=<change>` say which and how far. */
 export const OUTLINE_TAG = "ep0ch-outline";
 

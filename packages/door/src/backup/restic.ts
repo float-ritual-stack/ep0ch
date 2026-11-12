@@ -83,11 +83,12 @@ export function summaryId(out: string): string | null {
 }
 
 /** A consistent copy, uploaded as `/<name>.sqlite` (`host`: the machine it belongs to, when another uploads it: a relay). */
-export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine): Promise<{ id: string } | { error: string; code: number }> {
-  const r = await runRestic(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", host,
-    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])], { stdin: copy });
-  if (r.code !== 0) return { error: complaint(r), code: r.code };
-  return { id: summaryId(r.out) ?? "?" };
+export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine): Promise<{ id: string; cleared?: string } | { error: string; code: number }> {
+  // An exclusive lock a hard-killed prune left (an OOM, a reboot) refuses uploads too: cleared like forget's.
+  const r = await clearingStale(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", host,
+    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])], { stdin: copy, timeoutMs: 600_000, wait: "2m" });
+  if (r.code !== 0) return { error: r.code === LOCKED ? lockHolder(r) : complaint(r), code: r.code };
+  return { id: summaryId(r.out) ?? "?", ...(r.cleared ? { cleared: r.cleared } : {}) };
 }
 
 /** A snapshot's outline, written to `dest`. */
@@ -116,26 +117,28 @@ export function lockHolder(r: Ran): string {
 export const removedLocks = (r: Ran) => Number(/removed (\d+) locks?/i.exec(r.out + r.err)?.[1] ?? 0);
 
 /**
- * A command that takes the repository exclusively (forget, prune). One lock left behind, by a run killed mid-upload (a
- * reboot, a deploy) or a machine that slept through a restore, refuses every one of them after it, while backups (which
- * share the repository) still land (PIE-1755). So a refused lock is cleared and the command tried again: `restic unlock`
+ * A command that a lock left behind refuses: forget and prune (they take the repository exclusively, so any lock a run
+ * killed mid-upload left refuses them while backups still land), and a backup (which a killed prune's exclusive lock
+ * refuses) (PIE-1755). So a refused lock is cleared and the command tried again: `restic unlock`
  * without `--remove-all` removes only stale locks, those whose process on this machine is gone or that nobody refreshed
  * for 30 minutes; a live one stays, and the second try waits `wait` for it. `cleared`: the lock it found, when unlock
- * removed it; `unlockError`: why unlock itself failed.
+ * removed it; `unlockError`: why unlock itself failed. `timeoutMs` is for all of it, the tries and the unlock.
  */
-async function exclusive(c: BackupConfig, repo: string, args: string[], o: { timeoutMs: number; wait?: string }): Promise<Ran & { cleared?: string; unlockError?: string }> {
-  const first = await runRestic(c, repo, args, { timeoutMs: o.timeoutMs });
+async function clearingStale(c: BackupConfig, repo: string, args: string[], o: { timeoutMs: number; wait?: string; stdin?: string }): Promise<Ran & { cleared?: string; unlockError?: string }> {
+  const began = Date.now();
+  const first = await runRestic(c, repo, args, { timeoutMs: o.timeoutMs, ...(o.stdin ? { stdin: o.stdin } : {}) });
   if (first.code !== LOCKED) return first;
   const held = lockHolder(first);
   const unlocked = await runRestic(c, repo, ["unlock"], { timeoutMs: 120_000 });
-  const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: o.timeoutMs + 300_000 });
+  const left = Math.max(60_000, o.timeoutMs - (Date.now() - began));
+  const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: left, ...(o.stdin ? { stdin: o.stdin } : {}) });
   if (unlocked.code !== 0) return { ...again, unlockError: complaint(unlocked) };
   return removedLocks(unlocked) > 0 ? { ...again, cleared: held } : again;
 }
 
 /** Retention (KEEP), every run that uploads: the snapshots it lets go are gone at once; their space, at the next prune. */
 export function forget(c: BackupConfig, repo: string, o: { host?: string; wait?: string } = {}) {
-  return exclusive(c, repo, ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP], { timeoutMs: 900_000, ...(o.wait ? { wait: o.wait } : {}) });
+  return clearingStale(c, repo, ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP], { timeoutMs: 900_000 + 300_000, ...(o.wait ? { wait: o.wait } : {}) });
 }
 
 /**
@@ -144,8 +147,8 @@ export function forget(c: BackupConfig, repo: string, o: { host?: string; wait?:
  * rather than starting over each run and being stopped at it (PIE-1755, float-2 on Nov 11). Packs nothing uses any more
  * are deleted whatever the bound; only rewriting the partly used ones is held to it.
  */
-export function prune(c: BackupConfig, repo: string) {
-  return exclusive(c, repo, ["prune", "--max-repack-size", PRUNE_REPACK], { timeoutMs: c.pruneTimeoutMs });
+export function prune(c: BackupConfig, repo: string, timeoutMs: number) {
+  return clearingStale(c, repo, ["prune", "--max-repack-size", PRUNE_REPACK], { timeoutMs });
 }
 /** How much a prune rewrites in one go. */
 export const PRUNE_REPACK = "1G";
