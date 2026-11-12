@@ -82,7 +82,7 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
-  agentLevel, allTiles, answerLands, pairSide, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, answerLands, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
@@ -546,7 +546,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return side === "tab" ? null : side;
   }
   /** Where the answer tile beside `reader` is, the ask it shows and that ask's line (PIE-1757, PIE-1768); side null with none, undefined for a float (PIE-1758). */
-  answerAt(reader: ReaderPane): AnswerPlace | undefined { const at = this.idOf(reader), found = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at)) as [number, AnswerTile] | undefined; return found ? { side: pairSide(this.root, found[0]), ask: found[1].ask, row: found[1].shownRow(reader.surface.draft?.text ?? reader.msg?.text ?? "") } : at === undefined || this.isFloat(at) ? undefined : { side: null }; }
+  answerAt(reader: ReaderPane): AnswerPlace | undefined { const at = this.idOf(reader), found = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at)) as [number, AnswerTile] | undefined; return found ? { side: sideOf(this.root, this.rectsNow(), at!, found[0]) ?? "apart", n: this.numberOf(found[0]), ask: found[1].ask, row: found[1].shownRow(reader.surface.draft?.text ?? reader.msg?.text ?? "") } : at === undefined || this.isFloat(at) ? undefined : { side: null }; }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */

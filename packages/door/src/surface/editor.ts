@@ -282,8 +282,12 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
   // An answer's fold row (its ask's progress): the click opens or shuts the answer (fold.toggle), the cursor stays (PIE-1738).
   // A host that can't toggle that draft's answers (a comment's: fold.toggle acts on the note's) leaves it a placement.
-  const fold = extend || !on?.fold ? null : draftView(d).foldAt(x - f.col, y - f.row);
-  if (fold) { on!.fold!(fold.line + 1); return true; }
+  const fold = extend ? null : draftView(d).foldAt(x - f.col, y - f.row);
+  // Its press is the click's (PIE-1768: the press put the cursor on the ask, so the tile followed it, and the click then
+  // unfolded the callout's raw source, buttons and all). Where a tile beside shows answers, the click shows this one
+  // there; a click while the tile shows it folds as before.
+  if (fold && !on) return true;
+  if (fold && on?.fold) { if (!d.showInTile(fold)) on.fold(fold.line + 1); return true; }
   const p = draftView(d).posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;

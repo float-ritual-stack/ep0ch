@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import {
-  besideSlot, columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  besideSlot, columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, sideOf, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   type Grab, type LNode,
 } from "../src/desk/layout";
 
@@ -441,5 +441,26 @@ describe("a pair beside a tile, in its place", () => {
     const p = (more as any).kids[1];
     expect(p.pair).toBe(true);
     expect(p.kids).toHaveLength(2);
+  });
+});
+
+// PIE-1768 (the verifier on #1466): an answer tile past its reader's pair (a third tile opened beside, a group) drew
+// `show ▸` beside it: pairSide answers only for a direct pair. sideOf reads where the two tiles are.
+describe("sideOf: where one tile is from another, however deep their splits nest", () => {
+  const r = (col: number, row: number, cols: number, rows: number) => ({ col, row, cols, rows });
+  test("row[reader, row[answer, other]]: the answer is right of the reader; the reader left of it", () => {
+    const tree = { t: "split", dir: "row", kids: [{ t: "leaf", id: 1 }, { t: "split", dir: "row", kids: [{ t: "leaf", id: 2 }, { t: "leaf", id: 3 }], weights: [1, 1] }], weights: [1, 1] } as unknown as LNode<number>;
+    const rects = new Map([[1, r(0, 0, 97, 38)], [2, r(97, 0, 40, 38)], [3, r(137, 0, 40, 38)]]);
+    expect([sideOf(tree, rects, 1, 2), sideOf(tree, rects, 2, 1), sideOf(tree, rects, 1, 3)]).toEqual(["right", "left", "right"]);
+  });
+  test("below and above, a tab behind or not shown, and nothing clear", () => {
+    const col = { t: "split", dir: "col", kids: [{ t: "leaf", id: 1 }, { t: "leaf", id: 2 }], weights: [1, 1] } as unknown as LNode<number>;
+    const stacked = new Map([[1, r(0, 0, 44, 20)], [2, r(0, 20, 44, 18)]]);
+    expect([sideOf(col, stacked, 1, 2), sideOf(col, stacked, 2, 1)]).toEqual(["down", "up"]);
+    const tabbed = { t: "tabs", ids: [1, 2], active: 0 } as unknown as LNode<number>;
+    expect(sideOf(tabbed, new Map([[1, r(0, 0, 44, 30)]]), 1, 2)).toBe("tab");
+    const elsewhere = { t: "split", dir: "row", kids: [{ t: "leaf", id: 1 }, { t: "tabs", ids: [3, 2], active: 0 }], weights: [1, 1] } as unknown as LNode<number>;
+    expect(sideOf(elsewhere, new Map([[1, r(0, 0, 80, 30)], [3, r(80, 0, 80, 30)]]), 1, 2)).toBe("tab");
+    expect(sideOf(col, new Map([[1, r(0, 0, 44, 20)], [2, r(10, 5, 20, 5)]]), 1, 2)).toBeNull();
   });
 });
