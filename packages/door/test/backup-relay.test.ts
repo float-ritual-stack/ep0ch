@@ -9,13 +9,15 @@ import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
 import { statusLines } from "../src/backup/cli";
-import { changeSeq, runAll, schemaVersion, snapshot } from "../src/backup/jobs";
+import { changeSeq, remoteSeqs, runAll, schemaVersion, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
 import { snapshots } from "../src/backup/restic";
 import { outliner, scratchDir } from "./scratch";
+import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-relay-test-");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+let host: OutlineHost | undefined;
+afterAll(async () => { await host?.close(); rmSync(root, { recursive: true, force: true }); });
 const RESTIC = Bun.which("restic") ?? (existsSync(`${process.env.HOME}/.local/bin/restic`) ? `${process.env.HOME}/.local/bin/restic` : null);
 const DOOR = resolve(import.meta.dir, "..");
 const DOWN = async () => "objects.example.test doesn't answer (no reply in 8s)";
@@ -44,7 +46,11 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   const laptopWith = (extra: Record<string, string> = {}) => { const c = backupConfig(laptopEnv(extra)); if ("error" in c) throw new Error(c.error); return c; };
   const say = () => {};
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    // The laptop's outlines are its host's (PIE-1750): the job asks it for their changes and copies.
+    mkdirSync(join(dir, "laptop-outlines"), { recursive: true });
+    host = new OutlineHost({ outlinesFolder: join(dir, "laptop-outlines"), log: () => {} });
+    await host.start();
     mkdirSync(join(dir, "bin"), { recursive: true }); mkdirSync(join(dir, "hub-home"), { recursive: true }); mkdirSync(join(dir, "hub-outlines"), { recursive: true });
     Object.assign(hubEnv, {
       HOME: join(dir, "hub-home"), PATH: process.env.PATH!, EP0CH_OUTLINES: join(dir, "hub-outlines"), EP0CH_STATE: join(dir, "hub-state"),
@@ -244,4 +250,16 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect((await snapshot(laptop, s, { say, probe: REACHABLE })).uploaded).toContain("cellar");
     expect(s.outlines.cellar!.relayed).toBeUndefined();
   }, 120_000);
+
+  test("another machine's changes come from its host over ssh (`ep0ch outline list --json` there), never its files (PIE-1750)", async () => {
+    const theirs = new OutlineHost({ outlinesFolder: hubEnv.EP0CH_OUTLINES!, log: () => {} });
+    await theirs.start();
+    try {
+      outline(join(hubEnv.EP0CH_OUTLINES!, "orchard.sqlite"), ["Prune the pears", "Net the cherries"]);
+      expect(await remoteSeqs("hub-box", ["orchard", "meadow"], laptop)).toEqual({ orchard: 2 });
+      // A machine that doesn't answer is no answer.
+      expect(await remoteSeqs("hub-box", ["orchard"], laptopWith({ FAKE_SSH_DOWN: "1" }))).toBeNull();
+    } finally { await theirs.close(); }
+  }, 60_000);
+
 });

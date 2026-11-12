@@ -48,10 +48,10 @@ export interface MirrorState {
   folder?: string;
   snapshot?: string;
   seq?: number | null;
-  /** The snapshot's time (or, from sqlite3_rsync, when it was copied; a copy found there, its file's time). */
+  /** The snapshot's time (a copy found there, its file's time). */
   at?: string;
-  /** Where the copy came from: a snapshot, sqlite3_rsync, or found in the folder (Litestream's, a lost state file). */
-  source?: "restic" | "rsync" | "found" | "relay";
+  /** Where the copy came from: a snapshot, a relay, or found in the folder (Litestream's, a lost state file). */
+  source?: "restic" | "found" | "relay";
   refreshed?: string;
   /** The outline's change on its machine when last asked over ssh, and when. */
   remoteSeq?: number | null;
@@ -93,6 +93,11 @@ export interface BackupState {
    */
   route?: { via: string; since: string; why: string };
   netmail?: NetmailState;
+  /**
+   * The outline host didn't answer the job (PIE-1750): since when, why, and the command that starts it. Kept apart from
+   * the outlines, so a run that knows none yet still fails, and cleared by a run the host answers.
+   */
+  host?: { failingSince: string; error: string; fix: string };
   /** Litestream replicators a change stopped and starting them again failed (outliner litestream-guard `stuckPauses`). */
   guard?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[];
 }
@@ -148,6 +153,10 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
         detail: `${machine}'s copy of ${name} hasn't taken the newer snapshot since ${hhmm(m.behindSince!)}${m.error ? `: ${m.error}` : ""}`,
         fix: `${cmd.run}   (its log: ${cmd.log})` });
     }
+  }
+  if (s.host && late(s.host.failingSince)) {
+    out.push({ key: `host:${machine}`, since: s.host.failingSince, title: `the outline host on ${machine} doesn't answer the backup job`,
+      detail: `nothing has been copied since ${hhmm(s.host.failingSince)}: ${s.host.error}`, fix: s.host.fix });
   }
   for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
     if (!late(x.failingSince)) continue;

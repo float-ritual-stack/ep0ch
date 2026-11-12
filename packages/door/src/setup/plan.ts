@@ -227,8 +227,9 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
   if (!f.databases.length) return { id: "backup", title, status: "skip", why: `no outlines in ${f.host.folder}`, commands: [] };
   const backups = f.databases.map(d => ({ ...d, dest: join(o.backupDir, backupName(d.name, o.now)) }));
   if (!anythingElse) return { id: "backup", title, status: "skip", why: `nothing else changes, so no backup is needed (${f.databases.length} outline${f.databases.length === 1 ? "" : "s"})`, commands: [], backups };
-  return { id: "backup", title, status: "do", why: `before anything changes: a consistent copy (VACUUM INTO) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
-    commands: backups.map(b => `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
+  // A served outline is copied by its host (PIE-1750); a stopped one, with no host answering, from its file.
+  return { id: "backup", title, status: "do", why: `before anything changes: a consistent copy (VACUUM INTO${f.host.running ? ", by the host" : ""}) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
+    commands: backups.map(b => f.host.running ? `ep0ch backup copy ${b.name} ${b.dest}` : `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
 }
 
 /**

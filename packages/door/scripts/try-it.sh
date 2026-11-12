@@ -138,7 +138,6 @@ fi
 
 # --copy: a private host on a copy of the database, never the live one.
 need_outliner --copy
-command -v sqlite3 >/dev/null || { echo "--copy needs sqlite3" >&2; exit 2; }
 live="$outlines/$ws.sqlite"
 [ -f "$live" ] || { echo "no outline $ws at $live" >&2; exit 1; }
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/ep0ch-try-XXXXXX")
@@ -146,7 +145,8 @@ pid=""
 cleanup() { if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; rm -rf "$tmp"; }
 trap cleanup EXIT INT TERM
 mkdir -p "$tmp/outlines"
-sqlite3 -readonly "$live" ".backup '$tmp/outlines/$ws.sqlite'"
+# The host's copy (PIE-1750): only the host opens the live file.
+(cd "$here" && bun src/main.ts backup copy "$ws" "$tmp/outlines/$ws.sqlite") >/dev/null
 serve "$tmp" "$ws" "$tmp/host.log"
 echo "door → a private copy of $ws, served from $outliner (writes stay in the copy, deleted on exit)"
 # A copy is on this machine, whatever EP0CH_MACHINE or a .ep0ch says: --here names it over both.

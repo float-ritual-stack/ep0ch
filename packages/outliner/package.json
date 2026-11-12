@@ -14,6 +14,7 @@
     "./with-secrets": "./src/with-secrets.ts",
     "./env-file": "./src/env-file.ts",
     "./snapshot-database": "./src/snapshot-database.ts",
+    "./outline-file": "./src/outline-file.ts",
     "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",
     "./types": "./src/types.ts",

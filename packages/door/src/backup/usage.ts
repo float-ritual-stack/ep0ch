@@ -18,6 +18,10 @@ export const BACKUP_USAGE = `  ep0ch backup run [--drill] [--verbose]   the back
                                    outline in a row, the mirrors and the history; --verbose adds the raw reasons, --json everything
   ep0ch backup list <outline> [--machine <name>]
                                    an outline's snapshots
+  ep0ch backup copy <outline> <file>
+                                   a consistent copy of a live outline, made by its host (VACUUM INTO on the host's own
+                                   connection) and integrity-checked, written to a new file: what a script takes instead
+                                   of opening the outline's file (sqlite3 .backup), which only the host opens
   ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>
                                    an outline's newest snapshot (or the newest at or before --at: an ISO time, or 3h,
                                    2d ago), integrity-checked, written to a new file; never over an outline in use`;

@@ -91,6 +91,13 @@ source evidence or distinguish authored glyphs from controls.
   `src/roadmap-input.ts` (what a new roadmap item may say), `src/graph-slices.ts` (`PROPERTY_COLUMNS`,
   `compareBinary`). Its metadata reads and writes go through `readMetadata`/`writeMetadata`; a Work ID written as its
   canonical form is outline-core's `canonicalWorkId`.
+- **Only the host opens a live outline file** (PIE-1750). `src/outline-file.ts` owns what is read of an outline's file
+  itself: an open outline's facts from its store (`fileFacts`), a stopped one's by `readStoppedOutline`, and every copy by
+  `copyOutlineFile`: VACUUM INTO in a worker of the host's own on a read-only connection, so a big copy never holds the
+  host's loop (`outline-copy-worker.ts`). Clients ask the host
+  (`outlines.list` carries each outline's `changeSeq` and `schema`; `outlines.backup` makes a copy) and open only
+  copies. Litestream is the one other process with the file open, so the store's `busy_timeout` and the dispatcher's
+  busy retry stay until PIE-1751 replaces it.
 - `src/resource-catalog.ts` owns Resources: sources, interning, reads, refreshes and computed execution, one class
   over the catalog's tables. `src/resource-rows.ts` says what each row holds and how it becomes a record;
   `src/filesystem-source.ts` owns a filesystem Source's root (binding, drift, the rebind command, confinement,

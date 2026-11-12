@@ -286,6 +286,7 @@ export const ACTIONS = {
   "outline.snapshot": { copy: true, async: true },
   "outlines.archive": { host: true },
   "outlines.attach": { host: true },
+  "outlines.backup": { host: true },
   "outlines.close": { host: true },
   "outlines.create": { host: true },
   "outlines.delete": { host: true },

@@ -13,7 +13,7 @@ import type { NotesBoard } from "../notes-cli";
 
 type Say = (line: string) => void;
 
-/** The newest sign a machine was online: its mirrors' newest snapshot or sqlite3_rsync copy, an ssh answer, a pull. */
+/** The newest sign a machine was online: its mirrors' newest snapshot, an ssh answer, a pull. */
 function lastSeen(s: BackupState, machine: string, lastPull: string | null): string | null {
   const signs = [lastPull, ...Object.entries(s.mirrors).filter(([k]) => k.startsWith(`${machine}/`)).flatMap(([, m]) => [m.at, m.remoteAt])]
     .filter((x): x is string => !!x);
