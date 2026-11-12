@@ -301,7 +301,7 @@ export const ELEMENT_OPEN_DEFS = {
   "trail": def({
     summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a trail tile beside the reader (PIE-1425: docked, resized and closed like any tile; alt+T again goes back to it), or a list over a screen without tiles: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc closes it. An agent's answers the stops and opens nothing",
     keys: readerKeys("trail", { keys: "click", does: "on ≡ trail beside ← back" }),
-    reads: true, touches: "nothing", replay: "safe",
+    touches: "nothing", replay: "safe",
     menu: noteRow("trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),
     args: {},
     examples: [{ act: "trail", does: "lists the stops back and forward; back steps=2 then goes to the second one back" }],

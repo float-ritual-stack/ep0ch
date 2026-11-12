@@ -5892,7 +5892,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile in a container that shuts its dock instead (the board's outline and backlinks, `shuts`): it does.
     if (chainOf(this.root, t.id).some(c => c.policy?.shuts)) return this.shutDockOf(t, actor);
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
-    const r = this.ask({ op: "close", tile: t.id }, actor);
+    const r = this.ask({ op: "close", tile: t.id, heir: true }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     if (nn?.clearsOnClose?.()) { nn.clearContent!(); this.doorKeys.stopTyping(this, nn); this.redraw(); return { ...this.tileAnswer(t.id), state: "empty" }; }
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
@@ -8388,7 +8388,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "search": def({
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the power bar in its notes scope (bar.open scope=notes), where ⏎ opens the hit (`open`) and alt+⏎ opens it in a new detail",
     keys: [{ keys: "/", does: "search", says: "search for notes by their words" }, { keys: "g", does: "in a river column" }],
-    reads: true, touches: "nothing", replay: "safe",
+    touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     examples: [
       { act: "search query=\"seed swap\"", does: "answers the notes that match seed swap, numbered, with ids; nothing moves" },

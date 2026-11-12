@@ -219,7 +219,7 @@ export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
   /** `at` a `Beside`: the layout picks the side (`besideAt`, PIE-1559), the same for the person and an agent. */
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I> | Beside<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; travels?: Travels }
-  | { op: "close"; tile: I; gone?: boolean } | { op: "release"; tile: I }   // release: it leaves whole for an undo putting it back elsewhere (PIE-1571), checked already, so no rule asks
+  | { op: "close"; tile: I; gone?: boolean; heir?: true } | { op: "release"; tile: I }   // heir: answer who keeps its note (closeHeir, PIE-1772), asked only by the close that commits; release: it leaves whole for an undo putting it back elsewhere (PIE-1571), checked already, so no rule asks
   | { op: "peek.release"; tile: I }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
@@ -1036,7 +1036,7 @@ class Step<I> {
     if (this.agent) this.agentGate(op);
     switch (op.op) {
       case "open": return this.open(op);
-      case "close": return this.close(op.tile, !!op.gone); case "release": this.present(op.tile); return this.lift(op.tile);
+      case "close": return this.close(op.tile, !!op.gone, !!op.heir); case "release": this.present(op.tile); return this.lift(op.tile);
       case "peek.release": {
         const f = this.d.floats.find(f => f.id === op.tile);
         if (f) { this.d.wires = this.d.wires.filter(w => w.from !== f.peekOf || w.to !== f.id || w.verb !== "select"); delete f.peekOf; }
@@ -1301,7 +1301,7 @@ class Step<I> {
     this.touch(id);
   }
 
-  private close(id: I, gone: boolean) {
+  private close(id: I, gone: boolean, asksHeir = false) {
     this.present(id);
     const name = this.name(id), f = this.facts(id);
     if (!gone) {
@@ -1318,7 +1318,7 @@ class Step<I> {
       if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "close it"));
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
-    const heir = gone || f.clearsOnClose ? undefined : closeHeir(this.d, id, this.all(), x => this.facts(x)); if (!f.clearsOnClose) this.lift(id);   // asked while its wires are there (PIE-1772)
+    const heir = gone || !asksHeir || f.clearsOnClose ? undefined : closeHeir(this.d, id, this.all(), x => this.facts(x), this.agent ? this.d.focus : undefined); if (!f.clearsOnClose) this.lift(id);   // asked while its wires are there (PIE-1772)
     this.d.answer = { tile: name, ...(heir !== undefined ? { heir: this.name(heir), note: f.showing } : {}), ...this.wentAnswer() };
   }
   /**

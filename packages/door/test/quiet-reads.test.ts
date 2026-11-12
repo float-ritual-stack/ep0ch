@@ -49,10 +49,17 @@ describe.skipIf(!outliner)("quiet reads and a close that keeps its note (PIE-177
     const desk = await detailOn(n.bees.id);
     try {
       (app as any).flash("the person's own words");
-      for (const action of ["layout.get", "view.get", "layout.list", "tile.info", "marks.list"]) {
-        await app.act({ action, args: {}, ...(action === "tile.info" ? { tile: "detail" } : {}), as: "hive-reader" });
-        expect(message()).toBe("the person's own words");
-      }
+      const reads = async () => {
+        for (const action of ["layout.get", "view.get", "layout.list", "tile.menu", "marks.list"]) {
+          await app.act({ action, args: {}, ...(action === "tile.menu" ? { tile: "detail" } : {}), as: "hive-reader" });
+          expect({ action, said: message() }).toEqual({ action, said: "the person's own words" });
+        }
+      };
+      await reads();
+      // Quiet in yolo too: the person handing the door over doesn't make loki's every layout.get a flash again.
+      await app.dispatch.act({ action: "agents.yolo", args: { on: true } }, { kind: "user" });
+      (app as any).flash("the person's own words");
+      try { await reads(); } finally { await app.dispatch.act({ action: "agents.yolo", args: { on: false } }, { kind: "user" }); }
       // A read says what it is: `actions` lists it as one, so an agent (and the action pages) can tell before calling.
       const listed = desk.dispatch.list().actions.find(a => a.name === "layout.get");
       expect(listed?.reads).toBe(true);
@@ -66,19 +73,27 @@ describe.skipIf(!outliner)("quiet reads and a close that keeps its note (PIE-177
   test("^W v then ^W x on the reader: the detail beside it takes its note, the note stays on screen", async () => {
     const desk = await detailOn(n.bees.id);
     try {
+      // A stop behind it first: the honey note opened in the reader, the hives a step back (kept beside it as a spine).
+      await desk.dispatch.act({ action: "open", args: { id: n.honey.id }, tile: "detail" }, { kind: "user" });
+      await until(() => tiles(desk).find(t => t.name === "detail")?.note === n.honey.id, "the reader on the honey note");
       const reader = tiles(desk).find(t => t.name === "detail")!;
       key(ctrl("w")); key(char("v")); paint();
       const preview = tiles(desk).find(t => t.name === "detail-preview")!;
       expect(preview?.note).toBeUndefined();                          // empty: it keeps what's opened into it
       key(ctrl("w")); key(char("x")); paint();
-      const left = tiles(desk);
-      expect(left.map(t => t.tile)).toEqual([preview.tile]);         // the reader closed, the detail stays
-      expect(left[0]!.note).toBe(n.bees.id);                          // with the note it held
-      expect(left[0]!.tile).not.toBe(reader.tile);
+      const heir = () => tiles(desk).find(t => t.tile === preview.tile);
+      expect(tiles(desk).some(t => t.tile === reader.tile)).toBe(false);   // the reader closed, the detail stays
+      expect(heir()?.note).toBe(n.honey.id);                                // with the note it held
       expect(message()).not.toContain("empty");
+      // And its trail: back (alt+← in it) goes where the reader's went, forward comes back.
+      await desk.dispatch.act({ action: "tile.focus", args: {}, tile: preview.name }, { kind: "user" });
+      key({ kind: "alt-left" } as Key); paint();
+      await until(() => heir()?.note === n.bees.id, "back to the hives in the detail");
+      key({ kind: "alt-right" } as Key); paint();
+      await until(() => heir()?.note === n.honey.id, "forward to the honey again");
       // Undone: the reader is back with its note (the detail keeps what it was handed: layout.undo takes back shapes, not opens).
       await desk.dispatch.act({ action: "layout.undo", args: {} }, { kind: "user" });
-      await until(() => tiles(desk).some(t => t.name === "detail" && t.note === n.bees.id), "the reader back with its note");
+      await until(() => tiles(desk).some(t => t.name === "detail" && t.note === n.honey.id), "the reader back with its note");
     } finally { app.pop(); }
   }, 20_000);
 
@@ -91,6 +106,17 @@ describe.skipIf(!outliner)("quiet reads and a close that keeps its note (PIE-177
       await desk.dispatch.act({ action: "tile.focus", args: {}, tile: "detail" }, { kind: "user" });   // the keys back on the reader, as a click there gives them
       key(ctrl("w")); key(char("x")); paint();
       expect(tiles(desk).map(t => t.note)).toEqual([n.honey.id]);
+    } finally { app.pop(); }
+  }, 20_000);
+
+  test("an agent closing the reader beside the empty detail the person is in hands it nothing: their reader stays as it is", async () => {
+    const desk = await detailOn(n.bees.id);
+    try {
+      key(ctrl("w")); key(char("v")); paint();
+      await desk.dispatch.act({ action: "tile.focus", args: {}, tile: "detail-preview" }, { kind: "user" });   // the person's keys in the empty detail
+      await app.act({ action: "tile.close", args: {}, tile: "detail", as: "hive-closer" });
+      expect(tiles(desk).map(t => [t.name, t.note])).toEqual([["detail-preview", undefined]]);
+      expect(message()).toContain("an agent (hive-closer)");
     } finally { app.pop(); }
   }, 20_000);
 });

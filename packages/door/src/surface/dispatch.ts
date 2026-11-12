@@ -501,11 +501,9 @@ export class Dispatcher {
 
   /**
    * Whether `req` only reads (ActionDef.reads, PIE-1772): the def of the set that would run it, as `refusedNow` finds it
-   * (a tile kind's, a mounted screen's), declares it. An agent's run of a read isn't said on the person's screen. One
-   * standing as the person (yolo) runs it as their press would (search opens the power bar, revisions its list): said.
+   * (a tile kind's, a mounted screen's), declares it. An agent's run of a read isn't said on the person's screen.
    */
   reads(req: ActRequest, actor: Actor): boolean {
-    if (this.standing(actor)) return false;
     try {
       req = this.mountedRequest(this.pointed(rewritten(req, actor), actor));
       const r = this.owner(req, actor);

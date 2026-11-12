@@ -669,7 +669,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     answer: { tile: { type: "string", kind: "tile", about: "the tile's stable id" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "what it shows" } },
     summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them). With card=true (^W ,, the tile menu's row) the person's shows it in a card by the tile, with copy id and copy reference on it",
     keys: [{ keys: "^W ,", does: "about this tile" }, { via: "the tile menu's \"about this tile\"" }],
-    reads: true, touches: "nothing", replay: "safe",
+    touches: "nothing", replay: "safe",
     menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
     hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
     args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },

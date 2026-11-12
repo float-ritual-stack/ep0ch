@@ -720,7 +720,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   "backlinks": def({
     summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) aims the list: it lists the links of id (else of the note in the reader they read through; in the list itself, its home's), and that reader becomes its home, its dock sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
     keys: "b",
-    reads: true, touches: "nothing", replay: "safe",
+    touches: "nothing", replay: "safe",
     args: {
       id: { type: "string", optional: true, about: "the note whose backlinks to read; default the tile's" },
       filter: { type: "string", optional: true, about: "text to match, as / filters" },

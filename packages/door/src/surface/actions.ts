@@ -158,9 +158,9 @@ export interface ActionDef<A, H> {
   /**
    * An agent's run of it only reads (PIE-1772): it answers what is there and changes nothing, on screen or in the outline
    * (layout.get, view.get, marks.list). So it says nothing on the person's screen: every other agent action is said there
-   * with who ran it (App.act). The person's own press may open a view of what it reads (revisions, trail), and so may an
-   * agent's standing as them (yolo): that run is said. A run that writes anything (a mark, a setting, a hint shown) is no
-   * read. `actions` lists it as `reads`.
+   * with who ran it (App.act). One that runs otherwise for whoever stands as the person (search opens the power bar,
+   * revisions its list, tile.info card= its card: an agent in yolo stands as them) is no read, nor is a run that writes
+   * anything (a mark, a setting, a hint shown). `actions` lists it as `reads`.
    */
   reads?: true;
   /** tile= names where something lands, rather than what this action works on. */
