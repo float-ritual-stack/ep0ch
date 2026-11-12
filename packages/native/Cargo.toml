@@ -3,7 +3,7 @@ name = "ep0ch-native"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "ep0ch as a native window, drawn with Rune over the bridge in bridge/."
+description = "ep0ch as a native window, drawn with Rune: it speaks the outline host's socket and draws what the host answers."
 publish = false
 
 [[bin]]

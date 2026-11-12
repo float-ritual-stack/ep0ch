@@ -1,0 +1,2 @@
+# The bar on everything, with an action typed: its rows are the actions that match, each with its keys.
+bar.open query=trash

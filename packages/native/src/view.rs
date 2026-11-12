@@ -1,14 +1,30 @@
 //! The window, drawn from rune-kit's parts: the shell's split view (a sidebar of the outline's tree, the open note,
-//! an inspector), Markdown for prose, and a dialog for finding. Nothing here reads Blockdown: prose arrives as
-//! Markdown and components as the service answered them.
+//! an inspector), Markdown for prose, and the command bar over it. Nothing here reads Blockdown: prose arrives as
+//! Markdown and components as the service answered them. And nothing here changes the window: a press runs an
+//! act line, and a button's label and keycap are read from that line's action (`actions::label`, `keys::cap`).
 use std::borrow::Cow;
+use std::rc::Rc;
 
-use rune::{Cx, El, Icon, Key, KeyEvent, ScrollSpec, SurfaceFit, TextStyle, Tx, col, el, row, text};
+use rune::{Cx, El, Icon, ScrollSpec, SurfaceFit, TextStyle, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarRow, SplitView, Toolbar};
-use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, Markdown, TextArea, TextInput, glyphs};
+use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, IconButton, IconButtonVariant, Keybind, Kit, Markdown, glyphs};
 
-use crate::model::{App, Finder, Notice, Shown};
+use crate::actions::{self, Actor, App, Field, Shown, Tone, TreeLine, word};
+use crate::keys::{self, Layer};
+use crate::list::{self, Rows};
 use crate::page::{Frame, ListRow, NoteRow, Page, Part, Picture};
+
+/// A press that runs an act line, as the person.
+fn act(line: impl Into<String>) -> impl Fn(&mut App) + Clone + 'static {
+    let line = line.into();
+    move |s: &mut App| { s.act(&line, Actor::Person); }
+}
+
+/// A button for an act line: its label is the action's, its keycap the key table's.
+fn button(line: &str, variant: ButtonVariant) -> Button {
+    let b = Button::new(actions::label(line)).variant(variant).on_press(act(line));
+    match keys::cap(line) { Some(cap) => b.shortcut(cap), None => b }
+}
 
 static PLUS: Icon = Icon { name: "ep0ch-plus", view: 16.0, body: r#"<path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"# };
 static BACK: Icon = Icon { name: "ep0ch-back", view: 16.0, body: r#"<path d="M9.5 3.5L5 8L9.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"# };
@@ -24,9 +40,6 @@ const ROW_POINTS: f32 = 20.0;
 /// A header image's height when the note names none.
 const HERO_POINTS: f32 = 220.0;
 
-/// A found row's height in the finder: two lines of text and its padding.
-const FOUND_ROW: f32 = 46.0;
-
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let k = Kit::neutral(cx.system_dark());
     let mut layer = Vec::new();
@@ -36,119 +49,116 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         (None, None) => empty(s, &k),
     };
     let body = SplitView::new(main)
-        .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, &k))
-        .inspector(&s.inspector, |s: &mut App| &mut s.inspector, inspector(s, &k))
+        .sidebar(&s.sidebar, |s: &mut App| s.pane(true), sidebar(s, &k))
+        .inspector(&s.inspector, |s: &mut App| s.pane(false), inspector(s, &k))
         .toolbar(toolbar(s, &k))
         .titlebar_inset(cx.titlebar_inset())
         .frame_inset(8.0)
         .toolbar_in_panel()
         .reduced_motion(cx.is_reduced_motion())
         .build(&k);
-    if s.finder.is_some() { palette(s, &k, &mut layer) }
+    crate::bar::view(s, &k, &mut layer);
     rune_kit::root(body, layer)
 }
 
 // ── the sidebar: the outline's tree ───────────────────────────────────────────────────────────────────────────
 
-fn tree_row(s: &App, i: usize, k: &Kit) -> El {
-    let line = &s.tree[i];
+fn tree_row(s: &App, line: &TreeLine, k: &Kit) -> El {
     let r = &line.row;
-    let open = s.expanded.contains(&r.id);
+    let open = s.unfolded.contains(&r.id);
     let icon = if !r.has_children { &DOT } else if open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT };
-    let (id, folds) = (r.id.clone(), r.has_children);
+    let pick = act(format!("tree.pick id={}", word(&r.id)));
     SidebarRow::new(if r.title.is_empty() { "untitled".to_string() } else { r.title.clone() })
         .icon(icon)
         .height(ROW)
         .depth(line.depth.min(12) as u8)
-        .selected(s.page.wanted() == Some(&r.id))
-        .on_select(move |s: &mut App, _| {
-            // A press opens the note; on the open note it folds or unfolds what's under it.
-            if s.page.wanted() == Some(&id) { if folds { s.toggle(&id) } } else { s.open(&id); if folds && !s.expanded.contains(&id) { s.toggle(&id) } }
-        })
+        .selected(s.subject().as_deref() == Some(r.id.as_str()))
+        .on_select(move |s: &mut App, _| pick(s))
         .build(k)
         .key(format!("tree/{}", r.id))
 }
 
+/// A row of the sidebar's head that runs an act line: its label and keycap are the action's.
+fn head_row(line: &'static str, icon: &'static Icon, key: &'static str, k: &Kit) -> El {
+    let run = act(line);
+    let row = SidebarRow::new(actions::label(line)).icon(icon).height(ROW).on_select(move |s: &mut App, _| run(s));
+    match keys::cap(line) { Some(cap) => row.detail(cap), None => row }.build(k).key(key)
+}
+
 fn sidebar(s: &App, k: &Kit) -> El {
     let c = &k.c;
-    let header = col()
+    let mut header = col()
         .w_full()
         .px(8.0)
         .py(6.0)
         .gap(1.0)
-        .child(text(s.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
+        .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate());
-    let kit = k.clone();
-    Sidebar::new()
+    // What an agent last did here, said where the person sees it.
+    if let Some(said) = &s.agent_said { header = header.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).wrap()) }
+    let tree = Rc::new(s.tree());
+    let (keyed, built, kit) = (tree.clone(), tree.clone(), k.clone());
+    let head = Sidebar::new()
         .label("Outline")
         .header(header)
-        .header(SidebarRow::new("Find").icon(&glyphs::SEARCH).detail("⌘K").height(ROW).on_select(|s: &mut App, _| s.find(Finder::Find, "")).build(k).key("find"))
-        .header(SidebarRow::new("Query").icon(&FILTER).detail("⌘L").height(ROW).on_select(|s: &mut App, _| s.find(Finder::Query, "")).build(k).key("query"))
-        .header(SidebarRow::new("New note").icon(&PLUS).detail("⌘N").height(ROW).on_select(|s: &mut App, _| s.new_child()).build(k).key("new"))
-        .row_height(ROW)
-        .virtual_rows(s.tree.len(), |s: &App, i| Cow::Owned(format!("tree/{}", s.tree[i].row.id)), move |s: &App, i| tree_row(s, i, &kit))
-        .build(k)
+        .header(head_row("bar.open", &glyphs::SEARCH, "find", k))
+        .header(head_row("bar.open scope=query", &FILTER, "query", k))
+        .header(head_row("note.new", &PLUS, "new", k));
+    list::in_sidebar(head, Rows::new(tree.len(), ROW, move |_: &App, i: usize| Cow::Owned(format!("tree/{}", keyed[i].row.id)), move |s: &App, i: usize| tree_row(s, &built[i], &kit))).build(k)
 }
 
 // ── the toolbar ───────────────────────────────────────────────────────────────────────────────────────────────
 
 fn toolbar(s: &App, k: &Kit) -> Toolbar {
     let title = s.shown().map_or(String::new(), |p| p.title.clone());
-    let back = IconButton::new(&BACK).variant(IconButtonVariant::GhostMuted).label("Back").shortcut("⌘[").disabled(s.back.is_empty()).on_press(|s: &mut App| s.go_back()).build(k).key("back");
+    let mut back = IconButton::new(&BACK).variant(IconButtonVariant::GhostMuted).label(actions::label("back")).disabled(s.back.is_empty()).on_press(act("back"));
+    if let Some(cap) = keys::cap("back") { back = back.shortcut(cap) }
     let mut actions = row().gap(6.0).center_y();
     if s.editing.is_some() {
         let (saving, unsaved) = (s.saving(), s.unsaved());
         // Leaving is its own act: Done when everything is saved, Discard (by name) when it isn't.
         actions = actions
-            .child(if unsaved { Button::new("Discard").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.discard()).build(k).key("discard") }
-                else { Button::new("Done").variant(ButtonVariant::Ghost).shortcut("Esc").on_press(|s: &mut App| s.done_editing()).build(k).key("done") })
-            .child(Button::new(if saving { "Saving…" } else { "Save" }).variant(ButtonVariant::Contrast).shortcut("⌘S").disabled(saving || !unsaved).on_press(|s: &mut App| s.save()).build(k).key("save"));
-    } else if s.page.get().is_some() {
-        actions = actions.child(Button::new("Edit").variant(ButtonVariant::Neutral).shortcut("⌘E").on_press(|s: &mut App| s.edit()).build(k).key("edit"));
+            .child(if unsaved { button("edit.close discard=true", ButtonVariant::Ghost).build(k).key("discard") } else { button("edit.close", ButtonVariant::Ghost).build(k).key("done") })
+            .child(button("edit.save", ButtonVariant::Contrast).disabled(saving || !unsaved).build(k).key("save"));
+    } else if s.page().is_some() {
+        actions = actions.child(button("edit", ButtonVariant::Neutral).build(k).key("edit"));
     }
     actions = actions.child(
         IconButton::new(&rune_kit::shell::INSPECTOR)
             .variant(IconButtonVariant::GhostMuted)
             .expanded(s.inspector.is_open())
-            .label(if s.inspector.is_open() { "Hide details" } else { "Show details" })
-            .on_press(|s: &mut App| s.inspector.toggle())
+            .label(crate::actions::label("dock.toggle side=right"))
+            .on_press(act("dock.toggle side=right"))
             .build(k)
             .key("inspector-toggle"),
     );
-    Toolbar::new().leading(back).title(title).trailing(actions)
+    Toolbar::new().leading(back.build(k).key("back")).title(title).trailing(actions)
 }
 
 // ── the note ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 fn notice(s: &App, k: &Kit) -> Option<El> {
-    let (colors, said, undo) = match s.notice.as_ref()? {
-        Notice::Info(said) => (&k.c.info, said.as_str(), false),
-        Notice::Problem(said) => (&k.c.danger, said.as_str(), false),
-        Notice::Trashed(_) => (&k.c.info, "Moved to the Trash.", true),
-    };
+    let notice = s.notice.as_ref()?;
+    let colors = match notice.tone { Tone::Info => &k.c.info, Tone::Problem => &k.c.danger };
     let mut bar = row().key("notice").w_full().px(12.0).py(8.0).gap(10.0).radius(k.radius.md).fill(colors.bg).border(1.0, colors.border).center_y()
-        .child(text(said.to_string()).font(k.ty.small).color(colors.fg).wrap().grow(1.0));
-    if undo { bar = bar.child(Button::new("Undo").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.restore()).build(k).key("undo-trash")) }
-    Some(bar.child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label("Dismiss").on_press(|s: &mut App| s.notice = None).build(k).key("notice-close")))
+        .child(text(notice.said.clone()).font(k.ty.small).color(colors.fg).wrap().grow(1.0));
+    // What it did can be taken back: the notice carries the act line that does.
+    if let Some(undo) = &notice.undo { bar = bar.child(button(undo, ButtonVariant::Ghost).build(k).key("notice-undo")) }
+    Some(bar.child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("notice.dismiss")).on_press(act("notice.dismiss")).build(k).key("notice-close")))
 }
 
 fn chips(page: &Page, k: &Kit) -> El {
     page.chips.iter().fold(row().key("chips").gap(6.0).flex_wrap(), |r, chip| {
-        let term = (chip.key.clone(), chip.value.clone());
         r.child(
             k.interactive(Badge::new(format!("{} · {}", chip.key, chip.value)).variant(BadgeVariant::Subtle).standard().build(k))
                 .key(format!("chip/{}/{}", chip.key, chip.value))
                 .help(format!("Notes with {}={}", chip.key, chip.value))
-                .on_press(move |s: &mut App| {
-                    // A chip is a query: every note that carries it.
-                    s.find(Finder::Query, "");
-                    s.narrow(&term.0, &term.1);
-                }),
+                // A chip is a query: every note that carries it.
+                .on_press(act(format!("bar.narrow key={} value={}", word(&chip.key), word(&chip.value)))),
         )
     })
 }
 
-/// A note in a list (a child, a query's row, a backlink): press to open.
 /// A note in a list (a child, a backlink, an ancestor): press to open.
 fn link_row(r: &NoteRow, scope: &str, k: &Kit) -> El {
     page_row(if r.title.is_empty() { "untitled" } else { &r.title }, Some(&r.id), Vec::new(), (!r.context.is_empty()).then_some(r.context.as_str()), format!("{scope}/{}", r.id), k)
@@ -157,7 +167,7 @@ fn link_row(r: &NoteRow, scope: &str, k: &Kit) -> El {
 fn section(title: &str, k: &Kit) -> El { text(title.to_uppercase()).font(k.ty.text_xsmall_medium).color(k.c.text_faint) }
 
 fn prose(markdown: &str, k: &Kit) -> El {
-    Markdown::new(markdown).selectable(true).tasks_read_only().on_link_tx(|s: &mut App, href: &str, _| s.follow(href)).build(k)
+    Markdown::new(markdown).selectable(true).tasks_read_only().on_link_tx(|s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={}", word(href)), Actor::Person); }).build(k)
 }
 
 /// A row that opens a note when it names one, and is plain words when it doesn't.
@@ -168,10 +178,7 @@ fn page_row(text: &str, id: Option<&str>, trailing: Vec<String>, quiet: Option<&
     if let Some(q) = quiet { line = line.child(text_el(q, k.ty.small, c.text_faint).truncate()) }
     let line = line.px(10.0).py(6.0).radius(k.radius.sm).key(key);
     match id {
-        Some(id) => {
-            let id = id.to_string();
-            k.interactive(line).role("link").focusable(true).on_press(move |s: &mut App| s.open(&id))
-        }
+        Some(id) => k.interactive(line).role("link").focusable(true).on_press(act(format!("open id={}", word(id)))),
         None => line,
     }
 }
@@ -232,12 +239,11 @@ fn component(i: usize, part: &Part, k: &Kit) -> El {
     if let Some(t) = &frame.title { head = head.child(text_el(t, k.ty.ui_medium, c.text_base)) }
     head = head.child(el().grow(1.0));
     if let Some(q) = &frame.query {
-        let q2 = q.clone();
         head = head.child(
             k.interactive(text_el(q, k.ty.mono, c.text_muted).truncate())
                 .key(format!("part/{i}/query"))
                 .help("Open this query")
-                .on_press(move |s: &mut App| s.find(Finder::Query, &q2)),
+                .on_press(act(format!("bar.open scope=query query={}", word(q)))),
         );
     } else if let Some(status) = &frame.status {
         head = head.child(text_el(status, k.ty.small, c.text_faint));
@@ -320,7 +326,8 @@ fn note(s: &App, page: &Page, k: &Kit) -> El {
 }
 
 fn empty(s: &App, k: &Kit) -> El {
-    let said = if s.loading() { "Calling the outline…" } else if s.tree.is_empty() { "Nothing here yet. ⌘N starts a note." } else { "Pick a note on the left, or find one with ⌘K." };
+    let cap = |line: &str| keys::cap(line).unwrap_or_else(|| actions::label(line));
+    let said = if s.loading() { "Calling the outline…".to_string() } else if s.tree().is_empty() { format!("Nothing here yet. {} starts a note.", cap("note.new")) } else { format!("Pick a note on the left, or find one with {}.", cap("bar.open")) };
     let mut body = col().key("empty").w_full().h_full().center().gap(12.0).padding(28.0);
     if let Some(n) = notice(s, k) { body = body.child(col().max_w(560.0).child(n)) }
     body.child(text(said).font(k.ty.body).color(k.c.text_muted))
@@ -330,27 +337,24 @@ fn empty(s: &App, k: &Kit) -> El {
 fn editor(s: &App, k: &Kit) -> El {
     let mut body = col().key("editor").w_full().h_full().min_h(0.0).padding(20.0).gap(12.0);
     if let Some(n) = notice(s, k) { body = body.child(n) }
+    // What the editor's own keys do, from the table: the save that keeps you here, the Esc that leaves.
+    let keys = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(Layer::Draft)).fold(row().key("editor-keys").w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
+        line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(k.c.text_faint)))
+    });
     body.child(
         k.scroll_bar(
             col().key("editor-scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(
-                TextArea::new(&s.editor)
+                keys::area(&s.editor, Field::Draft)
                     .label("Note source")
                     .placeholder("Title [key::value]\nThen the note, in Blockdown.")
                     .width(None)
                     .auto_grow(16, 4000)
-                    .on_edit(|s: &mut App| &mut s.editor)
-                    .on_key(|s: &mut App, e: &KeyEvent, _| match &e.key {
-                        Key::Escape => { s.done_editing(); true }
-                        Key::Command('s') => { s.save(); true }
-                        Key::Enter if e.mods.cmd => { s.save(); true }
-                        _ => false,
-                    })
                     .build(k)
                     .key("source"),
             ),
         ),
     )
-    .child(text("Blockdown source · ⌘S saves and keeps you here · Esc leaves when everything is saved").font(k.ty.small).color(k.c.text_faint))
+    .child(keys)
 }
 
 // ── the inspector: what the service knows about the open note ─────────────────────────────────────────────────
@@ -377,69 +381,3 @@ fn inspector(s: &App, k: &Kit) -> El {
 
 /// An ISO time as a person reads it: the day and the minute.
 fn when(iso: &str) -> String { iso.get(..16).map_or(iso.to_string(), |minute| minute.replace('T', " ")) }
-
-// ── finding: words, or the views' grammar ─────────────────────────────────────────────────────────────────────
-
-fn palette(s: &App, k: &Kit, layer: &mut Vec<El>) {
-    let Some(kind) = s.finder else { return };
-    let c = &k.c;
-    let (title, placeholder) = match kind {
-        Finder::Find => ("Find a note", "Words in a title or a note"),
-        Finder::Query => ("Query", "type=letter mail=waiting · any property, as views read it"),
-    };
-    let field = TextInput::new(&s.finder_edit)
-        .label(title)
-        .placeholder(placeholder)
-        .leading_icon(if kind == Finder::Find { &glyphs::SEARCH } else { &FILTER })
-        .width(None)
-        .on_edit(|s: &mut App| &mut s.finder_edit)
-        .on_change(|s: &mut App, _| s.find_changed())
-        .on_key(|s: &mut App, e: &KeyEvent, tx: &mut Tx| match &e.key {
-            Key::Down => { s.find_move(1); tx.scroll_into_view(format!("found/{}", s.cursor)); true }
-            Key::Up => { s.find_move(-1); tx.scroll_into_view(format!("found/{}", s.cursor)); true }
-            Key::Enter => { s.find_open(); true }
-            Key::Escape => { s.finder = None; true }
-            _ => false,
-        })
-        .build(k)
-        .key("palette-field");
-    let mut body = col().w_full().px(16.0).pb(16.0).gap(10.0).child(field);
-    let found = s.found.get();
-    if let Some(found) = found.filter(|f| !f.facets.is_empty()) {
-        // The facets the matches carry, counted by the service: each value narrows the query.
-        let mut strip = row().key("facets").w_full().gap(6.0).flex_wrap();
-        for f in &found.facets {
-            for v in &f.values {
-                let (key, value) = (f.key.clone(), v.value.clone());
-                strip = strip.child(
-                    k.interactive(Badge::new(format!("{}={} · {}", f.key, v.value, v.count)).variant(BadgeVariant::Subtle).build(k))
-                        .key(format!("facet/{}/{}", f.key, v.value))
-                        .on_press(move |s: &mut App| s.narrow(&key, &value)),
-                );
-            }
-        }
-        body = body.child(strip);
-    }
-    if let Some(hint) = found.map(|f| f.hint.as_str()).filter(|h| !h.is_empty()) { body = body.child(text(hint.to_string()).key("palette-hint").font(k.ty.small).color(c.warning.fg).wrap()) }
-    let rows = found.map_or(&[][..], |f| &f.rows[..]);
-    let mut list = col().key("palette-rows").w_full().gap(1.0);
-    for (i, r) in rows.iter().enumerate() {
-        let id = r.id.clone();
-        let line = col().w_full().gap(1.0)
-            .child(text(r.title.clone()).font(k.ty.ui_medium).color(c.text_base).truncate())
-            .child(text(r.context.clone()).font(k.ty.small).color(c.text_faint).truncate());
-        list = list.child(
-            k.interactive(line.px(10.0).py(6.0).radius(k.radius.sm).fill(if i == s.cursor { c.surface_hover } else { rune::Color::TRANSPARENT }))
-                .key(format!("found/{i}"))
-                .role("option")
-                .on_press(move |s: &mut App| s.open(&id)),
-        );
-    }
-    if rows.is_empty() && found.is_none_or(|f| f.hint.is_empty()) {
-        let said = if s.finding() { "Asking…" } else if found.is_none() { "Type to search. ↑ ↓ move, ⏎ opens, Esc closes." } else { "No notes match." };
-        list = list.child(text(said).font(k.ty.small).color(c.text_faint).px(10.0).py(6.0));
-    }
-    // rune-kit's Dialog doesn't bound a scroll view in its body, so the list is given its height: rows of FOUND_ROW points, to a cap.
-    body = body.child(k.scroll_bar(col().key("palette-scroll").w_full().h((rows.len().max(1) as f32 * FOUND_ROW).min(FOUND_ROW * 7.0)).scroll(ScrollSpec { stick_bottom: false }).child(list)));
-    Dialog::new("palette", title).open(true).width(620.0).fit().child(body).on_close(|s: &mut App| s.finder = None).build(k, layer);
-}

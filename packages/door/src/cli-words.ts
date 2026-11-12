@@ -161,23 +161,33 @@ export function scriptCall(argsIn: readonly string[]): { args: string[]; ws?: st
 export const DOOR_COMMANDS = ["peek", "snap", "open", "actions", "act", "subscribe", "trace"] as const;
 
 /**
+ * The doors an outline can have, by the name `--door` takes, each with the control socket it serves in the outline's
+ * session folder: the terminal door, and the native window (packages/native, which serves the same protocol).
+ */
+export const DOORS: Readonly<Record<string, string>> = { terminal: "door.sock", native: "native.sock" };
+
+/**
  * A door command's `--ws <outline>` and `--machine <ssh-name>`, wherever they are on the line (`ep0ch act --ws pie
  * ext.yo.settings …`, `ep0ch act ext.yo.settings --ws pie …`): taken out, so the action's words are only its own
  * (`key=value`), and said, so main.ts reaches that outline's door. A flag with no value is refused with what it takes.
+ * `--door native` names which door on that outline answers: the native window's control socket, beside the terminal
+ * door's (`DOORS`).
  */
-export function doorFlags(argsIn: readonly string[]): { args: string[]; ws?: string; machine?: string } | { error: string } {
+export function doorFlags(argsIn: readonly string[]): { args: string[]; ws?: string; machine?: string; door?: string } | { error: string } {
   const end = argsIn.indexOf("--");
   const words = end >= 0 ? argsIn.slice(0, end) : argsIn;
-  const out: { ws?: string; machine?: string } = {}, args: string[] = [];
+  const out: { ws?: string; machine?: string; door?: string } = {}, args: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i]!;
     // The word after --as or --tile is a name as written, never a flag of ours.
     if (w === "--as" || w === "--tile") { args.push(w); if (i + 1 < words.length) args.push(words[++i]!); continue; }
-    if (w !== "--ws" && w !== "--machine") { args.push(w); continue; }
+    if (w !== "--ws" && w !== "--machine" && w !== "--door") { args.push(w); continue; }
     const v = words[i + 1];
-    if (v === undefined || v.startsWith("-")) return { error: `${w} needs ${w === "--ws" ? "an outline's name" : "an ssh config name"}: ep0ch ${argsIn[0] ?? "act"} … ${w} <${w === "--ws" ? "outline" : "machine"}>` };
+    const takes = w === "--ws" ? ["an outline's name", "outline"] : w === "--machine" ? ["an ssh config name", "machine"] : [`which door answers (${Object.keys(DOORS).join(" or ")})`, "door"];
+    if (v === undefined || v.startsWith("-")) return { error: `${w} needs ${takes[0]}: ep0ch ${argsIn[0] ?? "act"} … ${w} <${takes[1]}>` };
+    if (w === "--door" && !Object.hasOwn(DOORS, v)) return { error: `--door is ${Object.keys(DOORS).join(" or ")}, not ${v}` };
     i++;
-    out[w === "--ws" ? "ws" : "machine"] = v;
+    out[w === "--ws" ? "ws" : w === "--machine" ? "machine" : "door"] = v;
   }
   return { args: [...args, ...argsIn.slice(words.length)], ...out };
 }

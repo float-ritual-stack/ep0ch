@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { DOORS } from "../cli-words";
 import { hostSocketOf, resolveTarget } from "../discover";
 import { listening } from "../jsonl";
 import { readMissing } from "../outlines";
@@ -156,9 +157,19 @@ export async function pickSession(args: readonly string[], verb: string, env: En
  * outline the arguments or folder name (--ws, EP0CH_WS, the .ep0ch), else the only door serving on this state dir (a session's or one
  * opened with --no-daemon). Several and none named: which to name, as commands.
  */
-export async function controlFor(env: Env = process.env, cwd = process.cwd(), args: readonly string[] = []): Promise<string | { error: string }> {
+export async function controlFor(env: Env = process.env, cwd = process.cwd(), args: readonly string[] = [], door = "terminal"): Promise<string | { error: string }> {
   const named = placeFor(args, env, cwd);
   if (named && "error" in named) return named;
+  // `--door native`: the native window's socket, beside the terminal door's in the same folder (cli-words.ts, DOORS).
+  if (door !== "terminal") {
+    const sock = DOORS[door];
+    if (!sock) return { error: `--door is ${Object.keys(DOORS).join(" or ")}, not ${door}` };
+    const dirs = named ? [named.dir] : placeDirs();
+    const live = (await Promise.all(dirs.map(async d => ((await listening(join(d, sock))) ? d : null)))).filter((d): d is string => d !== null);
+    if (live.length === 1) return join(live[0]!, sock);
+    if (named) return { error: `no ${door} door runs on ${placeLabel(named)} · \`ep0ch-${door} -- ${sessionFlags({ place: named })}\` starts one` };
+    return { error: live.length ? `${live.length} ${door} doors run and this folder names no outline · name one with --ws` : `no ${door} door runs on ${stateDir()} · \`ep0ch-${door} -- --ws <outline>\` starts one` };
+  }
   if (named) {
     if (await listening(join(named.dir, "door.sock"))) return join(named.dir, "door.sock");
     if (args[0] === "peek") {

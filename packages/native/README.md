@@ -9,6 +9,7 @@ reads Blockdown.
 ![Live figures answered by the service, dark](docs/figures-dark.png)
 ![A query with the facets its matches carry, dark](docs/query-dark.png)
 ![A header image, pictures, an svg fence and a mermaid fence, light](docs/pictures-light.png)
+![The command bar with an action typed, its keycap from the key table, dark](docs/bar-dark.png)
 
 ## Run it
 
@@ -33,14 +34,45 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Walk the outline | The sidebar's tree: a press opens a note, a press on the open note folds or unfolds it |
 | Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and query-backed `::graph-table` as rows that open; `::graph-stat` as tiles and the other figures with the service's results |
 | See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
-| Follow anything | A link, a child, a backlink, a row in a component; ⌘[ goes back |
-| Write | ⌘E opens the note's Blockdown source; ⌘S saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved |
-| Make, move, bin | ⌘N a note under the open one; ⌥↑ ⌥↓ ⌥→ ⌥← move it up, down, in, out; ⌘⌫ to the Trash (the notice has Undo) |
-| Find | ⌘K: words, ranked by the service |
-| Query | ⌘L: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note opens the query for it |
+| Follow anything | A link, a child, a backlink, a row in a component; `back` goes back |
+| Do anything | The command bar: every action there is, by a word of its name or of what it does, with its keys beside it. A whole act line typed runs as written (`open id=…`) |
+| Write | `edit` opens the note's Blockdown source; `edit.save` saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved |
+| Make, move, bin | `note.new` under the open one; `note.move` up, down, in, out; `note.trash` (the notice has Undo) |
+| Find | The bar, with words: the service's search, under the actions that match |
+| Query | The bar on a query: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note opens the query for it |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
 
-⇧⌘B hides the sidebar and ⌘I the details pane; both resize by their inner edge.
+**The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
+keycap on a button, the bar's rows and `actions` over the control socket all read the row. The defaults:
+
+<!-- keys: the key table, as keys.rs reads it from the rows (a test keeps this true) -->
+| Chord | Act line | Where | Does |
+|---|---|---|---|
+| `mod+[` | `back` | everywhere | back |
+| `mod+n` | `note.new` | everywhere | a new note under the open one |
+| `mod+backspace` | `note.trash` | tile | move the open note to the Trash |
+| `alt+up` | `note.move step=up` | tile | move the note up |
+| `alt+down` | `note.move step=down` | tile | move the note down |
+| `alt+right` | `note.move step=in` | tile | move the note in, under the one above |
+| `alt+left` | `note.move step=out` | tile | move the note out, after its parent |
+| `mod+e` | `edit` | everywhere | edit the open note |
+| `mod+s` | `edit.save` | everywhere | save |
+| `mod+enter` | `edit.save` | draft | save, from the note's source |
+| `escape` | `edit.close` | draft | leave the editor, when everything is saved |
+| `mod+k` | `bar.open` | everywhere | open the bar on everything |
+| `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
+| `escape` | `bar.close` | bar | put the bar away |
+| `enter` | `bar.pick` | bar | pick the lit row |
+| `down` | `bar.move by=1` | bar | the next row |
+| `up` | `bar.move by=-1` | bar | the row before |
+| `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the tree |
+| `mod+i` | `dock.toggle side=right` | everywhere | show or hide the details |
+| `escape` | `notice.dismiss` | tile | dismiss the notice |
+<!-- /keys -->
+
+`mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
+is being written, and Esc closes one thing at a time (the bar, then the editor, then the notice). Both docks resize
+by their inner edge.
 
 Capture comes first here too. Saving never ends editing, so a key typed around a save always has somewhere to
 land. A save the service refuses (the note changed underneath) leaves every word in the editor and says why.
@@ -50,22 +82,40 @@ drops words.
 ## How it fits
 
 ```text
-src/ (Rust, Rune)                                  the outline host
-  view.rs    draws                       ◀───────  notes.page      a note, whole, as parts
-  model.rs   slots keyed by what's wanted ◀──────  blocks.read     the notes under a note
-  page.rs    the wire's shapes           ────────▶ update, create, move, delete
-  client.rs  the socket                  ◀───────  queries.changed which watched answer moved
+src/ (Rust, Rune)                                      the outline host
+  view.rs, bar.rs   draw; a press runs an act line
+  keys.rs           chord -> act line, by where the person is
+  control.rs        an agent's act line, over native.sock
+        │ an act line, whoever asks
+        ▼
+  actions/          the one dispatcher; one module a noun     ────────▶ update, create, move, delete
+  store.rs          one slot an ask; 64 watches a link        ◀───────  notes.page, blocks.read, blocks.query
+  client.rs         the socket                                ◀───────  queries.changed
+  page.rs           the wire's shapes
+  list.rs           the one virtualised list
+  actline.rs        the act-line grammar
 ```
 
+- **Every change is an act line through one dispatcher** (`App::act`, `actions/mod.rs`). A key, a press and an
+  agent say the same thing (`note.trash`, `open id=…`); the dispatcher reads the line, types its arguments by the
+  action's row, checks the actor against what the row touches, runs it and records the step. `App`'s state is
+  private to `actions/`: a view reads everything and changes nothing except by a line.
+- **An action describes itself** (`actions/row.rs`, outline-core's `ActionRow`): its name, summary, arguments,
+  what it touches, its keys and its menu labels. Nothing restates them: a button names its act line and is
+  labelled from the row.
+- **Every read is an ask in the store** (`store.rs`): an outline, a wire action, its parameters, watched or not.
+  Equal asks share a slot; a tile is a slot's user; a slot nobody shows keeps its answer and gives its watch to
+  the next ask. `peek` lists the slots, who shows each and how much of the budget is held.
 - **The service answers a note whole** (`notes.page`, outline-core's `note-page.ts`): title, chips, properties, the
   body as parts (prose as Markdown; each component with its answer in it), and the notes above, under and linking
   to it. It walks the note as a published page does and asks the same questions; where a page writes HTML, it
   hands over data.
-- **The window is a function of what's wanted** (`model.rs`). The open note, each unfolded folder and the finder's
-  words each have a slot named by their key; an answer lands in the slot whose key it carries, or nowhere. There is
-  no "is this answer still for what's on screen?" to get wrong.
-- **Changes arrive as answers, not events to interpret.** Every read is a watched read (ADR 0004): the service says
-  which answer moved and the slot reads it by generation. The window never works out what a change touches.
+- **The window is a function of what's chosen and what's answered** (`actions/app.rs`). The open note, each
+  unfolded folder and the bar's words each want an ask; an answer lands in the slot of its own ask, or nowhere.
+  There is no "is this answer still for what's on screen?" to get wrong.
+- **Changes arrive as answers, not events to interpret.** A watched read (ADR 0004) is registered under one of the
+  link's 64 keys: the service says which answer moved and the slot reads it by generation, when someone shows it.
+  The window never works out what a change touches.
 - **The tree is asked a folder at a time** (`blocks.read` with `under`): only what's unfolded, so a large outline
   costs what's on screen.
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
@@ -73,11 +123,34 @@ src/ (Rust, Rune)                                  the outline host
   the UI thread, and keeps only the open page's. One the host can't read says so, in the host's words, where it
   would be.
 - **It holds no grammar and names no property.** `view.rs` is `rune-kit`'s shell (`SplitView`, `Sidebar`,
-  `Toolbar`), `Markdown`, `TextArea`, `Dialog` and `Badge`. A `graph-stat` is drawn as tiles from its props; a
+  `Toolbar`), `Markdown` and `Badge`; `bar.rs` is its `Dialog` over the one list; every field is `keys.rs`'s. A `graph-stat` is drawn as tiles from its props; a
   figure kind with no drawing here shows the service's Markdown for it; a component the service answers nothing
   for shows its source. Nothing is hidden.
 - **`PROTOCOL` is the checkout's**: `build.rs` reads it from outline-core's `protocol.ts`, and a host on another
   number is refused with the side to update, as every client does.
+
+## An agent in it
+
+The window serves a control socket that speaks the door's control protocol (`control.rs`; the door's
+`src/control.ts`): `native.sock` beside the outline's `door.sock`, or `--control <path>` after the second `--`
+(`EP0CH_NATIVE_CONTROL`). So the door's own client reaches it:
+
+```sh
+ep0ch act --door native note.trash --as compost-agent   # the same action a key runs, recorded as the agent's
+ep0ch peek --door native --json                         # {screen, focus, whereabouts, watches, tiles, …, text}
+ep0ch actions --door native                             # every action, as its row
+```
+
+- **An act is attributed.** Its write carries `mutation: {author: "agent", actorId}`, its step says who, and the
+  sidebar's status line names the agent and the action.
+- **An act takes nothing of the person's.** Not their keys, not the bar they have open or its lit row, not the
+  editor: `edit`, `edit.save`, `edit.close`, `bar.close` and `notice.dismiss` are refused to an agent with why,
+  and an agent's `open` is refused while the person types in the reader.
+- **An agent's `bar.open` lists the actions** for its words and opens nothing. The notes and a query's matches
+  are the service's answers, which an act can't wait for: those scopes are refused with where to ask
+  (`ep0ch find`), never answered as an empty list.
+- **`peek` is state, not a frame:** a hidden window answers it. The element tree and a picture of a live window
+  are not served yet; `--snap` and `--tree` draw headless, and a headless run serves no control socket.
 
 ## Check it
 
@@ -87,18 +160,26 @@ cargo test -- --ignored live        # the same window against a scratch outline 
 bun run check                       # resolve.ts
 ```
 
+`src/tests/` has one file a kind of test: the garden (what the window asks and does with the answers), the window
+drawn and pressed, the parity table (every action by its chord, by its bar row pressed and by its act line, one
+step record), the store (one slot an ask, the budget, what the service dropped), the fixtures (the act-line grammar
+and the action rows against `outline-core/fixtures/`), the control socket, and `one_owner.rs`, which scans the
+source for a second place that binds a key, writes to the wire, lists rows or labels a button.
+
 The service's side is `packages/outliner/test/notes-page.test.ts`.
 
 Rune renders headless, so a change can be looked at without a display, on a scratch outline:
 
 ```sh
-target/debug/ep0ch-native --snap out.png --scene query --theme dark -- --ws scratch
-target/debug/ep0ch-native --script steps.json --snap out.png --at 3.5 -- --ws scratch
+target/debug/ep0ch-native --snap out.png --scene bar --theme dark -- --ws scratch
+target/debug/ep0ch-native --snap out.png -- --ws scratch --act steps.act
 target/debug/ep0ch-native --tree tree.json -- --ws scratch
 ```
 
-Scenes: `plan`, `figures`, `callouts`, `edit`, `find`, `query` (they open notes of the showcase outline by title).
-A script taps by key (`find`, `edit`, `save`, `done`, `tree/<id>`, `child/<id>`, `part/<n>/<id>`, `chip/<key>/<value>`).
+A scene is a file of act lines, `scenes/<name>.act`: `bar`, `edit`, `find`, `query`, and `plan`, `figures`,
+`callouts` (which open notes of the showcase outline by title). `--act <file>` runs any file of them before the
+first frame. A Rune `--script` taps by element key (`find`, `edit`, `save`, `done`, `tree/<id>`, `child/<id>`,
+`part/<n>/<id>`, `chip/<key>/<value>`, `bar/field`, `bar/row/<source>/<key>`, `bar/facet/<key>/<value>`).
 
 ## Not here yet
 
@@ -111,9 +192,12 @@ A script taps by key (`find`, `edit`, `save`, `done`, `tree/<id>`, `child/<id>`,
   (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
   a view's card covers and pictures in properties aren't shown.
 - Switching outlines from inside the window; the outline is named when it starts.
-- A connection keeps at most 64 watched answers (the host's bound): the page, the finder and one per unfolded
-  folder. Past about sixty unfolded folders the oldest are dropped and asked for again.
+- A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
+  folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
+- One tile, the reader: `tile=` takes `reader` and nothing else until there is a layout. The bar's notes come from
+  `tree.search`, not yet a `from: search` list producer. Keys are the rows' defaults: a screen's own keys and the
+  person's `keybindings.json` aren't read yet.
 - After its own write the window reads what it shows at once rather than waiting for the watch to say so.
-- The finder's height is computed here (`FOUND_ROW`): `rune-kit`'s `Dialog` doesn't bound a scroll view in its body.
+- The bar's list bounds itself to seven rows (`list::bounded`): `rune-kit`'s `Dialog` doesn't bound a scroll view in its body.
 - Rune is pre-release and pinned by rev in `Cargo.toml`. Windows builds also need Rune's `wgpu-hal` patch
   (its README, "Add it"), and the socket is a Unix one.

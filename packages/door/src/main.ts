@@ -265,13 +265,13 @@ if ((DOOR_COMMANDS as readonly string[]).includes(args[0] ?? "")) {
   // EP0CH_CONTROL says, and never an argument of the action (`arguments are key=value, not "--ws"`).
   const lifted = doorFlags(args);
   if ("error" in lifted) { console.error(`ep0ch: ${lifted.error}`); process.exit(2); }
-  if (lifted.ws !== undefined || lifted.machine !== undefined) {
+  if (lifted.ws !== undefined || lifted.machine !== undefined || lifted.door !== undefined) {
     const place = [...(lifted.ws !== undefined ? ["--ws", lifted.ws] : []), ...(lifted.machine !== undefined ? ["--machine", lifted.machine] : [])];
     const { controlFor } = await import("./session/place");
-    let found = await controlFor({ ...process.env, EP0CH_CONTROL: undefined }, process.cwd(), [args[0]!, ...place]);
+    let found = await controlFor({ ...process.env, EP0CH_CONTROL: undefined }, process.cwd(), [args[0]!, ...place], lifted.door);
     // A door with no session of its own (a test door's EP0CH_CONTROL, EP0CH_DAEMON=0) is that outline's door when it says so.
     const given = process.env.EP0CH_CONTROL;
-    if (typeof found === "object" && given && lifted.ws !== undefined && lifted.machine === undefined) {
+    if (typeof found === "object" && given && lifted.ws !== undefined && lifted.machine === undefined && lifted.door === undefined) {
       const { ask } = await import("./jsonl");
       const r = await ask(given, { cmd: "peek" }, 1500).catch(() => null);
       if (r?.ok && r.result?.screen?.outline === lifted.ws) found = given;

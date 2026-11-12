@@ -95,20 +95,57 @@ impl Link for Socket {
     fn set_waker(&mut self, waker: rune::Waker) { *self.wake.lock().unwrap() = Some(waker) }
 }
 
-/// Where the outline is: its host's socket and its name, by the door's own rule (`resolve.ts`, run once with bun).
-/// `EP0CH_SOCKET` with `--ws` or `EP0CH_WS` names both outright, as it does for every client.
-pub fn resolve(args: &[String]) -> Result<(String, String), String> {
-    let flag = |name: &str| args.iter().position(|a| a == name).and_then(|at| args.get(at + 1)).cloned();
-    let named = flag("--ws").or_else(|| std::env::var("EP0CH_WS").ok());
-    if let (Ok(socket), Some(outline)) = (std::env::var("EP0CH_SOCKET"), named.as_ref()) { return Ok((socket, outline.clone())) }
+/// A link that is only ever lost: what the window has when no outline could be named, so it can say why.
+pub struct Nowhere(pub Option<String>);
+
+impl Link for Nowhere {
+    fn send(&mut self, _: &Value) {}
+    fn take(&mut self) -> Vec<Value> { self.0.take().map(lost).into_iter().collect() }
+    fn wait(&mut self, _: &str, _: Duration) {}
+}
+
+/// Where the outline is: its host's socket and its name, and where this window serves its control socket
+/// (`native.sock` beside the outline's `door.sock`), when the door's rule said.
+#[derive(Clone)]
+pub struct Place {
+    pub socket: String,
+    pub outline: String,
+    pub control: Option<String>,
+}
+
+fn flag(args: &[String], name: &str) -> Option<String> { args.iter().position(|a| a == name).and_then(|at| args.get(at + 1)).cloned() }
+
+fn bun(args: &[String]) -> Result<Value, String> {
     let bun = std::env::var("EP0CH_BUN").unwrap_or_else(|_| "bun".to_string());
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/resolve.ts");
     let out = std::process::Command::new(&bun).arg(script).args(args).output().map_err(|e| format!("can't run {bun} {script}: {e}"))?;
     let said = String::from_utf8_lossy(&out.stdout);
-    let answer: Value = said.lines().last().and_then(|line| serde_json::from_str(line).ok())
-        .ok_or_else(|| format!("{script} said nothing to read: {}", String::from_utf8_lossy(&out.stderr).trim()))?;
+    said.lines().last().and_then(|line| serde_json::from_str(line).ok()).ok_or_else(|| format!("{script} said nothing to read: {}", String::from_utf8_lossy(&out.stderr).trim()))
+}
+
+/// Where the outline is, by the door's own rule (`resolve.ts`, run once with bun).
+/// `EP0CH_SOCKET` with `--ws` or `EP0CH_WS` names both outright, as it does for every client.
+fn resolve(args: &[String]) -> Result<Place, String> {
+    let named = flag(args, "--ws").or_else(|| std::env::var("EP0CH_WS").ok());
+    // With the host's socket named outright nothing runs the door's rule: there is no folder to be beside.
+    if let (Ok(socket), Some(outline)) = (std::env::var("EP0CH_SOCKET"), named.as_ref()) { return Ok(Place { socket, outline: outline.clone(), control: None }) }
+    let answer = bun(args)?;
     match (answer["socket"].as_str(), answer["outline"].as_str()) {
-        (Some(socket), Some(outline)) => Ok((socket.to_string(), outline.to_string())),
+        (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string(), control: answer["control"].as_str().map(str::to_string) }),
         _ => Err(answer["error"].as_str().unwrap_or("no outline is named here").to_string()),
     }
+}
+
+/// Where the outline is, asked once a run: the window's first state and its control socket both read it.
+pub fn place(args: &[String]) -> Result<Place, String> {
+    static PLACE: std::sync::OnceLock<Result<Place, String>> = std::sync::OnceLock::new();
+    PLACE.get_or_init(|| resolve(args)).clone()
+}
+
+/// Where this window serves its control socket: `--control <path>`, then `EP0CH_NATIVE_CONTROL`, then
+/// `native.sock` beside the outline's `door.sock` (`resolve.ts` says where that is). None: nowhere is named, and
+/// the window runs without one.
+pub fn control(args: &[String]) -> Option<String> {
+    if let Some(path) = flag(args, "--control").or_else(|| std::env::var("EP0CH_NATIVE_CONTROL").ok()).filter(|path| !path.is_empty()) { return Some(path) }
+    place(args).ok()?.control
 }
