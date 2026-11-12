@@ -480,6 +480,17 @@ describe("the room a gathered tile had", () => {
     expect(giveRoom(stacked, 2, 1, "row")).toEqual(stacked);
     expect(giveRoom(desk(), 2, 1, "col")).toEqual(desk());
   });
+  // The room of a tile, by the shares along the row, as the screen lays them out.
+  const room = (t: LNode, id: number): number => { let r = 1; for (let n: LNode | undefined = t; n && n.t !== "leaf";) { const kids: LNode[] = "kids" in n ? n.kids : []; const i = kids.findIndex(k => leaves(k).includes(id)); if (i < 0 || !("weights" in n)) break; r *= n.weights[i]! / n.weights.reduce((a, w) => a + w, 0); n = kids[i]; } return +r.toFixed(3); };
+  test("the room reaches the gathering tile's own slot: in a pair beside it, its neighbour keeps its room (CodeRabbit on #1471)", () => {
+    const t = remove(giveRoom(split("row", [split("row", [leaf(1), leaf(3)], [1, 1]), leaf(2), leaf(4)], [0.5, 0.25, 0.25]), 2, 1, "row"), 2)!;
+    expect([room(t, 1), room(t, 3), room(t, 4)]).toEqual([0.5, 0.25, 0.25]);
+  });
+  test("columns share by weight along the row as a split does (CodeRabbit on #1471)", () => {
+    const columns: LNode = { t: "columns", dir: "row", kids: [leaf(2), leaf(3)], weights: [1, 1] };
+    const t = remove(giveRoom(split("row", [leaf(1), columns, leaf(4)], [0.25, 0.5, 0.25]), 2, 1, "row"), 2)!;
+    expect([room(t, 1), room(t, 3), room(t, 4)]).toEqual([0.5, 0.25, 0.25]);
+  });
   test("a kid's kept share: its tiles' weights along the axis, all of a kid held across it", () => {
     expect(keptShare(desk(), id => id === 2, "row")).toBeCloseTo(0.25);
     expect(keptShare(split("col", [leaf(2), leaf(3)], [1, 1]), id => id === 2, "row")).toBe(1);

@@ -50,7 +50,7 @@ export interface WKey {
  * so `^W e` is never asked of the tile inside. Null: the key is this desk's.
  */
 /** The hint row's part on a group's desk (PIE-1771): its resize keys size the whole group, so ^W > grows it. */
-export const GROUP_GROW_PART: HintPart = { action: "tile.resize", key: "ctrl+w >", label: "wider group", args: { by: 1, axis: "row" } };
+export const GROUP_GROW_PART: HintPart = { action: "tile.resize", key: "ctrl+w >", label: "wider group", args: { by: 1, axis: "row", group: true } };
 
 export function holdingDesk<D>(e: WKey, holder: { tile: object; desk(): D | null } | null): D | null {
   const mount = holder?.tile as { group?: boolean; inside?: boolean } | undefined;

@@ -5,7 +5,7 @@
 // made-up agent; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { TallyDoors, type Pane } from "./tally-pane";
+import { cellOf, TallyDoors, type Pane } from "./tally-pane";
 
 describe.skipIf(!outliner || !Bun.which("tmux"))("a group gathered on a desk of 44-column tiles (PIE-1771)", () => {
   const doors = new TallyDoors();
@@ -57,10 +57,13 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a group gathered on a desk of 
       // The group has both tiles' room, split as they had it: the edit is as wide as before.
       expect(widths(p)).toEqual(["group 89", "detail2 44", "detail3 44"]);
       await until(() => editCols(p.capture()) >= 44, "the edit drawn 44 wide").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
-      // The hint row says how to grow it; ^W > grows the group as a whole, and > again, in resize mode.
-      expect(p.capture()).toContain("wider group");
+      // The hint row says how to grow it, and a click on it grows the group as a whole (CodeRabbit on #1471: it grew the
+      // tile inside); ^W > does too, and > again, in resize mode.
+      p.click(cellOf(p.capture(), "wider group")!);
+      await until(() => cols(p, "group") > 89, "the group grown by the hint's click").catch(e => { throw new Error(`${e.message}: ${widths(p).join()}`); });
+      const clicked = cols(p, "group");
       p.keys("C-w", ">");
-      await until(() => cols(p, "group") > 89, "the group grown");
+      await until(() => cols(p, "group") > clicked, "the group grown");
       const once = cols(p, "group");
       p.keys(">");
       await until(() => cols(p, "group") > once, "the group grown again");

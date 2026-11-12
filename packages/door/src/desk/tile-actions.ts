@@ -271,13 +271,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row; on a group the keys size the group whole, its tiles keeping their shares (^W e first sizes one inside, PIE-1771). layout.resize places a border exactly",
     keys: [{ keys: "^W < > + -", does: "resize", says: "make this tile narrower, wider, shorter or taller" }, { keys: "< >", does: "on the board" }, { keys: "drag", does: "a border" }],
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.name ?? r.tile}`,
-    args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, choices: ["row", "col"], about: "row (width, default) or col (height)" } },
+    args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, choices: ["row", "col"], about: "row (width, default) or col (height)" }, group: { type: "boolean", optional: true, about: "on a tile in a group, size the group whole, as ^W < > + - there do (the hint row's wider group)" } },
     examples: [
       { act: "tile.resize by=2 tile=reader", does: "makes the reader wider by two key presses' worth" },
+      { act: "tile.resize by=1 group=true tile=reader", does: "with the reader in a group, makes the whole group wider, its tiles keeping their shares; elsewhere the reader" },
       { act: "tile.resize by=-3 axis=col tile=activity", does: "makes the activity tile shorter by three steps" },
     ],
-    run({ by, axis }, { d, reader }, actor) {
+    run({ by, axis, group }, { d: here, reader: inner }, actor) {
       if (!Number.isInteger(by) || by === 0 || Math.abs(by) > 20) throw new ActionRefused("tile.resize: by is a whole number of steps, -20 to 20, not 0");
+      // The group this desk is: its tile on the desk holding it, as the keys' holder reaches it (PIE-1771).
+      const up = group && here.inGroup() ? here.holder!.desk()! : null, d = up ?? here, reader = up ? up.nameOfPane(here.holder!.tile) : inner;
       return d.step(reader, t => ({ op: "grow", tile: t.id, axis: (axis ?? "row") as Axis, by }), actor, (_, t) => ({ tile: t.tile, name: t.name, pane: t.n, axis: (axis ?? "row") as Axis, by }));
     },
   }),
