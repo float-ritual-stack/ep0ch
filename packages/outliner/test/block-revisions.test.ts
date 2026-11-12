@@ -35,7 +35,7 @@ test("every save keeps the text it replaced: listed newest first after the curre
   const saved = store.revisions(b.id).revisions[0]!.savedAt;
   const shelf = store.create("Shelf");
   Bun.sleepSync(5);
-  store.move(b.id, shelf.id);
+  store.move(b.id, shelf.id, undefined, { author: "user" });
   expect(store.revisions(b.id).revisions[0]!.savedAt).toBe(saved);
   store.close();
 });

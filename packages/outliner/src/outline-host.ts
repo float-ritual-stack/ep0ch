@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { refusalEnvelope } from "./request-envelope";
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
@@ -9,7 +10,8 @@ import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, clientProtocolMismatch, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -586,7 +588,7 @@ export class OutlineHost {
     let release: () => void;
     try { release = acquireWorkspaceOwnership(real); }
     catch (error) {
-      if (!(error instanceof Error && error.message.startsWith("Outliner workspace is already owned"))) throw error;
+      if (refusalKindOf(error) !== "conflict") throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
     let started = false;
@@ -949,6 +951,8 @@ export class OutlineHost {
     // Another machine asking for a file a note there names (PIE-1644): this machine's disk alone, by its absolute path.
     const machineFile = request?.outline === undefined && request?.action === "media.read" && !this.defaultOutline;
     const hostAction = request && (isHostAction(request.action) || artifact || machineFile);
+    // PIE-1747: a host action on another protocol is refused before anything answers it, relayed or not.
+    if (request && hostAction && request.protocol !== undefined && request.protocol !== PROTOCOL) { fail(new Refusal("invalid", clientProtocolMismatch(request.protocol))); return; }
     if (request && hostAction && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
       const listing = request.action === "outlines.list" || request.action === "echonet.list";

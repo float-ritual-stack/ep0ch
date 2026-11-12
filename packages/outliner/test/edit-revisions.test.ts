@@ -33,7 +33,7 @@ test("moving a sibling preserves the version of an unchanged text draft", () => 
   const a = store.create("A", parent.id);
   const b = store.create("B", parent.id);
   setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
-  store.move(a.id, parent.id, 1);
+  store.move(a.id, parent.id, 1, { author: "user" });
   expect(store.require(b.id).position).toBe(0);
   expect(store.require(b.id).revision).toBe(b.revision);
   const saved = store.update(b.id, "B edited from the open draft", b.revision);
@@ -50,7 +50,7 @@ test("frozen and backwards clocks cannot make an old edit valid again after a mo
   expect(edited.revision).toBe(original.revision + 1);
   for (const time of ["2026-01-02T00:00:00.000Z", "2026-01-01T00:00:00.000Z"]) {
     setSystemTime(new Date(time));
-    store.move(original.id, null, 0);
+    store.move(original.id, null, 0, { author: "user" });
     expect(() => store.update(original.id, "Stale draft", original.revision))
       .toThrow("changed since editing began");
     expect(store.require(original.id).text).toBe("Newer edit");
@@ -88,7 +88,7 @@ test("text writes require an active block; moving or restoring unchanged text pr
   const child = store.create("Child", parent.id);
   store.delete(parent.id);
   expect(() => store.update(child.id, "Draft", child.revision)).toThrow("is in Trash");
-  expect(() => store.move(child.id, null)).toThrow("is in Trash");
+  expect(() => store.move(child.id, null, undefined, { author: "user" })).toThrow("is in Trash");
   expect(() => store.restore(child.id)).toThrow("not a direct Trash root");
   store.restore(parent.id);
   expect(store.require(child.id).revision).toBe(child.revision);

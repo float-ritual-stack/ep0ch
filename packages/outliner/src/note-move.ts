@@ -40,7 +40,7 @@ export function notEmptyWhy(id: string, text: string, children: number): string 
 }
 
 /** No await between reading the intent's places and writing: every client gets the same atomic move. */
-export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveIntent, expectedRevision: number, mutation?: MutationProvenance): Block & NoteMoveReceipt {
+export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveIntent, expectedRevision: number, mutation: MutationProvenance): Block & NoteMoveReceipt {
   return store.database.transaction((): Block & NoteMoveReceipt => {
     const block = store.resolveBlockRef(id);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error("move needs expectedRevision from the note you read");

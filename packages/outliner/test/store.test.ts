@@ -1486,8 +1486,8 @@ Second paragraph`;
     const child = store.create("Child", root.id);
     const sibling = store.create("Sibling");
 
-    expect(store.move(sibling.id, child.id).parentId).toBe(child.id);
-    expect(() => store.move(root.id, sibling.id)).toThrow("beneath itself");
+    expect(store.move(sibling.id, child.id, undefined, { author: "user" }).parentId).toBe(child.id);
+    expect(() => store.move(root.id, sibling.id, undefined, { author: "user" })).toThrow("beneath itself");
   });
 
   test("reorders root siblings at final zero-based positions", () => {
@@ -1497,7 +1497,7 @@ Second paragraph`;
     const third = store.create("Third root");
 
     const original = store.children(null);
-    store.move(third.id, null, original.findIndex((block) => block.id === second.id));
+    store.move(third.id, null, original.findIndex((block) => block.id === second.id), { author: "user" });
     expect(
       store
         .children(null)
@@ -1506,7 +1506,7 @@ Second paragraph`;
     ).toEqual([first.id, third.id, second.id]);
 
     const reordered = store.children(null);
-    store.move(first.id, null, reordered.findIndex((block) => block.id === first.id) + 1);
+    store.move(first.id, null, reordered.findIndex((block) => block.id === first.id) + 1, { author: "user" });
     expect(
       store
         .children(null)
@@ -1522,8 +1522,8 @@ Second paragraph`;
     const second = store.create("Second child", parent.id);
     const third = store.create("Third child", parent.id);
 
-    store.move(second.id, parent.id, 0);
-    store.move(first.id, parent.id, 2);
+    store.move(second.id, parent.id, 0, { author: "user" });
+    store.move(first.id, parent.id, 2, { author: "user" });
 
     const children = store.children(parent.id);
     expect(children.map((block) => block.id)).toEqual([second.id, third.id, first.id]);
@@ -2329,6 +2329,39 @@ Second paragraph`;
     expect(store.resolvePageAddress("2031-04-02-2").status).toBe("missing");
   });
 
+  test("a keyed create finds the parent's live child with that property or makes one, and set/add need no revision (PIE-1752)", () => {
+    const store = makeStore();
+    const parent = store.create("Days");
+    const made = store.create("2026-10-10 [file-day::2026-10-10]", parent.id, "agent", undefined, { keyed: { key: "file-day", value: "2026-10-10" } });
+    const again = store.create("2026-10-10 again [file-day::2026-10-10]", parent.id, "agent", undefined, { keyed: { key: "file-day", value: "2026-10-10" } });
+    expect(again).toMatchObject({ id: made.id, deduplicated: true });
+    expect(store.children(parent.id).map(child => child.id)).toEqual([made.id]);
+    const touch = store.create("a.ts [touches::1] [added::2]", parent.id);
+    store.update(touch.id, `${touch.text} edited`, touch.revision);
+    const counted = store.patchProperties(touch.id, undefined, [{ op: "add", key: "touches", by: 1 }, { op: "add", key: "removed", by: 3 }, { op: "set", key: "added", value: "5" }]);
+    expect(counted.text).toBe("a.ts [touches::2] [added::5] edited\n[removed::3]");
+    expect(() => store.patchProperties(touch.id, undefined, [{ op: "append", key: "x", value: "y" }])).toThrow("needs expectedRevision");
+    // A body chip with the same key is prose, not the note's own: set and add touch the header's, matched by its normalized key.
+    const prose = store.create("b.ts [count::1]\nwe saw [count::9] in the log", parent.id);
+    expect(store.patchProperties(prose.id, undefined, [{ op: "add", key: "Count", by: 1 }]).text).toBe("b.ts [count::2]\nwe saw [count::9] in the log");
+    // A keyed create with a request id keeps its receipt: the same id with other text is refused.
+    store.create("2026-10-11 [file-day::2026-10-11]", parent.id, "agent", undefined, { requestId: "day-11", keyed: { key: "file-day", value: "2026-10-11" } });
+    expect(() => store.create("other [file-day::2026-10-11]", parent.id, "agent", undefined, { requestId: "day-11", keyed: { key: "file-day", value: "2026-10-11" } })).toThrow("already used with different input");
+  });
+
+  test("a create with freePage takes the next free name a live note doesn't hold, and a name Trash holds as asked (PIE-1752)", () => {
+    const store = makeStore();
+    store.create("Mine [page::extensions]");
+    store.create("Also mine [page::extensions-2]");
+    expect(() => store.create("Hub [page::extensions]")).toThrow("is already the page of");
+    const hub = store.create("Hub [page::extensions]", null, "agent", undefined, { freePage: true });
+    expect(hub.text).toBe("Hub [page::extensions-3]");
+    expect(store.resolvePageAddress("extensions-3").block?.id).toBe(hub.id);
+    const binned = store.create("Old [page::lantern]");
+    store.delete(binned.id);
+    expect(store.create("New [page::lantern]", null, "agent", undefined, { freePage: true }).text).toBe("New [page::lantern]");
+  });
+
   test("a text rename takes a name an owner in Trash held, and that owner keeps its address across a restore when free", () => {
     const store = makeStore();
     const page = store.create("Lantern notes [page::Lantern]");
@@ -2555,7 +2588,7 @@ Second paragraph`;
       VALUES (?, ?, 'invalid lifecycle', ?)
     `).run(quarantined.id, quarantined.text, quarantined.createdAt);
     store.delete(deletedReply.block.id);
-    store.move(reply.block.id, null);
+    store.move(reply.block.id, null, undefined, { author: "user" });
     store.create("Ordinary child", root.block.id);
     const threads = store.listAnnotationThreads({
       subject: { kind: "block", blockId: source.id },
@@ -2591,9 +2624,9 @@ Second paragraph`;
     ]);
     const replyChild = store.create("Reply child", reply.id);
     const replyAnnotation = annotate(reply, "purge-reply-annotation");
-    store.move(root.id, null);
-    store.move(reply.id, null);
-    store.move(replyAnnotation.id, null);
+    store.move(root.id, null, undefined, { author: "user" });
+    store.move(reply.id, null, undefined, { author: "user" });
+    store.move(replyAnnotation.id, null, undefined, { author: "user" });
     store.delete(source.id);
     const sequence = store.sequence;
     const doomed = [source, child, root, childRoot, reply, replyChild, replyAnnotation];
@@ -2964,7 +2997,7 @@ Second paragraph`;
       const sibling = store.create("Sibling");
       const target = blockAnnotationTarget(source, 0, 5, "unchanged-after-move");
       setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
-      store.move(sibling.id, null, 0);
+      store.move(sibling.id, null, 0, { author: "user" });
       const receipt = store.createAnnotation("after-move", {
         target, body: "Still the same passage", source: "user",
       });

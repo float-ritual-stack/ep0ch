@@ -12,7 +12,7 @@
         "packages/door/src/bar/ask.ts:1f126cb920281d8",
         "packages/door/src/bar/ask.ts:7e0f398ddab7decf",
         "packages/door/src/bar/bar.ts:db5fca2e3af64161",
-        "packages/door/src/bar/bar.ts:5658b2ac06fe9a6f",
+        "packages/door/src/bar/bar.ts:c3697c9ef3605b10",
         "packages/door/src/bar/bar.ts:3c7946d4bcb83b42",
         "packages/door/src/bar/bar.ts:22f79f13d93a714b",
         "packages/door/src/bar/bar.ts:e45608fe72bae50e",
@@ -340,6 +340,11 @@
         "packages/outliner/src/resource-extensions.ts:ExtensionProcessEnv",
         "packages/outliner/src/wire.ts:WireClosed"
       ]
+    },
+    "error-words": {
+      "sites": [
+        "packages/claude-mod/hooks/register.ts:513ad8df3bde10ec"
+      ]
     }
   },
   "files": {
@@ -356,8 +361,8 @@
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4286,
-    "packages/outliner/src/server.ts": 4272,
-    "packages/outliner/src/store.ts": 6138,
+    "packages/outliner/src/server.ts": 4269,
+    "packages/outliner/src/store.ts": 6130,
     "packages/outliner/src/tree-controller.ts": 3180,
     "packages/outliner/src/types.ts": 2712
   }

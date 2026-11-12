@@ -87,7 +87,7 @@ import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
+import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
@@ -827,15 +827,23 @@ export class OutlinerStore {
    * `place`: an id minted beforehand (an extension's write group names its new blocks before any is written, so its
    * other writes can link to them) and a position among the parent's children (the end when left out).
    */
-  create(
-    text: string,
-    parentId: string | null = null,
-    author: BlockAuthor = "user",
-    provenance?: BlockProvenance,
-    place: { id?: string; position?: number; requestId?: string } = {},
-  ): Block & { deduplicated?: true } {
-    return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author },
-      () => this.createAt(text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
+  create(text: string, parentId: string | null = null, author: BlockAuthor = "user", provenance?: BlockProvenance,
+    place: { id?: string; position?: number; requestId?: string; freePage?: true; keyed?: { key: string; value: string } } = {}): Block & { deduplicated?: true } {
+    // `keyed` (PIE-1752): the parent's live child carrying `[key::value]` when there is one, read and made in one step.
+    const kept = (k: { key: string; value: string }) => this.database.query(`SELECT b.id FROM blocks b JOIN block_properties p ON p.block_id = b.id WHERE p.scope = 'block' AND p.key = ? AND p.value = ? AND b.parent_id IS ? AND b.effective_deleted_root_id IS NULL ORDER BY b.created_at, b.id LIMIT 1`).get(k.key, k.value, parentId) as { id: string } | null;
+    return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author, keyed: place.keyed },
+      () => { const found = place.keyed && kept(place.keyed); return found ? { ...this.require(found.id), deduplicated: true as const } : this.createAt(place.freePage ? this.freePageFromCurrentRead(text)?.text ?? text : text, parentId, author, provenance, this.createdTime(), place.position, place.id); }, id => this.require(id));
+  }
+
+  /** Its one `[page::x]` as the next free `x-2`, `x-3`… when another live note holds `x` (a restore's, `freePage`'s); else null. */
+  private freePageFromCurrentRead(text: string, self?: string): { text: string; from: string; to: string } | null {
+    const tokens = parsePropertyRecords(text).filter((token) => token.scope === "block" && token.key === "page");
+    const desired = tokens.length === 1 ? tryNormalizePageAddress(tokens[0]!.value) : null;
+    const owner = desired && this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    if (!desired || !owner || owner.block_id === self || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
+    let to = "";
+    for (let n = 2; ; n++) { to = `${desired.displayAddress}-${n}`; const c = tryNormalizePageAddress(to); if (c && !this.pageAddressRowFromCurrentRead(c.normalizedAddress)) break; }
+    return { text: patchPropertyText(text, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: to }]), from: desired.displayAddress, to };
   }
 
   /** The last creation time `createdTime` gave; read from the outline the first time, so a reopened store goes on from it. */
@@ -2636,18 +2644,17 @@ export class OutlinerStore {
 
   patchProperties(
     id: string,
-    expectedRevision: number,
+    expectedRevision: number | undefined,
     operations: PropertyPatchOperation[],
     mutation: MutationProvenance = { author: "system" },
     keepUpdated = false,
   ): Block {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
-    if (existing.revision !== expectedRevision) {
-      throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
-    }
-    const text = patchPropertyText(existing.text, operations);
-    return this.update(id, text, expectedRevision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
+    if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set or add");
+    if (expectedRevision !== undefined && existing.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
+    const text = patchPropertyText(existing.text, keyedPropertyOps(existing.text, operations));
+    return this.update(id, text, existing.revision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
   }
 
   /**
@@ -2853,12 +2860,9 @@ export class OutlinerStore {
     }).deferred();
   }
 
-  /**
-   * Structural changes record activity only when `mutation` says who made them;
-   * without it (older clients, internal moves) they stay unattributed, as before.
-   */
-  move(id: string, parentId: string | null, requestedPosition?: number, mutation?: MutationProvenance): Block {
-    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+  /** A move says who made it, and its activity is recorded as theirs (PIE-1749: no unattributed moves). */
+  move(id: string, parentId: string | null, requestedPosition: number | undefined, mutation: MutationProvenance): Block {
+    const provenance = normalizeMutationProvenance(mutation);
     const block = this.requireActive(id);
     if (parentId !== null) {
       this.requireActive(parentId);
@@ -3005,24 +3009,12 @@ export class OutlinerStore {
   private renameTakenPageFromCurrentRead(blockId: string, editedAt: string, provenance?: ReturnType<typeof normalizeMutationProvenance>): PageRename | null {
     const block = this.getFromCurrentRead(blockId);
     if (!block || block.effectiveDeletedRootId) return null;
-    const tokens = parsePropertyRecords(block.text).filter((token) => token.scope === "block" && token.key === "page");
-    if (tokens.length !== 1) return null;
-    const desired = tryNormalizePageAddress(tokens[0]!.value);
-    if (!desired) return null;
-    const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
-    // Free, its own, or held by another note in Trash (which gives it up to this one, as to any live note): kept.
-    if (!owner || owner.block_id === blockId || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
-    let free = "";
-    for (let n = 2; ; n++) {
-      free = `${desired.displayAddress}-${n}`;
-      const candidate = tryNormalizePageAddress(free);
-      if (candidate && !this.pageAddressRowFromCurrentRead(candidate.normalizedAddress)) break;
-    }
-    const text = patchPropertyText(block.text, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: free }]);
-    this.writeBlockText(blockId, text, block.revision, editedAt);
-    this.replacePropertyIndex(blockId, parsePropertyRecords(text));
+    const free = this.freePageFromCurrentRead(block.text, blockId);
+    if (!free) return null;
+    this.writeBlockText(blockId, free.text, block.revision, editedAt);
+    this.replacePropertyIndex(blockId, parsePropertyRecords(free.text));
     if (provenance) this.recordActivity(blockId, provenance, "properties", editedAt);
-    return { blockId, from: desired.displayAddress, to: free };
+    return { blockId, from: free.from, to: free.to };
   }
 
   purge(id: string, confirmation: string): void {

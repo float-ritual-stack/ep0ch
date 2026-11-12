@@ -2238,6 +2238,7 @@ A new block under `parentId` (none: the top level), last among its siblings. Pro
 | `parentId?` | `string \| null` |  |
 | `position?` | `number` |  |
 | `requestId?` | `string` |  |
+| `keyed?` | `{ key: string; value: string; }` |  |
 | `text` | `string` |  |
 
 Answers `Block & { deduplicated?: true \| undefined; }`.
