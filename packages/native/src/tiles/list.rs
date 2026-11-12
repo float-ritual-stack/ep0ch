@@ -147,7 +147,8 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
         None => head,
     };
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
-    let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head);
+    // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
+    let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
     if let Some(view) = &r.view { whole = whole.child(el().w_full().px(8.0).child(prim::build(view, &PrimCx::of(cx).at(format!("{}row/{}/view", at.under, r.id)), k))) }
     whole
 }

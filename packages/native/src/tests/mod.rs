@@ -17,6 +17,8 @@
 //! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
 //! - `drafts.rs`: a block written in place, as a person works: typed in, completed from the service's list, saved;
 //!   held on the service, read and patched under the caret; kept as typed and found back after the window ended.
+//! - `review.rs`: about the note: the tiles that follow the reader, a comment on a selection, a reply and a thread
+//!   resolved, a proposal applied and dismissed, a revision opened and put back, the keys and library screens.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -29,6 +31,7 @@ mod one_owner;
 mod owners;
 mod parity;
 mod parts;
+mod review;
 mod shell;
 mod store;
 mod support;

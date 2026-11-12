@@ -550,3 +550,151 @@ fn live_a_block_is_written_with_completions_while_an_agent_patches_it_and_comes_
         assert!(released, "a draft closed is held no longer");
     });
 }
+
+/// W6's sentence against a real outline host: a comment on words of a note, a reply and the thread resolved, by the
+/// rows' own presses; an agent's proposed edit listed with its change, applied, and another dismissed; an earlier
+/// text opened under its row and put back through the editor; the keys screen the key table's own rows, and a
+/// component's example drawn in the library. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys_listed_over_the_socket() {
+    use crate::actions::Actor;
+    use crate::client::Socket;
+    use crate::page::ListRow;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-about-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(20));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        asking(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true }));
+        let mut raw = Socket::connect(&path);
+        let mut ask = |request: Value| asking(&mut raw, request);
+        let first = "North bed [type::bed]\nPeas go in first.\nThe beans go in May.\nWater at dusk.";
+        let bed = ask(json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": first, "author": "user" }));
+        let bed_id = bed["id"].as_str().unwrap().to_string();
+
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        assert!(act(&mut app, &format!("open id={bed_id}")).ok);
+        let rows = |app: &App, tile: &str| -> Vec<ListRow> { app.rows_of(&app.layout.named(tile).unwrap_or_else(|| panic!("the desk has a {tile} tile"))).to_vec() };
+        let cell = |row: &ListRow, said: &str| -> String { row.cells.iter().find(|cell| ListRow::cell(cell) == said).and_then(|cell| ListRow::cell_act(cell)).unwrap_or_else(|| panic!("{} has a {said} press: {:?}", row.label, row.cells)).to_string() };
+        /// A press of a row's own, from its tile, as the person.
+        fn pressed(app: &mut App, line: &str, tile: &str) -> crate::actions::Outcome { let outcome = app.act_in(line, tile, Actor::Person); app.settle(); outcome }
+        assert_eq!(app.subject_of(&app.layout.named("threads").unwrap()).as_deref(), Some(bed_id.as_str()), "the comments follow the reader");
+        assert!(rows(&app, "threads").is_empty());
+
+        // A comment on words of the note: selected, written in the reader, sent by the save. The service anchors it.
+        assert!(act(&mut app, "passage.select quote=\"The beans go in May.\"").ok);
+        assert!(act(&mut app, "comment").ok);
+        write(&mut app, "June is safer: the frost came late last year.");
+        let sent = act(&mut app, "edit.save");
+        assert!(sent.ok && app.drafts.is_empty(), "{} {:?}", sent.said, app.notice);
+        let threads = rows(&app, "threads");
+        assert_eq!(threads.len(), 1, "{:?}", app.notice);
+        assert_eq!(threads[0].label, "June is safer: the frost came late last year.");
+        assert!(threads[0].detail.as_deref().is_some_and(|detail| detail.contains("on “The beans go in May.”") && detail.starts_with("you")), "{:?}", threads[0].detail);
+        // Words that are not in the note as written: the service refuses, and the comment keeps its words.
+        assert!(act(&mut app, "comment quote=\"The beans go in March.\"").ok);
+        write(&mut app, "Too early.");
+        act(&mut app, "edit.save");
+        assert!(app.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem && n.said.starts_with("The comment wasn't sent:")), "{:?}", app.notice);
+        assert_eq!(words(&app), "Too early.");
+        assert!(act(&mut app, "edit.close discard=true").ok);
+
+        // A reply, by the thread's own press: it opens in the reader the list follows, and lands in the thread.
+        let reply = cell(&threads[0], "Reply");
+        assert!(pressed(&mut app, &reply, "threads").ok);
+        assert_eq!(app.draft_on(&app.layout.named("reader").unwrap()).map(|draft| draft.writes.kind()), Some("reply"));
+        write(&mut app, "Agreed. June it is.");
+        assert!(act(&mut app, "edit.save").ok && app.drafts.is_empty(), "{:?}", app.notice);
+        let threads = rows(&app, "threads");
+        assert!(threads[0].detail.as_deref().is_some_and(|detail| detail.contains("1 reply")), "{:?}", threads[0].detail);
+        assert!(threads[0].view.as_ref().is_some_and(|view| view["children"].as_array().unwrap().iter().any(|child| child["text"] == "Agreed. June it is.")), "{:?}", threads[0].view);
+        // Resolved by its own press, it is an earlier one, and its press brings it back.
+        let resolve = cell(&threads[0], "Resolve");
+        assert!(pressed(&mut app, &resolve, "threads").ok);
+        let threads = rows(&app, "threads");
+        assert_eq!((threads[0].group.as_deref(), threads[0].mark.as_deref()), (Some("earlier"), Some("resolved")), "{:?}", app.notice);
+        assert!(cell(&threads[0], "Reopen").contains("open="));
+
+        // An agent proposes an edit (another client); the list shows its change as the service found it; applied, it is in the note.
+        let page = app.page().expect("the page").clone();
+        let patch = |id: &str, observed: &str, replacement: &str, revision: u64| json!({ "id": id, "action": "draft.patch", "outline": "scratch", "propose": true, "blockId": bed_id, "revision": revision,
+            "patches": [{ "observed": observed, "replacement": replacement }], "mutation": { "author": "agent", "actorId": "tidy-agent" } });
+        assert_eq!(ask(patch("p1", "The beans go in May.", "The beans go in June.", page.revision))["outcome"], "proposed");
+        assert!(act(&mut app, "tile.focus tile=proposals").ok);
+        let mut proposals = Vec::new();
+        for _ in 0..100 { proposals = rows(&app, "proposals"); if !proposals.is_empty() { break } std::thread::sleep(Duration::from_millis(50)); app.settle(); }
+        assert_eq!(proposals.len(), 1, "{:?}", app.notice);
+        assert_eq!(proposals[0].label, "An edit from tidy-agent");
+        let view = proposals[0].view.clone().expect("the proposal carries its change");
+        assert_eq!((view["type"].as_str(), view["added"].as_u64(), view["removed"].as_u64()), (Some("diff"), Some(1), Some(1)));
+        assert!(view["lines"].as_array().unwrap().iter().any(|line| line["op"] == "add" && line["text"] == "The beans go in June."), "{view}");
+        let apply = cell(&proposals[0], "Apply");
+        assert!(pressed(&mut app, &apply, "proposals").ok);
+        assert!(app.page().unwrap().text.contains("The beans go in June."), "{:?} {}", app.notice, app.page().unwrap().text);
+        assert!(rows(&app, "proposals").is_empty());
+        // Another, dismissed: the note is as it was and the list is empty again.
+        let now = app.page().unwrap().revision;
+        assert_eq!(ask(patch("p2", "Water at dusk.", "Water at dawn.", now))["outcome"], "proposed");
+        for _ in 0..100 { proposals = rows(&app, "proposals"); if !proposals.is_empty() { break } std::thread::sleep(Duration::from_millis(50)); app.settle(); }
+        let dismiss = cell(&proposals[0], "Dismiss");
+        assert!(pressed(&mut app, &dismiss, "proposals").ok);
+        assert!(rows(&app, "proposals").is_empty() && app.page().unwrap().text.contains("Water at dusk."), "{:?}", app.notice);
+
+        // The texts the note had: the earlier one opens under its row, and Restore puts it back through the editor.
+        assert!(act(&mut app, "tile.focus tile=revisions").ok);
+        let revisions = rows(&app, "revisions");
+        assert!(revisions.len() >= 2 && revisions[0].label.ends_with("the note now"), "{:?}", revisions.iter().map(|row| row.label.clone()).collect::<Vec<_>>());
+        let earliest = revisions.last().unwrap().clone();
+        assert!(earliest.folds && earliest.view.is_none());
+        assert!(act(&mut app, &format!("list.pick id={} tile=revisions", earliest.id)).ok);
+        let opened_row = rows(&app, "revisions").into_iter().find(|row| row.id == earliest.id).unwrap();
+        let change = opened_row.view.clone().expect("the open revision carries its change");
+        assert!(opened_row.open && change["type"] == "diff" && change["lines"].as_array().unwrap().iter().any(|line| line["op"] == "del" && line["text"] == "The beans go in May."), "{change}");
+        let restore = cell(&opened_row, "Restore");
+        assert!(pressed(&mut app, &restore, "revisions").ok);
+        assert_eq!(words(&app), first, "the first text is in the editor: {:?}", app.notice);
+        assert!(unsaved(&app) && app.page().unwrap().text.contains("June"), "nothing is written until it is saved");
+        assert!(act(&mut app, "edit.save").ok);
+        assert_eq!(app.page().unwrap().text, first);
+        assert!(act(&mut app, "edit.close").ok);
+
+        // The keys screen: the service's list of this window's own rows is the key table, row for row.
+        assert!(act(&mut app, "screen.open name=keys").ok, "{:?}", app.notice);
+        let listed: Vec<(String, crate::actline::Request, String)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty())
+            .map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap(), ListRow::cell(&row.cells[2]))).collect();
+        let table: Vec<(String, crate::actline::Request, String)> = crate::keys::table().iter().map(|bind| (bind.spec.clone(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", crate::keys::Layer::name).to_string())).collect();
+        assert_eq!(listed, table, "the keys screen equals the rows: the service wrote each line from the row this window handed it");
+        // An action no key reaches is listed too, under what does reach it.
+        assert!(rows(&app, "keys").iter().any(|row| row.group.as_deref() == Some("no key") && ListRow::cell(&row.cells[1]) == "proposal.apply"));
+
+        // The library: a component picked draws its own example, lowered by the service to what a page's parts are.
+        assert!(act(&mut app, "screen.open name=library").ok, "{:?}", app.notice);
+        assert!(rows(&app, "components").len() > 30);
+        assert!(act(&mut app, "list.pick id=graph-stat tile=components").ok);
+        let stat = rows(&app, "components").into_iter().find(|row| row.id == "graph-stat").unwrap();
+        let drawn = stat.view.as_ref().and_then(|view| view["children"].as_array()).and_then(|children| children.iter().find(|child| child["title"] == "As drawn")).cloned().expect("its example, drawn");
+        assert!(drawn["children"].as_array().unwrap().iter().any(|part| part["type"] == "part" && part["view"]["type"] == "row"), "{drawn}");
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}

@@ -408,3 +408,43 @@ fn a_block_being_written_has_one_session_and_the_window_finds_no_passage_and_no_
     // The block's source is one field, built in one place, through the key table's adapter.
     none("a block's field built outside the page drawer", strays("keys::area(", |path| path == "tiles/page.rs"));
 }
+
+/// About the note (W6): what is listed of a note's comments, proposals and revisions is the service's, and so is
+/// what changed (a `diff`); the window writes each through one action, writes no act line for a row's own press,
+/// compares no two texts, and has one session type for everything written. The keys screen has no table of its
+/// own: the window hands the service its rows, in one place.
+#[test]
+fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_action_each() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // Each write about a note is asked by its own action, in the one file, and nowhere else.
+    for write in ["\"annotations.batch\"", "\"annotations.reply\"", "\"annotations.lifecycle\"", "\"draft.proposal.apply\"", "\"draft.proposal.dismiss\"", "\"block.revisions\""] {
+        none(&format!("{write} asked outside the action that writes it (actions/review.rs; the store records who made a block)"), strays(write, |path| path == "actions/review.rs" || path == "store.rs"));
+    }
+    // The reads that list them are asked by nobody here: a tile asks `lists.read`, as for any list.
+    none("a note's threads, proposals or revisions read by the window itself: they are lists the service answers", ["\"annotations.list\"", "\"draft.proposals.list\"", "\"proposals.outcomes\"", "\"components.schemas\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    // A row's own press is the act line its cell carries: no drawer and no model writes one for it.
+    none("an act line written for a row's own press: run the cell's own (`act`)", ["\"proposal.apply id=", "\"proposal.dismiss id=", "\"reply thread=", "\"resolve thread=", "\"revision.restore revision=", "format!(\"reply ", "format!(\"proposal."].iter().flat_map(|line| strays(line, |path| path == "actions/review.rs")).collect());
+    for path in ["tiles/list.rs", "tiles/diff.rs", "tiles/page.rs", "tiles/prim.rs"] { for word in ["\"Apply\"", "\"Dismiss\"", "\"Reply\"", "\"Resolve\"", "\"Restore\""] { assert!(!code(path).contains(word), "{path} has {word}: a press is called what its row's cell says") } }
+    // A change is drawn as served: one builder, in the registry, which compares nothing.
+    assert!(code("tiles/prim.rs").contains("ty: \"diff\"") && code("tiles/prim.rs").contains("build: super::diff::build"), "the diff primitive is the registry's, built in tiles/diff.rs");
+    none("a second drawer of a change", strays("\"del\"", |path| path == "tiles/diff.rs"));
+    none("two texts compared in the window: the service finds what changed (`diff`)", ["fn diff(", "diff_lines", "DiffState", "FileDiff", "similar::", "from_texts"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    for compared in [".lines()", ".zip(", "split('\\n')", "char_indices"] { assert!(!code("tiles/diff.rs").contains(compared), "tiles/diff.rs has `{compared}`: it draws the lines it is given") }
+    // One session type, whatever is written: a comment and a reply are a `DraftSession` that says what it writes,
+    // shown by the one field the page drawer builds, kept in the one file.
+    assert_eq!(texts.iter().map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains("struct ") && line.contains("Session")).count()).sum::<usize>(), 1, "one session type: `draft::DraftSession`");
+    none("a second editor: a comment's words are a draft's, in the field the page drawer builds", ["Composer", "CommentDraft", "ReplyDraft", "struct Comment"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    assert_eq!(code("tiles/page.rs").matches("keys::area(").count(), 1, "one field, for a block's text and for what is written about it");
+    none("what a draft writes decided outside the session, its actions and the drawer that shows it", strays("Writes::", |path| ["draft.rs", "actions/draft.rs", "actions/review.rs"].contains(&path)));
+    // A selection is told to the window by the reader that shows the words, as an act line; nothing else reads one.
+    none("a selection read outside the page drawer", ["on_selection_change", "text_selection()", "SelectionChange"].iter().flat_map(|word| strays(word, |path| path == "tiles/page.rs")).collect());
+    none("the words selected written outside the action that hears them", strays(".passage = ", |path| path == "actions/review.rs" || path == "actions/app.rs"));
+    // Which reader a press in a list about a note means: the dispatcher's `act_from`, asking `App::home_of`.
+    none("the reader a list follows chosen for an act outside the dispatcher", calls("home_of", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
+    assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));
+    none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
+}
