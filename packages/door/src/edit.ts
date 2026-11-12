@@ -1540,27 +1540,43 @@ export class Draft {
     const key = Draft.askKey(line, nth), live = this.asks.get(key), saved = row === undefined ? undefined : this.savedAnswer(row);
     const ask = saved && (!live || (this.answeredAtOpen().has(key) && (ANSWERED_ASK_STATES.has(live.state) || live.state === "answered"))) ? saved : live ?? saved;
     if (!ask) return "";
+    const where = this.answerSaid(ask, row, ask === saved);
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
-      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + this.answerSaid(ask);
+      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + where;
       return width(whole) > room && width(said) <= room ? said : whole;
     }
-    const short = ` · ${ask.state}${this.answerSaid(ask)}`;
-    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${this.answerSaid(ask)}`;
+    const short = ` · ${ask.state}${where}`;
+    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${where}`;
     return width(full) <= room ? full : short;
   }
 
   /**
-   * Where the answer tile is beside this draft's reader (its host's desk says, PIE-1757): null when none is open (before
-   * one opens, or once it's closed: a gather, the drawer, x), undefined where no desk holds answer tiles.
+   * Where the answer tile beside this draft's reader is and which line's answer it shows (its host's desk says, PIE-1757,
+   * PIE-1768); undefined where no desk holds answer tiles (a float, no desk).
    */
-  answerSide: (() => "left" | "right" | "up" | "down" | "tab" | null | undefined) | null = null;
+  answerAt: (() => AnswerPlace | undefined) | null = null;
   /**
-   * Where an ask's answer is, as its row says it: the side its tile is on (beside ▸, below ▾, in a tab), or, with none
-   * open, what a click on the row does (PIE-1758: `beside ▸` once its tile had gone, with nothing beside).
+   * `answerAt`, asked once a draw (Codex on #1466: asked again for every ask's row, a long note's frame took three
+   * times as long): `drawing` holds the answer for the frame it draws; outside one, each status asks afresh.
    */
-  private answerSaid(ask: { beside?: boolean }): string { const words = ask.beside ? this.answerWords() : ""; return words ? ` · ${words}` : ""; }
-  private answerWords(): string { const side = this.answerSide?.(); return side ? ANSWER_WORDS[side] : side === null ? ANSWER_HIDDEN : ""; }
+  private answerPlace(): AnswerPlace | undefined { const now = this.placeNow; if (now && !now.asked) Object.assign(now, { asked: true, at: this.answerAt?.() ?? undefined }); return now ? now.at : this.answerAt?.() ?? undefined; }
+  private placeNow: { asked: boolean; at?: AnswerPlace } | null = null;
+  /** Draw a frame of this draft with `answerAt` asked at most once for all its rows. */
+  drawing<T>(draw: () => T): T { if (this.placeNow) return draw(); this.placeNow = { asked: false }; try { return draw(); } finally { this.placeNow = null; } }
+  private answerSaid(ask: { line: string; beside?: boolean }, row: number | undefined, saved: boolean): string { const words = this.answerWords(ask, row, saved); return words ? ` · ${words}` : ""; }
+  /**
+   * Where an ask's answer is, as its row says it. The one answer tile shows one line's answer (PIE-1768): that row names
+   * the tile's side (beside ▸, below ▾, in a tab), a saved answer's too; every other ask with an answer to show, saved or
+   * on its way, says `show ▸`, which the cursor or a click on it does (PIE-1758). The tile's own status (no `row`) is the
+   * ask it shows. Where no desk holds tiles, nothing.
+   */
+  private answerWords(ask: { line: string; beside?: boolean }, row: number | undefined, saved: boolean): string {
+    const at = this.answerPlace();
+    if (!at) return "";
+    if (at.side && (row === undefined ? at.ask === ask.line : at.row === row)) return ANSWER_WORDS[at.side];
+    return ask.beside || saved ? ANSWER_HIDDEN : "";
+  }
 
   /** The asks (`askKey`) the text this draft opened on (or reloaded) already had an answer under. */
   private answeredAtOpen(): Set<string> {
@@ -1633,6 +1649,8 @@ export class Draft {
 /** The keys that select with shift held (`Draft.key`). */
 /** An ask row's words for where its answer tile is, by its side of the pair with the reader (PIE-1757). */
 const ANSWER_WORDS = { right: "beside ▸", left: "◂ beside", down: "below ▾", up: "above ▴", tab: "in a tab" } as const;
+/** Where the answer tile beside a draft's reader is (`side`, null with none open), the ask it shows and that ask's line. */
+export interface AnswerPlace { side: "left" | "right" | "up" | "down" | "tab" | null; ask?: string; row?: number }
 /** An answer no tile shows: a click on its row (or the cursor onto its ask) shows it. */
 const ANSWER_HIDDEN = "show ▸";
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
