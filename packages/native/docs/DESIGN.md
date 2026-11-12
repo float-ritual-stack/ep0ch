@@ -16,7 +16,7 @@
 | **Layout** | arrangement, focus, wires, policy, floats, folds; `place` | the door's saved tree; `Landing {tile, why}` |
 | **Kind row** | what a tile kind is: a drawer, a source, its fields | the `extensions.list` `tileKinds` row: `{kind, about, args, drawer \| render \| view \| command}` |
 | **Drawer** | drawing one answer shape: `page`, `list`, `view`, `pty` | `{id, takes, facts}` |
-| **Primitive registry** | one `El` builder per catalogue primitive type | `components.schemas` |
+| **Primitive registry** | one `El` builder per primitive type the service answers (`tiles/prim.rs`) | `{type, describe, fills}`, held to `outline-core/fixtures/primitives.json` |
 | **Draft** | one editor and lifecycle (block, comment, card); held by the App, shown by a tile or a float | `{target, base_rev, holder, status}` |
 | **Screen** | a named layout with keys, lands, menu | `ScreenSpec` as `screens.list` answers it, with `problems` |
 
@@ -33,8 +33,9 @@ fn apply(l: &Layout, op: Op, by: &Actor) -> Result<Layout, Refusal>;
 fn place(l: &Layout, req: &OpenRequest) -> Landing;
 // tiles/mod.rs
 struct Drawer { id: &'static str, asks: fn(&TileSpec, &KindRow) -> Vec<Ask>, draw: fn(&TileCx) -> El, facts: fn(&TileCx) -> Value, takes_keys: bool }
-// prim.rs
-static PRIMS: &[(&str, fn(&Prim, &TileCx) -> El)];
+// tiles/prim.rs (it builds `El`s, so it sits inside the renderer seam; `parts.rs` is its Rune-free model)
+struct Prim { ty: &'static str, describe: &'static str, fills: bool, build: fn(&Value, &PrimCx, &Kit) -> El }
+static PRIMS: &[Prim];
 // draft.rs
 struct DraftSession { target: Target, base_rev: u64, buf: TextEdit, hold: Lease }
 ```
@@ -93,10 +94,10 @@ an object, a typed argument) is the block's own ```json fence. `screens.save` is
 **Wire, one PROTOCOL bump at the final rebase:**
 - `screens.list` (watched): notes and extension screens, validated, addresses resolved, `problems[]`. The door's `screen-notes.ts` switches to it.
 - `site.answer` view `from:` producers (`children`, `search`, `backlinks`, `properties`, `facets`, `clients`, `activity`, `threads`, `proposals`, `revisions`, `sessions`), each a `ListPrimitive`. `arrange: tree` joins `list-row.ts`: rows carry depth and child count, `state.open` says which levels are answered.
-- `notes.page`: its row says `watch: "later"` (a module answers it over a turn and keeps the watch) and it is in `WATCHABLE_ACTIONS`, as `screens.list` is. Not built yet (W4): parts carry block id and UTF-16 span (today a part carries its `source` text); figure, button, box and extension parts carry `view: Primitive` where the service has a builder, else today's Markdown. Script parts are cached by script, props and deps.
+- `notes.page`: its row says `watch: "later"` (a module answers it over a turn and keeps the watch) and it is in `WATCHABLE_ACTIONS`, as `screens.list` is. As built in W4: a part is `{type: "part", kind, block, span, line, …, view}`: the note it is written in, its UTF-16 span in that note's text, its first line, the service's word on its answer, and the primitive to draw. A figure is the catalogue primitives outline-core's `figure-primitive.ts` lowers its answered props to (a kind with no form: the service's Markdown, else its lines as `source`); a button is a `button` with the line a press names it by; a box holds the parts written inside it. Which component a line starts is one function, outline-core's `componentAt`, asked by the published page, `notes.page` and the door's reader. Not built yet: an extension's component and a `::use`'s body as primitives (both are `source`); script parts cached by script, props and deps.
 - `completion.rows` takes `{text, cursor}` and answers the token with its rows; the host runs `completionTargetAtCursor`.
 - `draft.patch` for a native holder: a new ask kind beside today's `read`, `patch` and `revert` (PROBES §10: a `read` already hands the host the buffer; nothing hands ranges back today). The host places the patch and returns resolved ranges.
-- `events.subscribe` takes client kind `native`; `door.act` and `script` events reach its dispatcher. Not built yet, nor are the `site.answer` `from:` producers: the bar asks `tree.search` and `blocks.query` itself and the about tiles read `notes.page` (W3).
+- `events.subscribe` takes client kind `native` (W4): the window registers as itself and hears `scripts.act` and `scripts.ended`, so an act a script has for a window reaches its dispatcher and is answered (`scripts.answer`). Not built yet: `door.act` aimed at a native window, and the `site.answer` `from:` producers: the bar asks `tree.search` and `blocks.query` itself and the about tiles read `notes.page` (W3).
 
 **Client-side:** layout, ops, placement, focus, the key table, cursor and scroll, the draft buffer, drawing, picture decode, cells, windows, the arrangement file, the control socket.
 
@@ -115,6 +116,9 @@ an object, a typed argument) is the block's own ```json fence. `screens.save` is
 | Which tile an address names | `Layout::resolve` (`layout/address.rs`), for `tile=`, `to=` and a follower's source; the door's resolver by language, held to it by `address-contract.json` |
 | What Esc closes | one step list in `keys.rs`; the hint row reads it. A border's drag has its own way back (`layout.resize` to the share at the press), never `layout.undo` |
 | What a screen or kind is | `screens.list` and `extensions.list` |
+| Which component a line of a note starts | outline-core's `componentAt`, asked by the published page's walk, `notes.page` and the door's reader |
+| How a part of a page is drawn | `PRIMS` in `tiles/prim.rs`, by the primitive's type; the page drawer walks and matches nothing |
+| Where a button's press runs | `button.press` in `actions/script.rs`: here when its one act line is an action here, else the service (`scripts.sequence`); a script's act for a window is read and answered by the store (`scripts.answer`) |
 | Which host and outline a window opens, and where its control socket is | the door's `resolveTarget` and `placeFor`, asked every time through `resolve.ts`; the socket's name is the door's `DOORS` |
 | Which door answers `act` | `controlFor` in `session/place.ts`, with `--door native` |
 | Meaning of notes; a patch's place | the service |
@@ -128,7 +132,7 @@ an object, a typed argument) is the block's own ```json fence. `screens.save` is
   - **Contract tables,** generated from the door's own functions and run by both suites: `{layout, op, actor}` to layout or refusal, `{layout, open}` to `{tile, why}`, act lines to requests, `{tiles, address, from}` to the tile or the refusal.
   - **Garden over `Standin`,** asserting the wire.
   - **Window tests** with a parity table: every row runs by its chord, its bar row pressed and its act line, giving one step record.
-  - **`one_owner.rs`:** `place(` only in the open's own file; `Op::` only in `actions/` and `layout.rs`; `.on_key(` and `Tx::focus` only in `keys.rs`; `virtual_rows` only in `list.rs`; the arrangement written and a load issued only in `actions/layout.rs`; no refusal for whose a thing is in an action's run; an address read only by the layout's resolver; no outline or host setting read by the window. `owners.rs` holds the same by what the window does. Not scanned yet: no figure name or property key under `tiles/` (`tiles/page.rs` matches the figure `stat`, `tiles/about.rs` switches on kind names; W3 and W4 delete both).
+  - **`one_owner.rs`:** `place(` only in the open's own file; `Op::` only in `actions/` and `layout.rs`; `.on_key(` and `Tx::focus` only in `keys.rs`; `virtual_rows` only in `list.rs`; the arrangement written and a load issued only in `actions/layout.rs`; no refusal for whose a thing is in an action's run; an address read only by the layout's resolver; no outline or host setting read by the window. `owners.rs` holds the same by what the window does. Since W4 it also scans that a primitive is built only by the registry and that no builder or drawer reads what a part was written as. Not scanned yet: `tiles/about.rs` switches on kind names (W3 deletes it).
 - **Frame cost:** each tile draws in `memo(tile.id, version)` over its spec, slot generations, focus, cursor, scroll and draft revision.
 - **Every visible wave** carries a wiretext Sketch, a scene and a `kitchen` screen entry. Tests split into `src/tests/*.rs`; actions and drawers register per module.
 
