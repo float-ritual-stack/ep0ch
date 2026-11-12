@@ -1,6 +1,6 @@
 // `ep0ch work …` (PIE-1258): the workboard's commands. `groom` and `try` are Jev's loops over a board (the outliner's
 // work-groom.ts and work-try.ts, loaded by name as review-cli loads the backfill); every other operation is the outliner's
-// own `work` command (create, stage, set, deliver, complete, body, link), one implementation.
+// own `work` command (create, prefix, stage, set, deliver, complete, body, link), one implementation.
 import { join } from "node:path";
 import { boardFor } from "./notes-cli";
 
@@ -51,7 +51,7 @@ export const WORK_USAGE = `  ep0ch work groom [--ws <name>] [--repo <dir>] [--si
                                    what a validator would try for merged tickets: the door's actions and each ticket's
                                    lines Jev picks, as journeys (where, which keys or act call, what should show).
                                    --into keeps it as a [type::validation-plan] note for the verifier's brief.
-  ep0ch work create|stage|set|deliver|complete|body|link …   the outliner's work command (ep0ch work help)`;
+  ep0ch work create|prefix|stage|set|deliver|complete|body|link …   the outliner's work command (ep0ch work help)`;
 
 const SOLO = ["--json", "--no-jev", "--here", "--park", "--later", "--apply"];
 const VALUED = ["--repo", "--since", "--where", "--limit", "--into", "--into-machine", "--ws", "--machine", "--older-than", "--as"];

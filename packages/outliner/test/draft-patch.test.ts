@@ -736,6 +736,41 @@ describe("draft.patch over the protocol", () => {
     expect(roof.text).toBe(lined.text);
   });
 
+  // PIE-1760 (the verifier on #1461): a word after the title's last chip makes it read inline in the draft; it is still
+  // the same chip on the same line, so the person's own stage lands.
+  test("a word typed after the title's last chip: the stage from another shell still lands", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low]\n\nTwo coats.");
+    const door = await fakeDoor(client, "door-suffix", ticket.id, "Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low] now\n\nTwo coats.", ticket.revision);
+    const staged = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: ticket.id, operations: [{ op: "set", key: "work-stage", value: "doing" }], mutation: { author: "user" } });
+    expect(staged.text).toContain("[work-stage::doing]");
+    expect(door).toMatchObject({ revision: staged.revision, text: "Paint the bench [type::roadmap-item] [work-stage::doing] [work-id::GATE-3] [priority::low] now\n\nTwo coats." });
+  });
+
+  // Codex on #1462: a saved chip is followed through the draft's edits to the one place it is now, and must still be a
+  // chip there, outside links and code.
+  test("a chip is followed through the draft's edits: a deleted one isn't a copy, a link label isn't a chip, a line above moves it", async () => {
+    const { store, client } = await service();
+    const sprout = (id: string) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation: { author: "user" } });
+    // The first of two copies deleted in the draft: refused, not written to the other one.
+    const twice = store.create("Seed [kind::seed] notes [kind::seed]");
+    const a = await fakeDoor(client, "door-twice", twice.id, "Seed notes [kind::seed]", twice.revision);
+    await expect(sprout(twice.id)).rejects.toThrow("not applied");
+    expect(store.require(twice.id).text).toBe(twice.text);
+    expect(a.text).toBe("Seed notes [kind::seed]");
+    // The chip made into a link's label: not a chip any more, refused.
+    const label = store.create("Seed [kind::seed]");
+    const b = await fakeDoor(client, "door-label", label.id, "Seed [use [kind::seed]](https://example.test)", label.revision);
+    await expect(sprout(label.id)).rejects.toThrow("not applied");
+    expect(store.require(label.id).text).toBe(label.text);
+    expect(b.text).toBe("Seed [use [kind::seed]](https://example.test)");
+    // A metadata line typed above the chip: the chip moved down a line, still the chip, and it lands.
+    const above = store.create("Seed\n[kind::seed]\n\nWater daily.");
+    const c = await fakeDoor(client, "door-above", above.id, "Seed\n[priority::high]\n[kind::seed]\n\nWater daily.", above.revision);
+    expect((await sprout(above.id)).text).toBe("Seed\n[kind::sprout]\n\nWater daily.");
+    expect(c.text).toBe("Seed\n[priority::high]\n[kind::sprout]\n\nWater daily.");
+  });
+
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();
     const note = store.create("Morning plan");

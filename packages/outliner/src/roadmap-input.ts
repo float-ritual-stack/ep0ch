@@ -3,6 +3,7 @@
 // or body. `OutlinerStore` checks a request with these before it writes the item.
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { RoadmapItemPriority, RoadmapWorkStage } from "./types";
 
 export const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
@@ -78,5 +79,22 @@ export function assertNoReservedRoadmapProperties(title: string, body: string): 
     throw new Error(
       `Roadmap title and body cannot include reserved property: ${reservedProperty.key}`,
     );
+  }
+}
+
+/**
+ * Everything a new item lacks, said in one answer (PIE-1760): on a fresh outline `work create` once refused four times
+ * in a row, one missing piece a run. A missing field is named with its flag; a field that's there but wrong keeps
+ * its own words.
+ */
+export class RoadmapProblems {
+  private readonly list: string[] = [];
+  take<T>(value: unknown, read: (value: unknown) => T, missing: string): T | undefined {
+    if (value === undefined || (Array.isArray(value) && value.length === 0)) { this.list.push(missing); return undefined; }
+    try { return read(value); } catch (error) { this.list.push(error instanceof Error ? error.message : String(error)); return undefined; }
+  }
+  add(problem: string): void { this.list.push(problem); }
+  throwIfAny(): void {
+    if (this.list.length) throw new Refusal("invalid", `can't file it yet: ${this.list.join("; ")}`);
   }
 }

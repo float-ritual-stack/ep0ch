@@ -39,7 +39,7 @@ async function runCli(env: Record<string, string>, args: string[], stdin?: strin
  * A private service with a work queue and a `gh` stand-in on PATH that
  * answers `gh pr view` from `pulls`.
  */
-async function setup() {
+async function setup(o: { fresh?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "outliner-work-tools-"));
   const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
@@ -50,8 +50,10 @@ async function setup() {
     store.close();
     rmSync(root, { recursive: true, force: true });
   });
-  store.configureWorkIdPrefix("PIE");
-  store.create("Work [type::work-queue] [project::demo]");
+  if (!o.fresh) {
+    store.configureWorkIdPrefix("PIE");
+    store.create("Work [type::work-queue] [project::demo]");
+  }
   const bin = join(root, "bin");
   const pulls = join(root, "pulls");
   Bun.spawnSync(["mkdir", "-p", bin, pulls]);
@@ -80,6 +82,26 @@ async function setup() {
   ]);
   return { store, run, pull, file, create };
 }
+
+// PIE-1760 (the verifier on #1461): on a fresh outline work create refused four times, one missing piece a run.
+test("work create on a fresh outline names everything it's missing in one answer, and work prefix sets the Work-ID prefix", async () => {
+  const h = await setup({ fresh: true });
+  const first = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--priority", "medium", "--json"]);
+  expect(first.exitCode).toBe(1);
+  for (const missing of ["--arc", "--track", "no work queue for project garden", "no Work-ID prefix"]) expect(first.error).toContain(missing);
+  expect(first.error).toContain("[type::work-queue] [project::garden]");
+  expect(first.error).toContain("ep0ch work prefix");
+  const bare = await h.run(["work", "create"]);
+  expect(bare.exitCode).toBe(1);
+  for (const missing of ["no title (--title)", "no project (--project)", "no priority", "--arc", "--track", "no Work-ID prefix"]) expect(bare.error).toContain(missing);
+  // Set up as the answer says, then it files, --json and all.
+  const prefixed = await h.run(["work", "prefix", "GATE"]);
+  expect(prefixed.json).toMatchObject({ prefix: "GATE" });
+  h.store.create("Garden work [type::work-queue] [project::garden]");
+  const filed = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--arc", "floor", "--track", "garden", "--priority", "medium", "--json"]);
+  expect(filed.exitCode).toBe(0);
+  expect(filed.json.workId).toMatch(/^GATE-/);
+});
 
 test("an item is created, staged and read back by Work ID with its revision", async () => {
   const h = await setup();
