@@ -449,11 +449,9 @@ export const LAYOUT_CASES: LayoutCase[] = [
 
 // ── where an open lands ──
 
-const reads = (o: Parameters<typeof garden>[0] = {}): Scene => garden(o);
-
 export const PLACE_CASES: PlaceCase[] = [
   // the order: its own wire, the container's opens-into, its home, the open rule, the first reader not pinned
-  { name: "its own wire wins: a list's open lands in the tile it is wired to", scene: reads({ seeds: { wires: [{ verb: "open", to: "bed" }] }, policy: { opensInto: "log" } }), person: { focus: "seeds" }, request: { from: "seeds", note: "south-bed" } },
+  { name: "its own wire wins: a list's open lands in the tile it is wired to", scene: garden({ seeds: { wires: [{ verb: "open", to: "bed" }] }, policy: { opensInto: "log" } }), person: { focus: "seeds" }, request: { from: "seeds", note: "south-bed" } },
   { name: "the screen's opens-into names a tile", scene: { layout: { focus: "beds", policy: { opensInto: "detail" }, root: row([T("tree", "beds"), T("reader", "bed"), T("reader", "detail")], undefined, { id: "s1" }) }, tiles: { beds: { lists: true }, bed: { showing: "north-bed" } } }, request: { from: "beds", note: "south-bed" } },
   { name: "the nearest container's opens-into wins over the screen's", scene: { layout: { focus: "seeds", policy: { opensInto: "bed" }, root: row([T("reader", "bed"), col([T("query", "seeds"), T("reader", "detail")], undefined, { id: "s2", policy: { opensInto: "detail" } })], undefined, { id: "s1" }) }, tiles: { seeds: { lists: true } } }, request: { from: "seeds", note: "south-bed" } },
   { name: "opens-into a container by its key: the reader there takes it", scene: plots(), request: { from: "sown", note: "tray-9" } },
