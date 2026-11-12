@@ -98,7 +98,7 @@ fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_per
         own: extra.get("self").map(|s| (text(s, "name").unwrap_or_default(), text(s, "chip"), text(s, "covered"))),
         home: text(extra, "home"), screen: extra.get("screen").map(|s| s.as_str().map(str::to_string)), outward: text(extra, "outward"), fresh_action: text(extra, "freshAction"),
         // (The door's own: an open makes a `reader`.)
-        sprout: None,
+        sprout: Some("reader".into()),
     }
 }
 

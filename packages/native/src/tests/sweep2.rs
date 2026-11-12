@@ -75,7 +75,7 @@ fn a_pick_in_a_tree_is_the_one_pick_of_a_row() {
     assert_eq!(note_in(&g.app, "bed"), before, "and nothing opened");
     // A list that is no tree, named: refused, saying so, and no other tree is picked in.
     let wrong = act(&mut g.app, "tree.pick id=beans tile=found");
-    assert!(!wrong.ok && wrong.said.contains("found is no tree"), "{}", wrong.said);
+    assert!(!wrong.ok && wrong.said.contains("found is no list arranged as a tree"), "{}", wrong.said);
     assert_eq!(note_in(&g.app, "bed"), before);
     // The person's pick of a folder opens it and unfolds it; picked again while it is the open note, it folds: by
     // either name, in the tree it was picked in.
@@ -109,7 +109,7 @@ fn an_act_that_names_no_tile_is_about_the_one_with_the_keys_whatever_the_noun() 
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "tree.fold id=plot open=true").ok);
     assert!(g.app.ui(&beds).unfolded.contains("plot"));
     // A tile named that is not of the sort is refused by every noun, in one sentence.
-    for (line, sort) in [("list.sort by=crop tile=bed", "bed is no list"), ("tree.fold id=plot tile=found", "found is no tree"), ("back tile=beds", "beds is no tile that reads notes"), ("button.press label=Sow tile=found", "found is no tile that reads notes")] {
+    for (line, sort) in [("list.sort by=crop tile=bed", "bed is no list"), ("tree.fold id=plot tile=found", "found is no list arranged as a tree"), ("back tile=beds", "beds is no tile that reads notes"), ("button.press label=Sow tile=found", "found is no tile that reads notes")] {
         let refused = act(&mut g.app, line);
         assert!(!refused.ok && refused.said.contains(sort), "{line}: {}", refused.said);
     }

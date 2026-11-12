@@ -263,7 +263,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     if let Some(new_note) = &request.new_note {
         let f = facts(from);
         let policy = s.policy_at(from, Some(&f));
-        let tab = new_note == "tab" && !s.is_float(from) && s.tree().visible().contains(from) && (!policy.locked || ctx.yolo) && policy.droppable && policy.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == ctx.sprouts())) && f.tabs.as_ref().is_none_or(|t| t.iter().any(|k| k == ctx.sprouts()));
+        let tab = new_note == "tab" && !s.is_float(from) && s.tree().visible().contains(from) && (!policy.locked || ctx.yolo) && policy.droppable && policy.accepts.as_ref().is_none_or(|a| ctx.sprouts_into(a)) && f.tabs.as_ref().is_none_or(|t| ctx.sprouts_into(t));
         result.destination = Destination::New { at: if tab { At::Tabs { target: from.clone(), index: None, behind: false } } else { At::Float { rect: None, near: None } } };
         result.give_new_keys = keys;
         if new_note == "tab" && !tab { result.why = Some("not a tab here: it floats instead".into()) }
@@ -383,7 +383,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
                 let mut layers = vec![Layer { by: "screen".into(), policy: Some(&s.policy), flow: false }];
                 layers.extend(chain.iter().filter_map(|p| s.tree().at(p)).map(|c| Layer { by: c.id_or_t(), policy: c.policy(), flow: false }));
                 let space = effective(&layers);
-                let keeps = request.keep != Some(false) && !in_place && !s.wires.iter().any(|w| w.from == *from && w.verb == verb && w.to == target) && (!space.locked || ctx.yolo) && space.droppable && space.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == ctx.sprouts()))
+                let keeps = request.keep != Some(false) && !in_place && !s.wires.iter().any(|w| w.from == *from && w.verb == verb && w.to == target) && (!space.locked || ctx.yolo) && space.droppable && space.accepts.as_ref().is_none_or(|a| ctx.sprouts_into(a))
                     && ((f.held && !request.default) || request.keep == Some(true)) && !s.collapsed.has(&target) && f.showing.as_ref().is_some_and(|showing| showing != note)
                     && !s.all().iter().any(|id| *id != target && { let o = facts(id); o.notes && !o.follower && !o.lists && o.showing == f.showing })
                     && s.tree().has(&target) && !chain.iter().filter_map(|p| s.tree().at(p)).any(|c| c.is_tabs() || c.is_dock());

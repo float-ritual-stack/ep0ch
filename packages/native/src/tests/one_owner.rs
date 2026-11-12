@@ -297,7 +297,7 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
 
     // Which kind a name is: the service's rows, by the kind a tile carries or the name the row says it serves.
     for gone in ["fn is(&self, kind", "fn saved(&self)", ".replaces.iter()"] { none(&format!("{gone}: which kind serves a name is the service's word (`serves`)"), strays(gone, |_| false)) }
-    none("the kind an open makes, named in the layout: `Ctx::sprouts` says it", strays("k == \"reader\"", |_| false));
+    none("the kind an open makes, named in the layout: whoever asks says it (`Ctx.sprout`)", ["k == \"reader\"", "unwrap_or(\"reader\")"].iter().flat_map(|kind| strays(kind, |_| false)).collect());
 
     // What a follower's subject is when unsaid: `follows` reads `subject` alone.
     assert!(code("actions/app.rs").contains("pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, \"subject\").and_then(Value::as_str) == Some(\"follows\") }"), "a tile follows only when it says so");

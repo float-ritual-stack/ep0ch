@@ -109,7 +109,7 @@ pub enum About {
 
 impl About {
     /// How a refusal says the sort: "tree is no tile that reads notes".
-    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "tree", _ => "tile" } }
+    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", _ => "tile" } }
 }
 
 /// An action: what it says about itself, what runs, and the sort of tile it is about.

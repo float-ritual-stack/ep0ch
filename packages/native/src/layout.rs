@@ -191,7 +191,8 @@ pub struct Ctx<'a> {
     pub outward: Option<String>,
     pub fresh_action: Option<String>,
     /// The kind of the tile an open makes when it needs one, as the layout's rules know a kind (what a policy's
-    /// `accepts` names). None: `reader`, the door's own.
+    /// `accepts` names): whoever asks says it. None: no kind reads notes there, and a container that takes only
+    /// some kinds takes no tile made for an open.
     pub sprout: Option<String>,
 }
 
@@ -200,8 +201,8 @@ impl<'a> Ctx<'a> {
     pub fn person(facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> {
         Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, lands: None, screen: None, outward: None, fresh_action: None, sprout: None }
     }
-    /// The kind of the tile an open makes when it needs one.
-    pub fn sprouts(&self) -> &str { self.sprout.as_deref().unwrap_or("reader") }
+    /// A container that takes only `kinds` takes the tile an open makes.
+    pub fn sprouts_into(&self, kinds: &[String]) -> bool { self.sprout.as_ref().is_some_and(|sprout| kinds.contains(sprout)) }
     /// An agent: its opens land beside the person, and the tile they type in is left as it is.
     pub fn agent(id: &str, facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> { Ctx { by: By::Agent(id.to_string()), standing: false, keys: false, protect_typing: true, ..Ctx::person(facts, area) } }
 }
