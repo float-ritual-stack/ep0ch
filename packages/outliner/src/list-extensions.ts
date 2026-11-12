@@ -66,15 +66,17 @@ async function outlines(own: Own, request: ListsRequest): Promise<Answered> {
   const known = await own.request<KnownOutlines>({ action: "outlines.known" });
   const words = prepareSearchQuery(request.query ?? "");
   const away = new Map((known.away ?? []).map(a => [a.machine, a] as const));
+  // A header a machine, once there is more than one to tell apart.
+  const several = new Set(known.outlines.map(o => o.machine ?? "")).size > 1;
   const rows = known.outlines.map(o => listed({
     id: o.machine ? `${o.machine}/${o.name}` : o.name, label: o.name, mark: o.machine ?? "",
     detail: o.machine ? [`on ${o.machine}`, away.has(o.machine) ? `not answering${away.get(o.machine)!.asOf ? `: a copy as of ${away.get(o.machine)!.asOf!.slice(0, 16).replace("T", " ")}` : ""}` : ""].filter(Boolean).join(" · ") : o.here ? "on this machine · the one this list was asked of" : "on this machine",
-    ...(o.machine ? { group: o.machine } : { group: "" }), ...(o.machine && away.has(o.machine) ? { tone: "warn" as const } : {}),
+    ...(several ? { group: o.machine ?? "" } : {}), ...(o.machine && away.has(o.machine) ? { tone: "warn" as const } : {}),
     do: runs("outline.switch", { name: o.name, ...(o.machine ? { machine: o.machine } : {}) }),
   })).filter(r => listRowMatches({ label: r.label, detail: r.detail, mark: r.mark }, words));
-  const machines = [...new Set(rows.map(r => r.group ?? ""))];
+  const machines = several ? [...new Set(rows.map(r => r.group ?? ""))] : [];
   const groups: ListGroup[] = machines.map(m => ({ name: m, label: m || "This machine", count: rows.filter(r => (r.group ?? "") === m).length }));
-  return { list: { type: "list", arrange: "rows", rows, ...(machines.length > 1 ? { groups } : {}), empty: words ? "No outline by that name: this lists the ones there are and makes none (ep0ch outline create <name> makes one)." : "No outlines here." } };
+  return { list: { type: "list", arrange: "rows", rows, ...(several ? { groups } : {}), empty: words ? "No outline by that name: this lists the ones there are and makes none (ep0ch outline create <name> makes one)." : "No outlines here." } };
 }
 
 /** The sources this module adds to `lists.read`, each as it says of itself. */

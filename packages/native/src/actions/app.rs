@@ -102,6 +102,8 @@ pub enum Field {
 pub struct FormUi {
     /// The extension whose settings it is.
     pub extension: String,
+    /// What the form is called: the label of the action that opened it, which saving it runs.
+    pub title: String,
     pub fields: Vec<FormField>,
     /// Why the last save was refused, in the service's words: the text stays, with why.
     pub said: Option<String>,
@@ -645,7 +647,7 @@ impl App {
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
             wants.push(Want { tile: "sources".into(), role: "list", ask: self.sources_ask() });
-            wants.push(Want { tile: "extensions".into(), role: "list", ask: self.extensions_ask() });
+            wants.push(Want { tile: "ext".into(), role: "list", ask: self.extensions_ask() });
         }
         wants
     }

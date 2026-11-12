@@ -148,5 +148,5 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   // Back by the same row.
   await client.request({ action: "extensions.install", extension: "screens", where: "outline" } as never);
   await extensions();
-  expect((await screens()).screens.map(s => s.name)).toEqual(["board", "desk", "lastcall", "navigator", "seed-swap", "who"]);
+  expect((await screens()).screens.map(s => s.name)).toEqual(["board", "desk", "kitchen", "lastcall", "navigator", "seed-swap", "who"]);
 });

@@ -323,6 +323,8 @@ fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(draft) = app.draft_of(&page.id) {
         return Outcome::refused(if draft.tile == tile { "the note is already open for editing".to_string() } else { format!("the note is being written in {}: tile.focus goes there", app.layout.name(&draft.tile)) });
     }
+    // A block is written in one window at a time: the service's hold is one a run, and its asks go to one holder.
+    if let Some(window) = app.store.held_elsewhere(&app.at, &page.id) { return Outcome::refused(format!("the note is being written in another window ({window}): save or close it there first")) }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
     app.begin(tile, note, revision, text, by);
     Outcome::done()

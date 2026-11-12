@@ -159,6 +159,11 @@ fn a_tile_torn_out_is_a_second_window_over_the_same_store_with_a_link_an_outline
     // A window keeps its only tile, in the layout's words, and a block is written in one window at a time.
     let alone = act(&mut second, "tile.tear");
     assert!(!alone.ok && second.born().is_empty(), "{}", alone.said);
+    assert!(act(&mut second, "edit").ok);
+    act(&mut app, "tile.split");
+    act(&mut app, "open id=shed");
+    assert_eq!(act(&mut app, "edit").said, "the note is being written in another window (reader): save or close it there first");
+    assert!(act(&mut second, "edit.close").ok && act(&mut app, "edit").ok && act(&mut app, "edit.close").ok, "let go there, it is written here");
 
     // The second window drawn, headless: its tile, its toolbar, its own keys.
     let mut rt = window(second);

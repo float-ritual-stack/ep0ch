@@ -226,9 +226,6 @@ fn button(line: &'static str, variant: ButtonVariant, k: &Kit) -> El {
 /// The act lines a form's two buttons run; what each is called is its action's row.
 const FORM_SAVE: &str = "form.save";
 const FORM_CLOSE: &str = "form.close";
-/// The action a form of settings saves by: its row's label is what the form is called.
-const CONFIGURE: &str = "extensions.configure";
-
 /// The form over the window: an extension's settings, a field each. What a field is called, what it means, what it
 /// takes and what it does when left empty are its schema's words (`ext::SettingField`, as the service lists them),
 /// read each time; the form itself holds only what is typed. A secret is said, never typed here: where its value
@@ -241,7 +238,8 @@ fn form(s: &App, form: &FormUi, k: &Kit, layer: &mut Vec<El>) {
     for field in &form.fields {
         let said = settings.and_then(|settings| settings.fields.iter().find(|f| f.name == field.name));
         let input = keys::input(&field.edit, Field::Form(field.name.clone())).label(field.name.clone()).placeholder(said.and_then(|f| f.default.as_ref()).map(crate::ext::shown).unwrap_or_default()).width(None).build(k).key(format!("form/field/{}", field.name));
-        let mut one = col().w_full().gap(4.0).child(input);
+        // The field is called what its schema calls it, over the field.
+        let mut one = col().w_full().gap(4.0).child(text(field.name.clone()).key(format!("form/name/{}", field.name)).font(k.ty.ui_medium).color(c.text_base)).child(input);
         if let Some(about) = said.map(|f| f.about()).filter(|about| !about.is_empty()) { one = one.child(text(about).key(format!("form/about/{}", field.name)).font(k.ty.small).color(c.text_faint).wrap()) }
         body = body.child(one);
     }
@@ -251,12 +249,11 @@ fn form(s: &App, form: &FormUi, k: &Kit, layer: &mut Vec<El>) {
     }
     // Why the last save was refused, in the service's words: every word typed is still in its field.
     if let Some(said) = form.said.as_ref().or(settings.and_then(|settings| settings.error.as_ref())) { body = body.child(text(said.clone()).key("form/said").font(k.ty.small).color(c.danger.fg).wrap()) }
-    if let Some(file) = settings.map(|settings| settings.file.clone()).filter(|file| !file.is_empty()) { body = body.child(text(file).key("form/file").font(k.ty.small).color(c.text_faint).truncate()) }
     let hints = keys::hints(Layer::Form).into_iter().fold(row().key("form/keys").gap(12.0).center_y().grow(1.0).min_w(0.0), |line, (cap, does)| {
         line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
     });
     body = body.child(row().w_full().gap(8.0).center_y().child(hints).child(button(FORM_CLOSE, ButtonVariant::Ghost, k).key("form/close")).child(button(FORM_SAVE, ButtonVariant::Submit, k).key("form/save")));
-    Dialog::new("form", format!("{} · {name}", actions::label(CONFIGURE))).open(true).width(560.0).fit().child(body).on_close(|s: &mut App| { s.act(FORM_CLOSE, Actor::Person); }).build(k, layer);
+    Dialog::new("form", format!("{} · {name}", form.title)).open(true).width(560.0).fit().child(body).on_close(|s: &mut App| { s.act(FORM_CLOSE, Actor::Person); }).build(k, layer);
 }
 
 /// The bar, over the window, when it is open; else a form, while one is.

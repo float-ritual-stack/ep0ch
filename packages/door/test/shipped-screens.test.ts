@@ -22,7 +22,7 @@ test("the screens that are data alone are the screens extension's, read from its
   expect(SHIPPED_EXTENSION).toBe("screens");
   holdShippedScreens();
   const theirs = screenNames().filter(name => extensionScreen(name) === SHIPPED_EXTENSION);
-  expect(theirs.sort()).toEqual(["lastcall", "navigator", "who"]);
+  expect(theirs.sort()).toEqual(["kitchen", "lastcall", "navigator", "who"]);
   for (const name of theirs) expect(screenSpec(name), name).toEqual(readSpec(MANIFEST.screens.find(s => s.name === name)));
   // Opened on a target, the tile its spec says carries it: the navigator's query is data, not a function here.
   expect(screenTargetArg("navigator")).toBe("query");
@@ -48,8 +48,8 @@ test("a kind's description is its row's, and its served name is the door's own k
   for (const row of MANIFEST.tiles) {
     const own = row.replaces[0]!;
     const kind = tileKind(own);
-    // A kind the door has no drawer for (the properties list) isn't one of its kinds: a tile of it says so.
-    if (!kind) { expect(own).toBe("props"); continue; }
+    // A kind the door has no drawer for (the properties list, the extensions and the outlines as lists) isn't one of its kinds: a tile of it says so.
+    if (!kind) { expect(["props", "extensions", "outlines"]).toContain(own); continue; }
     expect(kind.about, own).toBe(row.description);
     expect(shippedAbout(own)).toBe(row.description);
     expect(resolveKind(`${MANIFEST.id}.${row.kind}`), row.kind).toBe(own);

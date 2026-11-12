@@ -414,3 +414,34 @@ fn a_block_being_written_has_one_session_and_the_window_finds_no_passage_and_no_
     // The block's source is one field, built in one place, through the key table's adapter.
     none("a block's field built outside the page drawer", strays("keys::area(", |path| path == "tiles/page.rs"));
 }
+
+/// W7: a window, an outline and an extension each have one owner.
+#[test]
+fn a_window_an_outline_and_an_extension_each_have_one_owner() {
+    // A window is opened by the shell, over the state an act made for it, and taken from the turn's own poll.
+    none("a window opened outside the shell", strays("open_window(", |path| path == "shell.rs"));
+    none("the windows an act asked for taken somewhere new", strays(".born()", |path| path == "main.rs"));
+    // One store a run: a window's is a face on the first window's hub, made by the action that tears a tile out.
+    none("a second store made: `Store::beside` shares the hub", strays("Store::new()", |path| ["actions/app.rs", "store.rs"].contains(&path)));
+    none("a window's face on the store made outside the action that tears a tile", strays(".beside(", |path| ["actions/window.rs", "store.rs"].contains(&path)));
+    // Which window a request is for is the control socket's to say, by the one registry of them.
+    none("the windows' registry kept outside control.rs", strays("AppHandle<", |path| path == "control.rs"));
+    // An outline is reached by the rule every client opens one by, asked through one function; which outlines there
+    // are is the service's list, asked by the switch itself; and only the switch moves a window to another.
+    none("the way to an outline asked outside the one place", strays("client::way(", |path| path == "main.rs"));
+    none("the outlines asked from somewhere new", strays("\"outlines.known\"", |path| path == "actions/outline.rs"));
+    none("a window moved to another outline outside its action", strays("st.at =", |path| path == "actions/outline.rs"));
+    // An extension is installed, removed, configured and run by its own actions, which nothing else names; a
+    // rendered tile is asked in one place.
+    none("an extension changed outside its own actions", ["\"extensions.install\"", "\"extensions.uninstall\"", "\"extensions.configure\"", "\"extensions.act\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/ext.rs")).collect());
+    none("a rendered tile asked from somewhere new", strays("\"tiles.view\"", |path| path == "actions/app.rs"));
+    // Whose a script's act or a draft's ask is, the store is told by the action that knows; it reads no request to guess.
+    none("the store told whose an event is from somewhere new", [".pressing(", ".holding("].iter().flat_map(|call| strays(call, |path| ["actions/script.rs", "actions/draft.rs", "store.rs"].contains(&path))).collect());
+    let texts = sources();
+    let store = &texts.iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
+    assert!(!store.contains("\"scripts.sequence\"") && !store.contains("\"drafts.hold\""), "the store sniffs no request for whose its answer's events are");
+    // The form holds what is typed; what a field is comes from the schema each time it is drawn.
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("app.rs").1;
+    let field = app.split("pub struct FormField {").nth(1).and_then(|rest| rest.split('}').next()).expect("FormField");
+    assert!(!field.contains("description") && !field.contains("choices") && !field.contains("default"), "a form's field keeps no copy of its schema: {field}");
+}

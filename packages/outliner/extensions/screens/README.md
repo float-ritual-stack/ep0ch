@@ -9,6 +9,11 @@ The screens and tile kinds every door ships, as data. Both doors read them the w
 - **A screen** is a spec as a screen note holds one. `start: true` marks the one a window with no arrangement of its
   own opens on; `target` says which tile's field an argument fills (`screen.open name=navigator target="type=bed"`).
 
+**The kitchen** (`screen.open name=kitchen`) is the native window's kitchen sink: a screen whose tiles and toolbar
+show the parts each wave of it added, so a part can't quietly break where nobody looks. Today: the extensions and
+the outlines as tiles (any list source is one: `from: extensions`, `from: outlines`), the bar opened on each from
+the toolbar, a tile torn into a window of its own, and a reader with what is about its note in tabs beside it.
+
 It is on wherever the service runs. Uninstalled, a door keeps its drawers and has no kinds or screens to open with
 them until a screen note or another extension gives it some; `extensions.install id=screens` brings them back. To
 change what a door opens on, fork it (`ep0ch ext add screens`, then edit the copy) or save a screen of your own

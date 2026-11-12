@@ -73,9 +73,10 @@ fn init() -> App {
             Err(e) => eprintln!("ep0ch-native: can't read {file}: {e}"),
         }
     }
-    // A headless render draws one window: `--window <name>` says which, when the acts tore one out (a window of a
-    // live run is opened by the shell; a headless one opens none).
-    if let Some(name) = flag("--window").filter(|_| headless) {
+    // A headless render draws one window: `--torn <name>` says which, when the acts tore one out (a window of a
+    // live run is opened by the shell; a headless one opens none, and Rune's own `--window` picks among windows
+    // made before the run).
+    if let Some(name) = flag("--torn").filter(|_| headless) {
         match app.born().into_iter().find(|born| born.window() == name) {
             Some(mut born) => { born.settle(); return born }
             None => eprintln!("ep0ch-native: no window named {name} was torn out: drawing the first"),
