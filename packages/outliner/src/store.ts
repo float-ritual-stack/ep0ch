@@ -38,7 +38,7 @@ import { inLiveOrder, queryCandidates, structuralVersion } from "./graph-questio
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import { copyOutline, MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, type OutlineFileFacts, outlineFileFacts, readOutlineAbout } from "./outline-file";
+import { MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, type OutlineFileFacts, outlineFileFacts, readOutlineAbout } from "./outline-file";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
@@ -806,11 +806,6 @@ export class OutlinerStore {
 
   /** Where this outline's file is: its newest change and its schema (`outlines.list`, the backup job's change check). */
   fileFacts(): OutlineFileFacts { return outlineFileFacts(this.database); }
-  /**
-   * A consistent copy of this outline into `dest`, made on the store's own connection between its writes (PIE-1750):
-   * the backup job's and a snapshot's. It holds the loop while it copies and writes nothing to the outline.
-   */
-  backupTo(dest: string): OutlineFileFacts { return copyOutline(this.database, dest); }
 
   /** A value the service keeps about the outline that isn't note content (the metadata table), or undefined. */
   readMetadata(key: string): string | undefined {

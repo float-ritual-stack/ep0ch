@@ -92,8 +92,9 @@ source evidence or distinguish authored glyphs from controls.
   `compareBinary`). Its metadata reads and writes go through `readMetadata`/`writeMetadata`; a Work ID written as its
   canonical form is outline-core's `canonicalWorkId`.
 - **Only the host opens a live outline file** (PIE-1750). `src/outline-file.ts` owns what is read of an outline's file
-  itself: an open outline answers from its store (`fileFacts`, `backupTo`: VACUUM INTO on the store's own connection);
-  one the host hasn't opened is stopped, and read by `readStoppedOutline`/`copyStoppedOutline`. Clients ask the host
+  itself: an open outline's facts from its store (`fileFacts`), a stopped one's by `readStoppedOutline`, and every copy by
+  `copyOutlineFile`: VACUUM INTO in a worker of the host's own on a read-only connection, so a big copy never holds the
+  host's loop (`outline-copy-worker.ts`). Clients ask the host
   (`outlines.list` carries each outline's `changeSeq` and `schema`; `outlines.backup` makes a copy) and open only
   copies. Litestream is the one other process with the file open, so the store's `busy_timeout` and the dispatcher's
   busy retry stay until PIE-1751 replaces it.

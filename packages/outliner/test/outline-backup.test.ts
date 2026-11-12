@@ -109,3 +109,46 @@ test("a backup is never written over a file, nor to a relative path, nor of an o
   await expect(client.request({ action: "outlines.backup", name: "meadow", out: join(root, "meadow.sqlite") })).rejects.toThrow(/No outline named "meadow"/);
   expect(existsSync(join(root, "meadow.sqlite"))).toBe(false);
 });
+
+test("the host answers other requests in under 100 ms while it copies a big outline (the copy is off its loop)", async () => {
+  const root = scratchDir("outline-backup-");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const layout = outlineLayout(join(root, "outlines"));
+  const store = new OutlinerStore(layout.database("silo"), { workspaceRoot: layout.folder("silo") });
+  store.create("Grain, the long winter");
+  store.close();
+  // Ballast: about 150 MB of fictional bytes, so a copy takes long enough to see.
+  const ballast = new Database(layout.database("silo"));
+  ballast.exec("CREATE TABLE ballast (b BLOB)");
+  ballast.transaction(() => { for (let i = 0; i < 150; i++) ballast.run("INSERT INTO ballast VALUES (randomblob(1000000))"); })();
+  ballast.close();
+  // The host in a process of its own, as it runs: this test's clock is never held by its loop.
+  const env = { PATH: process.env.PATH, HOME: root, EP0CH_OUTLINES: layout.root, XDG_CONFIG_HOME: join(root, "config"), EP0CH_DEFAULT_WS: "" };
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], { env, stdout: "pipe", stderr: "pipe" });
+  cleanups.push(async () => { child.kill("SIGTERM"); await child.exited; });
+  const reader = child.stdout.getReader();
+  for (let out = ""; !out.includes("\n");) {
+    const chunk = await reader.read();
+    if (chunk.done) throw new Error(`The host exited: ${await new Response(child.stderr).text()}`);
+    out += new TextDecoder().decode(chunk.value);
+  }
+  reader.releaseLock();
+  const client = new OutlinerClient(layout.socket, 60_000);
+  const silo = new OutlinerClient(layout.socket, 60_000, "silo");
+  await silo.request({ action: "ping" });
+  const began = performance.now();
+  const backup = client.request<HostedOutlineBackup>({ action: "outlines.backup", name: "silo", out: join(root, "silo-copy.sqlite") }).then(b => ({ b, ms: performance.now() - began }));
+  // Asked while the copy runs: each answer in under 100 ms.
+  const waits: number[] = [];
+  await Bun.sleep(20);
+  for (let i = 0; i < 5; i++) {
+    const asked = performance.now();
+    await silo.request({ action: "ping" });
+    waits.push(performance.now() - asked);
+  }
+  const { b, ms } = await backup;
+  expect(ms).toBeGreaterThan(200);
+  expect(Math.max(...waits)).toBeLessThan(100);
+  expect(checkCopy(b.path)).toBe("ok");
+  expect(inCopy(b.path).texts).toContain("Grain, the long winter");
+}, 120_000);

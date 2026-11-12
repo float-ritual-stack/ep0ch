@@ -1,9 +1,10 @@
 // What the host reads of an outline's file itself (PIE-1750): only the host opens a live outline. An open outline answers
 // from its store's own connection; one the host hasn't opened is stopped (the host holds the folder, so nothing else
-// serves it), and its facts are this module's one read-only look. Clients ask the host (`outlines.list`, `outlines.backup`)
-// and never open the file, so nothing waits out a busy database on their account.
+// serves it), and its facts are this module's one read-only look. A copy is made in a worker of the host's own
+// (`copyOutlineFile`), on a read-only connection that never holds the host's loop. Clients ask the host
+// (`outlines.list`, `outlines.backup`) and never open the file, so nothing waits out a busy database on their account.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 
 // Singleton outline configuration uses the metadata table when it is not canonical user content and needs no revisioned
@@ -54,22 +55,23 @@ export function readStoppedOutline(path: string): StoppedOutline {
 }
 
 /**
- * A consistent copy of an outline into `dest` (VACUUM INTO, mode 0600), from the connection given: the store's own for an
- * open outline, so the copy is the store's own view, between its writes. The facts are read in the same call, so they
- * describe the copy. Never over an existing file. The copy is checked by whoever reads it (`checkCopy`), off the host.
+ * A consistent copy of an outline's file into `dest` (VACUUM INTO, mode 0600), made by the host in a worker of its own
+ * (`outline-copy-worker.ts`) on a read-only connection, so the host's loop answers every other request meanwhile: a
+ * copy of pie takes about a second. The facts are read from the copy. Never over an existing file. Only the host calls
+ * it (the backup job's `outlines.backup`, `outline.snapshot`); the copy is checked by whoever reads it (`checkCopy`).
  */
-export function copyOutline(database: Database, dest: string): OutlineFileFacts {
+export async function copyOutlineFile(path: string, dest: string): Promise<OutlineFileFacts> {
   if (existsSync(dest)) throw new Error(`${dest} already exists; not overwritten`);
-  const facts = outlineFileFacts(database);
-  database.run("VACUUM INTO ?", [dest]);
-  chmodSync(dest, 0o600);
-  return facts;
-}
-
-/** As `copyOutline`, for a stopped outline's file (read-only). */
-export function copyStoppedOutline(path: string, dest: string): OutlineFileFacts {
-  const database = new Database(path, { readonly: true });
-  try { return copyOutline(database, dest); } finally { database.close(); }
+  const worker = new Worker(new URL("./outline-copy-worker.ts", import.meta.url).href);
+  try {
+    const answer = await new Promise<{ ok: true; facts: OutlineFileFacts } | { ok: false; error: string }>((resolve, reject) => {
+      worker.onmessage = event => resolve(event.data);
+      worker.onerror = event => reject(new Error(`the copy of ${path} failed: ${event.message}`));
+      worker.postMessage({ path, dest });
+    });
+    if (!answer.ok) throw new Error(`the copy of ${path} failed: ${answer.error}`);
+    return answer.facts;
+  } finally { worker.terminate(); }
 }
 
 /** A copy's `PRAGMA integrity_check`, as one line ("ok" when it passes). A copy is never a live outline. */

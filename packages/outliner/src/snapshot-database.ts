@@ -37,7 +37,7 @@ export function backupDatabase(path: string, dest: string): { integrity: string 
 /**
  * What a snapshot's copy holds, read from the copy (never a live outline): its size, SHA-256 and schema, refused when it
  * fails its integrity check. A process of its own runs it (`--check <copy>`), so a big outline's check never holds the
- * host's loop; the copy itself is the store's (`OutlinerStore.backupTo`, PIE-1750).
+ * host's loop; the copy itself is the host's (`copyOutlineFile`, PIE-1750).
  */
 export async function describeCopy(path: string): Promise<{ bytes: number; sha256: string; schema: number }> {
   const copy = new Database(path, { readonly: true });

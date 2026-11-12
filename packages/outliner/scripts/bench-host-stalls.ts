@@ -153,14 +153,14 @@ const writer = (async () => {
 })();
 await Bun.sleep(12_000);
 
-// Backup: the host's copy on the store's own connection (`outlines.backup`), as the 15-minute backup asks for it,
-// while the writes go on (PIE-1750): the stall it costs is the copy's time on the loop.
+// Backup: the host's copy (`outlines.backup`), as the 15-minute backup asks for it,
+// while the writes go on (PIE-1750): a worker of the host's copies, so the probe should not stall.
 phase = "backup";
 for (let i = 0; i < 3; i++) {
   const began = performance.now();
   const answer = await request<{ bytes: number }>({ action: "outlines.backup", name: OUTLINE, out: join(root, `backup-${i}.sqlite`) }, 60_000);
   if (answer.error) console.error(`bench: a backup failed: ${answer.error}`);
-  else console.log(`backup ${i}: ${Math.round(performance.now() - began)} ms on the host's loop (${answer.result!.bytes} bytes)`);
+  else console.log(`backup ${i}: ${Math.round(performance.now() - began)} ms, off the host's loop (${answer.result!.bytes} bytes)`);
   await Bun.sleep(1_000);
 }
 phase = "settle";

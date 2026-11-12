@@ -357,7 +357,7 @@
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4286,
     "packages/outliner/src/server.ts": 4272,
-    "packages/outliner/src/store.ts": 6134,
+    "packages/outliner/src/store.ts": 6129,
     "packages/outliner/src/tree-controller.ts": 3180,
     "packages/outliner/src/types.ts": 2712
   }

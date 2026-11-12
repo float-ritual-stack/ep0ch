@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import type { OutlineSnapshot, ShareSession } from "@ep0ch/outline-core/protocol";
 import type { MutationProvenance } from "./types";
 import type { OutlinerStore } from "./store";
+import { copyOutlineFile } from "./outline-file";
 import { ShareSessions, shareOnWire, shareTtlMs } from "./share-sessions";
 
 /**
@@ -43,8 +44,8 @@ export class OutlineSnapshots {
   }
 
   /**
-   * The checked copy at `destination` (PIE-1750): made on the store's own connection (`backupTo`, the only open of the
-   * live file), checked in a process of its own, then published by a hard link, so `destination` is never half a copy
+   * The checked copy at `destination` (PIE-1750): made by the host in a worker of its own (`copyOutlineFile`, off the
+   * host's loop), checked in a process of its own, then published by a hard link, so `destination` is never half a copy
    * and an existing file is never touched.
    */
   private async copy(destination: string): Promise<Pick<OutlineSnapshot, "bytes" | "sha256" | "schema" | "asOf">> {
@@ -53,7 +54,7 @@ export class OutlineSnapshots {
     const copy = join(folder, "copy.sqlite");
     try {
       const asOf = new Date().toISOString();
-      this.store.backupTo(copy);
+      await copyOutlineFile(this.store.database.filename, copy);
       const check = Bun.spawn([process.execPath, join(import.meta.dir, "snapshot-database.ts"), "--check", copy], { stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, code] = await Promise.all([new Response(check.stdout).text(), new Response(check.stderr).text(), check.exited]);
       if (code !== 0) throw new Error(`Snapshot copy failed: ${stderr.trim()}`);

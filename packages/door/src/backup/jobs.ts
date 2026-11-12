@@ -2,7 +2,7 @@
 // repair, the next run simply tries again.
 //
 //   snapshot  each outline here whose change feed moved since its newest snapshot, as its host says (`outlines.list`): a
-//             consistent copy the host makes (`outlines.backup`, VACUUM INTO on its own connection), integrity-checked
+//             consistent copy the host makes (`outlines.backup`, VACUUM INTO in a worker of its own), integrity-checked
 //             here and uploaded to this machine's repository. An outline that hasn't changed isn't snapshotted. Nothing
 //             here opens a live outline (PIE-1750); the files it opens are copies.
 //   mirror    each other machine's outlines (EP0CH_BACKUP_MIRRORS): its newest snapshot, when it's newer than the copy
@@ -51,7 +51,7 @@ export const hostStartCommand = (platform = process.platform) =>
 
 /**
  * A consistent, integrity-checked copy of one of this machine's outlines at `dest`, made by its host (`outlines.backup`,
- * on the store's own connection, PIE-1750): the job never opens a live outline. What the copy holds comes back with it.
+ * in a worker of its own, PIE-1750): the job never opens a live outline. What the copy holds comes back with it.
  */
 export async function hostCopy(c: Pick<BackupConfig, "host">, name: string, dest: string): Promise<{ seq: number; schema: number; bytes: number }> {
   if (existsSync(dest)) throw new Error(`${dest} already exists; not overwritten`);

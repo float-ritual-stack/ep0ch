@@ -31,7 +31,7 @@ import { scrubCredentials } from "./resource-extensions";
 import { ensureDefaultOnFor } from "./extension-install";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
-import { copyStoppedOutline, readStoppedOutline, type StoppedOutline } from "./outline-file";
+import { copyOutlineFile, readStoppedOutline, type StoppedOutline } from "./outline-file";
 import {
   type HostedArchivedOutline,
   type HostedOutlineArchival,
@@ -447,21 +447,16 @@ export class OutlineHost {
 
   /**
    * A consistent copy of one outline at `out` (PIE-1750), what the backup job, install and `ep0ch backup copy` ask for
-   * instead of opening the file: an open outline's from its store's own connection, a stopped one's by the host's
-   * read-only look (nothing else serves it; the copy is made in one call, so no request opens it meanwhile). Writes
-   * nothing to the outline, and never over an existing file.
+   * instead of opening the file: made in a worker of the host's own on a read-only connection (`copyOutlineFile`), so
+   * the host answers everything else meanwhile, open outline or stopped. Writes nothing to the outline, and never over
+   * an existing file.
    */
   private async backup(nameInput: unknown, outInput: unknown): Promise<HostedOutlineBackup> {
     const name = requireName(nameInput);
     if (typeof outInput !== "string" || !isAbsolute(outInput)) throw new Error("outlines.backup needs the copy's absolute path (out)");
     if (!this.names().includes(name)) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
-    const opening = this.opening.get(name);
-    if (opening) await opening.catch(() => undefined);
-    // Requests already waiting go first: the copy holds the loop while it runs.
-    await this.giveWay();
     if (this.busy.has(name)) throw new Error(`Outline "${name}" is being changed; try again`);
-    const open = this.opened.get(name);
-    const facts = open ? open.store.backupTo(outInput) : copyStoppedOutline(this.layout.database(name), outInput);
+    const facts = await copyOutlineFile(this.layout.database(name), outInput);
     return { name, path: outInput, ...facts, bytes: statSync(outInput).size, asOf: new Date().toISOString() };
   }
 

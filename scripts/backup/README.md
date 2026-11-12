@@ -14,16 +14,16 @@ line.
 ## Only the host opens a live outline
 
 The job, install and `ep0ch backup copy` ask the outline host and never open an outline's file (PIE-1750): its
-`outlines.list` says each outline's change and schema, and `outlines.backup` makes the copy on the store's own
-connection. A host that doesn't answer means nothing is copied that run, said with the command that starts it. The
+`outlines.list` says each outline's change and schema, and `outlines.backup` makes the copy in a worker of the
+host's own, so the host keeps answering while it copies. A host that doesn't answer means nothing is copied that run, said with the command that starts it. The
 files they do open are copies (a snapshot, a restore, a mirror). A script that needs a copy runs
 `ep0ch backup copy <outline> <file>`, never `sqlite3 .backup` on the live file.
 
 ## What a run does
 
 1. **Snapshot.** For each outline the host lists whose change feed (`max(change_id)`, the host's `outlines.list`) moved
-   since its newest snapshot: a consistent copy the host makes (`outlines.backup`: `VACUUM INTO` on its own connection,
-   between its writes), checked here (`integrity_check`), uploaded with
+   since its newest snapshot: a consistent copy the host makes (`outlines.backup`: `VACUUM INTO` in a host worker, one
+   read transaction while the writes go on), checked here (`integrity_check`), uploaded with
    `restic backup --stdin` as `/<name>.sqlite`, tagged `ep0ch-outline`, `outline=<name>`, `seq=<change>`, `schema=<user_version>`. An outline
    that hasn't changed (same change feed and same schema version: a migration is a change) isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
    nothing to repair; the next run tries again. A repository that isn't there yet is made (`restic init`).
