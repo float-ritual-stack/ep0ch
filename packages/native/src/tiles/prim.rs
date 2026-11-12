@@ -147,7 +147,7 @@ fn badge(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 /// here or hands it to the service. Any other is its act line, as written.
 fn button(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let act = parts::text(prim, "act").unwrap_or("");
-    let line = match cx.own.and_then(|part| Some((parts::text(part, "block")?, part["line"].as_u64()?))) {
+    let line = match cx.own.and_then(|part| Some((parts::text(part, "block")?, parts::line_of(part)?))) {
         Some((block, line)) => format!("button.press note={} line={line}", word(block)),
         None => act.to_string(),
     };

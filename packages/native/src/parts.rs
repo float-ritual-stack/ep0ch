@@ -81,7 +81,11 @@ pub fn around(page: &Page) -> (Vec<Value>, Vec<Value>) {
     (head, foot)
 }
 
-/// The button a press names on a page: by the line it is written on, else by what it says. The part, whole.
+/// The line a press names a part by: as the door's `button.press line=` counts, from 1 (the wire's `line` is from 0).
+pub fn line_of(part: &Value) -> Option<u64> { part["line"].as_u64().map(|n| n + 1) }
+
+/// The button a press names on a page: by the line it is written on (the wire's, from 0), else by what it says. The
+/// part, whole. What it says back names lines as a press does, from 1 (`line_of`).
 pub fn button<'a>(page: &'a Page, line: Option<u64>, label: Option<&str>) -> Result<&'a Value, String> {
     let mut found: Vec<&Value> = Vec::new();
     for part in &page.parts {
@@ -94,6 +98,6 @@ pub fn button<'a>(page: &'a Page, line: Option<u64>, label: Option<&str>) -> Res
     match found.as_slice() {
         [one] => Ok(one),
         [] => Err(format!("no button {named} in this note · peek lists its parts")),
-        many => Err(format!("{} buttons {named}: name one by line= ({})", many.len(), many.iter().filter_map(|p| p["line"].as_u64()).map(|n| n.to_string()).collect::<Vec<_>>().join(", "))),
+        many => Err(format!("{} buttons {named}: name one by line= ({})", many.len(), many.iter().filter_map(|part| line_of(part)).map(|n| n.to_string()).collect::<Vec<_>>().join(", "))),
     }
 }

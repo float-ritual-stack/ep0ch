@@ -22,9 +22,10 @@ fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> { cx.app.note_of(cx.id).map(|no
 fn facts(cx: &TileCx) -> Value {
     let page = cx.app.shown_of(cx.id);
     let editing = cx.app.editing.as_ref().filter(|e| e.tile == cx.id).map(|e| json!({ "note": e.note, "revision": e.revision, "unsaved": cx.app.unsaved() }));
-    // Its parts, as the service framed them: what an agent presses a button by, and reads a component's state from.
+    // Its parts, as the service framed them: what an agent presses a button by (`line`, as `button.press line=`
+    // counts: from 1), and reads a component's state from.
     let framed: Vec<Value> = page.map(|p| p.parts.iter().map(|part| json!({
-        "kind": part["kind"], "line": part["line"], "name": part["name"], "title": part["title"], "error": part["error"], "draws": parts::ty(&part["view"]), "label": part["view"]["label"],
+        "kind": part["kind"], "line": parts::line_of(part), "name": part["name"], "title": part["title"], "error": part["error"], "draws": parts::ty(&part["view"]), "label": part["view"]["label"],
     })).collect()).unwrap_or_default();
     json!({ "note": cx.app.note_of(cx.id), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": cx.app.loading_of(cx.id), "editing": editing, "back": cx.ui.history, "parts": framed, "said": cx.ui.said.as_ref().map(|said| &said.words) })
 }

@@ -20,7 +20,7 @@ use crate::store::{Call, OutlineAt, Reply};
 
 static PRESS: ActionRow = ActionRow::new("button.press", Touches::Nothing, "press a button of the note a tile shows, by the line it is written on (or by its label): an act line this window has an action for runs here, as whoever pressed; a button with several steps or a script is the service's to run, and each act it sends back is run here and answered. What it did is said on the tile, under the button")
     .args(&[
-        ("line", ArgSpec::number("the line of the note (from 0) the button is written on, as peek lists it").optional()),
+        ("line", ArgSpec::number("the line of the note (from 1, as the door's button.press counts) the button is written on, as peek lists it").optional()),
         ("label", ArgSpec::text("what the button says, when the note has one button that says it").optional()),
         ("note", ArgSpec::text("the note the button is in (a block id): refused when the tile shows another").optional().kind("note")),
     ])
@@ -34,7 +34,9 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let name = app.layout.name(&tile);
     let Some(page) = app.shown_of(&tile) else { return Outcome::refused(format!("{name} shows no note yet")) };
     if let Some(note) = args.text("note").filter(|note| *note != page.id) { return Outcome::refused(format!("{name} shows another note ({}), not {note}: open it there first", page.id)) }
-    let part = match parts::button(page, args.number("line").map(|n| n as u64), args.text("label")) { Ok(part) => part.clone(), Err(why) => return Outcome::refused(why) };
+    // A line is named as the door names one, from 1; the wire's (a part's `line`, `scripts.sequence`) is from 0.
+    let named = match args.number("line") { Some(n) if n < 1.0 => return Outcome::refused("line= counts from 1, as the door's button.press does: the note's first line is line=1"), Some(n) => Some(n as u64 - 1), None => None };
+    let part = match parts::button(page, named, args.text("label")) { Ok(part) => part.clone(), Err(why) => return Outcome::refused(why) };
     let (view, block, line) = (&part["view"], parts::text(&part, "block").unwrap_or(&page.id).to_string(), part["line"].as_u64().unwrap_or(0));
     let (label, act) = (parts::words(&view["label"]), parts::text(view, "act").unwrap_or("").to_string());
     // A button whose line leaves a slot empty has nothing to run yet (the part says what it `needs`): the service's
