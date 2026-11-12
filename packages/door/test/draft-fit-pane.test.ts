@@ -69,7 +69,9 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a draft in a real pane", () =>
     } finally { p.close(); }
   }, 30_000);
 
-  test("the answer tile narrows the box in a 44×16 pane: the note that still fits keeps its first line", async () => {
+  // PIE-1757: in a 44×16 pane the answer tile opens as a tab behind the edit, so the note keeps its first line and the
+  // edit its width (it used to narrow the box beside it, then go below it).
+  test("the answer tile in a 44×16 pane: a tab behind the edit, and the note keeps its first line", async () => {
     const dir = join(scratch.workspace, "extensions", "gardener"), gate = join(scratch.root, "answer-finish");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "extension.json"), JSON.stringify({ contract: 2, id: "gardener", version: 1, name: "Gardener", run: ["bun", "run.ts"], agents: [{ name: "gardener", effects: "write" }] }));
@@ -91,7 +93,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a draft in a real pane", () =>
       p.keys("Enter");
       p.type("Keep typing here");
       await until(() => p.capture().includes("Keep typing"), "the typed line");
-      await until(() => p.flat().includes("Sowthe"), "the answer tile", 15_000);
+      await until(() => /editing · 1 Marigold 2 @g/.test(p.capture()), "the answer tile, a tab behind the edit", 15_000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
       await Bun.sleep(300);
       const frame = p.capture();
       expect(onARow(frame, "Marigold"), frame).toBe(true);

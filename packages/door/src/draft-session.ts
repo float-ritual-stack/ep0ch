@@ -639,7 +639,7 @@ export class DraftSession {
     const d = this.draft;
     if (!this.open) throw new Error("the draft was closed");
     // The cursor's line goes with it: an ask being written there waits for the person (PIE-1743).
-    if (r.kind === "read") return { text: d.text, revision: d.base, cursorLine: d.row };
+    if (r.kind === "read") return { text: d.text, revision: d.base, cursorLine: d.writingOn };
     const redraw = () => this.env.redraw?.();
     if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
     const by = patchActor(r.mutation);

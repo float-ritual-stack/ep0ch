@@ -30,10 +30,7 @@ files they do open are copies (a snapshot, a restore, a mirror). A script that n
 2. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
    --keep-daily 30 --keep-weekly 12`, with `--prune` once a day: every snapshot of the 48 hours before the newest,
    and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that changes rarely
-   keeps older history, since only hours and days with a snapshot count). forget takes the repository exclusively, so a
-   lock left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
-   (restic's exit 11), the job runs `restic unlock` (stale locks only, never `--remove-all`) and tries once more with
-   `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an incident (`forget:<machine>`), with the lock's holder.
+   keeps older history, since only hours and days with a snapshot count).
 3. **Mirrors** (`EP0CH_BACKUP_MIRRORS`): each other machine's newest snapshot of each outline replaces
    `~/outline-mirrors/<machine>/<name>.sqlite` (atomic rename) when it's newer than the copy there. With
    `<machine>=<ssh-name>`, that machine's host is asked over ssh how far each outline is (`ep0ch outline list --json`

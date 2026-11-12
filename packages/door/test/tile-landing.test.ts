@@ -44,6 +44,12 @@ describe("where a new tile beside another lands: one rule, one try (PIE-1559)", 
     ["ctrl+t's picker beside a wide reader", 200, 40, { prefers: "width", needs: { cols: 6, rows: MIN_ROWS } }, "right"],
     ["the tune inspector: under it", 80, 30, { prefers: "height", needs: { cols: 6, rows: MIN_ROWS } }, "down"],
     ["the tune inspector beside a short tile", 80, 5, { prefers: "height", needs: { cols: 6, rows: MIN_ROWS } }, "right"],
+    ["an answer as a pair beside a 44-column reader: below, the reader keeping its width", 44, 30, { prefers: "width", dir: "right", pair: true, weight: 0.45 }, "down"],
+    ["an answer as a pair beside a wide reader: the side last chosen", 177, 30, { prefers: "width", dir: "left", pair: true, weight: 0.45 }, "left"],
+    ["an answer as a pair asked above a narrow reader: above", 44, 30, { prefers: "width", dir: "up", pair: true, weight: 0.45 }, "up"],
+    ["an answer beside a 44×30 edit: below, the edit keeping room to type", 44, 30, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "down"],
+    ["an answer beside a 44×16 edit: a tab behind it, the edit kept whole", 44, 16, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "tabs"],
+    ["an answer beside a 42×3 reader, nowhere reading: the place nearest reading, never 0 rows below", 42, 3, { prefers: "width", dir: "right", pair: true, weight: 0.45, keeps: { cols: 28, rows: 11 }, tab: true }, "right"],
     ["the trail as a pair: below a tall reader", 60, 40, { prefers: "width", needs: { cols: 18, rows: MIN_ROWS }, strict: true, pair: true, weight: 0.45 }, "down"],
   ];
   for (const [what, cols, rows, b, where] of TABLE) test(`${what} (${cols}×${rows}): ${where}`, () => {
@@ -122,4 +128,56 @@ describe("a tile joins and leaves a layout in one step (PIE-1559)", () => {
     (d as { dispose?: () => void }).dispose?.();
   });
 
+});
+
+// PIE-1757: an answer tile opens beside its reader as a pair. Beside a 44-column reader it went right and halved it, so
+// the edit was 22 columns and the ask wrapped; it goes below instead, through the one placement, and the edit keeps its
+// width. A wide reader keeps it beside, on the side last chosen.
+describe("an answer tile keeps a narrow reader's width (PIE-1757)", () => {
+  let state = "";
+  const was = process.env.EP0CH_STATE;
+  beforeAll(() => { state = mkdtempSync(join(tmpdir(), "ep0ch-answer-width-")); process.env.EP0CH_STATE = state; });
+  afterAll(() => { if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was; rmSync(state, { recursive: true, force: true }); });
+  const ask = "@yo which notes are drafts";
+
+  for (const [cols, rows, where] of [[44, 30, "down"], [177, 30, "right"]] as const) test(`a ${cols}×${rows} reader: the answer opens ${where}, the reader ${where === "down" ? "keeping all its columns" : "beside it"}`, async () => {
+    const { ReaderPane } = await import("../src/desk/panes");
+    const area = { col: 0, row: 0, cols, rows }, d = new Desk(undefined, { area });
+    Object.assign(d as object, { rootArea: area });   // as a frame drawn at that size leaves it
+    const reader = [...(d as unknown as { panes: Map<number, unknown> }).panes.values()].find(p => p instanceof ReaderPane) as InstanceType<typeof ReaderPane>;
+    // One reader alone on the screen: the desk's other tiles closed.
+    for (const t of d.layoutGet().tiles as { name: string; kind: string }[]) if (t.kind !== "reader" || (d as any).paneNamed(t.name) !== reader) await d.dispatch.act({ action: "tile.close", tile: t.name }, PERSON).catch(() => {});
+    const before = (d.layoutGet().tiles as { kind: string; rect: Rect }[]).find(t => t.kind === "reader")!.rect;
+    await d.answerTile(reader, ask, PERSON);
+    const tiles = d.layoutGet().tiles as { kind: string; rect: Rect }[];
+    const after = tiles.find(t => t.kind === "reader")!.rect, answer = tiles.find(t => t.kind === "answer")!.rect;
+    const went = answer.row > after.row && answer.col === after.col ? "down" : answer.col > after.col ? "right" : "elsewhere";
+    expect({ cols, went, reader: where === "down" ? after.cols : "beside" }).toEqual({ cols, went: where, reader: where === "down" ? before.cols : "beside" });
+    (d as { dispose?: () => void }).dispose?.();
+  });
+
+  // Evan's shape: a 177-column desk of four readers about 44 wide. The answer opens below the one asked from, which keeps
+  // its columns; its neighbours keep theirs.
+  test("a 177×40 desk of four 44-column readers: the answer opens below the one asked from, every reader's width kept", async () => {
+    const { ReaderPane } = await import("../src/desk/panes");
+    const area = { col: 0, row: 0, cols: 177, rows: 40 }, d = new Desk(undefined, { area });
+    Object.assign(d as object, { rootArea: area });
+    const panes = () => [...(d as unknown as { panes: Map<number, unknown> }).panes.values()];
+    const first = panes().find(p => p instanceof ReaderPane) as InstanceType<typeof ReaderPane>;
+    const firstName = () => (d.layoutGet().tiles as { name: string; kind: string }[]).find(t => (d as any).paneNamed(t.name) === first)!.name;
+    for (const t of d.layoutGet().tiles as { name: string; kind: string }[]) if (t.name !== firstName()) await d.dispatch.act({ action: "tile.close", tile: t.name }, PERSON).catch(() => {});
+    for (const name of ["sow", "grow", "reap"]) await d.dispatch.act({ action: "tile.open", tile: firstName(), args: { kind: "reader", name, where: "right" } }, PERSON);
+    await d.dispatch.act({ action: "layout.even" }, PERSON);
+    const readers = () => (d.layoutGet().tiles as { name: string; kind: string; rect: Rect }[]).filter(t => t.kind === "reader");
+    const before = new Map(readers().map(t => [t.name, t.rect.cols]));
+    expect([...before.values()].every(c => c >= 40 && c <= 46), JSON.stringify([...before])).toBe(true);
+    const grow = (d as any).paneNamed("grow") as InstanceType<typeof ReaderPane>;
+    await d.answerTile(grow, ask, PERSON);
+    const answer = (d.layoutGet().tiles as { kind: string; rect: Rect }[]).find(t => t.kind === "answer")!.rect;
+    const asked = readers().find(t => t.name === "grow")!.rect;
+    expect({ below: answer.row > asked.row && answer.col === asked.col, cols: answer.cols }).toEqual({ below: true, cols: asked.cols });
+    expect(new Map(readers().map(t => [t.name, t.rect.cols]))).toEqual(before);
+    expect(d.answerSide(grow)).toBe("down");
+    (d as { dispose?: () => void }).dispose?.();
+  });
 });
