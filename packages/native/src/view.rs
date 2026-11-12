@@ -3,12 +3,12 @@
 //! Markdown and components as the service answered them.
 use std::borrow::Cow;
 
-use rune::{Cx, El, Icon, Key, KeyEvent, ScrollSpec, TextStyle, Tx, col, el, row, text};
+use rune::{Cx, El, Icon, Key, KeyEvent, ScrollSpec, SurfaceFit, TextStyle, Tx, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarRow, SplitView, Toolbar};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, Markdown, TextArea, TextInput, glyphs};
 
-use crate::model::{App, Finder, Notice};
-use crate::page::{Frame, ListRow, NoteRow, Page, Part};
+use crate::model::{App, Finder, Notice, Shown};
+use crate::page::{Frame, ListRow, NoteRow, Page, Part, Picture};
 
 static PLUS: Icon = Icon { name: "ep0ch-plus", view: 16.0, body: r#"<path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"# };
 static BACK: Icon = Icon { name: "ep0ch-back", view: 16.0, body: r#"<path d="M9.5 3.5L5 8L9.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"# };
@@ -18,6 +18,11 @@ static DOT: Icon = Icon { name: "ep0ch-dot", view: 16.0, body: r#"<circle cx="8"
 const ROW: f32 = 28.0;
 
 fn sized(base: TextStyle, size: f32, line: f32) -> TextStyle { TextStyle { size, line_height: line, ..base } }
+
+/// A terminal row in points: a note gives a picture's height in rows, as the door reads it.
+const ROW_POINTS: f32 = 20.0;
+/// A header image's height when the note names none.
+const HERO_POINTS: f32 = 220.0;
 
 /// A found row's height in the finder: two lines of text and its padding.
 const FOUND_ROW: f32 = 46.0;
@@ -192,7 +197,7 @@ fn stat_tiles(props: &serde_json::Value, k: &Kit) -> Option<El> {
 fn component(i: usize, part: &Part, k: &Kit) -> El {
     let c = &k.c;
     let (frame, body): (&Frame, Vec<El>) = match part {
-        Part::Prose { .. } => return el(),
+        Part::Prose { .. } | Part::Picture { .. } => return el(),
         Part::Figure { frame, figure, props, markdown } => (frame, match (figure.as_str(), markdown) {
             ("stat", _) => vec![stat_tiles(props, k).unwrap_or_else(|| text_el(&frame.source, k.ty.mono, c.text_muted).wrap())],
             (_, Some(md)) => vec![prose(md, k)],
@@ -243,10 +248,55 @@ fn component(i: usize, part: &Part, k: &Kit) -> El {
     body.into_iter().fold(card, |card, part| card.child(part))
 }
 
+/// What stands where a picture will be, or would have been: its alt text and why it isn't drawn.
+fn no_picture(picture: &Picture, why: &str, key: &str, k: &Kit) -> El {
+    let name = picture.alt.clone().or_else(|| picture.path.clone()).unwrap_or_else(|| "picture".into());
+    col().key(key.to_string()).w_full().padding(12.0).gap(2.0).radius(k.radius.md).fill(k.c.layer_01).border(1.0, k.c.border_muted)
+        .child(text_el(&name, k.ty.ui, k.c.text_muted))
+        .child(text_el(why, k.ty.small, k.c.text_faint).wrap())
+}
+
+/// A picture where it stands: at its own size up to the reading measure (`full`: the width there is), or the height the note gives it.
+fn picture(s: &App, picture: &Picture, key: String, k: &Kit) -> El {
+    let (image, points) = match s.picture(picture) {
+        Some(Shown::Ready { image, points }) => (image, *points),
+        Some(Shown::Failed(why)) => return no_picture(picture, why, &key, k),
+        Some(Shown::Asked) | None => return no_picture(picture, "on its way…", &key, k),
+    };
+    let Some([width, _]) = image.size() else {
+        return match image.error() { Some(e) => no_picture(picture, &format!("{e:?}"), &key, k), None => no_picture(picture, "decoding…", &key, k) };
+    };
+    let mut drawn = el().key(key).role("image").label(picture.alt.clone().unwrap_or_else(|| "Picture".into())).w_full().radius(6.0);
+    drawn = match picture.height {
+        // The note says how tall: the picture is shown whole inside that band.
+        Some(rows) => drawn.h(rows * ROW_POINTS).pixels_fit(image.pixels(), SurfaceFit::Fit),
+        None => drawn.pixels(image.pixels()),
+    };
+    if picture.width != "full" && picture.height.is_none() { drawn = drawn.max_w(width as f32 / points) }
+    let mut body = col().w_full().gap(4.0).child(drawn);
+    // What's written on its line that isn't a layout value is said under it, as the door's caption does.
+    for problem in &picture.problems { body = body.child(text_el(problem, k.ty.small, k.c.warning.fg).wrap()) }
+    body
+}
+
+/// The note's header image: a band above the title, cropped to fill it (`contain`: shown whole), dimmed as the note asks.
+fn hero(s: &App, picture: &Picture, k: &Kit) -> Option<El> {
+    let Some(Shown::Ready { image, .. }) = s.picture(picture) else { return None };
+    image.size()?;
+    let fit = if picture.fit.as_deref() == Some("contain") { SurfaceFit::Fit } else { SurfaceFit::Fill };
+    let band = el().key("hero").role("image").label(picture.alt.clone().unwrap_or_else(|| "Header image".into())).w_full()
+        .h(picture.height.map_or(HERO_POINTS, |rows| rows * ROW_POINTS)).radius(10.0).pixels_fit(image.pixels(), fit);
+    Some(match picture.dim.filter(|dim| *dim > 0.0) {
+        Some(dim) => band.child(el().w_full().h_full().radius(10.0).fill(k.alpha(k.c.black, dim.min(1.0)))),
+        None => band,
+    })
+}
+
 fn note(s: &App, page: &Page, k: &Kit) -> El {
     let c = &k.c;
     let mut body = col().key("note").w_full().max_w(820.0).padding(28.0).gap(14.0);
     if let Some(n) = notice(s, k) { body = body.child(n) }
+    if let Some(band) = page.hero.as_ref().and_then(|picture| hero(s, picture, k)) { body = body.child(band) }
     if !page.ancestors.is_empty() {
         let path = page.ancestors.iter().map(|a| a.title.as_str()).collect::<Vec<_>>().join(" › ");
         body = body.child(text(path).key("path").font(k.ty.small).color(c.text_faint).truncate());
@@ -254,7 +304,11 @@ fn note(s: &App, page: &Page, k: &Kit) -> El {
     body = body.child(text(page.title.clone()).key("note-title").font(sized(k.ty.body_medium, 26.0, 32.0)).color(c.text_base).wrap().selectable(true));
     if !page.chips.is_empty() { body = body.child(chips(page, k)) }
     for (i, part) in page.parts.iter().enumerate() {
-        body = body.child(match part { Part::Prose { markdown } => prose(markdown, k).key(format!("part/{i}")), part => component(i, part, k) });
+        body = body.child(match part {
+            Part::Prose { markdown } => prose(markdown, k).key(format!("part/{i}")),
+            Part::Picture { picture: shown } => picture(s, shown, format!("part/{i}"), k),
+            part => component(i, part, k),
+        });
     }
     if !page.children.is_empty() {
         body = body.child(el().h(6.0)).child(section(&format!("Under this note · {}", page.children.len()), k));

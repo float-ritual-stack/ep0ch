@@ -8,6 +8,7 @@ reads Blockdown.
 ![A note with a query-backed component, light](docs/note-light.png)
 ![Live figures answered by the service, dark](docs/figures-dark.png)
 ![A query with the facets its matches carry, dark](docs/query-dark.png)
+![A header image, pictures, an svg fence and a mermaid fence, light](docs/pictures-light.png)
 
 ## Run it
 
@@ -31,6 +32,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 |---|---|
 | Walk the outline | The sidebar's tree: a press opens a note, a press on the open note folds or unfolds it |
 | Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and query-backed `::graph-table` as rows that open; `::graph-stat` as tiles and the other figures with the service's results |
+| See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
 | Follow anything | A link, a child, a backlink, a row in a component; ⌘[ goes back |
 | Write | ⌘E opens the note's Blockdown source; ⌘S saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved |
 | Make, move, bin | ⌘N a note under the open one; ⌥↑ ⌥↓ ⌥→ ⌥← move it up, down, in, out; ⌘⌫ to the Trash (the notice has Undo) |
@@ -66,6 +68,10 @@ src/ (Rust, Rune)                                  the outline host
   which answer moved and the slot reads it by generation. The window never works out what a change touches.
 - **The tree is asked a folder at a time** (`blocks.read` with `under`): only what's unfolded, so a large outline
   costs what's on screen.
+- **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
+  lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
+  the UI thread, and keeps only the open page's. One the host can't read says so, in the host's words, where it
+  would be.
 - **It holds no grammar and names no property.** `view.rs` is `rune-kit`'s shell (`SplitView`, `Sidebar`,
   `Toolbar`), `Markdown`, `TextArea`, `Dialog` and `Badge`. A `graph-stat` is drawn as tiles from its props; a
   figure kind with no drawing here shows the service's Markdown for it; a component the service answers nothing
@@ -100,7 +106,10 @@ A script taps by key (`find`, `edit`, `save`, `done`, `tree/<id>`, `child/<id>`,
   an agent can patch (`drafts.hold`).
 - Comments, proposals, revisions and marks aren't shown.
 - Figure kinds other than `stat` draw as the service's Markdown, not as native widgets; a view draws as rows
-  whatever its layout; images, embeds, buttons and templates show their source.
+  whatever its layout; embeds, buttons and templates show their source.
+- Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle
+  (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
+  a view's card covers and pictures in properties aren't shown.
 - Switching outlines from inside the window; the outline is named when it starts.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the finder and one per unfolded
   folder. Past about sixty unfolded folders the oldest are dropped and asked for again.

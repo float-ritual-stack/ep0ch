@@ -784,6 +784,7 @@ dependencies = [
 name = "ep0ch-native"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "rune",
  "rune-kit",
  "serde",
@@ -2662,8 +2663,17 @@ dependencies = [
  "pulldown-cmark",
  "rune",
  "rune-highlights",
+ "rune-mermaid",
  "rune-motion",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "rune-mermaid"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=cb0c11812013dcccc6d45793b23dcdc3897736d0#cb0c11812013dcccc6d45793b23dcdc3897736d0"
+dependencies = [
+ "rune",
 ]
 
 [[package]]

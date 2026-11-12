@@ -6,14 +6,16 @@
 //! the answer to what it wants. What changes in the outline arrives the same way: the service says which watched
 //! answer moved (`queries.changed`), and that slot asks again.
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
-use rune::TextEdit;
+use base64::Engine;
+use rune::{Image, ImageCache, TextEdit};
 use rune_kit::shell::PaneState;
 use serde_json::{Value, json};
 
 use crate::client::{Link, PROTOCOL};
-use crate::page::{Facet, NoteRow, Page};
+use crate::page::{Facet, NoteRow, Page, Picture};
 
 /// What's wanted, what was asked for, and the newest answer: `get` is the answer to what's wanted now, or nothing.
 pub struct Slot<K, V> {
@@ -83,12 +85,24 @@ pub enum Notice {
     Trashed(String),
 }
 
+/// A picture as the window holds it: asked for, decoded (or decoding, on Rune's worker), or why there is none.
+pub enum Shown {
+    Asked,
+    /// `points`: how many of its pixels make a point (a vector picture is drawn at twice its size, for a dense screen).
+    Ready { image: Image, points: f32 },
+    Failed(String),
+}
+
+/// The widest a picture is drawn, in points: what a vector picture is drawn to fit.
+const PICTURE_POINTS: f32 = 760.0;
+
 /// What an ask was: the slot its answer lands in, or the write it was.
 #[derive(Clone, Debug)]
 enum Tag {
     Hello,
     Level(Option<String>),
     Page(String),
+    Picture(String),
     Found(Finder, String),
     Saved { note: String, sent: String },
     Created { parent: Option<String> },
@@ -119,6 +133,9 @@ pub struct App {
 
     pub page: Slot<String, Page>,
     pub back: Vec<String>,
+    /// The open page's pictures, by `Picture::key`: only what it shows is kept.
+    pictures: HashMap<String, Shown>,
+    images: ImageCache,
 
     /// The editor's text, there whether or not a note is being edited, so a key always has somewhere to land.
     pub editor: TextEdit,
@@ -151,6 +168,9 @@ impl App {
             tree: Vec::new(),
             page: Slot::default(),
             back: Vec::new(),
+            pictures: HashMap::new(),
+            // Until the window gives its waker, a decoded picture wakes nobody (a test's window is driven by hand).
+            images: ImageCache::new(Arc::new(|| {})),
             editor: TextEdit::new(""),
             editing: None,
             finder: None,
@@ -168,7 +188,12 @@ impl App {
         self
     }
 
-    pub fn set_waker(&mut self, waker: rune::Waker) { self.link.set_waker(waker) }
+    pub fn set_waker(&mut self, waker: rune::Waker) {
+        // A picture that finishes decoding wakes the window to draw it.
+        self.images = ImageCache::new(waker.clone());
+        self.pictures.clear();
+        self.link.set_waker(waker);
+    }
 
     // ── asking ──────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -302,10 +327,19 @@ impl App {
                         self.expanded.extend(page.ancestors.iter().map(|a| a.id.clone()));
                         self.unfold();
                     }
+                    if self.page.wanted() == Some(&note) { self.want_pictures(&page) }
                     self.page.land(note, page);
                 }
                 Err(e) => self.notice = Some(Notice::Problem(format!("couldn't read the page: {e}"))),
             },
+            Tag::Picture(key) => {
+                let bytes = base64::engine::general_purpose::STANDARD.decode(result["base64"].as_str().unwrap_or(""));
+                let shown = match bytes {
+                    Ok(bytes) => self.decoded(bytes, result["mime"].as_str().unwrap_or("")),
+                    Err(e) => Shown::Failed(format!("its bytes didn't arrive whole: {e}")),
+                };
+                self.pictures.insert(key, shown);
+            }
             Tag::Found(kind, words) => {
                 let found = match kind {
                     Finder::Find => Found { rows: result["matches"].as_array().into_iter().flatten().map(|m| NoteRow { id: text(&m["block"]["id"]), title: text(&m["title"]), has_children: false, context: text(&m["path"]) }).collect(), ..Found::default() },
@@ -368,11 +402,46 @@ impl App {
             Tag::Saved { .. } if kind == "stale-revision" || kind == "conflict" => {
                 self.notice = Some(Notice::Problem("Not saved: the note changed since you opened it. Your text is still here; copy it, discard to see the new note, then edit again.".into()));
             }
+            // A picture the host can't read says so where the picture would be.
+            Tag::Picture(key) => { self.pictures.insert(key, Shown::Failed(error.to_string())); }
             // A question the service can't read answers with its words, where the rows would be.
             Tag::Found(kind, words) => self.found.land((kind, words), Found { hint: error.to_string(), ..Found::default() }),
             _ => self.notice = Some(Notice::Problem(error.to_string())),
         }
     }
+
+    // ── pictures ────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The pictures `page` shows are the ones held: a file's bytes are asked of the host (`media.read`), an svg
+    /// fence's text is the picture already, and what the page no longer shows is let go.
+    fn want_pictures(&mut self, page: &Page) {
+        let shown: HashSet<String> = page.pictures().map(Picture::key).collect();
+        self.pictures.retain(|key, _| shown.contains(key));
+        for picture in page.pictures() {
+            let key = picture.key();
+            if self.pictures.contains_key(&key) { continue }
+            match (&picture.svg, &picture.path) {
+                (Some(svg), _) => { let drawn = self.decoded(svg.clone().into_bytes(), "image/svg+xml"); self.pictures.insert(key, drawn); }
+                (None, Some(path)) => {
+                    self.pictures.insert(key.clone(), Shown::Asked);
+                    self.ask(Tag::Picture(key), "media.read", json!({ "path": path }));
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    /// Bytes handed to Rune's image cache, which decodes them on its worker and wakes the window when they're ready.
+    fn decoded(&self, bytes: Vec<u8>, mime: &str) -> Shown {
+        let vector = mime.contains("svg");
+        let points = if vector { 2.0 } else { 1.0 };
+        let image = self.images.load_mime(bytes, mime, PICTURE_POINTS, points);
+        // A headless render has one frame: the picture is waited for, so that frame shows it.
+        if self.blocking && let Err(e) = image.wait() { return Shown::Failed(format!("{e:?}")) }
+        Shown::Ready { image, points }
+    }
+
+    pub fn picture(&self, picture: &Picture) -> Option<&Shown> { self.pictures.get(&picture.key()) }
 
     // ── the tree ────────────────────────────────────────────────────────────────────────────────────────────
 

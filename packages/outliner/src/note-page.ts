@@ -3,13 +3,14 @@
 // `blocks.query`, `blocks.authored-links`, `references.backlinks`), the same props a figure draws from. Where a page
 // turns each answer into HTML, this hands it over as data, so a client that can't run outline-core draws any note
 // and re-implements none of it.
-import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
+import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { graphKind } from "@ep0ch/outline-core/figure-props";
 import { figureResultsMarkdown } from "@ep0ch/outline-core/figure-results";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { linkBlockAt } from "@ep0ch/outline-core/link-blocks";
-import { pageAddresses, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart } from "@ep0ch/outline-core/note-page";
+import { noteMediaLines, parsePictureFence } from "@ep0ch/outline-core/media-line";
+import { pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart, type PagePicture } from "@ep0ch/outline-core/note-page";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
@@ -53,7 +54,7 @@ export async function servedPage(
     ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren"] })).blocks : [];
   const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
   const host: LiveHost = { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id };
-  const [parts, { records }, context, back] = await Promise.all([
+  const [body, { records }, context, back] = await Promise.all([
     noteParts(host, block, address),
     own.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [block.id] }),
     own.request<{ ancestors: { id: string }[] }>({ action: "blocks.context", blockId: block.id }),
@@ -65,7 +66,7 @@ export async function servedPage(
   const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
   return {
     blockId: block.id, revision: block.revision, title: self[0]?.title ?? "", chips: headerLine(block.text).chips.map(c => ({ key: c.key, value: c.value })),
-    properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, parts,
+    properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, ...body,
     ancestors: ordered(context.ancestors.map(a => a.id), above), children: ordered(record.children, kids),
     backlinks: back.sources.filter(s => s.blockId !== block.id).map(s => ({ id: s.blockId, title: s.title || "untitled", ...(s.parentContext ? { context: s.parentContext } : {}) })),
     updated: record.updated, author: record.actor ?? record.author,
@@ -74,8 +75,8 @@ export async function servedPage(
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The body of `note` as parts, its components answered through `host`. */
-async function noteParts(host: LiveHost, note: { id: string; text: string }, address: PageAddress): Promise<PagePart[]> {
+/** The body of `note` as parts, its components answered through `host`, and its header image when it has one. */
+async function noteParts(host: LiveHost, note: { id: string; text: string }, address: PageAddress): Promise<{ parts: PagePart[]; hero?: PagePicture }> {
   const header = headerLine(note.text);
   const all = note.text.split("\n");
   // The body is every line after the header line; a component is found where it stands in the whole note, as a page finds it.
@@ -93,6 +94,10 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
     if (found?.status === "resolved" && found.block) pages.set(at, found.block.id);
   }));
 
+  // Pictures: the note's media lines, and its ```svg fences (the fence's text is the picture).
+  const media = noteMediaLines(note.text);
+  const fences = new Map(noteCodeFences(all).map(fence => [fence.start, fence]));
+  let hero: PagePicture | undefined;
   const parts: PagePart[] = [];
   let prose: string[] = [];
   const flush = () => {
@@ -102,6 +107,20 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
   };
   for (let i = first; i < all.length; i++) {
     if (structure[i] !== -1 && structure[i] !== i) { prose.push(all[i]!); continue; }
+    const shown = media.get(i);
+    if (shown?.kind === "img") {
+      // The header image is the page's own, above the title; any other picture stands where it was written.
+      if (shown.layout === "hero") hero = pagePicture(shown);
+      else { flush(); parts.push({ kind: "picture", source: all[i]!, ...pagePicture(shown) }); }
+      continue;
+    }
+    const fence = fences.get(i), drawn = fence && parsePictureFence(all[i]!);
+    if (fence && drawn?.fence === "svg") {
+      flush();
+      parts.push({ kind: "picture", source: all.slice(fence.start, fence.end + 1).join("\n"), ...pagePicture(drawn, all.slice(fence.start + 1, fence.end).join("\n")) });
+      i = fence.end;
+      continue;
+    }
     const links = linkBlockAt(all, i, byStart);
     const block = byStart.get(i), kind = block && graphKind(block);
     const collection = block && viewSpec(block, all);
@@ -160,5 +179,5 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
     i = end;
   }
   flush();
-  return parts;
+  return { parts, ...(hero ? { hero } : {}) };
 }

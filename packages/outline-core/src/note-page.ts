@@ -6,6 +6,7 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, type CalloutRegist
 import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
 import type { ListPrimitive } from "./list-row";
+import { readContentSize, type Align, type ContentWidth, type Focus, type MediaSpec } from "./media-line";
 
 /** One row of a `::links` group or a `::fields`: what it says, the note it opens (none: it opens nothing here), a quiet word after it. */
 export interface PageRow { text: string; id?: string; note?: string }
@@ -22,6 +23,41 @@ interface ComponentPart {
   error?: string;
 }
 
+/**
+ * A picture a note shows (a media line, `[img::path]`; or an ```svg fence, whose text is the picture): where its bytes
+ * are and how the note asks for it to be laid out. A client reads a file's bytes with `media.read`.
+ */
+export interface PagePicture {
+  /** The file's path as written: `media.read` answers its bytes. None for a picture drawn from the note's own text. */
+  path?: string;
+  /** An ```svg fence's text: the picture itself. */
+  svg?: string;
+  alt?: string;
+  /** `fit` keeps the reading measure; `full` fills the width there is. */
+  width: ContentWidth;
+  /** Its height in terminal rows, when the note says one. */
+  height?: number;
+  align?: Align;
+  /** A header's: crop to fill its band (`cover`) or show it whole (`contain`). */
+  fit?: "cover" | "contain";
+  /** The point a crop keeps in view, as fractions across and down. */
+  focus?: Focus;
+  /** 0 as it is … 1 black. */
+  dim?: number;
+  /** What's written on its line that isn't a layout value: said under it. */
+  problems?: string[];
+}
+
+/** A media line or picture fence as the picture a page shows. */
+export function pagePicture(spec: MediaSpec, svg?: string): PagePicture {
+  const size = readContentSize({ width: spec.width, height: spec.height, size: spec.size });
+  return {
+    ...(svg !== undefined ? { svg } : { path: spec.path }), width: size.width, ...(size.height !== undefined ? { height: size.height } : {}),
+    ...(spec.alt ? { alt: spec.alt } : {}), ...(spec.align ? { align: spec.align } : {}), ...(spec.fit ? { fit: spec.fit } : {}),
+    ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...(spec.problems.length ? { problems: spec.problems } : {}),
+  };
+}
+
 export type PagePart =
   /** Prose as Markdown (the render target): Blockdown links written as Markdown links (`blockHref`, `pageHref`). */
   | { kind: "prose"; markdown: string }
@@ -35,6 +71,8 @@ export type PagePart =
   | ({ kind: "view"; view: ListPrimitive; query?: string; truncated?: boolean } & ComponentPart)
   /** A `::links` (and `::outlinks`, `::backlinks`, `::resources`) or a `::fields`: named groups of rows. */
   | ({ kind: "rows"; groups: { name: string; rows: PageRow[]; empty?: string }[]; query?: string } & ComponentPart)
+  /** A picture where it stands in the note. (The note's header image is the page's `hero`, not a part.) */
+  | ({ kind: "picture"; source: string } & PagePicture)
   /** A component the service has no answer for (a button, a box, an extension's): its source. */
   | ({ kind: "component" } & ComponentPart);
 
@@ -54,6 +92,8 @@ export interface NotePage {
   /** The Blockdown source: what an editor opens on and a save sends back at `revision`. */
   text: string;
   parts: PagePart[];
+  /** The note's header image (its first `[layout::hero]` media line), drawn above the title. */
+  hero?: PagePicture;
   /** The notes above it, outermost first. */
   ancestors: NoteRow[];
   /** The notes under it, in order. */

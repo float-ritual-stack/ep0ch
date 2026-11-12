@@ -32,7 +32,24 @@ impl Link for Standin {
     fn wait(&mut self, _: &str, _: Duration) {}
 }
 
+/// A made-up picture, as `media.read` hands one over.
+const SUN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20" fill="#234"/><circle cx="20" cy="10" r="6" fill="#fc6"/></svg>"##;
+
 fn page(id: &str, title: &str, revision: u64, text: &str) -> Value {
+    let mut page = plain_page(id, title, revision, text);
+    // The shed's page has pictures: a header image, a file, a fence's own text, and one the host can't read.
+    if id == "shed" {
+        page["hero"] = json!({ "path": "pictures/banner.svg", "width": "fit", "alt": "Dusk over the beds", "dim": 0.2 });
+        page["parts"] = json!([
+            { "kind": "picture", "source": "[img::pictures/beds.svg]", "path": "pictures/beds.svg", "width": "fit", "alt": "Four beds" },
+            { "kind": "picture", "source": "```svg\n…\n```", "svg": SUN, "width": "fit", "height": 6 },
+            { "kind": "picture", "source": "[img::pictures/missing.png]", "path": "pictures/missing.png", "width": "fit", "alt": "The photo nobody took", "problems": ["size::huge isn't a size"] },
+        ]);
+    }
+    page
+}
+
+fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     let ancestors = match id { "onions" | "beans" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }]), "fork" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }, { "id": "onions", "title": "Lift the onions", "hasChildren": true }]), _ => json!([]) };
     json!({
         "blockId": id, "revision": revision, "title": title, "text": text,
@@ -83,6 +100,10 @@ fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden {
             "delete" => Ok(json!({ "id": note, "parentId": "plot" })),
             "trash.restore" => Ok(json!({ "id": note, "parentId": "plot" })),
             "move" => Ok(json!({ "outcome": "applied", "said": "moved up", "parentId": "plot", "previousParentId": "plot" })),
+            "media.read" => match ask["path"].as_str().unwrap() {
+                "pictures/missing.png" => Err(("failed", "pictures/missing.png isn't on the outline's machine".into())),
+                path => Ok(json!({ "path": path, "mime": "image/svg+xml", "from": "file", "base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, SUN) })),
+            },
             "tree.search" => Ok(json!({ "matches": [{ "block": { "id": "beans", "revision": 1 }, "title": format!("found for {}", ask["query"].as_str().unwrap()), "path": "Plot" }] })),
             "blocks.query" => match ask["query"]["where"].as_str().unwrap() {
                 "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
@@ -327,6 +348,30 @@ fn a_lost_link_is_made_again_and_everything_wanted_is_asked_for_afresh() {
     assert!(again.contains(&"notes.page".to_string()));
 }
 
+#[test]
+fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
+    let Garden { mut app, asked, .. } = garden(ok());
+    app.blocking = true;
+    app.open("shed");
+    app.settle();
+    let read: Vec<String> = asked.borrow().iter().filter(|a| a["action"] == "media.read").map(|a| a["path"].as_str().unwrap().to_string()).collect();
+    assert_eq!(read, ["pictures/banner.svg", "pictures/beds.svg", "pictures/missing.png"], "each file once; the fence's picture is its own text and asks nothing");
+    let page = app.page.get().unwrap().clone();
+    let shown: Vec<bool> = page.pictures().map(|p| matches!(app.picture(p), Some(crate::model::Shown::Ready { image, .. }) if image.size().is_some())).collect();
+    assert_eq!(shown, [true, true, true, false], "the header, the file and the fence are decoded; the missing one isn't");
+    let missing = page.pictures().last().unwrap();
+    assert!(matches!(app.picture(missing), Some(crate::model::Shown::Failed(why)) if why.contains("isn't on the outline's machine")));
+    // The page read again (a watched answer moved) asks for nothing it already holds.
+    let before = asked.borrow().len();
+    app.open("shed");
+    app.settle();
+    assert!(!asked.borrow()[before..].iter().any(|a| a["action"] == "media.read"));
+    // Another note's page: the shed's pictures are let go.
+    app.open("plot");
+    app.settle();
+    assert!(page.pictures().all(|p| app.picture(p).is_none()));
+}
+
 // ── the window itself ─────────────────────────────────────────────────────────────────────────────────────────
 
 fn window(app: App) -> Runtime<App> {
@@ -463,4 +508,17 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
     let _ = host.wait();
     let _ = std::fs::remove_dir_all(&root);
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
+#[test]
+fn pictures_are_drawn_where_they_stand_under_the_header_image() {
+    let mut app = garden(ok()).app;
+    app.blocking = true;
+    app.open("shed");
+    app.settle();
+    let mut rt = window(app);
+    for _ in 0..10 { rt.frame(1.0 / 60.0); }
+    let y = |rt: &Runtime<App>, key: &str| rt.find(key).unwrap_or_else(|| panic!("{key} is on screen")).1;
+    assert!(y(&rt, "hero") < y(&rt, "note-title"), "the header image sits above the title");
+    assert!(y(&rt, "note-title") < y(&rt, "part/0") && y(&rt, "part/0") < y(&rt, "part/1") && y(&rt, "part/1") < y(&rt, "part/2"));
 }

@@ -195,3 +195,29 @@ test("blocks.read lists the notes under a note, or the top level, in order, as r
   expect((await under(null)).blocks.map(b => b.title)).toContain("Plot");
   expect((await under(shed.id)).blocks.map(b => b.title)).toEqual(["Lift the onions"]);
 });
+
+test("pictures: a media line where it stands, an svg fence as its own text, and the header image as the page's hero", async () => {
+  const { create, page } = await setup();
+  const note = await create([
+    "Plot plan [type::plan]",
+    "[img::banner.png] [layout::hero] [fit::cover] [hero-focus::25%,50%] [dim::0.3] [alt::The beds in June]",
+    "Before the picture.",
+    "[img::beds.svg] [size::full] [height::9] [alt::Four beds]",
+    "Between them.",
+    "```svg height=6",
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"/></svg>",
+    "```",
+    "[artifact::rota.html]",
+    "After.",
+  ].join("\n"));
+  const p = await page(note.id);
+  // The first `[layout::hero]` line is the header: above the title, so not among the parts.
+  expect(p.hero).toEqual({ path: "banner.png", width: "fit", alt: "The beds in June", fit: "cover", focus: { x: 0.25, y: 0.5 }, dim: 0.3 });
+  expect(p.parts.map(x => x.kind)).toEqual(["prose", "picture", "prose", "picture", "prose"]);
+  expect(p.parts[1]).toEqual({ kind: "picture", source: "[img::beds.svg] [size::full] [height::9] [alt::Four beds]", path: "beds.svg", width: "full", height: 9, alt: "Four beds" });
+  // A picture fence is the picture: its text, with no file to read.
+  expect(p.parts[3]).toMatchObject({ kind: "picture", width: "fit", height: 6, svg: expect.stringContaining("<rect") });
+  expect(p.parts[3]).not.toHaveProperty("path");
+  // An artifact line isn't a picture: it stays in the prose as written.
+  expect(p.parts[4]).toMatchObject({ kind: "prose", markdown: expect.stringContaining("[artifact::rota.html]") });
+});
