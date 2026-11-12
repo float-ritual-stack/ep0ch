@@ -48,8 +48,16 @@ export interface ScreenRow {
   problems: ScreenProblem[];
 }
 
+/**
+ * A tile kind an extension serves, as a screen's reader needs it: the name tiles carry, what it is, the drawer that draws
+ * it and the fields a tile of it starts with, and the names it serves in place of. The row a client finds its drawer by.
+ */
+export interface ScreenKind { kind: string; extension: string; name: string; about?: string; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; replaces?: readonly string[] }
+
 export interface ScreensList {
   screens: ScreenRow[];
+  /** The tile kinds extensions serve here (`extensions.list`'s rows): what a tile's kind names. */
+  kinds: ScreenKind[];
   /** What is wrong that no one row holds: two notes with one name, a note named as an extension's screen is. */
   problems: string[];
   /** A watched answer hears every change: a screen note's children carry none of its properties. */
@@ -62,7 +70,7 @@ type Own = { request<T>(input: { action: string } & Record<string, unknown>): Pr
 type Read = { id: string; text: string; revision: number };
 type ExtensionsListed = {
   extensions?: readonly { id: string; screens?: readonly ({ name: string } & Record<string, unknown>)[] }[];
-  tileKinds?: readonly { kind: string; replaces?: readonly string[]; drawer?: string }[];
+  tileKinds?: readonly { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>> }[];
 };
 
 const HOME_TYPE = "screens";
@@ -151,7 +159,11 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
     }
   }
   rows.sort((a, b) => a.name.localeCompare(b.name) || (a.note?.id ?? "").localeCompare(b.note?.id ?? ""));
-  return { screens: rows, problems, anyChange: true };
+  const kindRows: ScreenKind[] = served.map(k => ({
+    kind: k.kind, extension: k.extension, name: k.name, ...(k.description ? { about: k.description } : {}),
+    ...(k.drawer ? { drawer: k.drawer } : {}), ...(k.fields ? { fields: k.fields } : {}), ...(k.replaces?.length ? { replaces: k.replaces } : {}),
+  }));
+  return { screens: rows, kinds: kindRows, problems, anyChange: true };
 }
 
 /** `screens.save`: `spec` written as its screen note in the block form: the note by that name, else a new one. */

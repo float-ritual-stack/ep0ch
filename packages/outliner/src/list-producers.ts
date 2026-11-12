@@ -285,6 +285,8 @@ const PRODUCERS: readonly Producer[] = [
 function sources(): Answered {
   const rows = PRODUCERS.map(({ row: s }) => row({
     id: s.from, label: s.about, ...(s.placeholder ? { detail: s.placeholder } : {}), cells: [s.from, s.params.map(p => `${p.name}${p.required ? "" : "?"}`).join(" ")],
+    // What it reads, a chip a parameter: a client hands a list its tile's fields by these names, and keeps no list of them.
+    chips: s.params.map(p => ({ key: p.name, value: p.about })),
     ...(s.bar ? { group: "bar", ...(s.bar.main ? { mark: "main" } : {}) } : {}),
   }));
   return { list: { type: "list", arrange: "table", columns: ["from", "params"], headers: ["from", "params"], rows } };

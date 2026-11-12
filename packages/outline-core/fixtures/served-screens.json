@@ -1,0 +1,606 @@
+{
+  "screens": [
+    {
+      "name": "board",
+      "title": "board",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "board",
+        "title": "board",
+        "layout": {
+          "focus": "lanes",
+          "root": {
+            "t": "split",
+            "dir": "col",
+            "weights": [
+              0.58,
+              0.42
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.query",
+                "name": "lanes",
+                "query": "work-stage",
+                "group": "work-stage",
+                "sort": "updated desc",
+                "arrange": "lanes",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  }
+                ]
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "note.new",
+          "screen.reset"
+        ],
+        "lands": "reader"
+      },
+      "problems": []
+    },
+    {
+      "name": "desk",
+      "title": "Desk",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "desk",
+        "title": "Desk",
+        "layout": {
+          "focus": "reader",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.22,
+              0.78
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.tree",
+                "name": "tree",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  }
+                ]
+              },
+              {
+                "t": "split",
+                "dir": "row",
+                "weights": [
+                  0.72,
+                  0.28
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.reader",
+                    "name": "reader"
+                  },
+                  {
+                    "t": "dock",
+                    "edge": "right",
+                    "open": true,
+                    "policy": {
+                      "overlay": false
+                    },
+                    "kid": {
+                      "t": "split",
+                      "dir": "col",
+                      "weights": [
+                        0.5,
+                        0.5
+                      ],
+                      "kids": [
+                        {
+                          "t": "leaf",
+                          "kind": "screens.props",
+                          "name": "props",
+                          "source": "tile:reader",
+                          "subject": "follows"
+                        },
+                        {
+                          "t": "leaf",
+                          "kind": "screens.backlinks",
+                          "name": "backlinks",
+                          "source": "tile:reader",
+                          "subject": "follows"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "newNote": [
+          {
+            "opens": "lands"
+          }
+        ],
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=query",
+          "bar.open scope=screens",
+          "note.new",
+          "tile.split",
+          "screen.save",
+          "screen.reset",
+          "dock.toggle side=right"
+        ],
+        "lands": "reader",
+        "start": true
+      },
+      "problems": []
+    },
+    {
+      "name": "lastcall",
+      "title": "last callers",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "lastcall",
+        "title": "last callers",
+        "layout": {
+          "focus": "activity",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.5,
+              0.5
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.activity",
+                "name": "activity"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "navigator",
+      "title": "navigator",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "navigator",
+        "title": "navigator",
+        "layout": {
+          "focus": "facets",
+          "root": {
+            "t": "flow",
+            "key": "navigator",
+            "anchor": 1,
+            "held": [
+              0,
+              1,
+              2
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.facets",
+                "name": "facets",
+                "args": {
+                  "place": "tile",
+                  "open": [
+                    "views"
+                  ]
+                }
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.matches",
+                "name": "matches",
+                "source": "tile:facets",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  },
+                  {
+                    "verb": "open",
+                    "to": "reader"
+                  }
+                ]
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ],
+        "lands": "reader",
+        "target": {
+          "arg": "query",
+          "fills": "facets.query"
+        }
+      },
+      "problems": []
+    },
+    {
+      "name": "who",
+      "title": "who's online",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "who",
+        "title": "who's online",
+        "layout": {
+          "focus": "who",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.who",
+            "name": "who"
+          }
+        },
+        "toolbar": [
+          "bar.open",
+          "bar.open scope=screens"
+        ]
+      },
+      "problems": []
+    }
+  ],
+  "kinds": [
+    {
+      "kind": "screens.tree",
+      "extension": "screens",
+      "name": "Outline",
+      "about": "the outline tree; a pick opens a note where its opens land",
+      "drawer": "list",
+      "fields": {
+        "from": "children"
+      },
+      "replaces": [
+        "tree"
+      ]
+    },
+    {
+      "kind": "screens.reader",
+      "extension": "screens",
+      "name": "Reader",
+      "about": "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "drawer": "page",
+      "replaces": [
+        "reader"
+      ]
+    },
+    {
+      "kind": "screens.query",
+      "extension": "screens",
+      "name": "Query",
+      "about": "the notes a question lists (query=\"type=bed NOT stage=done\", the views' grammar), or the cards of a saved view (view=<its block id>); group=<a property name> with arrange=lanes makes a board's lanes, sort= and columns= name properties too",
+      "drawer": "list",
+      "fields": {
+        "from": "query"
+      },
+      "replaces": [
+        "query"
+      ]
+    },
+    {
+      "kind": "screens.backlinks",
+      "extension": "screens",
+      "name": "Links",
+      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): the notes that link to it, the ones it links to and the ones under it (linkGroups= names some); subject=follows lists what its home shows as it changes",
+      "drawer": "list",
+      "fields": {
+        "from": "links"
+      },
+      "replaces": [
+        "backlinks"
+      ]
+    },
+    {
+      "kind": "screens.props",
+      "extension": "screens",
+      "name": "Properties",
+      "about": "the properties and the record of the note another tile shows (source=tile:<name>); a pick opens the question for that value",
+      "drawer": "list",
+      "fields": {
+        "from": "properties",
+        "subject": "follows"
+      },
+      "replaces": [
+        "props"
+      ]
+    },
+    {
+      "kind": "screens.facets",
+      "extension": "screens",
+      "name": "Facets",
+      "about": "the properties the notes have, each opening to its values with how many notes carry them; a pick narrows the question, and the Matches tile beside it (source=tile:<this one>) lists what is left; query=<a starting query>",
+      "drawer": "list",
+      "fields": {
+        "from": "facets"
+      },
+      "replaces": [
+        "facets"
+      ]
+    },
+    {
+      "kind": "screens.matches",
+      "extension": "screens",
+      "name": "Matches",
+      "about": "a facets tile's Matches: the notes its selection leaves, in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and opens",
+      "drawer": "list",
+      "fields": {
+        "from": "query",
+        "sort": "updated desc"
+      },
+      "replaces": [
+        "matches"
+      ]
+    },
+    {
+      "kind": "screens.activity",
+      "extension": "screens",
+      "name": "Activity",
+      "about": "recent edits by people and agents",
+      "drawer": "list",
+      "fields": {
+        "from": "activity"
+      },
+      "replaces": [
+        "activity"
+      ]
+    },
+    {
+      "kind": "screens.who",
+      "extension": "screens",
+      "name": "Who",
+      "about": "who's attached to the outline",
+      "drawer": "list",
+      "fields": {
+        "from": "clients"
+      },
+      "replaces": [
+        "who"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "children",
+      "label": "The outline",
+      "cells": [
+        "children",
+        "of? open? limit?"
+      ],
+      "chips": [
+        {
+          "key": "of",
+          "value": "the note at its top (left out: the outline's top level)"
+        },
+        {
+          "key": "open",
+          "value": "the folders whose notes are listed under them"
+        },
+        {
+          "key": "limit",
+          "value": "the most rows"
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "label": "Notes",
+      "detail": "Words in a title or a note",
+      "cells": [
+        "search",
+        "query limit?"
+      ],
+      "chips": [
+        {
+          "key": "query",
+          "value": "words in a title or a note"
+        },
+        {
+          "key": "limit",
+          "value": "the most rows"
+        }
+      ],
+      "group": "bar",
+      "mark": "main"
+    },
+    {
+      "id": "query",
+      "label": "Query",
+      "detail": "type=letter mail=waiting · any property, as views read it",
+      "cells": [
+        "query",
+        "query? sort? group? columns? arrange? limit?"
+      ],
+      "chips": [
+        {
+          "key": "query",
+          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        },
+        {
+          "key": "sort",
+          "value": "a property name, or created, updated, title; then asc or desc"
+        },
+        {
+          "key": "group",
+          "value": "a property name: its values are the list's sections"
+        },
+        {
+          "key": "columns",
+          "value": "the property names a table shows"
+        },
+        {
+          "key": "arrange",
+          "value": "rows, table, lanes or grid"
+        },
+        {
+          "key": "limit",
+          "value": "the most rows"
+        }
+      ],
+      "group": "bar"
+    },
+    {
+      "id": "lanes",
+      "label": "Lanes",
+      "cells": [
+        "lanes",
+        "query? group sort? limit?"
+      ],
+      "chips": [
+        {
+          "key": "query",
+          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        },
+        {
+          "key": "group",
+          "value": "the property name whose values are the lanes"
+        },
+        {
+          "key": "sort",
+          "value": "the order in each lane"
+        },
+        {
+          "key": "limit",
+          "value": "the most rows"
+        }
+      ]
+    },
+    {
+      "id": "facets",
+      "label": "Facets",
+      "cells": [
+        "facets",
+        "query?"
+      ],
+      "chips": [
+        {
+          "key": "query",
+          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        }
+      ]
+    },
+    {
+      "id": "links",
+      "label": "Links",
+      "cells": [
+        "links",
+        "of linkGroups?"
+      ],
+      "chips": [
+        {
+          "key": "of",
+          "value": "the note"
+        },
+        {
+          "key": "linkGroups",
+          "value": "which relations: outlinks, backlinks, children or all (left out: backlinks)"
+        }
+      ]
+    },
+    {
+      "id": "properties",
+      "label": "Properties",
+      "cells": [
+        "properties",
+        "of"
+      ],
+      "chips": [
+        {
+          "key": "of",
+          "value": "the note"
+        }
+      ]
+    },
+    {
+      "id": "activity",
+      "label": "Last callers",
+      "cells": [
+        "activity",
+        "limit?"
+      ],
+      "chips": [
+        {
+          "key": "limit",
+          "value": "the most rows"
+        }
+      ]
+    },
+    {
+      "id": "clients",
+      "label": "Who's here",
+      "cells": [
+        "clients",
+        ""
+      ],
+      "chips": []
+    },
+    {
+      "id": "screens",
+      "label": "Screens",
+      "detail": "A screen's name",
+      "cells": [
+        "screens",
+        "query? kinds? drawers?"
+      ],
+      "chips": [
+        {
+          "key": "query",
+          "value": "words of its name"
+        },
+        {
+          "key": "kinds",
+          "value": "the tile kinds the asker draws"
+        },
+        {
+          "key": "drawers",
+          "value": "the drawers the asker has"
+        }
+      ],
+      "group": "bar"
+    }
+  ]
+}

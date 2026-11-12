@@ -2,7 +2,7 @@
 // the way any extension's are. Installed and uninstalled on a scratch outline over the wire, as the bar's install row
 // and `act extensions.install` do; every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ListAnswer } from "@ep0ch/outline-core/list-row";
@@ -78,6 +78,9 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   const all = await screens();
   expect(all.problems).toEqual([]);
   expect(all.screens.map(s => [s.name, s.from, s.extension, s.problems])).toEqual(MANIFEST.screens.map(s => [s.name, "extension", "screens", []]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+  // The kinds ride on the same watched answer, so a window learns what a tile's kind is where it learns its screens.
+  expect(all.kinds.filter(k => k.extension === "screens").map(k => [k.kind, k.drawer, k.fields?.from ?? null, k.replaces])).toEqual(MANIFEST.tiles.map(t => [`screens.${t.kind}`, t.drawer, t.fields?.from ?? null, t.replaces]) as never);
+  expect(all.kinds.find(k => k.kind === "screens.reader")!.about).toBe(MANIFEST.tiles.find(t => t.kind === "reader")!.description);
   const desk = all.screens.find(s => s.name === "desk")!.spec!;
   expect(desk.start).toBe(true);
   expect(savedNodes(desk.layout.root).filter(n => n.t === "leaf").map(n => n.kind)).toEqual(["screens.tree", "screens.reader", "screens.props", "screens.backlinks"]);
@@ -90,6 +93,12 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   ]);
   // The bar's screens are the same rows, each a pick that opens one.
   expect((await list("screens", { kinds: [], drawers: DRAWERS })).list.rows.map(r => [r.id, r.act])).toEqual(all.screens.map(s => [s.name, `screen.open name="${s.name}"`]));
+  // What the service answers here is written down for a client's own tests to stand a host in with (the native
+  // window's): EP0CH_WRITE_FIXTURES=1 writes it, and it is never edited by hand.
+  const fixture = join(import.meta.dir, "..", "..", "outline-core", "fixtures", "served-screens.json");
+  const answered = JSON.stringify({ screens: all.screens, kinds: all.kinds, sources: (await list("sources")).list.rows }, null, 2) + "\n";
+  if (process.env.EP0CH_WRITE_FIXTURES === "1") writeFileSync(fixture, answered);
+  expect(existsSync(fixture) ? readFileSync(fixture, "utf8") : "", "outline-core/fixtures/served-screens.json is stale: EP0CH_WRITE_FIXTURES=1 bun test test/screens-extension.test.ts").toBe(answered);
   // A screen opened on a target carries it in the tile its spec says.
   const navigator = targetFilled(all.screens.find(s => s.name === "navigator")!.spec!, { query: "type=bed" });
   expect(savedNodes(navigator.layout.root).find(n => n.t === "leaf" && n.name === "facets")).toMatchObject({ query: "type=bed" });
@@ -100,6 +109,7 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   expect(removed.removed).toBe(true);
   expect((await extensions()).tileKinds.filter(k => k.extension === "screens")).toEqual([]);
   const left = await screens();
+  expect(left.kinds).toEqual([]);
   expect(left.screens.map(s => [s.name, s.from])).toEqual([["seed-swap", "note"]]);
   // What is left says why its tile can't be drawn: the kind went with the extension.
   expect(left.screens[0]!.problems).toEqual([{ tile: "reader", said: "no tile kind reader here" }]);
