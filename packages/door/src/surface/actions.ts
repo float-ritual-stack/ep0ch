@@ -799,11 +799,13 @@ export function agentWords(id: string): string {
  * A context whose flashes say who did it: while an agent's action runs (and when its save or send lands
  * later), every message it raises starts with "an agent (<id>) · ". Everything else passes through.
  */
-export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: Actor): T {
+export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: Actor, quiet = false): T {
   if (actor.kind !== "agent") return ctx;
   const prefix = `${agentLabel(actor)} · `;
   return new Proxy(ctx, {
     get(target, p) {
+      // An agent's read (ActionDef.reads, PIE-1772) says nothing: what it would say to the person (status.speed's line) is its answer.
+      if (p === "flash" && quiet) return () => {};
       // How long it stays (Ctx.flash's `ms`) passes through: the shell's "q goes back" is meant to stay 6s.
       if (p === "flash") return (m: string, ...rest: unknown[]) => (target.flash as (m: string, ...r: unknown[]) => void).call(target, m.startsWith(prefix) ? m : prefix + m, ...rest);
       const v = Reflect.get(target, p, target);

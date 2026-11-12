@@ -6,7 +6,8 @@ An agent sees what the person sees, live, and can change anything except where t
   keys, clicks and drags call it, and so does an agent over the control socket (`act`). The same code runs
   either way, and an agent's run is always said on screen ("an agent (claude-7) moved draft below tree").
 - **Reads:** `layout.get` and `view.get` say what's on screen, as JSON. A read changes nothing, so it says nothing on
-  the person's screen (PIE-1772): its `ActionDef` declares `reads`, and `actions` lists it as `reads: true`, in yolo too.
+  the person's screen (PIE-1772): its `ActionDef` declares `reads`, and `actions` lists it as `reads: true`, in yolo too. It
+  says nothing at all: no line of its own (`status.speed`), no hint card cleared, and `tile.menu` answers data, never a menu.
   An action that opens something for whoever stands as the person (`search`, `revisions`, `tile.info card=`) is no read.
 - **A live feed:** `subscribe` pushes every change to what the person sees as it happens: focus, what each
   tile has in view, cursors and selections, the layout, and marks.

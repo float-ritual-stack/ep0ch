@@ -85,7 +85,7 @@ import {
   agentLevel, allTiles, answerLands, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
+  foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -5905,7 +5905,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const n = String(this.numberOf(t.id));
     // Retiring the source's peeks belongs to the same undo as closing the source.
     const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`, closing = this.panes.get(t.id), shown = this.showing(closing);
-    TXN.run({ ...scope, txn }, () => { this.commit(r); this.handNote(r.answer.heir, closing, shown, actor); this.tileLeaves(t.id, "end", actor); });
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.handNote(r.answer, closing, shown, actor); this.tileLeaves(t.id, "end", actor); });
     if (!scope?.txn) this.history.close(txn);
     // Where the person's keys went (the top float or the container's tile, home, or back to the tile it was opened from)
     // is the close's answer, applied as it was committed (`commit`).
@@ -5913,10 +5913,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...answer, pane: n, kind };
   }
 
-  /** The close's heir (landing.ts's closeHeir, PIE-1772) shows the closed reader's note `m`, placed as any open into it is, and takes its trail (back goes where it went). */
-  private handNote(heir: unknown, from: Pane | undefined, m: Msg | null, by: Actor) {
-    const id = typeof heir === "string" ? this.idNamed(heir) : undefined, to = id === undefined ? undefined : this.panes.get(id);
-    try { if (m && to instanceof ReaderPane && this.placeNote(m, { from: id!, to: id!, note: m.id, keys: false }, by) && from instanceof ReaderPane) to.surface.takeHistory(from.surface); } catch (e) { this.ctx.flash(`${this.nameOf(id!)} couldn't take ${subject(m!)}: ${e instanceof Error ? e.message : String(e)}`); }
+  /** The close's heir (landing.ts's closeHeir, PIE-1772: here, or across an edge as an open finds it) shows the closed reader's note `m`, placed as any open into it is, and takes its trail. */
+  private handNote(a: Record<string, unknown>, from: Pane | undefined, m: Msg | null, by: Actor) {
+    const across = typeof a.heirAcross === "string" ? this.resolveTile(a.heirAcross, { shown: true }) : null, d = across?.desk ?? this, id = across ? d.idNamed(across.tile.id!) : typeof a.heir === "string" ? this.idNamed(a.heir) : undefined, to = id === undefined ? undefined : d.panes.get(id);
+    try { if (m && to instanceof ReaderPane && (!across || heirTakes(id!, d.layoutCtx(by))) && d.placeNote(m, { from: id!, to: id!, note: m.id, keys: false }, by) && from instanceof ReaderPane) to.surface.takeHistory(from.surface); } catch (e) { this.ctx.flash(`${d.nameOf(id!)} couldn't take ${subject(m!)}: ${e instanceof Error ? e.message : String(e)}`); }
   }
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
   private async closeNewNote(id: number, rd: ReaderPane) {
@@ -7090,7 +7090,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
-    if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
+    if (actor.kind === "agent" || !this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
     this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);

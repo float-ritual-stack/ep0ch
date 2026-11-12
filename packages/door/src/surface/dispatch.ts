@@ -880,12 +880,12 @@ export class Dispatcher {
     const trace = beginTrace(req.action, tile);
     return messageContext.run({ ...messageContext.getStore(), action: req.action, tile, trace, note: at.tile?.shows ?? undefined }, () => {
       for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
-      const hooked = this.host.beforeAction?.(req.action);
+      const quiet = actor.kind === "agent" && def.reads === true, hooked = !quiet && this.host.beforeAction?.(req.action);   // an agent's read touches nothing the person has up, a hint card included (PIE-1772)
       if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
       const confirmation = ++this.nextConfirmation;
       const ctx = this.host.ctx();
       const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
-      const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+      const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor, quiet) : ctx, ...(given !== undefined ? { given } : {}) });
       // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
       const run = () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
       const recordedArgs = { ...seen };

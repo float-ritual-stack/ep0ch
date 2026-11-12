@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
+import type { LNode } from "../src/desk/layout";
+import { apply, init, type Ctx, type TileFacts } from "../src/desk/screen-layout";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -27,7 +29,7 @@ describe.skipIf(!outliner)("quiet reads and a close that keeps its note (PIE-177
     board = new SocketBoard(await scratch.start());
     await board.info();
     n.honey = await create("Jar the honey\nWarm the jars first.");
-    n.bees = await create(`Check the hives\nLift each frame; then ((${n.honey.id})).`);
+    n.bees = await create(`Check the hives [apiary::north]\nLift each frame; then ((${n.honey.id})).`);
     const term = { info: { cols: 44, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
@@ -119,4 +121,66 @@ describe.skipIf(!outliner)("quiet reads and a close that keeps its note (PIE-177
       expect(message()).toContain("an agent (hive-closer)");
     } finally { app.pop(); }
   }, 20_000);
+
+  // Codex on #1472 (loki, Nov 12): a read stays a read in everything it does, not only in the toast.
+  test("an agent's reads leave the person's hint card, the menu and the status line alone, yolo or not", async () => {
+    const desk = await detailOn(n.bees.id);
+    try {
+      // A hint card the person has up stays up through an agent's polling (beforeAction cleared it for any action).
+      await desk.dispatch.act({ action: "hints.set", args: { id: "hint.show", to: "card" } }, { kind: "user" });
+      await desk.dispatch.act({ action: "hint.show", args: { text: "Lift the frames slowly" } }, { kind: "user" });
+      expect((desk as any).hintCard).toBeTruthy();
+      await app.act({ action: "layout.get", args: {}, as: "hive-reader" });
+      expect((desk as any).hintCard).toBeTruthy();
+      // Reads that say something to the person themselves (status.speed, share.list) say nothing for an agent.
+      (app as any).flash("the person's own words");
+      for (const action of ["status.speed", "share.list"]) {
+        await app.act({ action, args: {}, as: "hive-reader" }).catch(() => {});
+        expect({ action, said: message() }).toEqual({ action, said: "the person's own words" });
+      }
+      // props.copy is a read: an agent gets the value and nothing is said or copied.
+      expect(desk.dispatch.list().actions.find(a => a.name === "props.copy")?.reads).toBe(true);
+      expect(await app.act({ action: "props.copy", args: { key: "apiary" }, tile: "detail", as: "hive-reader" })).toMatchObject({ key: "apiary", value: "north" });
+      expect(message()).toBe("the person's own words");
+      // In yolo an agent's tile.menu is still data: no menu opens over the person's keys.
+      await app.dispatch.act({ action: "agents.yolo", args: { on: true } }, { kind: "user" });
+      try {
+        const overlays = (desk as any).overlays.length;
+        const menu = await app.act({ action: "tile.menu", args: {}, tile: "detail", as: "hive-reader" }) as { open?: boolean; rows: unknown[] };
+        expect(menu.rows.length).toBeGreaterThan(0);
+        expect(menu.open).toBeUndefined();
+        expect((desk as any).overlays.length).toBe(overlays);
+      } finally { await app.dispatch.act({ action: "agents.yolo", args: { on: false } }, { kind: "user" }); }
+    } finally { app.pop(); }
+  }, 20_000);
+
+  test("the detail in the drawer takes the note too: the heir is found where opens land, across desks", async () => {
+    const desk = await detailOn(n.bees.id);
+    try {
+      key(ctrl("w")); key(char("v")); paint();
+      const preview = tiles(desk).find(t => t.name === "detail-preview")!;
+      await desk.dispatch.act({ action: "tile.drawer", args: {}, tile: preview.name }, { kind: "user" });
+      await app.dispatch.act({ action: "host.toggle", args: { open: true } }, { kind: "user" });
+      paint();
+      await desk.dispatch.act({ action: "tile.focus", args: {}, tile: "detail" }, { kind: "user" });
+      await desk.dispatch.act({ action: "tile.close", args: {}, tile: "detail" }, { kind: "user" });
+      paint();
+      const inDrawer = () => ((app.drawer.desk as any).layoutGet().tiles as any[]).find(t => t.tile === preview.tile);
+      await until(() => inDrawer()?.showing?.id === n.bees.id, "the note in the drawer's detail");
+    } finally {
+      await app.dispatch.act({ action: "host.toggle", args: { open: false } }, { kind: "user" }).catch(() => {});
+      await app.drawer.desk?.dispatch.act({ action: "tile.close", args: {}, tile: "detail-preview" }, { kind: "user" }).catch(() => {});
+      app.pop();
+    }
+  }, 20_000);
+
+  test("an agent's close in a desk the person's keys aren't in hands the note to its remembered focus", () => {
+    const tree = { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", id: 1 }, { t: "leaf", id: 2 }] } as unknown as LNode<number>;
+    const s = init({ tree, names: new Map([[1, "reader"], [2, "preview"]]), wires: [{ from: 1, verb: "open", to: 2 }] });
+    const facts = (id: number): TileFacts => (id === 1 ? { kind: "reader", notes: true, showing: "note-hives" } : { kind: "reader", notes: true });
+    const ctx = (here: boolean): Ctx<number> => ({ actor: { kind: "agent", id: "hive-closer" }, standing: false, protectTyping: true, area: { col: 0, row: 0, cols: 88, rows: 30 }, tile: facts, person: { focus: 2, typingIn: null, busy: false, here }, kinds: { all: ["reader"], notes: ["reader"] } });
+    const close = (here: boolean) => { const r = apply(s, { op: "close", tile: 1, heir: true }, ctx(here)); return r.ok ? r.answer.heir : `refused: ${r.refused}`; };
+    expect(close(false)).toBe("preview");      // the person is elsewhere: the remembered focus is no one's keys
+    expect(close(true)).toBeUndefined();        // the person's keys are in it: an agent hands it nothing
+  });
 });
