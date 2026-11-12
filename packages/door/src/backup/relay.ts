@@ -110,7 +110,8 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     if (problem) return { ok: true, lsn, uploadError: problem };
     const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine);
     if ("error" in up) return { ok: true, lsn, uploadError: up.error };
-    await forget(c, repo, false, o.machine);
+    // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
+    await forget(c, repo, false, { host: o.machine, wait: "30s" });
     return { ok: true, lsn, snapshot: up.id };
   } finally { release(); }
 }

@@ -35,7 +35,11 @@ answer means nothing is archived that run, said with the command that starts it.
    or an offline night leaves nothing to repair; the next run uploads what's archived. A repository that isn't there
    yet is made (`restic init`).
 3. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day. Here, the archive keeps the segments from the one
+   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day. forget takes the repository exclusively, so a lock
+   left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
+   (restic's exit 11), the job runs `restic unlock` (stale locks only, never `--remove-all`) and tries once more with
+   `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an
+   incident (`forget:<machine>`), with the lock's holder. Here, the archive keeps the segments from the one
    holding the newest genesis on (a compaction writes one when the log outgrows the outline 4 times), so it stays
    about one outline and its recent changes in size; the earlier segments are in the repository's earlier snapshots.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host

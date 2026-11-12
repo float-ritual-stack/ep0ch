@@ -6,14 +6,15 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors } from "../src/backup/config";
-import { backupCommand, parseAt, pick } from "../src/backup/cli";
-import { archiveRoot, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
+import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
+import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
 import { canonicalDump } from "@ep0ch/outliner/change-log";
-import { parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
+import { forget, parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
+import { verdict } from "../src/backup/verdict";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
 import { MainMenu } from "../src/screens";
@@ -36,6 +37,8 @@ async function served(c: BackupConfig): Promise<BackupConfig> {
   return c;
 }
 const RESTIC = Bun.which("restic") ?? (existsSync(`${process.env.HOME}/.local/bin/restic`) ? `${process.env.HOME}/.local/bin/restic` : null);
+/** restic's exit code for a repository locked by another process. */
+const LOCKED_EXIT = 11;
 const CMD = { run: "ep0ch backup run", log: "journalctl --user -u ep0ch-backup -n 50" };
 const T0 = Date.parse("2026-05-02T09:00:00Z");
 const iso = (t: number) => new Date(t).toISOString();
@@ -145,6 +148,21 @@ describe("the alert", () => {
     expect(alertMark({ machine: "m", checkedAt: iso(T0), incidents: [], announced: [] }, T0)).toBeNull();
     expect(alertMark({ machine: "m", checkedAt: iso(T0 - CHECK_LATE_MS), incidents: [], announced: [] }, T0)?.text).toBe("? backup");
     expect(alertMark(null, T0)).toBeNull();
+  });
+
+  test("forget failing once is a live lock the next run waits out; twice in a row is an incident, said in status (PIE-1755)", () => {
+    const error = "repository is already locked by PID 4242 on potting-shed by gardener (UID 1000, GID 1000), lock was created at 2026-05-02 08:40:00 (20m ago)";
+    const once = state({ forget: { at: iso(T0), ok: false, failures: 1, since: iso(T0), error } });
+    expect(incidents(once, "float", T0, CMD)).toEqual([]);
+    const twice = state({ forget: { at: iso(T0 + 900_000), ok: false, failures: 2, since: iso(T0), error } });
+    const found = incidents(twice, "float", T0 + 900_000, CMD);
+    expect(found.map(i => i.key)).toEqual(["forget:float"]);
+    expect(found[0]!.detail).toContain("failed 2 runs in a row");
+    expect(found[0]!.detail).toContain("PID 4242 on potting-shed");
+    const v = verdict(twice, { machine: "float", checkedAt: iso(T0 + 900_000), incidents: found, announced: [] }, T0 + 900_000, { machine: "float", repo: "/fictional/repo" });
+    expect(v.level).toBe("bad");
+    expect(v.problems[0]!.text).toContain("old backups on float aren't pruned");
+    expect(incidents(state({ forget: { at: iso(T0), ok: true, failures: 0 } }), "float", T0, CMD)).toEqual([]);
   });
 
   test("one backup command at a time: the lock is exclusive, and a dead holder's is taken over", () => {
@@ -274,6 +292,82 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     const piped: string[] = [];
     expect(await backupCommand(["backup", "run"], { out: s => piped.push(s), err: s => err.push(s) }, env)).toBe(0);
     expect(piped.join("\n")).toContain("no outline's log moved since its newest upload");
+  }, 120_000);
+});
+
+describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (PIE-1755)", () => {
+  /** A restic process holding the repository's lock: an upload whose stdin never ends. */
+  async function holder(c: BackupConfig) {
+    const repo = c.repoOf(c.machine), locks = join(repo, "locks");
+    const before = existsSync(locks) ? readdirSync(locks).length : 0;
+    const p = Bun.spawn([RESTIC!, "-r", repo, "backup", "--stdin", "--stdin-filename", "held.sqlite", "--host", c.machine],
+      { env: { ...c.env, RESTIC_PROGRESS_FPS: "0" } as Record<string, string>, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+    for (let i = 0; i < 100 && !(existsSync(locks) && readdirSync(locks).length > before); i++) await Bun.sleep(100);
+    if (readdirSync(locks).length !== before + 1) { p.kill(9); throw new Error(`restic took no lock in ${repo}`); }
+    return p;
+  }
+  const locksOf = (c: BackupConfig) => readdirSync(join(c.repoOf(c.machine), "locks"));
+
+  test("a lock left by a killed run is cleared by the next run, and forget runs", async () => {
+    const c = await served(machine("allotment"));
+    await write(c, "garden", ["Turn the compost"]);
+    const said: string[] = [];
+    const s = readBackupState(c.state);
+    expect((await snapshot(c, s, { say: l => said.push(l) })).uploaded).toEqual(["garden"]);
+    expect(s.forget).toMatchObject({ ok: true, failures: 0, pruned: true });
+    // A run killed mid-upload (a reboot, a deploy): its lock stays in the repository.
+    const killed = await holder(c);
+    killed.kill(9); await killed.exited;
+    expect(locksOf(c)).toHaveLength(1);
+    await write(c, "garden", ["Mulch the beds"]);
+    said.splice(0);
+    expect((await snapshot(c, s, { say: l => said.push(l) })).uploaded).toEqual(["garden"]);
+    expect(said.filter(l => /forget failed/.test(l))).toEqual([]);
+    expect(locksOf(c)).toEqual([]);
+    const told = said.filter(l => /stale restic lock|let go/.test(l));
+    expect(told).toHaveLength(2);
+    expect(told[0]).toStartWith(`cleared a stale restic lock (repository is already locked by PID ${killed.pid} on `);
+    expect(told[1]).toBe("✓ old snapshots let go");
+    expect(s.forget).toMatchObject({ ok: true, failures: 0 });
+    expect(s.forget?.cleared).toContain(`already locked by PID ${killed.pid}`);
+  }, 120_000);
+
+  test("a live process's lock stays: forget waits for it, then fails, and the lock is still there", async () => {
+    const c = machine("cold-frame");
+    expect(await ensureRepo(c, c.repoOf(c.machine), () => {})).toBeNull();
+    const live = await holder(c);
+    try {
+      const r = await forget(c, c.repoOf(c.machine), false, { wait: "1s" });
+      expect(r.code).toBe(LOCKED_EXIT);
+      expect(r.cleared).toBeUndefined();
+      expect(locksOf(c)).toHaveLength(1);
+    } finally { live.stdin.end(); await live.exited; }   // its upload ends, and it lets go of its lock
+  }, 120_000);
+
+  test("forget failing two runs in a row is an incident in status and the alert; a run that forgets clears it", async () => {
+    // restic whose forget meets a lock nobody can clear (a live restic on another machine), everything else real.
+    const locked = join(root, "restic-locked.sh");
+    writeFileSync(locked, `#!/bin/sh\nfor a in "$@"; do if [ "$a" = forget ]; then\n  echo 'unable to create lock in backend: repository is already locked by PID 4242 on potting-shed by gardener (UID 1000, GID 1000)' >&2\n  echo 'lock was created at 2026-05-02 08:40:00 (20m ago)' >&2\n  exit ${LOCKED_EXIT}\nfi; done\nexec ${RESTIC} "$@"\n`, { mode: 0o755 });
+    const real = await served(machine("greenhouse"));
+    const c = { ...real, restic: locked };
+    const announced: string[] = [];
+    const o = { drill: false, announce: async (i: { key: string }[]) => { announced.push(...i.map(x => x.key)); }, heartbeat: async () => {} };
+    let now = T0;
+    const run = async (cfg: BackupConfig, blocks: string[]) => { await write(cfg, "seeds", blocks); now += 900_000; return runAll(cfg, { ...o, now: () => now }); };
+    expect((await run(c, ["Sow the chard"])).alert.incidents).toEqual([]);
+    expect(readBackupState(c.state).forget).toMatchObject({ ok: false, failures: 1 });
+    const second = await run(c, ["Thin the carrots"]);
+    expect(second.ok).toBe(true);   // the snapshots landed
+    expect(second.alert.incidents.map(i => i.key)).toEqual(["forget:greenhouse"]);
+    expect(announced).toEqual(["forget:greenhouse"]);
+    const status = statusLines(c, now).join("\n");
+    expect(status).toContain("old backups on greenhouse aren't pruned");
+    expect(status).toContain("PID 4242 on potting-shed");
+    // The lock goes: the next run forgets, and the incident clears.
+    const fixed = await run(real, ["Water the seedlings"]);
+    expect(fixed.alert.incidents).toEqual([]);
+    expect(readBackupState(c.state).forget).toMatchObject({ ok: true, failures: 0 });
+    expect(statusLines(c, now).join("\n")).toContain("old snapshots let go");
   }, 120_000);
 });
 

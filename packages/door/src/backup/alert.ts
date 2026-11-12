@@ -44,6 +44,11 @@ export interface OutlineState {
   relayed?: { via: string; at: string; why: string; uploaded: boolean; uploadError?: string };
 }
 
+export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; pruned?: boolean; cleared?: string }
+
+/** Forget failing this many runs in a row is an incident: one failure is a live lock the next run waits out. */
+export const FORGET_FAILS = 2;
+
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
 export interface Drill { at: string; ok: boolean; detail: string; via?: string }
 
@@ -62,6 +67,11 @@ export interface BackupState {
   outlines: Record<string, OutlineState>;
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
+  /**
+   * The last retention (restic forget, after an upload; PIE-1755): when, whether it worked, and how many runs in a row
+   * it failed since when, with restic's reason (a lock: who holds it). `cleared`: a stale lock it removed first.
+   */
+  forget?: ForgetState;
   drill?: Drill;
   /** A drill that was due and couldn't run (the repository out of reach, and the hub too): since when, and why. */
   drillWaiting?: { since: string; why: string };
@@ -120,6 +130,12 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
   if (s.host && late(s.host.failingSince)) {
     out.push({ key: `host:${machine}`, since: s.host.failingSince, title: `the outline host on ${machine} doesn't answer the backup job`,
       detail: `nothing has been copied since ${hhmm(s.host.failingSince)}: ${s.host.error}`, fix: s.host.fix });
+  }
+  const f = s.forget;
+  if (f && !f.ok && f.failures >= FORGET_FAILS) {
+    out.push({ key: `forget:${machine}`, since: f.since ?? f.at, title: `old backups on ${machine} aren't pruned`,
+      detail: `restic forget has failed ${f.failures} runs in a row since ${hhmm(f.since ?? f.at)}: ${f.error ?? "?"}; new snapshots still land, but none are let go, so the repository grows`,
+      fix: `${cmd.run}   (it clears a stale lock itself; a lock that stays is held by a live restic, named above; its log: ${cmd.log})` });
   }
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
     if (!q.waiting || !q.oldest || now - Date.parse(q.oldest) < NETMAIL_LATE_MS || !q.lastSeen || q.lastSeen <= q.oldest) continue;
