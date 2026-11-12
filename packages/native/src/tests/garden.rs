@@ -268,6 +268,8 @@ fn an_act_line_that_does_not_read_is_refused_in_words_and_recorded() {
         ("note.move", "Missing required `step`"),
         ("note.move step=sideways", "note.move: step is up, down, in, out, not sideways."),
         ("open id=shed tile=attic", "no tile attic here"),
+        // A row declares only the arguments its action reads: a press on a tree row opens, and nothing unsays that.
+        ("tree.pick id=shed open=false", "`open` is not an argument of tree.pick"),
     ] {
         let outcome = act(&mut app, line);
         assert!(!outcome.ok && outcome.said.contains(why) && outcome.kind == Some("invalid"), "{line:?}: {outcome:?}");
@@ -276,4 +278,28 @@ fn an_act_line_that_does_not_read_is_refused_in_words_and_recorded() {
     }
     assert_eq!(asked.borrow().len(), before, "nothing was asked of the host");
     assert!(act(&mut app, "open id=shed tile=reader").ok && act(&mut app, "open id=plot tile=role:reader").ok, "the reader is the one tile, by name or by role");
+}
+
+/// An agent's `bar.open` is a question. The actions are this window's own to list; the notes and a query's matches
+/// are the service's answers, which an act (answered at once) can't wait for: said, never an empty list that
+/// reads as "nothing matches".
+#[test]
+fn an_agent_s_bar_lists_the_actions_and_says_what_is_the_service_s_to_answer() {
+    let Garden { mut app, asked, .. } = garden(ok());
+    let agent = || Actor::Agent("compost-agent".into());
+    let before = asked.borrow().len();
+    for line in ["bar.open query=trash", "bar.open scope=actions query=trash"] {
+        let listed = app.act(line, agent());
+        assert!(listed.ok, "{line}: {listed:?}");
+        assert_eq!((listed.answer["scope"].as_str(), listed.answer["rows"][0]["act"].as_str(), listed.answer["rows"][0]["source"].as_str()), (Some("actions"), Some("note.trash"), Some("actions")), "{line}: the scope answered is the one its rows are from");
+    }
+    for (line, what) in [("bar.open scope=notes query=beans", "notes"), ("bar.open scope=query query=type=chore", "query")] {
+        let refused = app.act(line, agent());
+        assert!(!refused.ok && refused.said.contains(&format!("the bar's {what}")) && refused.said.contains("ep0ch find"), "{line}: {refused:?}");
+        assert!(refused.answer.is_null(), "no rows are answered, least of all none: {refused:?}");
+    }
+    assert_eq!((asked.borrow().len(), app.bar.open), (before, false), "nothing was asked of the host and the person's bar is as it was");
+    // The person's own bar on the same words is the service's search, as ever.
+    act(&mut app, "bar.open scope=notes query=beans");
+    assert_eq!(bar::rows(&app)[0].label, "found for beans");
 }

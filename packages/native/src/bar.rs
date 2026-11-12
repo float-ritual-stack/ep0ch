@@ -30,13 +30,16 @@ pub struct Source {
     /// A character that, typed first on the line of `all`, lists this source alone.
     pub prefix: Option<char>,
     pub icon: &'static Icon,
+    /// The source of its rows this window lists itself, asking the service nothing: what an agent's `bar.open`
+    /// answers at once. None: every row is the service's answer (its search, a query), which comes later.
+    pub here: Option<&'static str>,
 }
 
 pub static SOURCES: &[Source] = &[
-    Source { id: "all", about: "Actions and notes", placeholder: "An action, or words in a note · > for actions alone", prefix: None, icon: &glyphs::SEARCH },
-    Source { id: "actions", about: "Actions", placeholder: "An action's name or what it does; a whole act line runs as written", prefix: Some('>'), icon: &glyphs::SEARCH },
-    Source { id: "notes", about: "Notes", placeholder: "Words in a title or a note", prefix: None, icon: &glyphs::SEARCH },
-    Source { id: "query", about: "Query", placeholder: "type=letter mail=waiting · any property, as views read it", prefix: None, icon: &FILTER },
+    Source { id: "all", about: "Actions and notes", placeholder: "An action, or words in a note · > for actions alone", prefix: None, icon: &glyphs::SEARCH, here: Some("actions") },
+    Source { id: "actions", about: "Actions", placeholder: "An action's name or what it does; a whole act line runs as written", prefix: Some('>'), icon: &glyphs::SEARCH, here: Some("actions") },
+    Source { id: "notes", about: "Notes", placeholder: "Words in a title or a note", prefix: None, icon: &glyphs::SEARCH, here: None },
+    Source { id: "query", about: "Query", placeholder: "type=letter mail=waiting · any property, as views read it", prefix: None, icon: &FILTER, here: None },
 ];
 
 pub fn source(id: &str) -> Option<&'static Source> { SOURCES.iter().find(|source| source.id == id) }

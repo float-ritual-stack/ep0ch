@@ -7,7 +7,7 @@ use super::{Action, Actor, App, Outcome, draft, word};
 use crate::actline::Args;
 use crate::bar;
 
-static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, the outline's notes by the service's search; scope=actions|notes|query lists one source (query: the views' grammar, with the facets its matches carry). The person's opens it; an agent's answers the rows for its own query= and scope= and opens nothing")
+static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, the outline's notes by the service's search; scope=actions|notes|query lists one source (query: the views' grammar, with the facets its matches carry). The person's opens it; an agent's opens nothing: it answers the action rows for its own query=, and is refused the notes and a query's matches, which are the service's to ask")
     .args(&[
         ("query", ArgSpec::text("what's typed in it").optional()),
         ("scope", ArgSpec::text("one source: actions, notes or query; all (the default) lists actions, then notes").optional()),
@@ -27,7 +27,7 @@ static CLOSE: ActionRow = ActionRow::new("bar.close", Touches::Nothing, "put the
     .keys(&[KeyRow::on("escape", "bar", "put the bar away")])
     .menu(&[MenuRow::new("Close", "Bar", Some("escape"))]);
 
-static PICK: ActionRow = ActionRow::new("bar.pick", Touches::Nothing, "pick a row of the command bar (n= from 1, default the lit one; or source= and key=): a note opens, an action runs, one that needs arguments is put on the line to finish. The person's picks from their open bar and puts it away; an agent's names the row (source= key=) and runs it as itself")
+static PICK: ActionRow = ActionRow::new("bar.pick", Touches::Nothing, "pick a row of the command bar (n= from 1, default the lit one; or source= and key=): a note opens, an action runs, one that needs arguments is put on the line to finish. The person's picks from their open bar and puts it away; an agent's names an action's row (source=actions key=) and runs it as itself")
     .args(&[
         ("n", ArgSpec::number("the row, from 1").optional()),
         ("source", ArgSpec::text("with key=: the row by its source and key, whatever its number now").optional()),
@@ -57,9 +57,14 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         return Outcome::refused(format!("the bar has no source {scope}: {}", bar::SOURCES.iter().map(|s| s.id).collect::<Vec<_>>().join(", ")));
     };
     if !by.is_person() {
-        // An agent's is a question, not the person's bar: the rows its words list, from what is already known here.
-        let rows = bar::rows_for(app, source.id, args.text("query").unwrap_or(""));
-        return Outcome::answer(json!({ "scope": source.id, "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() }));
+        // An agent's is a question, not the person's bar, and an act answers at once: it lists what this window
+        // lists itself. Rows that are the service's answers (its search, a query) would not be here yet, and an
+        // empty list would read as "nothing matches": said instead, with where to ask.
+        let Some(here) = source.here else {
+            return Outcome::refused(format!("the bar's {} source is the service's to answer, and an act answers at once: ask the service yourself (`ep0ch find`) · scope=actions lists the actions here", source.id));
+        };
+        let rows = bar::rows_for(app, here, args.text("query").unwrap_or(""));
+        return Outcome::answer(json!({ "scope": here, "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() }));
     }
     // Opened again on the same source with nothing said, the words typed stay.
     let text = args.text("query").map(str::to_string).unwrap_or_else(|| if app.bar.open && app.bar.scope == source.id { app.bar.edit.text.clone() } else { String::new() });
