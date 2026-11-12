@@ -10,6 +10,7 @@
 //! - `actline.rs`: the act-line grammar and the action rows against outline-core's fixtures.
 //! - `control.rs`: an agent over the control socket.
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
+//! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -17,6 +18,7 @@ mod control;
 mod garden;
 mod live;
 mod one_owner;
+mod owners;
 mod parity;
 mod shell;
 mod store;
