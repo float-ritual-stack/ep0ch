@@ -130,9 +130,14 @@ fn a_list_the_service_refuses_says_why_on_its_tile() {
 /// when the extension is installed its watched list moves, and the window opens on the screen that says start.
 #[test]
 fn with_no_screens_extension_the_window_says_so_and_opens_when_it_is_installed() {
-    let mut g = garden_on(ok(), false);
+    let g = garden_on(ok(), false);
     assert!(g.app.screen.is_nowhere() && g.app.layout.all().is_empty() && g.app.kinds().is_empty());
     assert!(g.app.notice.as_ref().is_some_and(|n| n.said.contains("no screens to open")), "{:?}", g.app.notice);
+    // Drawn, it is a window with no tile and the notice that says why; the bar still opens.
+    let (shipped, screens, asked, said) = (g.shipped.clone(), g.screens.clone(), g.asked.clone(), g.said.clone());
+    let mut rt = window(g.app);
+    assert!(rt.find("notice").is_some() && keyed(&rt, "tile/").is_empty());
+    let mut g = Garden { app: rt.state, asked, said, screens, shipped };
     // The bar still lists what this window has of its own, and the service's own words for the screens.
     assert!(act(&mut g.app, "bar.open scope=screens").ok);
     assert!(crate::bar::rows(&g.app).is_empty());

@@ -200,7 +200,9 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
     // Why there is no list: the service's own words when it refused, else what the tile is waiting for.
     if let Some(refusal) = ask.as_ref().and_then(|ask| cx.store().refusal(ask)) { return col().key(cx.key("refused")).w_full().padding(12.0).child(text(refusal.error.clone()).font(k.ty.small).color(k.c.warning.fg).wrap()) }
     let Some(answer) = cx.app.list_of(cx.id) else {
-        return said(cx, if ask.is_some() || cx.app.online { "Calling the outline…" } else { "Offline: nothing is listed." }, k);
+        // A list about the note another tile shows has nothing to ask while no note is open there.
+        let waiting = if ask.is_none() && cx.app.follows(cx.id) && cx.app.followed_by(cx.id).is_none() { "Nothing is open to list anything about." } else if cx.app.online { "Calling the outline…" } else { "Offline: nothing is listed." };
+        return said(cx, waiting, k);
     };
     let answer = Rc::new(answer.clone());
     let mut body = col().w_full().h_full().min_h(0.0);
