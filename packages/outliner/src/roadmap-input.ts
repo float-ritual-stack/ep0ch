@@ -4,6 +4,7 @@
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { Refusal } from "@ep0ch/outline-core/refusal";
+import type { Database } from "bun:sqlite";
 import type { RoadmapItemPriority, RoadmapWorkStage } from "./types";
 
 export const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
@@ -97,4 +98,21 @@ export class RoadmapProblems {
   throwIfAny(): void {
     if (this.list.length) throw new Refusal("invalid", `can't file it yet: ${this.list.join("; ")}`);
   }
+}
+
+/**
+ * The project's one work queue, or the problem said (PIE-1760, PIE-1765): none for the project, more than one, or,
+ * with no project named, none in the outline at all, so a first `work create` names it with the rest.
+ */
+export function workQueueFor(database: Database, project: string | undefined, problems: RoadmapProblems): string | undefined {
+  const make = (name: string) => `a note with [type::work-queue] [project::${name}] (ep0ch new "Work [type::work-queue] [project::${name}]")`;
+  if (project === undefined) {
+    if (!database.query("SELECT 1 FROM block_properties WHERE scope = 'block' AND key = 'type' AND value = 'work-queue' LIMIT 1").get()) problems.add(`no work queue yet: one per project, ${make("<project>")}`);
+    return undefined;
+  }
+  const queues = database.query(
+    "SELECT DISTINCT block.id FROM blocks block JOIN block_properties type_property ON type_property.block_id = block.id AND type_property.scope = 'block' AND type_property.key = 'type' AND type_property.value = 'work-queue' JOIN block_properties project_property ON project_property.block_id = block.id AND project_property.scope = 'block' AND project_property.key = 'project' AND project_property.value = ? WHERE block.effective_deleted_root_id IS NULL ORDER BY block.id",
+  ).all(project) as Array<{ id: string }>;
+  if (queues.length !== 1) problems.add(queues.length ? `${queues.length} work queues for project ${project}; keep one` : `no work queue for project ${project}: make one, ${make(project)}`);
+  return queues[0]?.id;
 }

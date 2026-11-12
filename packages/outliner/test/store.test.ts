@@ -1963,7 +1963,9 @@ Second paragraph`;
     expect(malformed.properties).toContainEqual({ key: "work-id", value: "PIE-x" });
     expect(unpadded.properties).toContainEqual({ key: "work-id", value: "PIE-7" });
     expect(store.resolvePageAddress("OTHER-001").status).toBe("missing");
-    expect(store.resolvePageAddress("PIE-7").status).toBe("missing");
+    // A hand-written unpadded chip of the outline's own prefix is found by its number (PIE-1761); another prefix isn't.
+    expect(store.resolvePageAddress("PIE-7").block?.id).toBe(unpadded.id);
+    expect(store.resolvePageAddress("PIE-007").block?.id).toBe(unpadded.id);
     expect(allocation.workId).toBe("PIE-124");
     expect(() =>
       store.allocateWorkId(existing.id, existing.revision)
@@ -1979,6 +1981,18 @@ Second paragraph`;
     );
     store.create("Manual future [work-id::PIE-200]");
     expect(store.workIdAllocatorStatus().nextWorkId).toBe("PIE-201");
+  });
+
+  test("a purged Work ID's number isn't taken by an unpadded chip, for its address or a ticket's stage (CodeRabbit on #1463)", () => {
+    const store = makeStore();
+    store.configureWorkIdPrefix("PIE");
+    const first = store.create("First owner [work-id::PIE-007]");
+    store.delete(first.id);
+    store.purge(first.id, "PIE-007");
+    const later = store.create("Later note [type::roadmap-item] [work-stage::doing] [work-id::PIE-7]");
+    expect(store.resolvePageAddress("PIE-7").block?.id).not.toBe(later.id);
+    const ask = store.create("Ask about it [type::request] [ticket::PIE-007]");
+    expect(store.require(ask.id).properties.find(p => p.key === "ticket-stage")).toBeUndefined();
   });
 
   test("dirty Work-ID properties never block startup", () => {

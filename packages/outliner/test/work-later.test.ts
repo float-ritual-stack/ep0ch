@@ -78,6 +78,18 @@ test("the cut parks only the stale item nobody holds; a decided, a high and a 3-
   expect(moved.warning).toStartWith("parked though high priority");
 });
 
+// CodeRabbit on #1463: a one-line comment's words lose only its chips, by the shared parser; a code literal stays.
+test("a one-line comment's words keep a property written as code", async () => {
+  const { store, seed, c } = await garden();
+  const parked = seed("Edge the lawn", { stage: "later", days: 90 });
+  const fresh = store.require(parked.id), [head, ...rest] = fresh.text.split("\n");
+  store.update(parked.id, [head, `[wreckage::${ago(10).slice(0, 10)}]`, ...rest].join("\n"), fresh.revision);
+  store.create("Please keep `[work-stage::later]` as written [type::annotation]", parked.id);
+  await revive(c, { jev: false, apply: true });
+  expect(store.require(parked.id).text).toContain("nudged: a comment");
+  expect(store.require(parked.id).text).toContain("Please keep `[work-stage::later]` as written ((");
+});
+
 test("a parked item comes back when a new note links it, with a line saying why; one nobody asked for stays", async () => {
   const { store, seed, c, stage, records } = await garden();
   const wanted = seed("Net the strawberries", { stage: "later", days: 90 });
@@ -108,8 +120,10 @@ test("a parked item comes back when a new note links it, with a line saying why;
   expect(back).toContain("**Back from later,");
   expect(back.split("\n").every(l => !/^\s+\[\w[\w-]*::/.test(l))).toBe(true);
   expect(back).toContain("named in a note since");
-  expect(back).toContain(`((${note.id}))`);
+  expect(back).toContain(`((${note.id}|the note))`);   // labelled: the line has its words already (PIE-1765)
   expect(store.require(nudged.id).text).toContain("nudged: a comment");
+  // The comment's words once, in the line; its link is labelled, so a reader doesn't draw them twice (PIE-1765).
+  expect(store.require(nudged.id).text).toMatch(/still want this before winter \(\([0-9a-f-]+\|the comment\)\)/);
   expect(stage(wrong.id)).toBe("later");
   // As the Oct 25 audit restored: `wreckage` means parked now, so it comes off and `restored` says when and why.
   expect(store.require(wanted.id).properties.find(p => p.key === "wreckage")).toBeUndefined();

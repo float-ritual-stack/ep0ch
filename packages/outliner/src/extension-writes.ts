@@ -696,7 +696,8 @@ export function followSpan(base: string, current: string, span: { start: number;
       // The span's own line changed: follow it word by word inside that hunk.
       if (h.start > span.start || h.end < span.end) return { reason: "it was changed or taken out in the draft" };
       const inner = followWords(base.slice(h.start, h.end), h.text, { start: span.start - h.start, end: span.end - h.start });
-      if ("reason" in inner) return inner;
+      // The real cause first (PIE-1765): the chip's text now sitting in a link's label says so, not "changed".
+      if ("reason" in inner) return occurrencesIn(h.text, span.observed).some(at => insideLink(current, h.start + delta + at, h.start + delta + at + span.observed.length)) ? { reason: "it is inside a link in the draft" } : inner;
       at = { start: h.start + delta + inner.start, end: h.start + delta + inner.end };
       break;
     }
@@ -707,10 +708,32 @@ export function followSpan(base: string, current: string, span: { start: number;
   if (chip) {
     const record = parsePropertyRecords(current).find(r => r.start === at!.start && r.end === at!.end);
     if (!record || record.key !== chip.key || record.value !== chip.value) return { reason: "it isn't a property in the draft any more (code, or another chip)" };
-    if (linkOccurrences(current).some(link => link.start <= at!.start && at!.end <= link.end)) return { reason: "it is inside a link in the draft" };
+    if (insideLink(current, at.start, at.end)) return { reason: "it is inside a link in the draft" };
   }
   return at;
 }
+
+/**
+ * Whether `[start, end)` of `text` sits inside a link: one outline-core's link grammar finds, or a Markdown link's label
+ * holding it (`[use [kind::seed]](…)`, which the grammar's one-level label doesn't).
+ */
+function insideLink(text: string, start: number, end: number): boolean {
+  if (linkOccurrences(text).some(link => link.start <= start && end <= link.end)) return true;
+  // An unmatched `[` before it on the line, and an unmatched `]` after it that opens a `(`: a label holding it.
+  let open = -1, close = -1;
+  for (let i = start - 1, depth = 0; i >= 0 && text[i] !== "\n"; i--) {
+    if (text[i] === "]") depth++;
+    else if (text[i] === "[") { if (!depth) { open = i; break; } depth--; }
+  }
+  for (let j = end, depth = 0; j < text.length && text[j] !== "\n"; j++) {
+    if (text[j] === "[") depth++;
+    else if (text[j] === "]") { if (!depth) { close = j; break; } depth--; }
+  }
+  return open >= 0 && close >= 0 && text[close + 1] === "(";
+}
+
+/** Every offset `needle` starts at in `text`. */
+const occurrencesIn = (text: string, needle: string): number[] => { const out: number[] = []; for (let at = text.indexOf(needle); at >= 0 && needle; at = text.indexOf(needle, at + 1)) out.push(at); return out; };
 
 /** A span of `before` placed in `after` by a word-sized diff, or refused when an edit is in it or pressed against it. */
 function followWords(before: string, after: string, span: { start: number; end: number }): { start: number; end: number } | { reason: string } {

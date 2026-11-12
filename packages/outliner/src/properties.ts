@@ -139,7 +139,18 @@ function patchChipText(text: string, operations: PropertyPatchOperation[]): stri
 
   let patched = text;
   for (const mutation of mutations.sort((left, right) => right.start - left.start)) {
-    patched = patched.slice(0, mutation.start) + mutation.replacement + patched.slice(mutation.end);
+    let { start, end } = mutation;
+    if (!mutation.replacement) {
+      // A chip taken out leaves no doubled space (one between two others goes with it) and no empty line where it stood
+      // alone (PIE-1765), so a restored ticket reads as it did before it was parked. Other source stays as written.
+      const lineStart = patched.lastIndexOf("\n", start - 1) + 1, next = patched.indexOf("\n", end), lineEnd = next < 0 ? patched.length : next;
+      const chipsAfter = /^(?:[ \t]*\[[^\]\n]*::[^\]\n]*\])+[ \t]*$/.test(patched.slice(end, lineEnd));
+      if (chipsAfter && /[ \t]/.test(patched[start - 1] ?? "") && /[ \t]/.test(patched[end] ?? "")) start -= 1;
+      if (!(patched.slice(lineStart, start) + patched.slice(end, lineEnd)).trim()) {
+        if (next >= 0) { start = lineStart; end = next + 1; } else if (lineStart > 0) { start = lineStart - 1; end = lineEnd; }
+      }
+    }
+    patched = patched.slice(0, start) + mutation.replacement + patched.slice(end);
   }
   if (appends.length === 0) return patched;
 

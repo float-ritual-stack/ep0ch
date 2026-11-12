@@ -771,6 +771,32 @@ describe("draft.patch over the protocol", () => {
     expect(c.text).toBe("Seed\n[priority::high]\n[kind::sprout]\n\nWater daily.");
   });
 
+  // PIE-1765: a refusal names its real cause, and the next step for whoever asked.
+  test("a chip made into a link's label is refused as inside a link; the person is told to save first, an agent to read again", async () => {
+    const { store, client } = await service();
+    const label = store.create("Seed [kind::seed]");
+    await fakeDoor(client, "door-label-words", label.id, "Seed [use [kind::seed]](https://example.test)", label.revision);
+    const sprout = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request({ action: "properties.patch", blockId: label.id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation });
+    await expect(sprout({ author: "user" })).rejects.toThrow(/inside a link in the draft.*save the edit open on it, or put it aside, then run this again/);
+    await expect(sprout(TIDY)).rejects.toThrow(/inside a link in the draft.*read it again/);
+    expect(store.require(label.id).text).toBe(label.text);
+    // One chip among several in the label is inside it too.
+    const run = store.create("Rake leaves [type::task] [kind::seed] [owner::fern]");
+    await fakeDoor(client, "door-label-run", run.id, "Rake leaves [use [type::task] [kind::seed] [owner::fern]](https://example.test)", run.revision);
+    await expect(client.request({ action: "properties.patch", blockId: run.id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation: { author: "user" } })).rejects.toThrow(/inside a link in the draft/);
+  });
+
+  test("a restore leaves the ticket as clean as before it was parked: no empty line, no doubled space, the comment's words once", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Fix the roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01] [work-id::GATE-2]\n[parked-at::2026-10-01T00:00:00.000Z]\n\nTar paper first.");
+    const comment = store.create("Still want this before winter [type::annotation]", ticket.id);
+    const back = await restore(client as never, ticket.id, "nudged: a comment 2026-11-12: Still want this before winter", comment.id, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
+    expect(back.text).not.toContain("\n\n\n");
+    expect(back.text).not.toContain("  ");
+    expect(back.text.split("\n")[0]).toBe("Fix the roof [type::roadmap-item] [work-stage::queued] [work-id::GATE-2]");
+    expect(back.text).toContain(`**Back from later, 2026-11-12:** nudged: a comment 2026-11-12: Still want this before winter ((${comment.id}|the comment))`);
+  });
+
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();
     const note = store.create("Morning plan");

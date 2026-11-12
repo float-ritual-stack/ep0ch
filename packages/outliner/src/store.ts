@@ -489,13 +489,14 @@ import type { AgentRequestStatus } from "./schema";
 import {
   ROADMAP_CREATE_STAGES,
   ROADMAP_PRIORITIES,
-  RoadmapProblems,
+  RoadmapProblems, workQueueFor,
   assertNoReservedRoadmapProperties,
   normalizeRoadmapRelationshipId,
   normalizeRoadmapRelationshipIds,
   normalizeRoadmapText,
   normalizeRoadmapValues,
 } from "./roadmap-input";
+import { workIdOwner } from "./work-id-owner";
 import { boundedTreeLabel, compactTreeBlock, treeIndexMembers, treeIndexOf, type TreeLabels } from "./tree-index-labels";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
@@ -1257,14 +1258,10 @@ export class OutlinerStore {
     const wave = input.wave === undefined ? undefined : normalizeRoadmapText(input.wave, "Roadmap wave");
     if (title !== undefined) assertNoReservedRoadmapProperties(title, body);
 
-    const workQueues = project === undefined ? [] : this.database.query(
-      "SELECT DISTINCT block.id FROM blocks block JOIN block_properties type_property ON type_property.block_id = block.id AND type_property.scope = 'block' AND type_property.key = 'type' AND type_property.value = 'work-queue' JOIN block_properties project_property ON project_property.block_id = block.id AND project_property.scope = 'block' AND project_property.key = 'project' AND project_property.value = ? WHERE block.effective_deleted_root_id IS NULL ORDER BY block.id",
-    ).all(project) as Array<{ id: string }>;
-    if (project !== undefined && workQueues.length !== 1) problems.add(workQueues.length ? `${workQueues.length} work queues for project ${project}; keep one` : `no work queue for project ${project}: make one, a note with [type::work-queue] [project::${project}] (ep0ch new "Work [type::work-queue] [project::${project}]")`);
+    const workQueueId = workQueueFor(this.database, project, problems);
     const allocator = this.workIdAllocatorFromCurrentRead();
     if (!allocator) problems.add("no Work-ID prefix: ep0ch work prefix <PREFIX> sets one (GATE makes GATE-001, GATE-002…)");
     problems.throwIfAny();
-    const workQueueId = workQueues[0]!.id;
     for (const blockId of [...dependsOn, ...relatedTo, ...(sourceBlockId ? [sourceBlockId] : [])]) {
       const target = this.getFromCurrentRead(blockId);
       if (!target) throw new Error(`Relationship target not found: ${blockId}`);
@@ -1273,7 +1270,7 @@ export class OutlinerStore {
       }
     }
 
-    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator:allocator!};
+    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId:workQueueId!,allocator:allocator!};
   }
 
   createRoadmapItem(
@@ -1911,7 +1908,7 @@ export class OutlinerStore {
       const stage = roadmapStageOf(text);
       if (stage !== null) return stage;
     }
-    return null;
+    const owner = row.length ? null : this.numberedOwnerFromCurrentRead(workId); return owner && !owner.effectiveDeletedRootId ? roadmapStageOf(owner.text) : null; // a chip written unpadded (PIE-1761)
   }
 
   /**
@@ -2349,6 +2346,7 @@ export class OutlinerStore {
     return pages;
   }
 
+  private numberedOwnerFromCurrentRead(workId: string): Block | null { const wanted = parseWorkId(workId), id = wanted && this.workIdAllocatorFromCurrentRead()?.prefix === wanted.prefix ? workIdOwner(this.database, wanted.workId) : null, reserved = id ? this.reservedWorkIdOwnerFromCurrentRead(wanted!.workId) : undefined; return id && (reserved === undefined || reserved === id) ? this.getFromCurrentRead(id) : null; } // `workId`'s note by its number, however its chip writes it, own prefix, a number no other note's reservation holds (PIE-1761): the resolver's and the stage follow's one answer
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
     if (!TICKET_KEY.test(normalized)) return null;
@@ -3336,7 +3334,7 @@ export class OutlinerStore {
       WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL
     `).all() as Array<{ value: string }>;
     const parsed = rows.map(row => parseWorkId(row.value)).filter((id): id is NonNullable<typeof id> => id !== null);
-    const same = parsed.filter(id => id.prefix === wanted.prefix)
+    const same = parsed.filter(id => id.prefix === wanted.prefix && id.number !== wanted.number)
       .sort((a, b) => Math.abs(a.number - wanted.number) - Math.abs(b.number - wanted.number) || a.number - b.number).slice(0, 3);
     if (same.length) return `${wanted.workId} isn't in this outline; did you mean ${same.map(id => id.workId).join(", ")}?`;
     const prefixes = [...new Set(parsed.map(id => id.prefix))].sort();
@@ -5683,6 +5681,7 @@ export class OutlinerStore {
   ): PageAddressResolution {
     const exact = this.resolvePageAddressFromCurrentRead(normalized);
     if (exact.status !== "missing") return exact;
+    const numbered = parseWorkId(normalized.displayAddress), owner = numbered ? this.numberedOwnerFromCurrentRead(numbered.workId) : null; if (owner) return { address: normalized.displayAddress, normalizedAddress: normalized.normalizedAddress, status: owner.effectiveDeletedRootId ? "deleted" : "resolved", registeredAddress: numbered!.workId, kind: "work-id", block: owner, ...(owner.effectiveDeletedRootId ? { deletionRootId: owner.effectiveDeletedRootId } : {}) };
     const allocator = this.workIdAllocatorFromCurrentRead();
     if (!allocator) return exact;
     const embeddedWorkIds = workIdReferences(normalized.displayAddress, allocator.prefix);

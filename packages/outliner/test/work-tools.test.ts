@@ -93,7 +93,7 @@ test("work create on a fresh outline names everything it's missing in one answer
   expect(first.error).toContain("ep0ch work prefix");
   const bare = await h.run(["work", "create"]);
   expect(bare.exitCode).toBe(1);
-  for (const missing of ["no title (--title)", "no project (--project)", "no priority", "--arc", "--track", "no Work-ID prefix"]) expect(bare.error).toContain(missing);
+  for (const missing of ["no title (--title)", "no project (--project)", "no priority", "--arc", "--track", "no work queue yet", "no Work-ID prefix"]) expect(bare.error).toContain(missing);
   // Set up as the answer says, then it files, --json and all.
   const prefixed = await h.run(["work", "prefix", "GATE"]);
   expect(prefixed.json).toMatchObject({ prefix: "GATE" });
@@ -101,6 +101,23 @@ test("work create on a fresh outline names everything it's missing in one answer
   const filed = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--arc", "floor", "--track", "garden", "--priority", "medium", "--json"]);
   expect(filed.exitCode).toBe(0);
   expect(filed.json.workId).toMatch(/^GATE-/);
+});
+
+// PIE-1761: a Work ID typed without its padding finds the ticket, whichever way its chip writes it.
+test("PIE-7 and PIE-007 find a ticket whose chip says PIE-7, and the one whose chip says PIE-008", async () => {
+  const h = await setup();
+  const short = h.store.create("Mend the gate [type::roadmap-item] [work-stage::queued] [work-id::PIE-7]");
+  const padded = h.store.create("Oil the hinge [type::roadmap-item] [work-stage::queued] [work-id::PIE-008]");
+  for (const [address, id] of [["PIE-7", short.id], ["PIE-007", short.id], ["pie-7", short.id], ["PIE-8", padded.id], ["PIE-008", padded.id]] as const) {
+    expect(h.store.resolvePageAddress(address)).toMatchObject({ status: "resolved", block: { id } });
+  }
+  const staged = await h.run(["work", "stage", "PIE-7", "doing"]);
+  expect({ code: staged.exitCode, error: staged.error }).toEqual({ code: 0, error: "" });
+  expect(h.store.require(short.id).text).toContain("[work-stage::doing]");
+  // A number nothing has: the did-you-mean names others, never the id that was typed, padded.
+  const missing = await h.run(["work", "stage", "PIE-9", "doing"]);
+  expect(missing.exitCode).toBe(1);
+  expect(missing.error).not.toContain("PIE-009?");
 });
 
 test("an item is created, staged and read back by Work ID with its revision", async () => {
@@ -631,9 +648,13 @@ test("a service older than this client is refused with a restart instruction", a
   const root = mkdtempSync(join(tmpdir(), "outliner-work-old-"));
   const { env, socket } = scratchOutline(root);
   Bun.spawnSync(["mkdir", "-p", join(socket, "..")]);
+  // An older host refuses a request on another protocol, as every host since PIE-1747 does (8008353b9 dropped the CLI's
+  // ping-first, and this stand-in still answered every request as a ping, so the CLI read a ping as a lookup: PIE-1759).
   const old = createServer((connection) => connection.on("data", (chunk) => {
-    const { id } = JSON.parse(String(chunk).split("\n")[0]!);
-    connection.end(`${JSON.stringify({ id, ok: true, result: { status: "ready", protocolVersion: 1 } })}\n`);
+    const { id, protocol } = JSON.parse(String(chunk).split("\n")[0]!);
+    connection.end(`${JSON.stringify(protocol !== undefined && protocol !== 1
+      ? { id, ok: false, kind: "invalid", error: `this client speaks protocol ${protocol} and the outline host protocol 1: restart the outline host on current code (ep0ch install --apply updates and restarts it)` }
+      : { id, ok: true, result: { status: "ready", protocolVersion: 1 } })}\n`);
   }));
   await new Promise<void>((resolve) => old.listen(socket, resolve));
   cleanups.push(async () => {
