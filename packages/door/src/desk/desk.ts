@@ -3960,7 +3960,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
-  private overlayOpen(): boolean { return !!this.overlays.top(); }
   /** The desk the person's keys are in: this one, or the focused group's or mounted screen's (its focused tile has them). */
   private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner && !this.contentCover(this.focus).fold ? f.inner.keysDesk() : this; }
   /**
@@ -3969,9 +3968,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   programKeys(): { typing: boolean; over: boolean; exited?: true } {   // exited: its tile waits for ⏎ or a way back (PIE-1563)
     const inner = this.keysDesk();
-    if (inner === this) return { typing: this.rawKeys() && !this.waitsOnExit(), over: this.overlayOpen(), ...(this.waitsOnExit() ? { exited: true as const } : {}) };
+    if (inner === this) return { typing: this.rawKeys() && !this.waitsOnExit(), over: this.overlaid(), ...(this.waitsOnExit() ? { exited: true as const } : {}) };
     const deeper = (this.panes.get(this.focus) as ScreenTile).inner!.programKeys();
-    return { ...deeper, over: deeper.over || this.overlayOpen() };
+    return { ...deeper, over: deeper.over || this.overlaid() };
   }
 
   /**
@@ -4943,7 +4942,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if ((k.kind !== "mouse" || k.action === "down") && k.kind !== "esc") this.pending = null;
     }
     if (this.arriving(this.focus) && (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && "jk".includes(k.ch))) this.run("tile.arrival.clear", {}, this.nameOf(this.focus));
-    if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.homeRect.col - 2, y: k.y - this.homeRect.row - 1 } : k, action => { void ctx.press?.(action); })) return;
+    if (!this.all().length && !this.overlaid() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.homeRect.col - 2, y: k.y - this.homeRect.row - 1 } : k, action => { void ctx.press?.(action); })) return;
     if (k.kind === "mouse" && this.completionFloat && !this.overlays.all().length) {
       const { completer, rect, origin } = this.completionFloat;
       if (completer.shown && k.x >= rect.col && k.x < rect.col + rect.cols && k.y >= rect.row && k.y < rect.row + rect.rows) {
@@ -4995,7 +4994,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
     // Not under an overlay of the desk's (the search, a picker): the row's keys aren't its.
     // While linking (alt+l), a click picks the tile, wherever in it: a tile's own spot (+ New note) doesn't take it.
-    const spot = this.overlayOpen() || this.linking ? undefined : this.spotAt(k);
+    const spot = this.overlaid() || this.linking ? undefined : this.spotAt(k);
     if (spot) {
       if (spot.run) return spot.run();
       // A tile's own (its empty state's + New note): pressed in that tile, as a click there focuses it first.
@@ -5012,7 +5011,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ? opens the focused tile's keys window at once; the strip's +N opens its hints (PIE-1425).
     if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
-    const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
+    const model = !this.overlaid() && [...this.models.values()].some(m => m.key?.(k));
     if (!model && !this.boundKey(k)) this.keyIn(k, ctx);
     this.afterKey();
   }

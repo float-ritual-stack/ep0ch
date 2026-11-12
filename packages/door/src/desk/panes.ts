@@ -177,8 +177,6 @@ export interface DeskApi {
   travelTrail?(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null;
   /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
   within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
-  /** The person's key running a screen action in tile `p` (a refusal said, as any key's). */
-  perform?(action: string, args: Record<string, unknown>, by?: Actor, p?: Pane | string): Promise<unknown>;
   /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
   coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
   /** The tile named `name` on this screen. */

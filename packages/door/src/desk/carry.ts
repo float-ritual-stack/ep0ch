@@ -5,7 +5,7 @@
 // The keys are decided once: they follow the tile when they were in it, the actor stands for the person, and the
 // destination takes them (the glass doesn't).
 import { travelsOf, type Travels } from "./carry-rules";
-import { apply, type At, type Ctx, type LayoutState, type Result } from "./screen-layout";
+import { apply, freeName, type At, type Ctx, type LayoutState, type Result } from "./screen-layout";
 
 type Ok<I> = Extract<Result<I>, { ok: true }>;
 
@@ -27,13 +27,7 @@ export type Carried<I> =
   | { ok: true; from: Ok<I>; to: Ok<I>; name: string; travels: Travels; dropped: string[]; keys: boolean }
   | { ok: false; side: "from" | "to"; refused: string };
 
-/** `base`, else `base2`, `base3` …: the first name `taken` doesn't hold. The one rule for a tile's name where it arrives. */
-export function freeName(taken: Iterable<string>, base: string): string {
-  const all = new Set(taken);
-  let n = base;
-  for (let i = 2; all.has(n); i++) n = `${base}${i}`;
-  return n;
-}
+export { freeName };   // the one rule for a tile's name where it arrives
 
 /** Carry tile `req.tile` from `from` to `to`: both answers, or the refusal and the side that gave it (nothing changes). */
 export function carry<I>(from: CarrySide<I>, to: CarrySide<I>, req: CarryRequest<I>): Carried<I> {
