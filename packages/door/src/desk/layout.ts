@@ -644,6 +644,17 @@ export function pairSide<I>(root: LNode<I>, id: I): Dir | "tab" | null {
   if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
   return p.parent.dir === "row" ? (p.i === 0 ? "left" : "right") : (p.i === 0 ? "up" : "down");
 }
+/**
+ * Where tile `to` is from tile `from` as the person sees them (PIE-1768): a tab (behind `from`, or not the one its set
+ * shows), else the side of `from` its rect is on, from their rects (`rects`, as the desk drew them), however deep the
+ * splits between them nest. Null when neither is clearly so (overlapping, or a rect missing).
+ */
+export function sideOf<I>(root: LNode<I>, rects: ReadonlyMap<I, { col: number; row: number; cols: number; rows: number }>, from: I, to: I): Dir | "tab" | null {
+  const tabs = tabsOf(root, to), a = rects.get(from), b = rects.get(to);
+  if (tabs && (tabs.ids.includes(from) || tabs.ids[tabs.active] !== to)) return "tab";
+  if (!a || !b) return tabs ? "tab" : null;
+  return b.col >= a.col + a.cols ? "right" : b.col + b.cols <= a.col ? "left" : b.row >= a.row + a.rows ? "down" : b.row + b.rows <= a.row ? "up" : null;
+}
 export function tabsOf<I>(n: LNode<I>, id: I): Tabs<I> | null {
   if (n.t === "leaf") return null;
   if (n.t === "tabs") return n.ids.includes(id) ? n : null;

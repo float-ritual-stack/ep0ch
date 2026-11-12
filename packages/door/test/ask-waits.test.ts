@@ -49,6 +49,8 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       type: (text: string) => { tmux("send-keys", "-t", "door", "-l", text); },
       flat: () => capture().replace(/\s+/g, ""),
       close: () => { tmux("kill-session", "-t", "door"); },
+      /** An agent's `ep0ch act` in this door, through its control socket. */
+      act: (...args: string[]) => Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), "act", ...args, "--as", "walker"], { env, stdout: "pipe", stderr: "pipe" }),
     };
   }
 
@@ -284,8 +286,48 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       p.type(`\x1b[<0;${col};${at + 1}M`); p.type(`\x1b[<0;${col};${at + 1}m`);
       await until(() => tile().includes("counted: bed two"), "the tile on the second ask", 10_000).catch(fail);
       await until(() => rows()[0]!.endsWith("· show ▸") && rows()[1]!.endsWith("· beside ▸"), "only the second row beside", 5000).catch(fail);
+      // A click on the first row's `show ▸` shows its answer in the tile, not its callout's source in the edit (PIE-1768).
+      const again = p.capture().split("\n"), first = again.findIndex(l => (l.split(/[║│]/)[1] ?? "").includes(`${ask} · answered · show ▸`));
+      const word = again[first]!.indexOf("show ▸") + 2;
+      p.type(`\x1b[<0;${word};${first + 1}M`); p.type(`\x1b[<0;${word};${first + 1}m`);
+      await until(() => tile().includes("counted: bed one") && rows()[0]!.endsWith("· beside ▸"), "the tile on the first ask", 10_000).catch(fail);
+      expect(edit().join("\n")).not.toContain("> [!note]");
     } finally { p.close(); }
   }, 45_000);
+
+  // PIE-1768 (the verifier on #1466): past a pair the row said `show ▸` beside its own visible tile: a third tile opened
+  // beside made the tree row[detail, row[answer, detail2]], and a group did the same (pairSide answers a direct pair only).
+  test("four tiles and a group: the row names the side its answer tile is on", async () => {
+    const title = "Runner beans";
+    const id = await create(`${title}\npinch the tips`), other = await create("Compost bay\nturn it monthly");
+    const p = await pane(id, title, 177, 40);
+    const fail = (e: Error) => { throw new Error(`${e.message}\n${p.capture()}`); };
+    const row = () => (p.capture().split("\n").map(l => l.split(/[║│]/)[1] ?? "").find(l => l.includes("@tally the tips")) ?? "").trim();
+    try {
+      p.keys("e"); p.keys("e");
+      await until(() => p.capture().includes("» editing"), "the edit");
+      p.keys("C-End", "Enter"); p.type("@tally the tips"); p.keys("Enter");
+      await until(() => row().endsWith("· beside ▸") && p.capture().includes("counted: the tips"), "the answer beside", 15_000).catch(fail);
+      // A third tile opened beside (an agent's open, as Evan's desk grows): the tile is still right of the reader.
+      const opened = p.act("open", `id=${other}`);
+      expect(opened.exitCode, opened.stderr.toString()).toBe(0);
+      await until(() => p.capture().includes("Compost bay"), "the third tile").catch(fail);
+      await until(() => row().endsWith("· beside ▸"), "the row still beside, past the pair", 5000).catch(fail);
+      expect(row()).not.toContain("show ▸");
+      // Gathered with its answer (^W space, shift-click the tile's title, ^W G): still beside, inside the group.
+      p.keys("C-w"); p.keys("Space");
+      const lines = p.capture().split("\n"), col = lines[0]!.indexOf("@tally the tips") + 2;
+      p.type(`\x1b[<4;${col};1M`); p.type(`\x1b[<4;${col};1m`);
+      p.keys("C-w"); p.keys("G");
+      await until(() => p.capture().includes("group · ■ spill"), "the group").catch(fail);
+      // The group's reader is 51 wide: the side word gives way to the count beside the line (as at 44), never to show ▸.
+      await until(() => p.capture().includes("counted: the tips") && row().includes("· answer in the note"), "the row inside the group", 5000).catch(fail);
+      expect(row()).not.toContain("show ▸");
+      // Zoomed in the group (^W z), the row has room: it names the tile, which zoom hides, by its number.
+      p.keys("C-w"); p.keys("z");
+      await until(() => /· in tile \d+$|· beside ▸$/.test(row()), "the zoomed row naming its tile", 5000).catch(fail);
+    } finally { p.close(); }
+  }, 60_000);
 
   // PIE-1758: at 44×9 the edit's three header rows and its rule left the text one row.
   test("a 44×9 door's edit gives its text two rows", async () => {

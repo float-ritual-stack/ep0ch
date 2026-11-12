@@ -1562,8 +1562,9 @@ export class Draft {
    */
   private answerPlace(): AnswerPlace | undefined { const now = this.placeNow; if (now && !now.asked) Object.assign(now, { asked: true, at: this.answerAt?.() ?? undefined }); return now ? now.at : this.answerAt?.() ?? undefined; }
   private placeNow: { asked: boolean; at?: AnswerPlace } | null = null;
-  /** Draw a frame of this draft with `answerAt` asked at most once for all its rows. */
-  drawing<T>(draw: () => T): T { if (this.placeNow) return draw(); this.placeNow = { asked: false }; try { return draw(); } finally { this.placeNow = null; } }
+  /** The answer under fold `p` to the tile beside, when one can show answers and isn't showing this one: whether it went. */
+  showInTile(p: { line: number; key: string }): boolean { const at = this.answerPlace(), ask = this.lines[p.line - 1]; if (!at || !ask || (at.side && at.row === p.line - 1)) return false; this.selectedAsk = ask; this.onAskSelected?.(ask, p.key); return true; }
+  /** A frame of this draft, with `answerAt` asked at most once for all its rows. */ drawing<T>(draw: () => T): T { if (this.placeNow) return draw(); this.placeNow = { asked: false }; try { return draw(); } finally { this.placeNow = null; } }
   private answerSaid(ask: { line: string; beside?: boolean }, row: number | undefined, saved: boolean): string { const words = this.answerWords(ask, row, saved); return words ? ` · ${words}` : ""; }
   /**
    * Where an ask's answer is, as its row says it. The one answer tile shows one line's answer (PIE-1768): that row names
@@ -1574,7 +1575,8 @@ export class Draft {
   private answerWords(ask: { line: string; beside?: boolean }, row: number | undefined, saved: boolean): string {
     const at = this.answerPlace();
     if (!at) return "";
-    if (at.side && (row === undefined ? at.ask === ask.line : at.row === row)) return ANSWER_WORDS[at.side];
+    // A tile on no clear side of its reader (overlapping it, PIE-1768) is named by its number, never `show ▸`.
+    if (at.side && (row === undefined ? at.ask === ask.line : at.row === row)) return at.side === "apart" ? `in tile ${at.n ?? "?"}` : ANSWER_WORDS[at.side];
     return ask.beside || saved ? ANSWER_HIDDEN : "";
   }
 
@@ -1650,7 +1652,7 @@ export class Draft {
 /** An ask row's words for where its answer tile is, by its side of the pair with the reader (PIE-1757). */
 const ANSWER_WORDS = { right: "beside ▸", left: "◂ beside", down: "below ▾", up: "above ▴", tab: "in a tab" } as const;
 /** Where the answer tile beside a draft's reader is (`side`, null with none open), the ask it shows and that ask's line. */
-export interface AnswerPlace { side: "left" | "right" | "up" | "down" | "tab" | null; ask?: string; row?: number }
+export interface AnswerPlace { side: "left" | "right" | "up" | "down" | "tab" | "apart" | null; n?: number; ask?: string; row?: number }
 /** An answer no tile shows: a click on its row (or the cursor onto its ask) shows it. */
 const ANSWER_HIDDEN = "show ▸";
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
