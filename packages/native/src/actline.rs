@@ -97,10 +97,31 @@ pub fn request_of(words: &[String], repeats: bool) -> Result<Request, Refused> {
 /// A line read whole.
 pub fn parse(line: &str) -> Result<Request, Refused> { request_of(&line_words(line), false) }
 
-/// A request as a line again: each value quoted, so a space or a quote in one stays in it.
+/// A value as a word of an act line: the one writer here. As written when nothing in it could end the word or be
+/// read as more than itself; else in double quotes, a backslash and a quote escaped, as outline-core's `actionLine`
+/// writes every value (a line break stays one). `fixtures/core-contract.json` holds what that writes: every row
+/// read back from this writer is the request it was (`tests/actline.rs`).
+pub fn word(value: &str) -> String {
+    let plain = !value.is_empty() && value.chars().all(|c| c.is_alphanumeric() || "-_.:/@#+*,=~^%!?&|<>()[];".contains(c));
+    if plain { value.to_string() } else { format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")) }
+}
+
+/// A value of a request as its word: text by `word`, a number or a flag as written.
+fn said(value: &Value) -> String { match value { Value::String(s) => word(s), other => word(&other.to_string()) } }
+
+/// A request's action and arguments as a line again, by the one writer.
 pub fn line_of(action: &str, args: &Map<String, Value>) -> String {
-    let said = |v: &Value| match v { Value::String(s) if !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'') => s.clone(), Value::String(s) => json!(s).to_string(), other => other.to_string() };
     std::iter::once(action.to_string()).chain(args.iter().map(|(k, v)| format!("{k}={}", said(v)))).collect::<Vec<_>>().join(" ")
+}
+
+impl Request {
+    /// The request as a line: what it is recorded and shown as. Read again, it is this request.
+    pub fn line(&self) -> String {
+        let mut line = line_of(&self.action, &self.args);
+        if let Some(tile) = &self.tile { line.push_str(&format!(" tile={}", word(tile))) }
+        if let Some(by) = &self.by { line.push_str(&format!(" --as {}", word(by))) }
+        line
+    }
 }
 
 // ── arguments, typed by the action's row ──────────────────────────────────────────────────────────────────────
@@ -160,9 +181,8 @@ fn call_text(action: &str, args: &[(String, Value)]) -> String {
     format!("ep0ch act {action}{}", args.iter().map(|(k, v)| format!(" {k}={}", word(v))).collect::<String>())
 }
 
-/// A call as a correction shows it: a value with a space or a quote in it quoted.
+/// A call as a correction shows it: a line that runs as written, by the one writer.
 fn shown_line(action: &str, args: &[(String, Value)]) -> String {
-    let said = |v: &Value| { let s = match v { Value::String(s) => s.clone(), other => other.to_string() }; if s.is_empty() || s.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'') { json!(s).to_string() } else { s } };
     std::iter::once(action.to_string()).chain(args.iter().map(|(k, v)| format!("{k}={}", said(v)))).collect::<Vec<_>>().join(" ")
 }
 
