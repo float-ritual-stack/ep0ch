@@ -113,14 +113,15 @@ export const removedLocks = (r: Ran) => Number(/removed (\d+) locks?/i.exec(r.ou
  * while backups (which share the repository) still land (PIE-1755). So a refused lock is cleared and forget tried
  * again: `restic unlock` without `--remove-all` removes only stale locks, those whose process on this machine is gone or
  * that nobody refreshed for 30 minutes; a live one stays, and the second try waits a few minutes for it. `cleared`: the
- * lock it found, when unlock removed it.
+ * lock it found, when unlock removed it; `unlockError`: why unlock itself failed.
  */
-export async function forget(c: BackupConfig, repo: string, prune: boolean, o: { host?: string; wait?: string } = {}): Promise<Ran & { cleared?: string }> {
+export async function forget(c: BackupConfig, repo: string, prune: boolean, o: { host?: string; wait?: string } = {}): Promise<Ran & { cleared?: string; unlockError?: string }> {
   const args = ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])];
   const first = await runRestic(c, repo, args, { timeoutMs: 900_000 });
   if (first.code !== LOCKED) return first;
   const held = lockHolder(first);
   const unlocked = await runRestic(c, repo, ["unlock"], { timeoutMs: 120_000 });
   const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: 900_000 + 300_000 });
-  return unlocked.code === 0 && removedLocks(unlocked) > 0 ? { ...again, cleared: held } : again;
+  if (unlocked.code !== 0) return { ...again, unlockError: complaint(unlocked) };
+  return removedLocks(unlocked) > 0 ? { ...again, cleared: held } : again;
 }

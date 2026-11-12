@@ -101,9 +101,12 @@ history
   test("no host answering: the command that starts it, not only `ep0ch backup run` (PIE-1750)", () => {
     const fix = "systemctl --user start outliner-host.service";
     const host = { failingSince: iso(20), error: "the outline host doesn't answer at /fictional/outlines/.host/host.sock (connect ENOENT), so nothing was copied", fix };
-    const c = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host });
+    const c = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host,
+      outlines: { garden: { seq: 3, at: iso(300), pendingSince: iso(20), error: host.error } } });
     const out = statusLines(c, NOW);
     expect(out[0]).toBe("✗ failing");
+    // The outline it left waiting isn't a second problem pointing at `ep0ch backup run`.
+    expect(out.filter(l => l.startsWith("  ✗"))).toEqual([`  ✗ ${host.error}`]);
     expect(out).toContain(`  ✗ ${host.error}`);
     expect(out).toContain(`  run: ${fix}`);
     // Two hours on it's an incident as well: said once, with the same command.

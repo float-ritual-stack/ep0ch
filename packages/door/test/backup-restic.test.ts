@@ -371,9 +371,9 @@ describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (
   /** A restic process holding the repository's lock: an upload whose stdin never ends. */
   async function holder(c: BackupConfig) {
     const repo = c.repoOf(c.machine), locks = join(repo, "locks");
+    const before = existsSync(locks) ? readdirSync(locks).length : 0;
     const p = Bun.spawn([RESTIC!, "-r", repo, "backup", "--stdin", "--stdin-filename", "held.sqlite", "--host", c.machine],
       { env: { ...c.env, RESTIC_PROGRESS_FPS: "0" } as Record<string, string>, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
-    const before = existsSync(locks) ? readdirSync(locks).length : 0;
     for (let i = 0; i < 100 && !(existsSync(locks) && readdirSync(locks).length > before); i++) await Bun.sleep(100);
     if (readdirSync(locks).length !== before + 1) { p.kill(9); throw new Error(`restic took no lock in ${repo}`); }
     return p;
@@ -392,12 +392,16 @@ describe.skipIf(!RESTIC)("retention clears a stale lock and says when it can't (
     killed.kill(9); await killed.exited;
     expect(locksOf(c)).toHaveLength(1);
     outline(join(c.outlines, "garden.sqlite"), ["Mulch the beds"]);
+    said.splice(0);
     expect((await snapshot(c, s, { say: l => said.push(l) })).uploaded).toEqual(["garden"]);
+    expect(said.filter(l => /forget failed/.test(l))).toEqual([]);
+    expect(locksOf(c)).toEqual([]);
+    const told = said.filter(l => /stale restic lock|let go/.test(l));
+    expect(told).toHaveLength(2);
+    expect(told[0]).toStartWith(`cleared a stale restic lock (repository is already locked by PID ${killed.pid} on `);
+    expect(told[1]).toBe("✓ old snapshots let go");
     expect(s.forget).toMatchObject({ ok: true, failures: 0 });
     expect(s.forget?.cleared).toContain(`already locked by PID ${killed.pid}`);
-    expect(said.filter(l => /forget failed/.test(l))).toEqual([]);
-    expect(said.some(l => l.startsWith("cleared a stale restic lock"))).toBe(true);
-    expect(locksOf(c)).toEqual([]);
   }, 120_000);
 
   test("a live process's lock stays: forget waits for it, then fails, and the lock is still there", async () => {

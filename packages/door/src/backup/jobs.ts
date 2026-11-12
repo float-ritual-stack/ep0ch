@@ -199,14 +199,14 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     const prune = !s.lastPrune || now() - Date.parse(s.lastPrune) >= 24 * 3_600_000;
     const r = await forget(c, repo, prune);
     const at = new Date(now()).toISOString();
-    if (r.cleared) say(`cleared a stale restic lock (${r.cleared}), then forgot old snapshots`);
+    if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
     if (r.code === 0) {
       if (prune) s.lastPrune = at;
       s.forget = { at, ok: true, failures: 0, pruned: prune, ...(r.cleared ? { cleared: r.cleared } : {}) };
-      note(`restic forget${prune ? " --prune" : ""}: ok`);
+      say(`✓ old snapshots let go${prune ? ", and pruned" : ""}`);
     } else {
       // Counted, so a forget that keeps failing is an incident (alert.ts), not only a journal line.
-      const error = r.code === LOCKED ? lockHolder(r) : complaint(r);
+      const error = (r.code === LOCKED ? lockHolder(r) : complaint(r)) + (r.unlockError ? `; restic unlock failed: ${r.unlockError}` : "");
       const was = s.forget?.ok === false ? s.forget : undefined;
       s.forget = { at, ok: false, failures: (was?.failures ?? 0) + 1, since: was?.since ?? at, error };
       say(`restic forget failed (the snapshots are safe; the next run tries again): ${error}`);
