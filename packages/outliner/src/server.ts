@@ -1995,7 +1995,8 @@ export class OutlinerServer {
     if (this.linkReader) {
       const answer = await this.linkReader(request);
       if (answer) return this.answered(request, answer.result as WireAnswer<typeof request.action>); // checked by the host that answered
-    }
+    } // A property change on a note a door holds a draft of lands in that draft (PIE-1756); any other is the store's, below:
+    if (request.action === "properties.patch" && !this.readOnly) { const held = await this.draftPatches.patchProperties(request); if (held) return this.answered(request, held); }
     if (request.action === "update" && request.replaceSection !== undefined) {
       const block = this.store.require(request.blockId);
       const section = replaceSectionText(block.text, request.replaceSection.heading, request.replaceSection.body, block.id);
@@ -3486,9 +3487,8 @@ export class OutlinerServer {
             request.mutation,
           ));
           break;
-        case "properties.patch":
-          result = wired(action, this.store.patchProperties(request.blockId, request.expectedRevision, request.operations, request.mutation, request.keepUpdated === true));
-          break;
+        case "properties.patch": // a note nobody holds a draft of (a held one is handleAsyncOnce's, PIE-1756)
+          result = wired(action, this.store.patchProperties(request.blockId, request.expectedRevision, request.operations, request.mutation, request.keepUpdated === true)); break;
         case "activity.recent":
           result = wired(action, this.store.recentEditActivity({
             afterCursor: request.afterCursor,
@@ -3940,7 +3940,7 @@ export class OutlinerServer {
         // A triggered call's new block carries the trigger's mark, as its returned writes' do.
         return { ...as, ...(grant.trigger && typeof as.text === "string" ? { text: markTriggered(as.text, grant.trigger) } : {}),
           author: "agent", provenance: { actorId: actor.actorId, ...(actor.taskId ? { taskId: actor.taskId } : {}) } } as OutlinerRequest;
-      case "outputs.place": case "draft.patch": case "marks.add": case "marks.remove":
+      case "outputs.place": case "draft.patch": case "marks.add": case "marks.remove": case "properties.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
       case "door.act": if (grant.relayed || !grant.agent) throw new Error("door.act needs an agent extension's grant from this machine: a respond call of one of its agents"); return { ...as, agent: grant.agent, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
       case "move":

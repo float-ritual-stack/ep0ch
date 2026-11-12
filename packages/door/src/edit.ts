@@ -24,6 +24,7 @@ import { pageRows } from "./scroll";
 import type { Key } from "./term";
 import { escByHint } from "./esc-rule";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
@@ -567,6 +568,7 @@ export class Draft {
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
     this.record(USER, "a change");
+    this.stood.clear();   // what a stamp's revert would stand it back on is gone with the old base
     this.baseProps = propertyListOf(m);
     this.base = m.revision ?? this.base;
     this.original = m.text;
@@ -1118,7 +1120,11 @@ export class Draft {
         if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
       } else if (!p.replyTo) {
         const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
-        if (located.spans.some(sp => typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
+        // A chip changed on another line of that block (a stamp under the title while the person types below it,
+        // PIE-1756) leaves the words being typed alone: only the cursor's own line holds it back.
+        // Judged on the whole draft, so a chip inside a code fence is the fence's text, never a property (CodeRabbit on #1458).
+        const stamp = (sp: LocatedSpan) => chipsOnly(text, text.slice(0, sp.start) + sp.replacement + text.slice(sp.end)) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
+        if (located.spans.some(sp => !stamp(sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
           return no("it changes the block being typed in");
         }
       }
@@ -1155,6 +1161,30 @@ export class Draft {
       }
     }
     return { applied: true };
+  }
+
+  /** What the draft stood on before a patch the saved note also took (PIE-1756), by patch: a service revert goes back. */
+  private stood = new Map<string, { base: number; original: string; baseProps: PropertyList }>();
+
+  /**
+   * A patch the saved note took too, as `on.revision` with `on.text` (an agent's property stamp, PIE-1756): the draft
+   * stands on that revision, its unchanged text is that text (an edit holding only the stamp closes on one esc), and the
+   * save's "this changes properties" check starts from its chips, so a stamp taken back with ctrl+z is the person's change.
+   */
+  standOn(patchId: string, on: { revision: number; text: string }) {
+    this.stood.set(patchId, { base: this.base, original: this.original, baseProps: this.baseProps });
+    this.baseProps = chipsMoved(this.baseProps, this.original, on.text);
+    this.original = on.text;
+    this.base = on.revision;
+  }
+
+  /** The service took back a patch `standOn` followed: the draft stands where it stood. The revision now, or undefined. */
+  unstand(patchId: string): number | undefined {
+    const was = this.stood.get(patchId);
+    if (!was) return undefined;
+    this.stood.delete(patchId);
+    this.base = was.base; this.original = was.original; this.baseProps = was.baseProps;
+    return was.base;
   }
 
   /** Plan a run's inverse using the same compare as undo, without changing the live draft or caret. */
@@ -1853,6 +1883,22 @@ const stripWith = (who: Actor): Actor => { const { with: _, ...me } = who; retur
 type Edit = { at: number; removed: number; text: string };
 /** `edits` (in order, apart) made to `from`. */
 const applyEdits = (from: string, edits: Edit[]) => { let out = "", i = 0; for (const e of edits) { out += from.slice(i, e.at) + e.text; i = e.at + e.removed; } return out + from.slice(i); };
+/** A text's words with its property chips taken out (the shared property grammar), spacing folded. */
+const wordsOf = (text: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(text)) { out += text.slice(at, p.start); at = p.end; } return (out + text.slice(at)).replace(/\s+/g, " ").trim(); };
+const chipsIn = (text: string) => parsePropertyRecords(text).map(p => text.slice(p.start, p.end)).join("\u0000");
+/** A change of property chips alone (a stamp, PIE-1756): the chips differ, and the words around them are the same. */
+const chipsOnly = (before: string, after: string) => chipsIn(before) !== chipsIn(after) && wordsOf(before) === wordsOf(after);
+/** `props` with the chips `before` held and `after` doesn't taken out, and the ones `after` adds put in. */
+const chipsMoved = (props: PropertyList, before: string, after: string): PropertyList => {
+  const chips = (text: string) => parsePropertyRecords(text).map(p => `${p.key}\u0000${p.value}`);
+  const less = (from: string[], take: string[]) => { const left = [...from]; for (const c of take) { const i = left.indexOf(c); if (i >= 0) left.splice(i, 1); } return left; };
+  const was = chips(before), now = chips(after), out = [...props];
+  for (const gone of less(was, now)) { const i = out.findIndex(p => `${p.key}\u0000${p.value}` === gone); if (i >= 0) out.splice(i, 1); }
+  return [...out, ...less(now, was).map(c => { const [key, value] = c.split("\u0000") as [string, string]; return { key, value }; })];
+};
+/** Where the line holding `offset` starts and ends in `text`. */
+const lineStartAt = (text: string, offset: number) => text.lastIndexOf("\n", offset - 1) + 1;
+const lineEndAt = (text: string, offset: number) => { const end = text.indexOf("\n", offset); return end < 0 ? text.length : end; };
 /**
  * Step `s` as the spans its agent patch changed, in the text undoing (`back`) or redoing it starts from; null for a step
  * with no patch, or one that took a patch back (its spans were where the patch was, not where it was taken back).

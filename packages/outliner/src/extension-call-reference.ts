@@ -3,7 +3,7 @@
 // answer is the return type of the store method the service answers it with, so neither can be written here wrong.
 // `scripts/extension-calls-doc.ts` writes the README's call reference from this file, and
 // `test/extension-call-reference.test.ts` fails when a call's fields change and the README wasn't written again.
-import type { DraftPatchResult } from "./draft-patch";
+import type { DraftPatchResult, PropertiesPatched } from "./draft-patch";
 import type { OutlinerStore } from "./store";
 import type {
   AnnotationBatchOperation,
@@ -79,6 +79,15 @@ export interface ExtensionCallReference {
    * it becomes a proposal (`outcome: "proposed"`). Text that didn't change answers the block as it is.
    */
   update: Call<Pick<Extract<OutlinerRequestAction, { action: "update"; text: string }>, "blockId" | "text" | "expectedRevision">, DraftPatchResult | Block>;
+  /**
+   * A block's properties changed by key, with no revision to read first: `set` a key's value, `add` a number to it
+   * (`{ op: "add", key: "visits", by: 1 }`), each the first such chip or a new one on the property line (PIE-1752).
+   * `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. On a note a door holds a
+   * live draft of, the saved note and the draft take it together (`draft` is the draft as it is now, typing and all);
+   * one on the very line the person is typing on, or while their save is under way, is refused and nothing is
+   * written (PIE-1756).
+   */
+  "properties.patch": Call<Ask<"properties.patch", "keepUpdated">, PropertiesPatched>;
   /**
    * A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the
    * blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one
