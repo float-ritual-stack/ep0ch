@@ -19,6 +19,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![The command bar with an action typed, its keycap from the key table, dark](docs/bar-dark.png)
 ![A note's figures, a box and two buttons, one pressed and saying what it ran, dark](docs/parts-dark.png)
 ![A note's links on its page and in the links tile beside it: one list, drawn once, dark](docs/links-dark.png)
+![A block written in place: an agent's edit lit above the caret and said on the tile, and the list that completes a note's name, dark](docs/draft-dark.png)
 
 ## Run it
 
@@ -54,7 +55,10 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
 | Follow anything | A link, a child, a backlink, a row in a component; `back` goes back |
 | Do anything | The command bar: every action there is, by a word of its name or of what it does, with its keys beside it. A whole act line typed runs as written (`open id=…`) |
-| Write | `edit` opens the note's Blockdown source; `edit.save` saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved |
+| Write | `edit` opens the note's Blockdown source where the note stands, with the rest of its page around it; `edit.save` saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved. Another note opened meanwhile lands beside, and may be written too: a block each |
+| Complete what you type | A page's name begun (`[[se`), a note's (`((po`), a property, a component, a callout: the service's list hangs at the caret. Down and Up light a row, Tab or Return writes it, Esc puts the list away |
+| Write while an agent edits | The block is held on the service while it is open: an agent's edit lands in your text in front of you, lit, and the tile says who changed what. Never in the paragraph you are typing in, never under an input method's marked text, and your caret and selection stay yours. The editor's own undo takes it back |
+| Find your words back | What you type is kept as you type it. A window that ended before a save finds the text back in its block, and says so |
 | Make, move, bin | `note.new` under the open one; `note.move` up, down, in, out; `note.trash` (the notice has Undo) |
 | Find | The bar, with words: the service's search, under the actions that match |
 | Query | The bar on a query: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note, or a row of its properties, opens the query for it |
@@ -104,13 +108,17 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 <!-- /keys -->
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
-is being written, and Esc closes one thing at a time (the bar, then the editor, then the notice). Both docks resize
-by their inner edge.
+is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
+notice). While the list that completes a word is open its keys come first and the editor's still hold (`complete`
+is a layer over `draft`). Both docks resize by their inner edge.
 
-Capture comes first here too. Saving never ends editing, so a key typed around a save always has somewhere to
-land. A save the service refuses (the note changed underneath) leaves every word in the editor and says why.
-Leaving the editor with unsaved text is refused; another note opened meanwhile opens in a reader of its own beside
-it (the layout's rule for a tile that holds an edit). Only Discard, by name, drops words.
+Capture comes first here too. What is typed is written to a file as it is typed
+(`native-<outline>.drafts.json`, beside the arrangement's), so a window that ends finds it back. Saving never ends
+editing, so a key typed around a save always has somewhere to land, and a save sends what was typed as typed: a
+reference that names nothing is the service's to say of afterwards, never a reason to hold the save. A save the
+service refuses (the note changed underneath) leaves every word in the editor and says why. Leaving the editor with
+unsaved text is refused; another note opened meanwhile opens in a reader of its own beside it (the layout's rule
+for a tile that holds an edit). Only Discard, by name, drops words.
 
 ## How it fits
 
@@ -130,6 +138,7 @@ src/ (Rust, Rune)                                      the outline host
   client.rs         the socket                                ◀───────  queries.changed
   page.rs           the wire's shapes
   parts.rs          a page as primitives: its head and foot, the walk, the button a press names
+  draft.rs          a block being written: its session, its hold, the file that keeps it  ◀──▶  drafts.hold, draft.place, completion.rows
   list.rs           the one virtualised list
   actline.rs        the act-line grammar, read and written
   query.rs          a question narrowed by picked values
@@ -212,6 +221,22 @@ src/ (Rust, Rune)                                      the outline host
   own source is its actions, read from their rows. The source a question is typed on is the one the service
   says carries facets, and a facet picked is a term written by one writer (`query.rs`, outline-core's
   `selectionQuery`).
+- **A block is written where it is read** (`draft.rs`, `actions/draft.rs`, the page drawer). A draft is a session
+  the window holds: the block, the revision and text it stands on, and what is typed. The page drawer puts its
+  source where what is drawn from it would stand (in place of its parts, its title and its chips), in the page's
+  own scroll, and the field is the kit's editor behind `keys::Text`, so the model names no renderer. The window
+  reads no Blockdown to do any of it:
+  - **Completions are a served list** (`completion.rows` with the text and the caret). The service finds the token,
+    asks its sources and merges the rows as every client's are merged; the window draws them and writes the
+    chosen row's own `insert` over the token it was told.
+  - **The window is the draft's holder, and places nothing.** While the draft is open it is held on the service
+    (`drafts.hold`, renewed every five seconds), so an agent's `draft.patch` on the note comes here. Asked to
+    patch, the window answers with its draft as it stands (the text, where the caret is); the service decides
+    where the patch goes and whether it may, by the rule the door runs over its own buffer (outline-core's
+    `placeDraftPatch`), and hands back the spans to replace (`draft.place`). They are taken under the caret as one
+    step of the field's own undo, only while the text is still the one they were found in.
+  - **The editor is the person's.** `edit`, `edit.save`, `edit.close`, `draft.paste` and the list's own actions
+    say so on their rows, and the dispatcher refuses an agent. `draft.patch` is the way in for everybody else.
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
   lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
   the UI thread, and keeps only those of the pages its readers show. One the host can't read says so, in the host's words, where it
@@ -236,14 +261,19 @@ ep0ch peek --door native --json                         # {screen, focus, wherea
 ep0ch act --door native tile.split tile=reader dir=down # the layout's own rules say what an agent may arrange
 ep0ch actions --door native                             # every action, as its row; every primitive type, as its entry
 ep0ch act --door native button.press label="Sow the peas" --as compost-agent   # a note's button, pressed as the agent
+ep0ch act --door native draft.patch observed="beans  go" replacement="beans go" --as tidy-agent   # into the draft being written
 ```
 
 - **An act is attributed.** Its write carries `mutation: {author: "agent", actorId}`, its step says who, and the
   toolbar's status line names the agent and the action.
 - **An act takes nothing of the person's.** Not their keys, not the bar they have open or its lit row, not the
-  editor: `edit`, `edit.save`, `edit.close`, `bar.close` and `notice.dismiss` are refused to an agent with why,
-  `tile.focus` is the person's alone, and an agent's `open` lands without taking their keys: beside the reader
-  when it holds unsaved text.
+  editor: `edit`, `edit.save`, `edit.close`, `draft.paste`, the completion list's actions, `bar.close` and
+  `notice.dismiss` are refused to an agent with why, `tile.focus` is the person's alone, and an agent's `open`
+  lands without taking their keys: beside the reader when a block is being written in it.
+- **An agent changes a note's text with `draft.patch`** (`observed=`, `replacement=`, `start=` when the passage is
+  there twice): sent to the service as the agent. A note being written here takes it in the draft, in front of the
+  person; any other takes it as saved. The act answers that it was sent; what became of it is on the status line
+  and in `peek` (the reader's `editing.said`, and its `text` as typed).
 - **An agent arranges by the layout's rules.** `tile.split`, `tile.move`, `tile.close`, `tile.dock`,
   `layout.resize` are refused in the door's words when they would take the tile with the person's keys, resize
   the tile they type in, or undo a lock of theirs. A tile is addressed by name (`tile=reader2`); `peek` lists
@@ -272,7 +302,9 @@ place answers), the shell (one test a container kind, opens through the `open` a
 the control socket, the lists (a board's lanes, the navigator's facets, a table, a long list, the shipped screens
 opened from the bar's own row), the parts (every primitive type has a builder, a button runs here or is the service's,
 a script's act is run and answered, and every component's own example is drawn: the test writes
-[docs/prim-coverage.md](docs/prim-coverage.md)), and `one_owner.rs`, which scans the source for a second place that
+[docs/prim-coverage.md](docs/prim-coverage.md)), the drafts (a block typed in, completed and saved by keys; held,
+read and patched under the caret by what the host says; kept as typed and found back by the next window; how the
+kit's editor carries undo, an input method and a long block), and `one_owner.rs`, which scans the source for a second place that
 binds a key, writes to the wire, lists rows, labels a button, issues an `Op`, places an open, draws a part, keeps a
 kind or a screen, maps an answer to rows, writes a line's word, chooses the tile an act is about or names Rune
 outside the renderer seam (`shell.rs`, `tiles/`, `bar.rs`, `list.rs`, `keys.rs`, `control.rs`, `main.rs`: the
@@ -287,7 +319,14 @@ extension installed.
 screen in, or the extension names a drawer the window hasn't: what the window opens on is changed by forking the
 extension or saving a screen note, never by building the window again.
 
-The service's side is `packages/outliner/test/notes-page.test.ts`, `test/component-pages.test.ts` (each component's
+`cargo test -- --ignored live` runs the same window against a scratch host: among them the draft's whole sentence
+(written with completions from the service's own sources while an agent patches it over the control socket, the
+window ended mid-word, the text found back). `cargo test --release measure_a_long_block -- --ignored --nocapture`
+prints what a key costs in a long block (PROBES.md §12).
+
+The service's side is `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,
+and `completion.rows` for a text and a cursor), `packages/outline-core/test/draft-patch-place.test.ts` (whether a
+patch may land in a live draft: the door's rule and the service's), `packages/outliner/test/notes-page.test.ts`, `test/component-pages.test.ts` (each component's
 example page, `outline-core/fixtures/component-pages.json`), `test/screens.test.ts`, `test/lists.test.ts` (one test a
 list producer) and `test/screens-extension.test.ts` (the extension installed, forked and uninstalled); the block form
 of a screen note is `packages/outline-core/test/screen-note.test.ts`. The shapes an extension's author writes against
@@ -307,15 +346,17 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
 `navigator`, `lastcall`, `table`, and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
-title), and `parts` and `links` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
-box, a live list, two buttons, the first pressed; and a note whose `::links` and the links tile beside it list the
-same groups). `--act <file>` runs any file of them before the
-first frame. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
+title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
+box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
+same groups; and a note written in place, with a name begun and an agent's edit landed above it). `--act <file>` runs any file of them before the
+first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
 `tile/reader/part/<n>/said`, `tile/reader/chip/<key>/<value>`, `tile/<name>/bar` its title, `tile/<name>/close`; in
 a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<group>`,
-`tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), a
+`tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), in a
+block being written `tile/reader/source` (its field), `tile/reader/save`, `tile/reader/done` or `tile/reader/discard`,
+`tile/reader/told` (who changed it), `tile/reader/held` and `tile/reader/complete-option-<n>` (a row of the list at the caret), a
 toolbar button is
 `tool/<its act line>`, a border `grip/<split id>/<n>`, and the bar's are `bar/field`, `bar/row/<source>/<key>`,
 `bar/facet/<key>/<value>`.
@@ -336,8 +377,15 @@ toolbar button is
   focus isn't reconciled with the layout's yet (PROBES.md §1).
 - One window: the arrangement is kept a file an outline.
 
-- Editing is the whole note's source in one text area: no per-block outliner editing, completions or live drafts
-  an agent can patch (`drafts.hold`).
+- Writing: a block is its whole source in one field, as typed: nothing is drawn of it until it is saved (no
+  preview beside), and a long block (past a thousand lines) types slowly, since the field is laid out whole on each
+  key (PROBES.md §12). The editor's own keys (undo, word motion, paste) are the kit's and have no act line. A
+  completion row that makes something when chosen (a page nobody wrote yet, an anchor on a heading, a new
+  component) isn't offered, nor are a row's variations or its docs beside the list; the list shows what the
+  service sent, with no Jev re-ranking asked. A save refused because the note changed keeps the text and says so,
+  and offers no merge. An `@agent` line typed in a draft is told to the service once the keys go quiet (`drafts.touch`);
+  what an agent answers there was not run in this wave, and no progress is shown on the line. A draft stays in its tile: closing the
+  tile is refused until it is closed, and a comment's or a card's draft is not built.
 - Comments, proposals, revisions and marks aren't shown.
 - Figures with no primitive form yet (`uptime`, `activity`, `calendar`, `quadrant`, `flow`) show their lines as
   written, and a live `tabs` with nothing in it the service's Markdown; a view draws as rows whatever its layout; a

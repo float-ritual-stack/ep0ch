@@ -251,10 +251,12 @@ impl App {
     fn invalid(&mut self, step: Step) -> Outcome { Outcome { kind: Some("invalid"), ..self.record(step) } }
 
     /// Act lines, one a line, run as the person would (a scene, a check): a blank line and a `#` line are skipped.
-    /// A blocking window lands each line's answers before the next runs.
+    /// A line that says who (`as=tidy-agent`) runs as that agent, as it would over the control socket, so a scene
+    /// can show what an agent does in the window. A blocking window lands each line's answers before the next runs.
     pub fn script(&mut self, lines: &str) -> Vec<Outcome> {
         lines.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).map(|line| {
-            let outcome = self.act(line, Actor::Person);
+            let by = actline::parse(line).ok().and_then(|req| req.by).map_or(Actor::Person, Actor::Agent);
+            let outcome = self.act(line, by);
             if self.blocking { self.settle(); }
             outcome
         }).collect()

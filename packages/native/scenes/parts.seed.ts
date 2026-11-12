@@ -57,5 +57,8 @@ for (const bed of ["North bed [type::bed] [crop::peas]", "South bed [type::bed] 
 const shed = await create(["Potting shed [type::place]", `Where the trays wait. The ((${plan.id})) says what goes in them.`, "", "::links", "::"].join("\n"));
 for (const tray of ["Pea trays [type::tray]", "Kale trays [type::tray]"]) await create(tray, shed.id);
 await create(`Frost watch\nCover what is in the ((${shed.id})) on a cold night.`);
+// The note the `draft` scene opens to be written: two paragraphs, so an agent's tidy of the first lands in the draft
+// while the person types in the second.
+await create(["Frost fleece [type::chore]", "Cover the pea trays  on a cold  night.", "", "Fold it away in the morning."].join("\n"));
 console.log(plan.id);
 process.exit(0);

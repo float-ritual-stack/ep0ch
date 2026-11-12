@@ -1,4 +1,4 @@
-# Native ep0ch: what the W0 probes found
+# Native ep0ch: what the probes found
 
 **Every question [DESIGN.md](DESIGN.md) left "not verified" now has an answer: seven from running code, four from
 reading it.** Six are a plain yes. The live window is yes while it draws and no while it is hidden; the door's pty host
@@ -21,7 +21,8 @@ down for native to be tested against, are [below](#the-contract-tables).
 | 11 | Does `replaces` give an extension kind a bare name? | **Yes, for a name no live kind has.** The old name opens the kind that replaces it, and the tile saves under the full name. | read: `door/src/desk/tile-kinds.ts`, `outliner/src/extension-manifest.ts` | §2 Kinds stands if the door's literal goes first. Saved screens name `<extension>.<kind>` ([11](#11-replaces)). |
 
 Three more things turned up, two of them bugs in the spike. They are reported and not fixed
-([Found on the way](#found-on-the-way)).
+([Found on the way](#found-on-the-way)). W5 added one more answer, from building on it: how Rune's text editing
+carried a block editor ([12](#12-the-block-editor-w5)).
 
 ## How to run
 
@@ -93,6 +94,11 @@ Rune's order for a key while a field has focus, as the tests saw it:
 
 **DESIGN.md §4:** "table first, text second, unhandled up" stands. Add to the adapter: a `lines` field types Return
 itself. W1's bar lists Up, Down and Return as field-layer rows.
+
+**As built (W5):** a block's source is a `lines` field, and Return types a line there. While the list that completes
+a word is open, the person is one layer further in (`complete`, over `draft`): Up, Down, Tab, Return and Escape are
+that layer's rows, asked before the draft's and before the editor, so the list is driven from the field without
+taking its focus. A row that says Return is still the field's (`enter`, nothing chosen yet) gets a line typed.
 
 ## 3. Drags
 
@@ -341,6 +347,26 @@ one of the two ways above once W8 has tried it; without the feature nothing chan
 ranges" is half there. `read` already gives the host the buffer. Nothing hands ranges back today: that ask is W5's
 wire change, and the door's `patch` can stay as it is.
 
+**As built (W5):** one more ask kind, `place`, and one more thing a holder may answer.
+
+- **A holder that places nothing says so by what it answers.** Asked to `patch` or `revert`, the native window
+  answers `{applied: false, reason, draft}` (`{reverted: false, draft}`): its draft as it stands, `{text, revision,
+  version, cursor, anchor, busy}`, offsets in UTF-16. No flag on the hold and no client kind is read: the door
+  answers `applied` as before and is asked nothing more.
+- **The service places it** (`outliner/src/draft-place.ts`, wrapped round the router's one way of asking a holder):
+  it decides with outline-core's `placeDraftPatch`, the same function the door's `Draft.applyPatch` now calls, and
+  sends `place {patchId, version, spans, mutation, did, standsOn?, revert?}`. A span is `{start, end, replacement,
+  caret?}`; `caret` says what it does to an offset beside it (`stays`: an answer under its ask; `apart`: a
+  paragraph added at the very end).
+- **`version` is the compare.** The holder takes the spans only while its text is the one they were found in; typed
+  in since, it answers with its draft again and the service places the patch once more (three tries).
+- **A revert is placed the same way:** the service keeps what each placed patch wrote (`patchedSpans`) and finds
+  the spans that take it back (`revertSpans`, the door's own compare, moved to outline-core).
+- **What the person is told** is the service's word too: `did`, from outline-core's `patchDid`, which the door's
+  session calls for the same sentence.
+- **Not asked of a native holder:** an ask's progress (`replyGroup`'s undo bookkeeping is the door's own history),
+  and a proposal's dismiss line: both reach it as an ordinary `place`.
+
 ## 11. `replaces`
 
 **An extension's kind is named `<extension id>.<kind>`. `replaces` lets a retired name open it. Read, not run.**
@@ -382,6 +408,66 @@ a served tile's kind the same way. A new-note rule's kinds are served resolved, 
 served names there as they do for a tile (`resolveKind`). Left: the door registers its aliases from the extension's
 manifest file, not from the served rows.
 
+## 12. The block editor (W5)
+
+**Rune's `TextEdit` and the kit's `TextArea` carried a block editor without a line of editor code here.** The window
+adds the adapter of §2, one type that hides the editor from the model (`keys::Text`), and a splice. Run, not read:
+`src/tests/drafts.rs`, and `cargo test --release measure_a_long_block -- --ignored --nocapture` for the table.
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Selection | **Worked.** The caret and the selection's other end are byte offsets the app may read and set (`TextEdit::range`, `set_selection`). A patch placed above a selection moves both ends with the text and keeps what is selected. | `a_draft_is_held_…_under_the_caret` |
+| Somebody else's edit under the caret | **Worked, by one call.** `undo_group` makes any number of replacements one step, with the selection before and after: an agent's patch never takes the caret, and the field keeps the keys. | the same test; `a_placed_span_lands_on_the_same_letters_whatever_they_are` |
+| Undo | **Worked, and it is the editor's own.** One undo takes an agent's patch out whole and puts the caret back; the next takes back the typing before it; redo restores both. No history is kept here. | `the_field_s_own_undo_takes_an_agent_s_patch_back_as_one_step` |
+| IME | **Worked, with one thing to work around.** Marked text is not part of `text` until committed, Return mid-composition never reaches the adapter, and a commit lands at the caret. But replacing text under an open composition cancels it. | `a_patch_waits_while_an_input_method_is_composing` |
+| A list at the caret | **Worked.** `Cx::caret(key)` gives the caret's rect in the window, and the kit's `PopupList` takes no focus, so typing stays in the field while the list is open. | `a_block_is_typed_in_completed_…_and_saved`; `docs/draft-dark.png` |
+| Lit ranges | **Worked.** `spans` on a field paints byte ranges over the text without touching the model: what a patch wrote is lit until the text changes. | `docs/draft-dark.png` |
+| Long text | **Works to a few hundred lines; slow past a thousand.** | the table below |
+
+What had to be worked around:
+
+- **A composition is dropped by the replacement.** The splice (`set_selection` then `insert`, in an undo group)
+  cancels the input method's marked text, wherever in the text it replaces. So the window turns a `patch` or a
+  `place` away while `is_composing()` is true, with why, and the agent tries again. Another way to replace a range
+  that leaves a composition open was not looked for.
+- **`auto_grow` puts the field in a scroll of its own.** Rune keeps the caret in view in the *nearest* scroll
+  viewport only (`follow_caret`). A field inside its own viewport inside the page's scroll would never move the
+  page. So the block's field has no `auto_grow`: it grows with its text, and the page's scroll is the nearest one.
+  `the_page_s_scroll_follows_the_caret_in_a_block_longer_than_the_window`.
+- **`Cx::caret` matches a path segment, and a key with a slash is several.** `tile/<name>/source` can't be asked
+  for; the kit's own `input` can, and is the one focused field. The shell reads it only while a list is open, since
+  a view that reads the caret runs again on every move.
+- **A key with the field focused changes the text inside the frame, not in `Runtime::key`.** A test that types and
+  reads the text must draw a frame between.
+- **Offsets are bytes; the wire's are UTF-16.** Two small functions convert (`draft::utf16_of`, `byte_of`); an
+  offset inside a character names no place, and the patch is refused rather than moved.
+
+What could not be done:
+
+- **Long text is one text run.** A `text_input` is laid out whole on every change. What a key costs, release
+  build, four cores, on a headless runtime (so no renderer's time is in these):
+
+  | Lines | Text | A typed key and its frame | Of which the window's own work | An arrow key and its frame | An idle frame |
+  |---|---|---|---|---|---|
+  | 100 | 6 KB | 6.9 ms | 0.34 ms | 2.7 ms | 0.8 ms |
+  | 300 | 18 KB | 14.6 ms | 0.36 ms | 2.9 ms | 0.9 ms |
+  | 1,000 | 59 KB | 36.6 ms | 0.56 ms | 3.7 ms | 1.2 ms |
+  | 3,000 | 181 KB | 110.5 ms | 1.03 ms | 5.8 ms | 2.0 ms |
+
+  The window's own work for a key (the count, the file that keeps the text, the completion ask) stays near a
+  millisecond. The rest is Rune laying the whole field out again: 35 to 70 µs a line. A note of a few hundred lines
+  types inside a frame; one of a thousand does not. Nothing here virtualizes a field's lines, and splitting a block's
+  source over several fields would break selection and undo across them. Not attempted.
+- **The editor's own keys have no rows.** Undo, redo, select all, word motion and paste are the kit's, handled
+  after the table: they have no keycap to show and `act` can't run them. Only what the table binds (save, close,
+  the list's keys) and `draft.paste` are act lines.
+- **Not run:** a real input method (events were fed to `Runtime::ime`), spellcheck, a mouse drag selection across
+  a patch landing, and anything on macOS.
+
+**DESIGN.md §1 Draft:** stands, with `buf: keys::Text` as written. **§7 Draft safety:** the mirror is a file of the
+window's own beside the arrangement's, written as typed, not `edit-recovery.*` (that is the service's record of a
+merge after a conflict, which this window doesn't start yet).
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
@@ -396,7 +482,7 @@ own functions on made-up garden layouts and never edited by hand.
 | `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
-| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups` | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
+| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows
@@ -430,7 +516,8 @@ What the tables do not hold:
 ## Found on the way
 
 - **The spike's editor types no line on Return.** It is a kit `TextArea` with no `on_submit`
-  ([2](#2-the-field-adapter)). `return_in_a_kit_text_area_alone_submits_and_types_no_line`.
+  ([2](#2-the-field-adapter)). `return_in_a_kit_text_area_alone_submits_and_types_no_line`. (Since W1 the adapter
+  types it; since W5 the field is a block's.)
 - **The spike's mono text is set in the sans face.** `AppSpec::new` leaves the families at `("Inter", "Inter")`, so
   `Family::Mono` and mono spans are not monospace until the app names one (`"ui-monospace"` is the system's).
   `the_mono_slot_is_the_sans_face_until_the_app_names_a_monospace_one`.
@@ -439,7 +526,8 @@ What the tables do not hold:
 
 ## What was not answered
 
-- **IME:** Return and Escape during composition never reach the adapter (Rune's README, step 1). Read, not run.
+- **IME:** Return and Escape during composition never reach the adapter (Rune's README, step 1). Read, not run
+  in W0; run in W5 with events fed to the runtime ([12](#12-the-block-editor-w5)). A real input method was not.
 - **GPU cost:** every render time here is lavapipe's.
 - **Covered and minimised windows:** Xvfb has no window manager, so only `hide` was run.
 - **A real pty:** the stream is canned. No program, no parser, no input latency.
