@@ -928,6 +928,16 @@ export class SocketBoard implements Board {
     return this.watched.read<Msg[]>("blocks.query", this.byPropQuestion(key, value, limit), (r: { blocks: WireBlock[] }) => r.blocks.map(b => toMsg(b)), "", { held: true }).value;
   }
 
+  /** The outline's screens as the service lists them (`screens.list`): every screen note, in either body, read and checked there. */
+  async screens(reserved: readonly string[]): Promise<WireAnswer<"screens.list">> { return this.request("screens.list", { reserved: [...reserved] }); }
+  /** `screens`, watched: the answer the service last gave this connection, and its answer as it stands (undefined until the first is in). */
+  async screensWatched(reserved: readonly string[]): Promise<WireAnswer<"screens.list">> {
+    const shown = await this.watched.answer<WireAnswer<"screens.list">>("screens.list", { reserved: [...reserved] }, r => r, "", { held: true });
+    if (shown.state === "error") throw new Error(shown.error);
+    return shown.value ?? { screens: [], problems: [], anyChange: true };
+  }
+  screensShown(reserved: readonly string[]): WireAnswer<"screens.list"> | undefined { return this.watched.read<WireAnswer<"screens.list">>("screens.list", { reserved: [...reserved] }, r => r, "", { held: true }).value; }
+
   private queryQuestion(q: string, limit: number, sort: string, direction: "asc" | "desc", list: boolean) {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
     return { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) };

@@ -17,14 +17,14 @@ fn level_key(asked: &Asked, under: Option<&str>) -> String { watch_of(asked, "bl
 #[test]
 fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
     let Garden { app, asked, .. } = garden(ok());
-    assert_eq!(actions(&asked), ["ping", "blocks.read", "notes.page"]);
+    assert_eq!(actions(&asked), ["ping", "blocks.read", "screens.list", "notes.page"], "the tree's top level, the outline's screens, then the first note's page: asked once, though three tiles show it");
     assert_eq!((app.at.outline.as_str(), app.machine.as_str()), ("garden", "box"));
     assert_eq!(app.page().unwrap().title, "Plot");
     assert_eq!(listed(&app), [(0, "Plot".to_string()), (0, "Shed".to_string())], "only the top level was asked for");
     // Every read names the outline and is watched under a key of its own.
     let reads = asked.borrow();
-    assert_eq!((reads[1]["outline"].as_str(), reads[1]["under"].is_null(), reads[2]["blockId"].as_str()), (Some("garden"), true, Some("plot")));
-    let (tree, page) = (reads[1]["watch"].as_str().expect("the level is watched"), reads[2]["watch"].as_str().expect("the page is watched"));
+    assert_eq!((reads[1]["outline"].as_str(), reads[1]["under"].is_null(), reads[3]["blockId"].as_str()), (Some("garden"), true, Some("plot")));
+    let (tree, page) = (reads[1]["watch"].as_str().expect("the level is watched"), reads[3]["watch"].as_str().expect("the page is watched"));
     assert_ne!(tree, page);
 }
 
@@ -41,7 +41,7 @@ fn a_host_on_another_protocol_is_refused_naming_the_side_to_update() {
 
 #[test]
 fn opening_a_note_unfolds_the_way_to_it_from_the_page_s_ancestors() {
-    let Garden { mut app, asked, said } = garden(ok());
+    let Garden { mut app, asked, said, .. } = garden(ok());
     act(&mut app, "open id=fork");
     let names = |app: &App| listed(app).into_iter().map(|(depth, title)| format!("{depth} {title}")).collect::<Vec<_>>();
     assert_eq!(names(&app), ["0 Plot", "1 Lift the onions", "2 Take the fork", "1 Water the beans", "0 Shed"]);
@@ -54,7 +54,7 @@ fn opening_a_note_unfolds_the_way_to_it_from_the_page_s_ancestors() {
     assert_eq!(names(&app), ["0 Plot", "0 Shed"]);
     act(&mut app, "back");
     assert_eq!(open_note(&app).as_deref(), Some("plot"));
-    assert!(app.back.is_empty(), "going back isn't itself a place to go back from");
+    assert!(app.ui("reader").history.is_empty(), "going back isn't itself a place to go back from");
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn an_answer_only_lands_in_the_slot_of_its_own_ask() {
 
 #[test]
 fn a_watched_answer_that_moved_is_read_by_its_generation_and_nothing_else_is_asked() {
-    let Garden { mut app, asked, said } = garden(ok());
+    let Garden { mut app, asked, said, .. } = garden(ok());
     let before = asked.borrow().len();
     let page = page_key(&asked, "plot");
     changed(&mut app, &said, &page, 4);
@@ -138,13 +138,22 @@ fn nothing_drops_unsaved_text_but_discard() {
     act(&mut app, "edit.save");
     assert!(problem(&app, "changed since you opened it"));
     assert_eq!((app.editor.text.as_str(), app.saving()), ("Mine, typed for a while", false));
-    // Leaving doesn't drop it, and neither does opening another note, going back, a new note or the Trash.
+    // Leaving doesn't drop it, and neither does going back, a new note or the Trash.
     assert!(!act(&mut app, "edit.close").ok);
     assert!(app.editing.is_some() && problem(&app, "Unsaved text"));
-    for line in ["open id=shed", "back", "note.new", "note.trash", "tree.pick id=shed", "link.follow ref=ep0ch:b/shed"] {
+    for line in ["back", "note.new", "note.trash"] {
         assert!(!act(&mut app, line).ok, "{line} is refused over unsaved text");
         assert_eq!((open_note(&app).as_deref(), app.editor.text.as_str()), (Some("onions"), "Mine, typed for a while"), "after {line}");
     }
+    // Opening another note doesn't either: the layout opens it in a reader of its own beside the one that holds the
+    // draft (the door's rule for a tile that holds an edit), and the draft stays where it is.
+    // The keys stay where the person types.
+    for line in ["open id=shed", "link.follow ref=ep0ch:b/beans tile=reader"] {
+        assert!(act(&mut app, line).ok, "{line} opens beside the draft");
+        assert_eq!((app.layout.name(&app.layout.focus).as_str(), app.editing.as_ref().map(|e| (e.tile.as_str(), e.note.as_str())), app.editor.text.as_str()), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
+        assert_eq!(app.note_of("reader").as_deref(), Some("onions"), "the draft's reader still shows its note");
+    }
+    assert_eq!((app.note_of("reader2").as_deref(), app.note_of("reader3").as_deref()), (Some("shed"), Some("beans")));
     // Only Discard, asked for by name.
     assert!(act(&mut app, "edit.close discard=true").ok);
     assert!(app.editing.is_none());
@@ -238,7 +247,7 @@ fn a_lost_link_is_made_again_and_everything_wanted_is_asked_for_afresh() {
 
 #[test]
 fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
-    let Garden { app, asked, said } = garden(ok());
+    let Garden { app, asked, said, .. } = garden(ok());
     let mut app = app.blocking(true);
     act(&mut app, "open id=shed");
     let read: Vec<String> = asked.borrow().iter().filter(|a| a["action"] == "media.read").map(|a| a["path"].as_str().unwrap().to_string()).collect();

@@ -1,11 +1,10 @@
-//! The one list: rows built by index, only the ones in view. The bar's rows and the tree's are it today; lanes
+//! The one list: rows built by index, only the ones in view. The bar's rows and a tree tile's are it today; lanes
 //! and the tiles that follow a note are it next. Whoever lists gives a count, a key and a builder a row, and
 //! finds each row's item by that key, never by where it sat.
 use std::borrow::Cow;
 
 use rune::{El, GrowthSpec, ScrollSpec, col};
 use rune_kit::Kit;
-use rune_kit::shell::Sidebar;
 
 use crate::actions::App;
 
@@ -35,10 +34,4 @@ pub fn bounded<K, B>(key: &str, shown: usize, k: &Kit, list: Rows<K, B>) -> El
 where K: for<'a> Fn(&'a App, usize) -> Cow<'a, str> + 'static, B: Fn(&App, usize) -> El + 'static {
     let height = (list.count.max(1) as f32 * list.height).min(list.height * shown as f32);
     k.scroll_bar(col().key(format!("{key}-scroll")).w_full().h(height).scroll(ScrollSpec { stick_bottom: false }).child(rows(key, list)))
-}
-
-/// The rows as the kit's sidebar lists them (the outline's tree, until it is a tile of its own).
-pub fn in_sidebar<K, B>(sidebar: Sidebar, list: Rows<K, B>) -> Sidebar
-where K: for<'a> Fn(&'a App, usize) -> Cow<'a, str> + 'static, B: Fn(&App, usize) -> El + 'static {
-    sidebar.row_height(list.height).virtual_rows(list.count, list.key, list.build)
 }

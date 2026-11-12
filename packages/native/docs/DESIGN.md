@@ -55,18 +55,22 @@ Garden work [type::screen] [screen::garden-work] [lands::reader] [focus::beds]
     - tile reader [name::reader]
     - tile backlinks [name::links] [source::tile:reader] [subject::follows]
 - keys
-  - mod+l [action::bar.open source=query]
+  - ctrl+l [action::bar.open source=query]
 ```
 
 Lowered, in the door's saved shape:
 
 ```json
-{"name":"garden-work","lands":"reader","keys":[{"key":"mod+l","action":"bar.open","args":{"source":"query"}}],
+{"name":"garden-work","lands":"reader","keys":[{"key":"ctrl+l","action":"bar.open","args":{"source":"query"}}],
  "layout":{"focus":"beds","root":{"t":"split","dir":"row","weights":[0.3,0.7],"kids":[
   {"t":"leaf","kind":"query","name":"beds","query":"type=bed NOT stage=done","wires":[{"verb":"select","to":"reader"}]},
-  {"t":"tabs","kids":[{"t":"leaf","kind":"reader","name":"reader"},
+  {"t":"tabs","active":0,"tabs":[{"t":"leaf","kind":"reader","name":"reader"},
    {"t":"leaf","kind":"backlinks","name":"links","source":"tile:reader","subject":"follows"}]}]}}}
 ```
+
+As built in W2 (outline-core's `screen-note.ts`, which holds the whole form): a key is named as the door names keys
+(`ctrl+l`; `readSpec` refuses `mod+l`), a tab set saves its tiles under `tabs`, and what a property can't hold (a list,
+an object, a typed argument) is the block's own ```json fence. `screens.save` is the one writer of the form.
 
 - **Shipped screens and kinds:** `screens[]` and `tiles[]` of one extension, `packages/outliner/extensions/screens/`, served by `extensions.list` and read through the same `screens.list` (bb: core uses the path it exposes). The door's literals for them are deleted in the same wave.
 - **Kinds:** extension tile rows already come in three shapes, each bound to a drawer with no client code: `render` to `view`, `view` query to `list`, `command` to `pty`. One new field, `drawer`, names a client-drawn kind (`reader`).
@@ -79,7 +83,7 @@ Lowered, in the door's saved shape:
 | find, query | bar sources over `from: search` and a query; the same `query` kind docks as a tile |
 | edit | `draft.begin` on the reader's block |
 | inspector | `props` and `backlinks` tiles with `subject: follows`, in a dock |
-| toolbar | the spec's `menu`; label and keycap from the row |
+| toolbar | the spec's `toolbar`: act lines, one a button; label and keycap from the row (`menu` is the main menu's row, PIE-1525) |
 | scenes | `scenes/*.act` |
 
 ## 3. Service and client

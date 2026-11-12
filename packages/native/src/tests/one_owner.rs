@@ -54,7 +54,7 @@ fn state_changes_only_under_actions_and_the_store() {
         (".field(", vec!["keys.rs"]),
         (".typed(", vec!["keys.rs"]),
         (".held()", vec!["keys.rs"]),
-        (".pane(", vec!["view.rs"]),
+        (".resized(", vec!["shell.rs"]),
         (".effects(", vec!["keys.rs", "control.rs", "main.rs"]),
         (".take()", vec!["main.rs", "store.rs", "client.rs"]),
         (".reconnect()", vec!["main.rs"]),
@@ -62,12 +62,13 @@ fn state_changes_only_under_actions_and_the_store() {
         (".settle()", vec!["main.rs"]),
         (".script(", vec!["main.rs"]),
     ] {
-        none(&format!("{hand} called from somewhere new"), strays(hand, |path| path.starts_with("actions/") || callers.contains(&path)));
+        // The layout is pure (it holds no App: `a_layout_is_pure` below), so a word that is also a hand's name there is its own.
+        none(&format!("{hand} called from somewhere new"), strays(hand, |path| path.starts_with("actions/") || path.starts_with("layout") || callers.contains(&path)));
     }
     // Everywhere else, a handler that gets the App does one thing with it: runs an act line.
     for (path, text) in texts.iter().filter(|(path, _)| !path.starts_with("actions/") && !["store.rs", "keys.rs", "control.rs", "main.rs"].contains(&path.as_str())) {
         for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
-            let hands_on = line.contains(".act(") || line.contains("s.pane(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            let hands_on = line.contains(".act(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
             assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
         }
     }
@@ -90,6 +91,41 @@ fn a_label_and_a_keycap_come_from_the_rows() {
     none("a button with a label of its own: name its act line", strays("Button::new(\"", |_| false));
     // The spike's parts that decided on their own are gone.
     for gone in ["enum Finder", "enum Tag", "Notice::Trashed", "fn palette(", "fn scene_", "fn on_key("] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+}
+
+/// The lines of code that call the function `name` (the word, not the end of a longer one), outside the files allowed to.
+fn calls(name: &str, allowed: impl Fn(&str) -> bool) -> Vec<String> {
+    let needle = format!("{name}(");
+    strays(&needle, allowed).into_iter().filter(|found| {
+        let line = found.splitn(3, ':').nth(2).unwrap_or("");
+        line.match_indices(&needle).any(|(at, _)| !line[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'))
+    }).collect()
+}
+
+/// The arrangement has one decider. `layout.rs` and what is under it are pure: no Rune, no socket, no App. Only an
+/// action issues an operation, only `reshape`'s file asks `apply`, and only the open action's asks `place`.
+#[test]
+fn the_layout_is_pure_and_only_an_action_changes_it_or_places_an_open() {
+    let texts = sources();
+    let layout: Vec<&(String, String)> = texts.iter().filter(|(path, _)| path.starts_with("layout")).collect();
+    assert!(layout.len() >= 4, "layout.rs and its parts: {:?}", layout.iter().map(|(path, _)| path).collect::<Vec<_>>());
+    for (path, text) in &layout {
+        for word in ["rune::", "rune_kit", "crate::store", "crate::client", "crate::actions", "crate::keys", "UnixStream", "App"] {
+            let found: Vec<String> = text.lines().enumerate().filter(|(_, line)| !line.trim_start().starts_with("//") && line.contains(word)).filter(|(_, line)| word != "App" || line.split(|c: char| !c.is_alphanumeric()).any(|w| w == "App")).map(|(n, line)| format!("{path}:{}: {}", n + 1, line.trim())).collect();
+            none(&format!("the layout is pure: {word} in it"), found);
+        }
+    }
+    none("an operation issued outside an action: run an act line", strays("Op::", |path| path.starts_with("actions/") || path.starts_with("layout")));
+    none("the layout applied outside the one place an action reshapes it (actions/layout.rs)", calls("apply", |path| path == "actions/layout.rs" || path.starts_with("layout")));
+    // (`client::place` is where the outline is: another word.)
+    none("an open placed outside the open action (actions/nav.rs)", ["layout::place(", "layout::placement(", "layout::{place", "layout::place;", "placement::place"].iter().flat_map(|call| strays(call, |path| path == "actions/nav.rs" || path.starts_with("layout"))).collect());
+    assert_eq!(calls("place", |path| !path.starts_with("actions/")).len(), 1, "one call of place( under actions/: the open action's");
+    // A drawer is handed a TileCx and speaks by act lines: nothing under tiles/ is handed the layout to change, or the wire.
+    none("a drawer handed the layout to change", strays("&mut Layout", |path| !path.starts_with("tiles/")));
+    none("a drawer that reaches the wire", ["crate::client", ".write(", ".request(", "UnixStream"].iter().flat_map(|word| strays(word, |path| !path.starts_with("tiles/"))).collect());
+    // The parts the spike decided the window's shape with are gone, and the shell uses none of the kit's fixed panes.
+    for gone in ["SplitView", "PaneState", "fn sidebar(", "fn toolbar(s: &App, k: &Kit) -> Toolbar", "pub back: Vec<String>", "mod view;"] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/view.rs").exists(), "view.rs is split into shell.rs and tiles/");
 }
 
 /// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so

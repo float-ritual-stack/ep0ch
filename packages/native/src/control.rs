@@ -20,9 +20,9 @@ use std::time::Duration;
 use rune::Tx;
 use serde_json::{Map, Value, json};
 
-use crate::actions::{self, Actor, App, READER};
+use crate::actions::{self, Actor, App};
 use crate::actline::Request;
-use crate::{bar, keys};
+use crate::{bar, keys, tiles};
 
 /// Work for the UI thread.
 pub type Job = Box<dyn FnOnce(&mut App, &mut Tx) + Send>;
@@ -113,33 +113,35 @@ pub fn answer(s: &mut App, tx: &mut Tx, request: &Value) -> Value {
 /// What the window shows, as state: nothing here needs a drawn frame, so a hidden window answers too.
 pub fn peek(s: &App) -> Value {
     let person = s.person();
-    let page = s.shown();
-    let tree = s.tree();
-    let mut tiles = vec![
-        json!({ "id": "tree", "name": "tree", "kind": "tree", "asks": s.store().asks_of("tree"),
-            "facts": { "rows": tree.iter().map(|line| json!({ "id": line.row.id, "title": line.row.title, "depth": line.depth })).collect::<Vec<_>>(), "unfolded": s.unfolded, "selected": s.subject() } }),
-        json!({ "id": READER, "name": READER, "kind": "reader", "asks": s.store().asks_of(READER),
-            "facts": { "note": s.subject(), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": s.loading(),
-                "editing": s.editing.as_ref().map(|e| json!({ "note": e.note, "revision": e.revision, "unsaved": s.unsaved() })), "back": s.back } }),
-    ];
+    let shown = s.shown_tiles();
+    // Every tile of the arrangement, as its drawer says it: the ones on screen with what they ask.
+    let mut tiles: Vec<Value> = s.layout.all().iter().map(|id| {
+        let (name, kind) = (s.layout.name(id), s.spec(id).map_or("", |spec| spec.kind.as_str()));
+        let facts = s.cx(id).and_then(|cx| tiles::drawer(cx.row.drawer).map(|drawer| (drawer.facts)(&cx))).unwrap_or(Value::Null);
+        json!({ "id": id, "name": name, "kind": kind, "shown": shown.contains(id), "focused": s.layout.focus == *id, "facts": facts, "asks": s.store().asks_of(id), "problems": s.problems_of(id) })
+    }).collect();
     if s.bar.open {
         let rows = bar::rows(s);
         tiles.push(json!({ "id": "bar", "name": "bar", "kind": "bar", "asks": s.store().asks_of("bar"),
             "facts": { "scope": s.bar.scope, "query": s.bar.edit.text, "lit": s.bar.cursor + 1,
                 "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() } }));
     }
-    let mut text = vec![format!("{} on {}{}", s.at.outline, if s.machine.is_empty() { "…" } else { &s.machine }, if s.online { "" } else { " (offline)" })];
+    let page = s.shown();
+    let mut text = vec![format!("{} on {}{} · screen {}", s.at.outline, if s.machine.is_empty() { "…" } else { &s.machine }, if s.online { "" } else { " (offline)" }, s.screen.name)];
     if let Some(notice) = &s.notice { text.push(format!("! {}", notice.said)) }
     if let Some(said) = &s.agent_said { text.push(format!("· {said}")) }
-    text.extend(tree.iter().map(|line| format!("{}{} {}", "  ".repeat(line.depth), if s.subject().as_deref() == Some(line.row.id.as_str()) { ">" } else { " " }, line.row.title)));
+    text.extend(s.tree().iter().map(|line| format!("{}{} {}", "  ".repeat(line.depth), if s.subject().as_deref() == Some(line.row.id.as_str()) { ">" } else { " " }, line.row.title)));
     if let Some(page) = page {
         text.push(String::new());
         text.extend(if s.editing.is_some() { s.editor.text.lines().map(str::to_string).collect::<Vec<_>>() } else { page.text.lines().map(str::to_string).collect() });
     }
     json!({
         "screen": {
-            "screen": "desk", "outline": s.at.outline, "machine": s.machine, "online": s.online,
+            "screen": s.screen.name, "outline": s.at.outline, "machine": s.machine, "online": s.online,
             "focus": person.focus, "whereabouts": person.json(), "watches": s.store().peek(), "tiles": tiles,
+            // The arrangement as it would be saved, with each container's id, and how far `layout.undo` goes back.
+            "layout": s.layout.save(), "revision": s.layout.rev, "undo": s.journal.len(),
+            "screens": s.screens().iter().map(|screen| json!({ "name": screen.name, "title": screen.title, "problems": screen.problems.iter().map(|p| json!({ "tile": p.tile, "said": p.said })).collect::<Vec<_>>() })).collect::<Vec<_>>(),
             "notice": s.notice.as_ref().map(|n| json!({ "said": n.said, "undo": n.undo })), "said": s.agent_said,
             "steps": s.steps.iter().rev().take(10).rev().map(actions::Step::json).collect::<Vec<_>>(),
         },
@@ -154,5 +156,5 @@ fn listed(s: &App) -> Value {
         row["name"] = json!(action.row.id);
         row
     }).collect();
-    json!({ "screen": "desk", "note": s.subject(), "tiles": ["tree", READER], "actions": rows, "keys": keys::rows() })
+    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(), "catalogue": tiles::described() })
 }

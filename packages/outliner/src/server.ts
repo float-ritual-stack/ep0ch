@@ -161,7 +161,7 @@ import {
   type PublisherAddress,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { answeredPage, servedPage } from "./note-page";
+import { answeredInModule } from "./answered-in-modules";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
@@ -2386,7 +2386,7 @@ export class OutlinerServer {
       }
       return this.answered(request, result);
     }
-    if (request.action === "notes.page") return answeredPage(request, connection, this.watches, () => this.store.sequence, () => servedPage(this.own, id => this.store.require(id), request.blockId, { outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }));
+    { const elsewhere = answeredInModule(request, connection, { own: this.own, watches: this.watches, sequence: () => this.store.sequence, require: id => this.store.require(id), address: () => ({ outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }) }); if (elsewhere) return elsewhere; }
     if (request.action === "notes.address") {
       if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
       return this.answered(request, wired(request.action, await this.noteAddress(request.blockId)));

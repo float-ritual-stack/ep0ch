@@ -15,25 +15,10 @@ import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
 import { holds, produced, readFigure, readLinks, type LiveHost } from "./publish-live";
-import type { OutlinerResponse } from "@ep0ch/outline-core/protocol";
-import type { QueryWatches, WatchConnection } from "./query-watches";
-import { refusalEnvelope } from "./request-envelope";
 import type { BacklinkCollection } from "./types";
 
 /** Where the page was read: named in a figure's "the rest" command. */
 interface PageAddress { outline?: string | undefined; machine?: string }
-
-/**
- * `notes.page`'s envelope: the page, kept as a watched answer on `connection` when the request names a `watch` (ADR
- * 0004; its answer is awaited, so a pass asks `page` again and says when it changed), else just answered.
- */
-export function answeredPage(
-  request: { id: string; watch?: unknown; generation?: unknown }, connection: WatchConnection | undefined,
-  watches: QueryWatches, sequence: () => number, page: () => Promise<NotePage>,
-): Promise<OutlinerResponse> {
-  const answer = (id: string): Promise<OutlinerResponse> => page().then(result => ({ id, ok: true as const, result, sequence: sequence() }), error => refusalEnvelope(id, error, sequence()));
-  return connection && request.watch !== undefined ? watches.askLater(connection, request as unknown as Parameters<QueryWatches["askLater"]>[1], asked => answer(asked.id)) : answer(request.id);
-}
 
 type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
 type Listed = { id: string; title?: string; hasChildren?: boolean };

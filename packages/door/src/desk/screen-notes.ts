@@ -9,28 +9,28 @@
 //     ```
 //
 // Its name is its `screen::` property (a name a person chose: ADR 0001: a slug), its title the note's own title as they
-// typed it ("Garden work"; `screenSlug` makes the name of it), its spec the JSON in its first ```json fence.
-// The door reads every screen note as it starts and again when one changes, and registers each as a screen
+// typed it ("Garden work"; `screenSlug` makes the name of it). Its spec is in one of two bodies, the JSON in its first
+// ```json fence (what this door writes) or the blocks under it (what `screens.save` writes): the service reads both
+// (`screens.list`, outline-core's screen-note.ts) and this door reads no screen note's text itself.
+// The door asks for the outline's screens as it starts and again when the answer moves, and registers each as a screen
 // (`registerScreen` with `made`), so `screen.open`, `--screen <name>`, `screen.list`, the screen pickers and
 // `layout.load` find it beside the built-ins. A name that is a built-in screen's, or that two notes share, isn't
-// registered: the problem is said, with the notes' ids. Saving again writes the same note, checked against the
+// registered: the service says the problem, with the notes' ids. Saving again writes the same note, checked against the
 // revision this door read; trashing the note (or `screen.delete`) takes the screen away.
 //
-// The service needs nothing new for it: notes found by a property (`blocks.query`), written by `create` and `update`
-// with their revision, put in Trash by `delete`.
-import { codeBlocks } from "@ep0ch/outline-core/code-fence";
-import { subject, type Msg } from "../board";
+// The door's own writes are ordinary ones: `create` and `update` with their revision, `delete` to the Trash.
+import { readScreenNote as readNote } from "@ep0ch/outline-core/screen-note";
+import type { Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
 import { builtinScreen, extensionScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
-import { prop } from "../props";
 
 /** The property value that makes a block a screen note, and the one of the note they're kept under. */
 export const SCREEN_TYPE = "screen";
 const HOME_TYPE = "screens";
 
 /** What the store needs from the outline: the door's board (a test's fake gives the same calls). */
-export type ScreenStore = Pick<SocketBoard, "byProp" | "createBlock" | "update" | "trash">;
+export type ScreenStore = Pick<SocketBoard, "screens" | "byProp" | "createBlock" | "update" | "trash">;
 
 /** A screen note as read: the screen's name, its note and the revision read, and its spec. */
 export interface ScreenNote { name: string; title: string; id: string; revision: number; spec: ScreenSpec }
@@ -62,29 +62,12 @@ export function screenNoteText(spec: ScreenSpec): string {
 }
 
 /**
- * The spec in a screen note's first ```json fence, named by its `screen::` property: what the door registers, or
- * what's wrong with it. It reads only what `screenNoteText` writes (a ```json fence, as outline-core's `codeBlocks` reads one), so the JSON's own lines are never taken for anything else.
+ * A screen note this door just wrote, read back: outline-core's reader (the one `screens.list` reads every note with),
+ * given the note alone, so its JSON fence. What the door registers, or what's wrong with it.
  */
 export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: string; id: string } {
-  const heading = subject(m).trim();
-  const name = (prop(m, SCREEN_TYPE) ?? "").trim() || screenSlug(heading) || heading;
-  // Its title is the note's own when that makes this name (renaming the property renames the screen, title and all).
-  const title = heading && screenSlug(heading) === name ? heading : name;
-  const where = `the screen note ((${m.id}))`;
-  const wrong = (problem: string) => ({ problem, name, id: m.id });
-  const bad = screenNameProblem(name);
-  if (bad) return wrong(`${where}: ${bad} · set its [${SCREEN_TYPE}::…]`);
-  const lines = m.text.split("\n");
-  // Its layout is the first closed ```json fence, by outline-core's fence grammar.
-  const json = codeBlocks(lines).fences.find(f => f.closed && f.fence.info.trim() === "json");
-  const open = json?.start ?? -1, close = json?.end ?? -1;
-  if (open < 0 || close < 0) return wrong(`${where} (${name}) has no \`\`\`json fence holding its layout · save the screen again from the door (^W w) to write one`);
-  let data: unknown;
-  try { data = JSON.parse(lines.slice(open + 1, close).join("\n")); } catch (e) { return wrong(`${where} (${name}): its layout isn't JSON (${(e as Error).message})`); }
-  try {
-    const spec = readSpec({ ...(data && typeof data === "object" ? data : {}), name, title });
-    return { name, title, id: m.id, revision: m.revision ?? 0, spec };
-  } catch (e) { return wrong(`${where}: ${(e as Error).message}`); }
+  const read = readNote({ id: m.id, text: m.text, revision: m.revision ?? 0 });
+  return "problem" in read ? read : { name: read.name, title: read.title, id: read.id, revision: read.revision, spec: read.spec };
 }
 
 /**
@@ -106,30 +89,26 @@ function unregister(name: string) { writes++; forgetScreen(name); notes.delete(n
  * Where the door's loadScreenNotes reads (PIE-1546): the watched question, so the service says when a screen note
  * changed and nothing else in the outline reads them again (only a reconnect does).
  */
-export const watchedScreens = (board: SocketBoard): Pick<ScreenStore, "byProp"> => !board.watched ? board : { byProp: (key, value, limit) => board.byPropWatched(key, value, limit) };
+export const watchedScreens = (board: SocketBoard): Pick<ScreenStore, "screens"> => !board.watched ? board : { screens: reserved => board.screensWatched(reserved) };
+
+/** The names this door keeps for itself: a screen note by one of them opens nothing, and the service says so. */
+export const reservedScreens = (): string[] => screenNames().filter(builtinScreen);
 
 /**
- * Read every screen note and register each (the door's start, a screen note changed, a reconnect): what came and
- * went since the last read, and what's wrong. A read that fails keeps what was registered and throws.
+ * Ask the service for the outline's screen notes and register each (the door's start, the answer moved, a reconnect):
+ * what came and went since the last read, and what's wrong, in the service's words. A read that fails keeps what was
+ * registered and throws.
  */
-export async function loadScreenNotes(board: Pick<ScreenStore, "byProp">): Promise<{ added: string[]; removed: string[]; changed: string[]; problems: string[]; stale?: true }> {
+export async function loadScreenNotes(board: Pick<ScreenStore, "screens">): Promise<{ added: string[]; removed: string[]; changed: string[]; problems: string[]; stale?: true }> {
   const at = writes;
-  const found = await board.byProp("type", SCREEN_TYPE, 500);
+  const listed = await board.screens(reservedScreens());
   // A save or delete landed while this read was out: what it read is older than what's registered.
   if (writes !== at) return { added: [], removed: [], changed: [], problems: [...problems], stale: true };
-  const read = found.map(readScreenNote);
-  const wrong: string[] = read.flatMap(r => ("problem" in r ? [r.problem] : []));
-  // Every note by the name it gives, read well or not: a name two notes give opens neither, whatever else is wrong.
-  const byName = new Map<string, (ScreenNote | { problem: string; name: string; id: string })[]>();
-  for (const r of read) byName.set(r.name, [...(byName.get(r.name) ?? []), r]);
+  const made = listed.screens.filter(row => row.from === "note" && row.note);
+  // A note that doesn't read says why on its own row; a name two notes give, or one that isn't theirs to take, is the list's to say.
+  const wrong: string[] = [...made.filter(row => !row.spec).flatMap(row => row.problems.map(p => p.said).filter(said => !listed.problems.includes(said))), ...listed.problems];
   const next = new Map<string, ScreenNote>();
-  for (const [name, same] of byName) {
-    const ids = same.map(n => `((${n.id}))`).join(", ");
-    if (builtinScreen(name)) wrong.push(`a screen note is named ${name}, a built-in screen's name: it isn't opened · rename it ([${SCREEN_TYPE}::…] in ${ids})`);
-    else if (extensionScreen(name)) wrong.push(`a screen note is named ${name}, the ${extensionScreen(name)} extension's screen: it isn't opened · rename it ([${SCREEN_TYPE}::…] in ${ids})`);
-    else if (same.length > 1) wrong.push(`${same.length} screen notes are named ${name}: none is opened by that name · rename all but one (${ids})`);
-    else if (!("problem" in same[0]!)) next.set(name, same[0]!);
-  }
+  for (const row of made) if (row.spec) next.set(row.name, { name: row.name, title: row.title, id: row.note!.id, revision: row.note!.revision, spec: row.spec });
   const was = notes;
   const added = [...next.keys()].filter(n => !was.has(n));
   const removed = [...was.keys()].filter(n => !next.has(n));

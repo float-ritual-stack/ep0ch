@@ -13,12 +13,19 @@ use crate::actions::{self, Actor, App, Step, word};
 use crate::keys::{self, Bind};
 
 /// What has to be so before an action can run, as act lines: the bar's own keys need the bar, the editor's the editor.
-fn setup(action: &str, on: Option<&str>) -> Vec<&'static str> {
-    let mut lines = match action {
-        "back" => vec!["open id=shed"],
-        "note.untrash" => vec!["note.trash ref=beans"],
-        "notice.dismiss" => vec!["link.follow ref=ep0ch:p/Seed%20list"],
-        "edit.save" | "edit.close" => vec!["edit"],
+fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
+    let mut lines = match (action, line) {
+        ("back", _) => vec!["open id=shed"],
+        ("note.untrash", _) => vec!["note.trash ref=beans"],
+        ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
+        ("edit.save" | "edit.close", _) => vec!["edit"],
+        // The keys go to the tile above or below from one that has a tile there; a dock is toggled where one is.
+        ("tile.focus", "tile.focus dir=up") => vec!["tile.focus tile=backlinks"],
+        ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
+        ("dock.toggle", "dock.toggle side=left") => vec!["tile.dock edge=left tile=tree"],
+        ("layout.undo", _) => vec!["tile.split"],
+        // The screen this window ships is saved under a name of the person's own first.
+        ("screen.save", _) => vec!["screen.save name=Beds"],
         _ => vec![],
     };
     match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), _ => {} }
@@ -50,7 +57,7 @@ fn cases() -> Vec<Case> {
 /// A garden in the state the case needs, drawn.
 fn ready(case: &Case) -> Runtime<App> {
     let mut app = garden(ok()).app;
-    for line in setup(case.action, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
+    for line in setup(case.action, &case.line, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
     let mut rt = window(app);
     rest(&mut rt);
     rt
@@ -133,7 +140,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "bar.narrow", "tree.pick", "tree.fold"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "bar.narrow", "tree.pick", "tree.fold", "tile.move", "tile.dock", "layout.resize", "screen.open"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

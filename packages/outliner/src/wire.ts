@@ -324,6 +324,8 @@ export interface WireAnswers {
   "shares.snapshot.take": { path: string; shareId: string; bytes: number; } | null;
   "shares.start": { said?: string | undefined; share: ShareSession; };
   "shares.tunnel": { share: ShareSession | null; };
+  "screens.list": import("./screens").ScreensList;
+  "screens.save": import("./screens").ScreenSaved;
   "site.answer": SiteAnswer;
   "site.sources": SourcesAnswer;
   "styles.list": { complete: boolean; sheets: StyleSheet[]; problems: string[]; };

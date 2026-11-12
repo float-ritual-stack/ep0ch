@@ -1,0 +1,4 @@
+# The reader split, and the tree put in a tab with the backlinks, in their dock.
+tile.split
+tile.move side=center to=backlinks tile=tree
+tile.focus tile=reader

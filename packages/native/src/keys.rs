@@ -17,7 +17,7 @@ use rune_kit::{TextArea, TextInput};
 use serde_json::{Value, json};
 
 use crate::actions::row::KeyRow;
-use crate::actions::{self, Actor, App, Field, READER, word};
+use crate::actions::{self, Actor, App, Field, word};
 
 /// Where the person's keys are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,10 +41,10 @@ impl Layer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Whereabouts {
     pub layer: Layer,
-    /// The tile that has their focus.
-    pub focus: &'static str,
+    /// The tile that has their focus, by name: the layout's.
+    pub focus: String,
     /// What they are typing in, when they are: a tile's name, or the bar.
-    pub typing_in: Option<&'static str>,
+    pub typing_in: Option<String>,
     /// Their keys are held: they type somewhere.
     pub busy: bool,
     /// What holds them, in words for a refusal.
@@ -60,12 +60,14 @@ impl Whereabouts {
 impl App {
     /// Where the person's keys are now.
     pub fn person(&self) -> Whereabouts {
+        let focus = self.layout.name(&self.layout.focus);
         if self.bar.open {
-            Whereabouts { layer: Layer::Bar, focus: READER, typing_in: Some("bar"), busy: true, why: Some("the person is typing in the bar".into()) }
-        } else if self.editing.is_some() {
-            Whereabouts { layer: Layer::Draft, focus: READER, typing_in: Some(READER), busy: true, why: Some(format!("the person is in an edit on {READER}")) }
+            Whereabouts { layer: Layer::Bar, focus, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
+        } else if let Some(e) = &self.editing {
+            let tile = self.layout.name(&e.tile);
+            Whereabouts { layer: Layer::Draft, focus, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
-            Whereabouts { layer: Layer::Tile, focus: READER, typing_in: None, busy: false, why: None }
+            Whereabouts { layer: Layer::Tile, focus, typing_in: None, busy: false, why: None }
         }
     }
 }

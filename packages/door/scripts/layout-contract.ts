@@ -273,13 +273,16 @@ export function contractTables(): Record<string, string> {
     return { name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(drawn ? { drawn: ["hint"] } : {}), spec };
   });
   return {
-    "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal. Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA }, { cases: layout }),
-    "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA }, { cases: place }),
+    "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal. Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA, kinds: kindsAsked() }, { cases: layout }),
+    "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA, kinds: kindsAsked() }, { cases: place }),
     "act-lines.json": table({ about: "An act line: its words, the request it is, and (typed) its arguments as the action's row types them. A tile= is one of five kinds of address. Made by lineWords(), actRequestOf(), the door's coerceActionArgs() and parseTileAddress(); never edited by hand.", by: BY }, { lines: ACT_LINES.map(c => actLine(c, specs)), addresses: TILE_ADDRESSES.map(tile => ({ tile, address: parseTileAddress(tile) })) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
     "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. drawn names a field the screen drew as it made its spec (a hint row's strip): the table holds its words, without the colours and click marks. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
   };
 }
+
+/** The tile kinds every row was asked with (`Ctx.kinds`): a refusal that lists them is said from these. */
+const kindsAsked = () => ({ all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) });
 
 /** How a layout row reads, said in the tables themselves. */
 const READING = [
@@ -288,6 +291,7 @@ const READING = [
   "setup, when a case has it, is applied first, each step by the person unless it names an actor; standing is how the door's one rule reads the actor (layoutStanding).",
   "A layout in a result holds what the layout module holds of a tile (kind, name, fold, agent level, wires), and under also what no saved layout does (zoom, lift, locks, touched, foldedBy, openedFrom, remembered, rev).",
   "A share is the number the door computed (an IEEE double): compare shares to within 1e-9.",
+  "kinds is the tile kinds every row was asked with: all of them, and the ones that take notes (a refusal that lists kinds lists these).",
 ];
 
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */

@@ -97,8 +97,13 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace_text("Plot, half written"));
     let before = d.asked.borrow().len();
     for (request, why) in [
-        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), "the person is in an edit on reader"),
-        (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "the person is in an edit on reader"),
+        // An open that names no tile is the layout's to place: the screen's one reader holds their draft, and says so
+        // in the door's words. Aimed at that reader, it is the actor rule's no.
+        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), "reader holds an edit or a comment; it stays on its note until that's saved or closed"),
+        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "tile": "reader" }), "the person is in an edit on reader"),
+        (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "reader holds an edit or a comment"),
+        (json!({ "cmd": "act", "action": "tile.close", "tile": "reader" }), "not closed: it holds an edit of Plot"),
+        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "an agent doesn't move what they look at"),
         (json!({ "cmd": "act", "action": "link.follow", "args": { "ref": "ep0ch:b/shed" } }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "back" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "edit.close", "args": { "discard": "true" } }), "the editor is the person's"),
@@ -129,10 +134,11 @@ fn peek_says_where_the_person_is_and_actions_lists_every_row() {
     for part in ["screen", "focus", "whereabouts", "watches", "tiles"] { assert!(!screen[part].is_null(), "peek has {part}: {screen}") }
     assert_eq!((screen["focus"].as_str(), screen["whereabouts"]["layer"].as_str(), screen["whereabouts"]["typingIn"].as_str(), screen["whereabouts"]["esc"].as_str()), (Some("reader"), Some("bar"), Some("bar"), Some("bar.close")));
     let tiles: Vec<&str> = screen["tiles"].as_array().unwrap().iter().map(|tile| tile["name"].as_str().unwrap()).collect();
-    assert_eq!(tiles, ["tree", "reader", "bar"]);
+    assert_eq!(tiles, ["tree", "reader", "props", "backlinks", "bar"], "every tile of the arrangement, then the bar while it is open");
     assert_eq!(screen["tiles"][1]["asks"][0]["action"], "notes.page");
-    assert_eq!((screen["tiles"][2]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][2]["asks"][0]["params"]["query"]["where"].as_str()), (Some("open id=beans"), Some("type=chore")));
-    assert_eq!(screen["watches"]["budget"][0]["said"], "3/64", "the top level, the page and the bar's query");
+    assert_eq!((screen["tiles"][4]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][4]["asks"][0]["params"]["query"]["where"].as_str()), (Some("open id=beans"), Some("type=chore")));
+    assert_eq!((screen["tiles"][2]["facts"]["follows"].as_str(), screen["tiles"][3]["facts"]["backlinks"][0]["id"].as_str(), screen["tiles"][3]["asks"][0]["params"]["blockId"].as_str()), (Some("tile:reader"), Some("plan"), Some("plot")), "the tiles that follow the reader read its note's page");
+    assert_eq!(screen["watches"]["budget"][0]["said"], "4/64", "the top level, the page (one slot, though three tiles show it), the outline's screens and the bar's query");
     assert!(peek["result"]["text"].as_array().unwrap().iter().any(|line| line.as_str().unwrap().contains("> Plot")), "the screen as text marks the open note");
 
     let listed = d.ask(json!({ "cmd": "actions" }));
