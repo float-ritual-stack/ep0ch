@@ -225,7 +225,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     note: "With no subcommand, mcp is the local stdio MCP server for this outline, gated by its access grant.",
     examples: ["ep0ch mcp --ws garden", "ep0ch mcp access --ws garden --json"] },
   { name: "peek", group: "Agents", summary: "Read what the running door shows",
-    synopsis: "peek [<section>] [--json] [--remote <machine> [--ws <name>]]", flags: [json, ["--xray", "Include the screen's structure"], ["--full", "Include each tile's whole description"], ["--remote <machine>", "The door running on that machine, through its link (act, open, snap and actions take it too)"], actor],
+    synopsis: "peek [<section>] [--json] [--remote <machine> [--ws <name>]]", flags: [json, ["--xray", "Include the screen's structure"], ["--full", "Include each tile's whole description"], ["--remote <machine>", "The door running on that machine, through its link (act, open, snap and actions take it too)"], actor, whichDoor],
     examples: ["ep0ch peek layout --json", "ep0ch peek --remote box-a --ws garden"] },
   { name: "act", group: "Agents", summary: "Run an action in the door",
     synopsis: "act <action> [key=value …]", flags: [actor, json, whichDoor],

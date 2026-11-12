@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CLI_COMMANDS } from "../src/cli-commands";
 import { DOORS, doorFlags } from "../src/cli-words";
 import { controlFor, placeFor } from "../src/session/place";
 
@@ -34,6 +35,12 @@ describe("--door native", () => {
     expect(doorFlags(["act", "note.trash", "--door", "attic"])).toEqual({ error: "--door is terminal or native, not attic" });
     expect(doorFlags(["act", "note.trash", "--door"])).toEqual({ error: "--door needs which door answers (terminal or native): ep0ch act … --door <door>" });
     expect(Object.keys(DOORS)).toEqual(["terminal", "native"]);
+  });
+
+  test("the commands a native window answers each say they take the flag", () => {
+    // What native's control socket serves (packages/native/src/control.rs): peek, act and actions.
+    const taking = CLI_COMMANDS.filter(c => c.flags.some(f => f[0].startsWith("--door "))).map(c => c.name);
+    expect(taking).toEqual(["peek", "act", "actions"]);
   });
 
   test("no native window on the outline is said, with what starts one", async () => {
