@@ -728,14 +728,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private emptied() {
     const h = this.holder, g = h?.tile;
     if (this.all().length || this.disposed || this.steps.puttingBack || !(g instanceof ScreenTile) || !g.group) return;
-    queueMicrotask(() => { if (!this.all().length && !this.disposed && g.inner === this) h!.desk()?.pruneGroup(g, this.holderBefore?.shape ?? null); });
+    queueMicrotask(() => { if (!this.all().length && !this.disposed && g.inner === this) h!.desk()?.pruneGroup(g, this.holderBefore); });
   }
-  /** Group `g`, emptied (`emptied`), closes here as one step from `before`: this desk's shape before the step that emptied it. */
-  private pruneGroup(g: ScreenTile, before: { shape: string; before: LayoutSpec } | null) {
+  /** Group `g`, emptied (`emptied`), closes here as a step of the one that emptied it, by its actor, from this desk's shape before it (`step.shape`). */
+  private pruneGroup(g: ScreenTile, step: Desk["holderBefore"]) {
     const id = this.idOf(g);
     if (id === undefined) return;
-    if (before) this.settled = before;
-    this.closeId(id);
+    // This desk took part in that step already (the drawer a group's tile went to): the close is part of its entry, whose shape before has the group.
+    const txn = step?.txn, open = !!txn && this.history.isOpen(txn), joined = !!txn && !!this.history.newest() && this.history.forTxn(txn) === this.history.newest();
+    if (step?.shape && !joined) this.settled = step.shape;
+    const close = (by?: Actor) => this.ask({ op: "close", tile: id, gone: true }, by), r = ((a: Result<number>) => (a.ok ? a : close()))(close(step?.by ?? USER));
+    if (r.ok && joined) this.asked.set(r, { ...this.asked.get(r)!, left: true });
+    if (r.ok) TXN.run({ ...TXN.getStore(), ...(txn ? { txn } : {}) }, () => { this.commit(r); this.tileLeaves(id, "end"); });
+    if (txn && !open) this.history.close(txn);
     this.save(); this.redraw();
   }
   /**
@@ -928,7 +933,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A group's desk: the desk holding it keeps its shape from before this step (or before the transaction it's part of),
     // the shape an emptied group's close goes back to (PIE-1775), and takes the group's new shape after it.
     const up = this.holder?.desk(), txn = TXN.getStore()?.txn;
-    if (up && (!txn || txn !== this.holderBefore?.txn)) this.holderBefore = { txn, shape: up.snapshotShape() };
+    if (up && !by?.left && (!txn || txn !== this.holderBefore?.txn)) this.holderBefore = { txn, by: by?.actor ?? USER, shape: up.snapshotShape() };   // a tile closing after its owner left (an answer's) is that step's
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
@@ -938,8 +943,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       else if (verdict === "step") this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     }
     this.settled = now;
-    up?.resettle();
-    this.focus = r.focus;
+    this.focus = r.focus; up?.resettle();
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
     const arrival = this.arrivals.get(r.focus);
     if (by?.actor.kind === "user" && (by.op === "focus" || by.op === "tab") && arrival) arrival.remaining = 0;
@@ -977,7 +981,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private resettle() { this.settled = this.snapshotShape() ?? this.settled; this.holder?.desk()?.resettle(); }
   /** A group's desk: its holder's shape from before this desk's newest step or transaction, by that transaction. */
-  private holderBefore: { txn: string | undefined; shape: { shape: string; before: LayoutSpec } | null } | null = null;
+  private holderBefore: { txn: string | undefined; by: Actor; shape: { shape: string; before: LayoutSpec } | null } | null = null;
   /** The names of the tiles the newest step took out, until each has left. */
   private readonly leftNames = new Map<number, string>();
 

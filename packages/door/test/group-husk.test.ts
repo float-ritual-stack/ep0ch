@@ -54,6 +54,25 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
     } finally { p.close(); }
   }, 40_000);
 
+  test("^W x on a group's reader: its answer closes, the emptied group goes, and ^W B brings the group back with the reader", async () => {
+    const p = await beanDesk(doors);
+    try {
+      await gather(p);
+      p.keys("C-s");
+      await until(() => !p.capture().includes("editing"), "saved");
+      p.keys("C-w", "x");
+      await until(() => !widths(p).some(w => w.startsWith("group")), "the emptied group gone", 5000).catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      expect(widths(p).map(w => w.split(" ")[0])).toEqual(["detail2", "detail3"]);
+      p.keys("C-w", "B");
+      await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group back").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      await until(() => p.capture().includes("Bean rows"), "its reader drawn").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      const back = widths(p).join();
+      await Bun.sleep(500);
+      expect(widths(p).join()).toBe(back);
+      expect(p.capture()).toContain("Bean rows");
+    } finally { p.close(); }
+  }, 40_000);
+
   test("an undo after a spill brings the group back as it last stood, its tiles at the shares they had", async () => {
     const p = await beanDesk(doors);
     /** The group's own tiles with their widths, as layout.get has its layer. */
