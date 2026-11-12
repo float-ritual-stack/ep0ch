@@ -13,17 +13,11 @@ import type { NotesBoard } from "../notes-cli";
 
 type Say = (line: string) => void;
 
-/** The newest sign a machine was online: its mirrors' newest snapshot, an ssh answer, a pull. */
-function lastSeen(s: BackupState, machine: string, lastPull: string | null): string | null {
-  const signs = [lastPull, ...Object.entries(s.mirrors).filter(([k]) => k.startsWith(`${machine}/`)).flatMap(([, m]) => [m.at, m.remoteAt])]
-    .filter((x): x is string => !!x);
-  return signs.sort().at(-1) ?? null;
-}
 
 /** The queues this machine holds for others, read into the job's state. */
-export function readQueues(c: BackupConfig, s: BackupState): NetmailState["queues"] {
+export function readQueues(c: BackupConfig): NetmailState["queues"] {
   const queues: NonNullable<NetmailState["queues"]> = {};
-  for (const q of readSummaries(netmailFile(c.env))) queues[q.machine] = { waiting: q.waiting, oldest: q.oldest, lastPull: q.lastPull, lastSeen: lastSeen(s, q.machine, q.lastPull) };
+  for (const q of readSummaries(netmailFile(c.env))) queues[q.machine] = { waiting: q.waiting, oldest: q.oldest, lastPull: q.lastPull, lastSeen: q.lastPull };
   return queues;
 }
 
@@ -41,7 +35,7 @@ export async function pull(c: BackupConfig, s: BackupState, o: { now?: () => num
 export async function netmailStep(c: BackupConfig, s: BackupState, o: { now?: () => number; say?: Say; verbose?: boolean } = {}): Promise<void> {
   const say = o.say ?? (() => {});
   try {
-    const queues = readQueues(c, s);
+    const queues = readQueues(c);
     s.netmail = { ...s.netmail, queues };
     for (const [m, q] of Object.entries(queues ?? {})) if (q.waiting || o.verbose) say(`netmail: ${q.waiting} queued for ${m}${q.oldest ? ` since ${q.oldest}` : ""} (its last pull: ${q.lastPull ?? "never"})`);
   } catch (e) { say(`✗ netmail queues: ${(e as Error).message}`); }

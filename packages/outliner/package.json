@@ -45,6 +45,7 @@
     "./outline-follower": "./src/outline-follower.ts",
     "./change-log": "./src/change-log.ts",
     "./log-archive": "./src/log-archive.ts",
+    "./schema": "./src/schema.ts",
     "./plain-stderr": "./src/plain-stderr.ts",
     "./program-status-emit": "./src/program-status-emit.ts",
     "./link": "./src/link.ts",

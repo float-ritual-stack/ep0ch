@@ -1,6 +1,8 @@
 // restic, run for the backups: through `with-secrets <groups> --` unless its password is already in the environment
-// (a test's local repository), so the keys reach only restic and are never printed. One snapshot per outline:
-// `restic backup --stdin` of a consistent copy, as `/<name>.sqlite`, tagged ep0ch-outline, outline=<name>, seq=<change>.
+// (a test's local repository), so the keys reach only restic and are never printed. One snapshot per outline and run:
+// `restic backup` of the outline's archive folder (its change log as segments, outliner log-archive.ts, ADR 0009),
+// tagged ep0ch-outline, outline=<name>, seq=<the newest entry archived>, schema=<its schema>.
+import { dirname, join } from "node:path";
 import { OUTLINE_TAG, type BackupConfig } from "./config";
 
 export interface Ran { code: number; out: string; err: string }
@@ -38,7 +40,7 @@ export const complaint = (r: Ran) => {
 export const OUTLINE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const safeName = (n: string) => OUTLINE_NAME.test(n) && !n.includes("..");
 
-export interface OutlineSnapshot { id: string; time: string; outline: string; seq: number | null; /** The outline's schema version when it was copied (null: a snapshot from before the tag). */ schema?: number | null; host: string }
+export interface OutlineSnapshot { id: string; time: string; outline: string; /** The newest log entry it holds. */ seq: number | null; /** The outline's schema version when it was archived. */ schema?: number | null; host: string; /** The archive folder it took, as an absolute path on the machine that took it. */ path: string }
 
 /** `restic snapshots --json`'s answer, as outline snapshots (others are left out). */
 export function parseSnapshots(json: string): OutlineSnapshot[] | { error: string } {
@@ -47,18 +49,19 @@ export function parseSnapshots(json: string): OutlineSnapshot[] | { error: strin
   if (!Array.isArray(rows)) return { error: "restic snapshots didn't answer a list" };
   return rows.flatMap(r => {
     const tags = r.tags ?? [];
-    if (!r.id || !r.time || !tags.includes(OUTLINE_TAG)) return [];
-    const outline = tags.find(t => t.startsWith("outline="))?.slice(8) ?? r.paths?.[0]?.replace(/^\//, "").replace(/\.sqlite$/, "");
+    // An archive's snapshot (a folder); the sqlite copies from before ADR 0009 aren't restored by this build.
+    if (!r.id || !r.time || !tags.includes(OUTLINE_TAG) || !r.paths?.[0] || r.paths[0].endsWith(".sqlite")) return [];
+    const outline = tags.find(t => t.startsWith("outline="))?.slice(8);
     if (!outline || !safeName(outline)) return [];
     const seq = tags.find(t => t.startsWith("seq="))?.slice(4);
     const schema = tags.find(t => t.startsWith("schema="))?.slice(7);
-    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, schema: schema && /^\d+$/.test(schema) ? Number(schema) : null, host: r.hostname ?? "" }];
+    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, schema: schema && /^\d+$/.test(schema) ? Number(schema) : null, host: r.hostname ?? "", path: r.paths[0] }];
   });
 }
 
 /** Each outline's newest snapshot in a repository, or every one (`all`), oldest first. */
 export async function snapshots(c: BackupConfig, repo: string, o: { all?: boolean; outline?: string } = {}): Promise<OutlineSnapshot[] | { error: string; code: number }> {
-  const r = await runRestic(c, repo, ["snapshots", "--json", "--no-lock", "--tag", OUTLINE_TAG, ...(o.outline ? ["--path", `/${o.outline}.sqlite`] : []), ...(o.all ? [] : ["--latest", "1"])], { timeoutMs: 120_000 });
+  const r = await runRestic(c, repo, ["snapshots", "--json", "--no-lock", "--tag", o.outline ? `${OUTLINE_TAG},outline=${o.outline}` : OUTLINE_TAG, ...(o.all ? [] : ["--latest", "1"])], { timeoutMs: 120_000 });
   if (r.code !== 0) return { error: complaint(r), code: r.code };
   const s = parseSnapshots(r.out);
   return "error" in s ? { ...s, code: 1 } : s.sort((a, b) => a.time.localeCompare(b.time));
@@ -72,19 +75,26 @@ export function summaryId(out: string): string | null {
   return null;
 }
 
-/** A consistent copy, uploaded as `/<name>.sqlite` (`host`: the machine it belongs to, when another uploads it: a relay). */
-export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine): Promise<{ id: string } | { error: string; code: number }> {
-  const r = await runRestic(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", host,
-    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])], { stdin: copy });
+/**
+ * An outline's archive folder, uploaded as it is (only new segments upload; `host`: the machine it belongs to, when
+ * another uploads it: a relay).
+ */
+export async function backupFolder(c: BackupConfig, repo: string, folder: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine): Promise<{ id: string } | { error: string; code: number }> {
+  const r = await runRestic(c, repo, ["backup", "--json", folder, "--host", host,
+    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])]);
   if (r.code !== 0) return { error: complaint(r), code: r.code };
   return { id: summaryId(r.out) ?? "?" };
 }
 
-/** A snapshot's outline, written to `dest`. */
-export async function dumpTo(c: BackupConfig, repo: string, s: Pick<OutlineSnapshot, "id" | "outline">, dest: string): Promise<{ ok: true } | { error: string }> {
+/**
+ * A snapshot's archive folder, put back under `target`: the folder's parent there is the archive root a replay reads
+ * (`<root>/<outline>/<logId>/…`, outliner log-archive.ts `replayArchive`).
+ */
+export async function restoreArchive(c: BackupConfig, repo: string, s: Pick<OutlineSnapshot, "id" | "path">, target: string): Promise<{ root: string } | { error: string }> {
   // With a lock: a prune on the other machine holds the repository exclusively; this waits for it.
-  const r = await runRestic(c, repo, ["dump", "--retry-lock", "10m", s.id, `/${s.outline}.sqlite`], { stdout: dest });
-  return r.code === 0 ? { ok: true } : { error: complaint(r) };
+  const r = await runRestic(c, repo, ["restore", "--retry-lock", "10m", s.id, "--target", target]);
+  if (r.code !== 0) return { error: complaint(r) };
+  return { root: join(target, dirname(s.path)) };
 }
 
 /** The retention PIE-607 set: every snapshot of two days, then hourly for three, daily for a month, weekly for 12. */

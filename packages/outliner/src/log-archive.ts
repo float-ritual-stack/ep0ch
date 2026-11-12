@@ -112,3 +112,32 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
     throw e;
   }
 }
+
+/** Every range an outline's archive holds of the log `logId`, in order (what a relay sends). */
+export function archivedRanges(root: string, outline: string, logId: string): LogRange[] {
+  return segments(join(root, outline, logId)).flatMap(s => readSegment(s.file));
+}
+
+/**
+ * Adds to an outline's archive what it doesn't hold yet of `ranges` (one log's, in order, which may begin before the
+ * archive's newest entry: a relay sends the whole log), as one new segment. Refused when they don't meet the archive
+ * at its newest entry with the same entry. Returns the archive's newest entry after, and the segment written, if any.
+ */
+export function appendToArchive(root: string, outline: string, ranges: readonly LogRange[]): { lsn: number; file: string | null } {
+  if (!ranges.length) throw new Error("nothing to archive");
+  const logId = ranges[0]!.logId;
+  const have = archivedCursor(root, outline, logId);
+  if (!have) return { lsn: ranges.flatMap(r => r.entries).at(-1)?.lsn ?? 0, file: writeSegment(root, outline, ranges) };
+  const entries = ranges.flatMap(r => r.entries);
+  const at = entries.findIndex(e => e.lsn === have.lsn);
+  let rest: LogEntry[];
+  if (at >= 0) {
+    if (entryDigest(entries[at]!) !== have.digest) throw new Error(`${outline}'s log differs from its archive at entry ${have.lsn}`);
+    rest = entries.slice(at + 1);
+  } else if (ranges[0]!.after === have.lsn && ranges[0]!.prev === have.digest) rest = entries;
+  else throw new Error(`these entries don't meet ${outline}'s archive (it holds through ${have.lsn}; they run ${entries[0]?.lsn ?? "?"} to ${entries.at(-1)?.lsn ?? "?"})`);
+  if (!rest.length) return { lsn: have.lsn, file: null };
+  const last = ranges.at(-1)!;
+  const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: have.lsn, head: last.head, prev: have.digest, entries: rest, complete: last.complete }]);
+  return { lsn: rest.at(-1)!.lsn, file };
+}

@@ -196,7 +196,7 @@ export function loadArgv(f: BackupSetupFacts, uid: number): string[][] {
 type Status = "ok" | "behind" | "missing" | "info" | "unknown";
 export interface SetupCheck { name: string; status: Status; detail: string; fix?: string }
 
-/** Doctor's lines for the restic job: its setup, each outline's newest backup, the mirrors, the drill, the alert. */
+/** Doctor's lines for the restic job: its setup, each outline's newest archive, the drill, the alert. */
 export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[] {
   const out: SetupCheck[] = [];
   const p = backupPlan(f);
@@ -218,21 +218,9 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   const machine = f.config.machine;
   for (const [name, o] of Object.entries(s.outlines).sort()) {
     const inc = incidents.get(`outline:${machine}/${name}`);
-    const newest = o.at ? `newest ${o.relayed ? "backup" : "snapshot"} ${ago(o.at)} (change ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never snapshotted";
+    const newest = o.at ? `newest ${o.relayed ? "backup" : "archive"} ${ago(o.at)} (log entry ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never archived";
     out.push(inc ? { name: `restic ${name}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `restic ${name}`, status: "ok", detail: `${newest}${o.pendingSince ? `; changes since ${ago(o.pendingSince)} upload with the next run${o.error ? ` (the last try: ${o.error})` : ""}` : ", as the outline"}` });
-  }
-  for (const [key, m] of Object.entries(s.mirrors).sort()) {
-    const inc = incidents.get(`mirror:${key}`) ?? incidents.get(`pending:${key}`);
-    const where = m.folder?.includes("/.restic/") ? `${m.folder} (beside the Litestream follower until it's retired)` : m.folder;
-    out.push(inc ? { name: `mirror ${key}`, status: "missing", detail: inc.detail, fix: inc.fix }
-      : { name: `mirror ${key}`, status: m.error ? "unknown" : "ok", detail: `${m.at ? `${m.source} copy of ${ago(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${where}${m.remoteAt ? `; its machine answered ${ago(m.remoteAt)} at change ${m.remoteSeq}` : ""}${m.error ? `; ${m.error}` : ""}` });
-  }
-  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
-    if (x.missing) out.push({ name: `mirror ${from}`, status: "info", detail: `${from} has no backups yet (restic/${from}), so nothing is mirrored from it; if it backs up under another name (its ep0ch backup status says which), name it ${from}`,
-      fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply (a machine set up under another name: set EP0CH_BACKUP_MACHINE=${from} in its ~/.config/ep0ch/backup.env, then ep0ch backup run)` });
-    else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
-    else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
   }
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
     const inc = incidents.get(`netmail:${m}`);
