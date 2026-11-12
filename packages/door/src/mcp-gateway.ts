@@ -177,7 +177,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     const which = `${read.copy.file}, last changed here ${read.copy.copiedAt}; its newest change is ${read.asOf}`;
     const migrated = read.migrated ? `; the copy here was migrated from schema ${read.migrated.from} to ${read.migrated.to}, and is made again from ${mirror.machine}'s log once its own migration has run` : "";
     const note = read.stale
-      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
+      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing${migrated}`
       : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its change log${migrated}`;
     return { board: read.board, served: { source: "mirror", asOf: read.asOf, copy: read.copy, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
   };

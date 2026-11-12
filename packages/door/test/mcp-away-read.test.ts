@@ -38,6 +38,8 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
   let lantern = "";
   /** The far machine stops answering the copy's follower (its link down). */
   let farAway = false;
+  /** The follower's clock: a home that wasn't reached is asked again only 15 s later on it, so the test moves it on. */
+  let skew = 0;
   let mirror: OutlineFollower;
   const savedWebUrl = process.env.EP0CH_WEB_URL;
 
@@ -65,7 +67,7 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     mkdirSync(join(mirrors, FAR), { recursive: true });
     process.env.EP0CH_WEB_URL = `https://${TAILNET}`;
     // The gateway: no outline of its own here, and the far machine's outline only from its copy (no live link).
-    mirror = new OutlineFollower("garden-notes", FAR, mirrors, line => logs.push(line), Date.now, {
+    mirror = new OutlineFollower("garden-notes", FAR, mirrors, line => logs.push(line), () => Date.now() + skew, {
       reach: async () => { if (farAway) throw new Error(`${FAR} is asleep`); return far.sock; },
     });
     await mirror.pull();
@@ -139,6 +141,7 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
       expect(snapshot.stale).toEqual({ since: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), why: expect.stringContaining(`${FAR} doesn't answer`) });
       expect(snapshot.said).toContain(`stale since ${snapshot.stale.since}`);
     } finally { farAway = false; }
+    skew += 16_000;
     await mirror.pull();
     expect(JSON.parse((await tool("outline_snapshot", { outline: "garden-notes" })).text).stale).toBeUndefined();
   }, 30_000);

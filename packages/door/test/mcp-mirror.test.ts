@@ -41,6 +41,9 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
   let note = { id: "", uri: "" }, nextId = 1;
   /** The attic's home stops answering (its link down): its copy stays, stale. */
   let atticAway = false;
+  /** The followers' clock: a home that wasn't reached is asked again only 15 s later on it, so a test moves it on. */
+  let skew = 0;
+  const clock = () => Date.now() + skew;
 
   const call = async (method: string, params?: unknown) => {
     const answer = await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }));
@@ -68,7 +71,7 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
       if (name === "cellar-notes" || (name === "attic-notes" && atticAway)) throw new Error(`${FAR} doesn't answer (no route)`);
       return home.sock;
     };
-    mirrors = ["garden-notes", "attic-notes", "cellar-notes"].map(name => new OutlineFollower(name, FAR, mirrorsFolder, line => logs.push(line), Date.now, { reach: reach(name) }));
+    mirrors = ["garden-notes", "attic-notes", "cellar-notes"].map(name => new OutlineFollower(name, FAR, mirrorsFolder, line => logs.push(line), clock, { reach: reach(name) }));
     // The first copies arrive; then the attic's home goes away.
     for (const m of mirrors.slice(0, 2)) await m.pull();
     atticAway = true;
@@ -168,6 +171,8 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     await attic.request("create", { parentId: null, text: "Lantern hook\nBy the attic window.", author: "agent" });
     await attic.request("mcp.access.configure", { level: "read" });
     atticAway = false;
+    // Its follower asks again once its wait after the last refusal is over.
+    skew += 16_000;
     await mirrors[1]!.pull();
     const found = JSON.parse((await tool("outline_find", { query: "Lantern hook", outline: "attic-notes" })).text);
     expect(found).toMatchObject({ outline: "attic-notes", source: "mirror" });
@@ -198,6 +203,8 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     asSchemaBehind("garden-notes", file);
     const mirror = new OutlineFollower("garden-notes", FAR, dir, line => logs.push(line), Date.now, { reach: away });
     try {
+      // Its first look (the migration runs a script) is over before the read.
+      await mirror.pull();
       const read = await mirror.read();
       if ("error" in read) throw new Error(read.error);
       expect(read.migrated).toEqual({ from: SCHEMA_VERSION - 1, to: SCHEMA_VERSION });
@@ -222,6 +229,7 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     copy.close();
     const mirror = new OutlineFollower("garden-notes", FAR, dir, line => logs.push(line), Date.now, { reach: away });
     try {
+      await mirror.pull();
       const gateway = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => [], join(here, "queue"));
       const row = (JSON.parse((await answerList(gateway)).text).outlines as Record<string, unknown>[])[0]!;
       expect(row).toMatchObject({ source: "unreachable", access: "full", writes: "queued" });

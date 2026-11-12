@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerClient } from "../src/client";
 import { forwardFor } from "../src/machine-forward";
+import { OutlineFollower } from "../src/outline-follower";
 import { OutlineHost } from "../src/outline-host";
 import { Publisher } from "../src/publish";
 import { OutlinePublishers } from "../src/publish-outlines";
@@ -121,7 +122,10 @@ test("its MCP access governs writes: read shows the threads with no write contro
 }, 30_000);
 
 test("the machine asleep: its copy here, said with its time, no write controls, and the forward isn't retried on every page", async () => {
-  // While the machine answers, the copy here follows its log (the comment made live above is in it).
+  // While the machine answers, the copy here follows its log: asked now, it holds the comment made live above.
+  const follower = new OutlineFollower<string>("attic-notes", FAR, join(root, "mirrors"), { attach: async s => ({ board: s, close() {} }), reach: async () => (await forwardFor(FAR, join(root, "outlines"), env)).socket, log: () => {} });
+  await follower.pull();
+  await follower.close();
   expect("error" in await remote.copyPublisher()).toBe(false);
   // The machine goes to sleep: its forward drops, and ssh can't reach it.
   env.FAKE_SSH_DOWN = "1";

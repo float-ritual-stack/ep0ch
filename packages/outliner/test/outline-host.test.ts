@@ -612,8 +612,9 @@ async function followedCopy(mirrors: string, machine: string, outline: string, s
     await follower.pull();
     const read = await follower.read();
     if ("error" in read) throw new Error(`${outline}@${machine}'s copy: ${read.error}`);
-    return read.asOf;
   } finally { await follower.close(); }
+  // What the copy holds once its follower stopped (a range that landed after the read is in it): its own record.
+  return (JSON.parse(readFileSync(join(mirrors, machine, ".follow", `${outline}.json`), "utf8")) as { asOf: string }).asOf;
 }
 
 test("away machines answer links from a read-only copy while silent forwards time out together", async () => {

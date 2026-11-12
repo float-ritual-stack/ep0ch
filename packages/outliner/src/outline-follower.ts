@@ -406,12 +406,13 @@ export class OutlineFollower<B> {
     let f = folders.get(this.dir);
     if (!f) { f = { dir: this.dir, machine: this.machine, owner: null, socket: outlineLayout(this.dir).socket, claiming: null, loops: new Map(), answeredAt: 0 }; folders.set(this.dir, f); }
     if (!f.owner && !f.claiming && this.now() - f.answeredAt >= ANSWER_CHECK_MS) {
-      if (await answers(f.socket)) f.answeredAt = this.now();
-      else {
-        f.answeredAt = 0;
-        const claimed = f;
-        claimed.claiming = this.claim(claimed).finally(() => { claimed.claiming = null; });
-      }
+      // One look at a time in a process: whoever serves the folder answers, or this process takes it.
+      const claimed = f;
+      claimed.claiming = (async () => {
+        if (await answers(claimed.socket)) { claimed.answeredAt = this.now(); return; }
+        claimed.answeredAt = 0;
+        await this.claim(claimed);
+      })().finally(() => { claimed.claiming = null; });
     }
     await f.claiming;
     if (f.owner && !this.looping && !this.closed) {
