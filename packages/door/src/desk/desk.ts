@@ -13,7 +13,7 @@ import { stripHint, stripSegments, stripsRecorded, withStripOwner } from "../sur
 import { ZOOM_WHEEL } from "./wkeys";
 import { droppedForInput, keptDropped } from "./lift-drops";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
-import { Draft, keepCopy } from "../edit";
+import { Draft, keepCopy, type AnswerPlace } from "../edit";
 import { errorDetails } from "../status-log";
 import { probe } from "../surface/probe";
 import { HomeSurface } from "../surface/home";
@@ -545,8 +545,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const side = id === undefined ? null : pairSide(this.root, id);
     return side === "tab" ? null : side;
   }
-  /** Where the answer tile beside `reader` is, of the pair they make (below, a tab behind it…): its edit's ask row says so (PIE-1757). */
-  answerSide(reader: ReaderPane): Dir | "tab" | null { const at = this.idOf(reader), id = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at))?.[0]; return id === undefined ? null : pairSide(this.root, id); }
+  /** Where the answer tile beside `reader` is, the ask it shows and that ask's line (PIE-1757, PIE-1768); side null with none, undefined for a float (PIE-1758). */
+  answerAt(reader: ReaderPane): AnswerPlace | undefined { const at = this.idOf(reader), found = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at)) as [number, AnswerTile] | undefined; return found ? { side: pairSide(this.root, found[0]), ask: found[1].ask, row: found[1].shownRow(reader.surface.draft?.text ?? reader.msg?.text ?? "") } : at === undefined || this.isFloat(at) ? undefined : { side: null }; }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
@@ -716,7 +716,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (how === "end") return this.dropTile(id, by);
     if (!p) return;
     if (how === "rebuilt") { p.dispose?.(); tileRegistry.release(p); }
-    this.forgetTile(id, p);
+    this.forgetTile(id, p); if (how === "carry" && p instanceof ReaderPane) for (const a of this.panes.values()) if (a instanceof AnswerTile) a.readerLeft(this);   // once it's gone, each sees whether its own went: a tab behind it isn't drawn to (PIE-1757)
   }
   /**
    * What's out of step between the instances, the records kept by tile id and the LayoutState (PIE-1559): a tile the

@@ -1,3 +1,6 @@
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { editHunks } from "@ep0ch/outline-core/edit-merge";
+import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { personRequestKeys } from "./agent-requests";
 import { personAsk } from "./invocation-grants";
@@ -638,6 +641,114 @@ export function wholeTextSpan(before: string, after: string): DraftPatchSpan | n
     replacement: after.slice(start, after.length - (before.length - end)),
     range: { start, end },
   };
+}
+
+/**
+ * What `after` changed in `before`, as small spans (PIE-1756, PIE-1760): on each changed line, the chips it touched
+ * (a value replaced, a chip added after the one before it), else the whole line. A span that is only its chips leaves
+ * the words typed beside them on the same line alone, so the person's own command lands while they type on the title.
+ * A change that adds or removes lines is the one span wholeTextSpan makes.
+ */
+export function chipSpans(before: string, after: string): DraftPatchSpan[] {
+  if (before === after) return [];
+  const was = before.split("\n"), now = after.split("\n");
+  const whole = [wholeTextSpan(before, after)!];
+  if (was.length !== now.length) return whole;
+  const records = parsePropertyRecords(before);
+  const spans: DraftPatchSpan[] = [];
+  let at = 0;
+  for (const [row, line] of was.entries()) {
+    const next = now[row]!;
+    if (line !== next) {
+      if (!line) return whole;
+      let p = 0;
+      while (p < line.length && p < next.length && line[p] === next[p]) p += 1;
+      let q = 0;
+      while (q < line.length - p && q < next.length - p && line[line.length - 1 - q] === next[next.length - 1 - q]) q += 1;
+      let start = p, end = line.length - q;
+      // The chips the change is in, or (an insertion) the chip just before it: whole chips, so the compare has text.
+      const own = records.filter(r => r.start >= at && r.end <= at + line.length).map(r => ({ start: r.start - at, end: r.end - at }));
+      const touched = own.filter(r => start === end ? r.start <= start && start <= r.end : r.start < end && start < r.end);
+      const near = touched.length ? touched : start === end ? own.filter(r => r.end <= start).slice(-1) : [];
+      if (near.length) { start = Math.min(start, ...near.map(r => r.start)); end = Math.max(end, ...near.map(r => r.end)); }
+      else { start = 0; end = line.length; }
+      const grown = next.length - line.length;
+      spans.push({ observed: line.slice(start, end), replacement: next.slice(start, end + grown), range: { start: at + start, end: at + end } });
+    }
+    at += line.length + 1;
+  }
+  return spans;
+}
+
+/**
+ * Where a span of `base` is in `current` now, followed through the edits between them (Codex on #1462), or why it
+ * can't be. Lines first: lines added or taken out above it only move it. On a line that changed, words: an edit inside
+ * it, or pressed against it without a space (a chip deleted, or made into a link's label: `[use [kind::seed]](…)`),
+ * refuses it; a word typed after it with a space only moves it. With `chip`, the place must still be that chip,
+ * outside links and code.
+ */
+export function followSpan(base: string, current: string, span: { start: number; end: number; observed: string }, chip?: { key: string; value: string }): { start: number; end: number } | { reason: string } {
+  const lines = editHunks(base, current);
+  if (!lines) return { reason: "the draft changed too much since it was saved to place it safely" };
+  let delta = 0, at: { start: number; end: number } | undefined;
+  for (const h of lines) {
+    if (h.start < span.end && span.start < h.end) {
+      // The span's own line changed: follow it word by word inside that hunk.
+      if (h.start > span.start || h.end < span.end) return { reason: "it was changed or taken out in the draft" };
+      const inner = followWords(base.slice(h.start, h.end), h.text, { start: span.start - h.start, end: span.end - h.start });
+      // The real cause first (PIE-1765): the chip's text now sitting in a link's label says so, not "changed".
+      if ("reason" in inner) return occurrencesIn(h.text, span.observed).some(at => insideLink(current, h.start + delta + at, h.start + delta + at + span.observed.length)) ? { reason: "it is inside a link in the draft" } : inner;
+      at = { start: h.start + delta + inner.start, end: h.start + delta + inner.end };
+      break;
+    }
+    if (h.end <= span.start) delta += h.text.length - (h.end - h.start);
+  }
+  at ??= { start: span.start + delta, end: span.end + delta };
+  if (current.slice(at.start, at.end) !== span.observed) return { reason: "it isn't in the draft any more" };
+  if (chip) {
+    const record = parsePropertyRecords(current).find(r => r.start === at!.start && r.end === at!.end);
+    if (!record || record.key !== chip.key || record.value !== chip.value) return { reason: "it isn't a property in the draft any more (code, or another chip)" };
+    if (insideLink(current, at.start, at.end)) return { reason: "it is inside a link in the draft" };
+  }
+  return at;
+}
+
+/**
+ * Whether `[start, end)` of `text` sits inside a link: one outline-core's link grammar finds, or a Markdown link's label
+ * holding it (`[use [kind::seed]](…)`, which the grammar's one-level label doesn't).
+ */
+function insideLink(text: string, start: number, end: number): boolean {
+  if (linkOccurrences(text).some(link => link.start <= start && end <= link.end)) return true;
+  // An unmatched `[` before it on the line, and an unmatched `]` after it that opens a `(`: a label holding it.
+  let open = -1, close = -1;
+  for (let i = start - 1, depth = 0; i >= 0 && text[i] !== "\n"; i--) {
+    if (text[i] === "]") depth++;
+    else if (text[i] === "[") { if (!depth) { open = i; break; } depth--; }
+  }
+  for (let j = end, depth = 0; j < text.length && text[j] !== "\n"; j++) {
+    if (text[j] === "[") depth++;
+    else if (text[j] === "]") { if (!depth) { close = j; break; } depth--; }
+  }
+  return open >= 0 && close >= 0 && text[close + 1] === "(";
+}
+
+/** Every offset `needle` starts at in `text`. */
+const occurrencesIn = (text: string, needle: string): number[] => { const out: number[] = []; for (let at = text.indexOf(needle); at >= 0 && needle; at = text.indexOf(needle, at + 1)) out.push(at); return out; };
+
+/** A span of `before` placed in `after` by a word-sized diff, or refused when an edit is in it or pressed against it. */
+function followWords(before: string, after: string, span: { start: number; end: number }): { start: number; end: number } | { reason: string } {
+  const hunks = editHunks(before, after, true);
+  if (!hunks) return { reason: "the line changed too much to place it safely" };
+  const solid = (text: string | undefined) => !!text && !/\s/.test(text);
+  let delta = 0;
+  for (const h of hunks) {
+    const inside = (h.start < span.end && span.start < h.end) || (h.start === h.end && span.start < h.start && h.start < span.end);
+    // Pressed against it: what's now right before it ends in a non-space, or right after it starts with one.
+    const pressed = (h.end === span.start && solid(h.text.slice(-1))) || (h.start === span.end && solid(h.text.slice(0, 1)));
+    if (inside || pressed) return { reason: "it was changed or taken out in the draft" };
+    if (h.end <= span.start) delta += h.text.length - (h.end - h.start);
+  }
+  return { start: span.start + delta, end: span.end + delta };
 }
 
 /** A new block's label for words: its first line, short. */

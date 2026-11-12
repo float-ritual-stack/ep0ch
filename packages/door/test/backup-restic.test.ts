@@ -65,6 +65,19 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
   return c;
 }
 
+/**
+ * The repositories the tests below back up to, made together before them (PIE-1762): restic's init is about 3 s of
+ * one core each, and fourteen in turn were 41 s of this file. laptop's own is left to its first run, which makes it.
+ */
+const MADE_AHEAD = ["shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+beforeAll(async () => {
+  if (!RESTIC) return;
+  const repos = MADE_AHEAD.map(name => { const c = machine(name); return [c, c.repoOf(name)] as const; });
+  repos.push([machine("laptop"), join(root, "repos-other", "laptop")]);   // the first test's other repository
+  const made = await Promise.all(repos.map(([c, repo]) => ensureRepo(c, repo, () => {})));
+  expect(made.filter(Boolean)).toEqual([]);
+}, 120_000);
+
 describe("settings", () => {
   test("the env file, mirrors and the machine's name", () => {
     expect(parseEnvFile("# a comment\nEP0CH_BACKUP_MACHINE=laptop\nexport X='y'\n")).toEqual({ EP0CH_BACKUP_MACHINE: "laptop", X: "y" });

@@ -211,6 +211,18 @@ if (input.action === "wander") {
   expect(store.get(note.id)!.effectiveDeletedRootId ?? null).toBeNull();
 });
 
+test("over its connection an extension stamps a property by key, as ext:<id>, with no revision to read first (PIE-1756)", async () => {
+  const { store, client, install, create, feed } = await setup();
+  const note = await create("Pond notes\n[visits::2]\nThe heron came back on Tuesday.");
+  await install("heron", { actions: [{ id: "count", label: "Count", on: "outline", effects: "write" }] }, `${CALL}
+const block = await call({ action: "properties.patch", blockId: input.args.note, operations: [{ op: "add", key: "visits", by: 1 }, { op: "set", key: "seen", value: "2026-11-12" }] });
+say({ message: "counted to revision " + block.revision });`);
+  const said = (await client.request<{ message: string }>({ action: "extensions.act", extension: "heron", extensionAction: "count", args: { note: note.id } })).message;
+  expect(said).toBe("counted to revision 2");
+  expect(store.get(note.id)).toMatchObject({ text: "Pond notes\n[visits::3] [seen::2026-11-12]\nThe heron came back on Tuesday.", revision: 2 });
+  expect(feed().filter(change => change.blockId === note.id).at(-1)).toMatchObject({ action: "ext.heron.count", actor: { author: "agent", actorId: "ext:heron" } });
+});
+
 test("an action's returned writes may land anywhere in the outline, still all or none, and never on a record an extension keeps", async () => {
   const { store, client, install, create } = await setup();
   const mine = await create("Mine");

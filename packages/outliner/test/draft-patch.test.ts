@@ -1,14 +1,16 @@
 // draft.patch (PIE-501): compare-and-swap on a span of a note's text, routed to the door holding a live
 // draft or to the saved note, refusing a failed interactive patch without writing anything (PIE-1125). Fictional notes only.
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+import { scratchDir } from "./scratch-outline";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, rebaseSpans, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult } from "../src/draft-patch";
+import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult, type PropertiesPatched } from "../src/draft-patch";
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
+import { setWorkProperty } from "../src/work-tools";
+import { park, restore } from "../src/work-later";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerEvent } from "../src/types";
 
@@ -18,7 +20,7 @@ afterEach(async () => {
 });
 
 async function service() {
-  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-draft-patch-"));
+  const directory = scratchDir("draft-patch-");   // a socket lives here: never tmpdir() (PIE-1654)
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const socket = join(directory, "outliner.sock");
@@ -114,7 +116,7 @@ const TIDY = { author: "agent" as const, actorId: "tidy" };
 async function fakeDoor(client: OutlinerClient, clientId: string, blockId: string, text: string, revision: number, options: { leaseMs?: number; answer?: boolean; refuse?: string; slowPatchMs?: number } = {}) {
   const door = { text, revision, requests: [] as DraftHolderRequest[], holdId: "" };
   const connected = Promise.withResolvers<void>();
-  const patches = new Map<string, { before: string }>();
+  const patches = new Map<string, { before: string; revision: number }>();
   const watcher = client.watch({
     client: { clientId, role: "observer", contextId: clientId },
     onConnect: connected.resolve,
@@ -131,11 +133,16 @@ async function fakeDoor(client: OutlinerClient, clientId: string, blockId: strin
         else {
           const located = locateSpans(door.text, request.patches, request.force);
           if (!located.ok) answer = { applied: false, reason: located.reason };
-          else { patches.set(request.patchId, { before: door.text }); door.text = applyLocated(door.text, located.spans); answer = { applied: true }; }
+          else {
+            patches.set(request.patchId, { before: door.text, revision: door.revision });
+            door.text = applyLocated(door.text, located.spans);
+            if (request.standsOn) door.revision = request.standsOn.revision;   // the saved note takes the same change (PIE-1756)
+            answer = { applied: true };
+          }
         }
       } else {
         const was = patches.get(request.patchId);
-        if (was) door.text = was.before;
+        if (was) { door.text = was.before; door.revision = was.revision; }
         answer = { reverted: !!was };
       }
       // A slow door: it applies the patch at once, but its answer comes after the service stopped waiting.
@@ -645,6 +652,150 @@ describe("draft.patch over the protocol", () => {
     expect(later).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
     expect(door.requests.every(request => request.kind === "read")).toBe(true);
   }, 20_000);
+
+  // PIE-1756: an agent's properties.patch on a held note lands in the store and the draft in one run, and the draft
+  // stands on the new revision: nothing waits in the draft, and no "changed elsewhere".
+  test("an agent's property stamp lands in the store and the held draft at once; a silent door refuses it", async () => {
+    const { store, client } = await service();
+    const note = store.create("Beds by the fence\n[touches::1]\nthe compost is warm");
+    const door = await fakeDoor(client, "door-stamp", note.id, `${note.text}, turn it`, note.revision);
+    const stamp = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: note.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation });
+    const answer = await stamp(TIDY);
+    expect(answer).toMatchObject({ revision: note.revision + 1, text: "Beds by the fence\n[touches::2]\nthe compost is warm", draft: { holder: "door-stamp", text: "Beds by the fence\n[touches::2]\nthe compost is warm, turn it" } });
+    expect(store.require(note.id)).toMatchObject({ text: answer.text, revision: answer.revision });
+    expect(door).toMatchObject({ text: answer.draft!.text, revision: answer.revision });
+    // A second stamp counts from the first, in both.
+    expect(await stamp(TIDY)).toMatchObject({ revision: note.revision + 2, text: "Beds by the fence\n[touches::3]\nthe compost is warm", draft: { text: "Beds by the fence\n[touches::3]\nthe compost is warm, turn it" } });
+    expect(door.revision).toBe(note.revision + 2);
+    // The person's own write from another shell goes through the hold too (PIE-1760).
+    const own = await stamp({ author: "user" });
+    expect(own).toMatchObject({ revision: note.revision + 3, text: "Beds by the fence\n[touches::4]\nthe compost is warm", draft: { text: "Beds by the fence\n[touches::4]\nthe compost is warm, turn it" } });
+    expect(door.revision).toBe(note.revision + 3);
+    // A door that stops answering keeps its hold: refused, and nothing is written.
+    const quiet = store.create("Seed tray\n[touches::4]");
+    await fakeDoor(client, "door-quiet", quiet.id, quiet.text, quiet.revision, { answer: false, leaseMs: 6_000 });
+    await expect(client.request({ action: "properties.patch", blockId: quiet.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: TIDY })).rejects.toThrow("didn't answer");
+    expect(store.require(quiet.id)).toMatchObject({ text: quiet.text, revision: quiet.revision });
+  }, 20_000);
+
+  test("a work stage set on a ticket being typed in: the answer, the saved ticket and the draft agree (PIE-1756)", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Mend the gate [type::roadmap-item] [work-stage::queued] [work-id::GATE-1]\n\nThe latch sticks after rain.");
+    const door = await fakeDoor(client, "door-ticket", ticket.id, `${ticket.text} Oil it`, ticket.revision);
+    const set = await setWorkProperty(client, ticket.id, "work-stage", "doing", { author: "agent", actorId: "loki-test" });
+    expect(set).toMatchObject({ value: "doing", changed: true });
+    expect(store.require(ticket.id).text).toBe("Mend the gate [type::roadmap-item] [work-stage::doing] [work-id::GATE-1]\n\nThe latch sticks after rain.");
+    expect(door.text).toBe("Mend the gate [type::roadmap-item] [work-stage::doing] [work-id::GATE-1]\n\nThe latch sticks after rain. Oil it");
+  });
+
+  test("a parked ticket restored while it's being typed in keeps its stage in the saved ticket (PIE-1756)", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Fix the shed roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01]\n\nTar paper first.");
+    const door = await fakeDoor(client, "door-later", ticket.id, `${ticket.text} Nails too.`, ticket.revision);
+    const restored = await restore(client as never, ticket.id, "asked again: the roof leaks", undefined, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
+    // One write (PIE-1760): the stage and the dated line, saved and in the draft, which stands on that revision.
+    const line = "**Back from later, 2026-11-12:** asked again: the roof leaks";
+    expect(restored.revision).toBe(ticket.revision + 1);
+    for (const part of ["[work-stage::queued]", "[restored::2026-11-12: asked again, loki-test]", `Tar paper first.\n\n${line}`]) expect(restored.text).toContain(part);
+    expect(restored.text).not.toContain("wreckage");
+    expect(store.require(ticket.id)).toMatchObject({ revision: restored.revision, text: restored.text });
+    expect(door.revision).toBe(restored.revision);
+    for (const part of ["[work-stage::queued]", "[restored::2026-11-12: asked again, loki-test]", `Tar paper first. Nails too.\n\n${line}`]) expect(door.text).toContain(part);
+  });
+
+  test("a ticket the door won't take a write on waits in the groom's report, and the run goes on (PIE-1760)", async () => {
+    const { store, client } = await service();
+    const held = store.create("Paint the fence [type::roadmap-item] [work-stage::queued] [work-id::GATE-2]\n\nTwo coats.");
+    const free = store.create("Oil the hinge [type::roadmap-item] [work-stage::queued] [work-id::GATE-3]\n\nOnce a year.");
+    await fakeDoor(client, "door-busy", held.id, held.text, held.revision, { refuse: "it changes the block being typed in" });
+    const report = await park(client as never, { apply: true, olderThanDays: 0, where: "type=roadmap-item work-id", now: new Date(Date.now() + 30 * 86_400_000), actor: "loki-test" });
+    expect(report.rows.find(r => r.id === held.id)).toMatchObject({ outcome: "waits", why: expect.stringContaining("block being typed in") });
+    expect(report.rows.find(r => r.id === free.id)).toMatchObject({ outcome: "parked" });
+    expect(store.require(held.id).text).toBe(held.text);
+    expect(store.require(free.id).text).toContain("[work-stage::later]");
+  });
+
+  test("CodeRabbit on #1461: an empty note, a chip taken off the title, a note ending in a newline", async () => {
+    const { store, client } = await service();
+    // An empty note being written: its first chip goes on a line of its own above what's typed.
+    const empty = store.create("");
+    const blank = await fakeDoor(client, "door-empty", empty.id, "first words", empty.revision);
+    const set = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: empty.id, operations: [{ op: "set", key: "kind", value: "seed" }], mutation: TIDY });
+    expect(set.text).toBe("[kind::seed]");
+    expect(blank).toMatchObject({ text: "[kind::seed]\nfirst words", revision: set.revision });
+    // The person took the chip off the title; the same chip in the body is not it: refused, nothing written.
+    const note = store.create("Bean row [kind::seed]\n\nwas [kind::seed] last week");
+    await fakeDoor(client, "door-moved", note.id, "Bean row\n\nwas [kind::seed] last week", note.revision);
+    await expect(client.request({ action: "properties.patch", blockId: note.id, operations: [{ op: "set", key: "kind", value: "pod" }], mutation: TIDY })).rejects.toThrow("isn't where it's saved in the draft");
+    expect(store.require(note.id)).toMatchObject({ text: note.text, revision: note.revision });
+    // A note ending in a newline takes a line the same way in the saved note and the draft: nothing left to save.
+    const tail = store.create("Fix the roof [kind::job]\n\nTar paper first.\n");
+    const roof = await fakeDoor(client, "door-tail", tail.id, tail.text, tail.revision);
+    const lined = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: tail.id, operations: [{ op: "line", text: "**Back from later, 2026-11-12:** asked again" }], mutation: TIDY });
+    expect(lined.text).toBe("Fix the roof [kind::job]\n\nTar paper first.\n\n**Back from later, 2026-11-12:** asked again");
+    expect(roof.text).toBe(lined.text);
+  });
+
+  // PIE-1760 (the verifier on #1461): a word after the title's last chip makes it read inline in the draft; it is still
+  // the same chip on the same line, so the person's own stage lands.
+  test("a word typed after the title's last chip: the stage from another shell still lands", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low]\n\nTwo coats.");
+    const door = await fakeDoor(client, "door-suffix", ticket.id, "Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low] now\n\nTwo coats.", ticket.revision);
+    const staged = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: ticket.id, operations: [{ op: "set", key: "work-stage", value: "doing" }], mutation: { author: "user" } });
+    expect(staged.text).toContain("[work-stage::doing]");
+    expect(door).toMatchObject({ revision: staged.revision, text: "Paint the bench [type::roadmap-item] [work-stage::doing] [work-id::GATE-3] [priority::low] now\n\nTwo coats." });
+  });
+
+  // Codex on #1462: a saved chip is followed through the draft's edits to the one place it is now, and must still be a
+  // chip there, outside links and code.
+  test("a chip is followed through the draft's edits: a deleted one isn't a copy, a link label isn't a chip, a line above moves it", async () => {
+    const { store, client } = await service();
+    const sprout = (id: string) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation: { author: "user" } });
+    // The first of two copies deleted in the draft: refused, not written to the other one.
+    const twice = store.create("Seed [kind::seed] notes [kind::seed]");
+    const a = await fakeDoor(client, "door-twice", twice.id, "Seed notes [kind::seed]", twice.revision);
+    await expect(sprout(twice.id)).rejects.toThrow("not applied");
+    expect(store.require(twice.id).text).toBe(twice.text);
+    expect(a.text).toBe("Seed notes [kind::seed]");
+    // The chip made into a link's label: not a chip any more, refused.
+    const label = store.create("Seed [kind::seed]");
+    const b = await fakeDoor(client, "door-label", label.id, "Seed [use [kind::seed]](https://example.test)", label.revision);
+    await expect(sprout(label.id)).rejects.toThrow("not applied");
+    expect(store.require(label.id).text).toBe(label.text);
+    expect(b.text).toBe("Seed [use [kind::seed]](https://example.test)");
+    // A metadata line typed above the chip: the chip moved down a line, still the chip, and it lands.
+    const above = store.create("Seed\n[kind::seed]\n\nWater daily.");
+    const c = await fakeDoor(client, "door-above", above.id, "Seed\n[priority::high]\n[kind::seed]\n\nWater daily.", above.revision);
+    expect((await sprout(above.id)).text).toBe("Seed\n[kind::sprout]\n\nWater daily.");
+    expect(c.text).toBe("Seed\n[priority::high]\n[kind::sprout]\n\nWater daily.");
+  });
+
+  // PIE-1765: a refusal names its real cause, and the next step for whoever asked.
+  test("a chip made into a link's label is refused as inside a link; the person is told to save first, an agent to read again", async () => {
+    const { store, client } = await service();
+    const label = store.create("Seed [kind::seed]");
+    await fakeDoor(client, "door-label-words", label.id, "Seed [use [kind::seed]](https://example.test)", label.revision);
+    const sprout = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request({ action: "properties.patch", blockId: label.id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation });
+    await expect(sprout({ author: "user" })).rejects.toThrow(/inside a link in the draft.*save the edit open on it, or put it aside, then run this again/);
+    await expect(sprout(TIDY)).rejects.toThrow(/inside a link in the draft.*read it again/);
+    expect(store.require(label.id).text).toBe(label.text);
+    // One chip among several in the label is inside it too.
+    const run = store.create("Rake leaves [type::task] [kind::seed] [owner::fern]");
+    await fakeDoor(client, "door-label-run", run.id, "Rake leaves [use [type::task] [kind::seed] [owner::fern]](https://example.test)", run.revision);
+    await expect(client.request({ action: "properties.patch", blockId: run.id, operations: [{ op: "set", key: "kind", value: "sprout" }], mutation: { author: "user" } })).rejects.toThrow(/inside a link in the draft/);
+  });
+
+  test("a restore leaves the ticket as clean as before it was parked: no empty line, no doubled space, the comment's words once", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Fix the roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01] [work-id::GATE-2]\n[parked-at::2026-10-01T00:00:00.000Z]\n\nTar paper first.");
+    const comment = store.create("Still want this before winter [type::annotation]", ticket.id);
+    const back = await restore(client as never, ticket.id, "nudged: a comment 2026-11-12: Still want this before winter", comment.id, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
+    expect(back.text).not.toContain("\n\n\n");
+    expect(back.text).not.toContain("  ");
+    expect(back.text.split("\n")[0]).toBe("Fix the roof [type::roadmap-item] [work-stage::queued] [work-id::GATE-2]");
+    expect(back.text).toContain(`**Back from later, 2026-11-12:** nudged: a comment 2026-11-12: Still want this before winter · ((${comment.id}|the comment))`);
+  });
 
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();

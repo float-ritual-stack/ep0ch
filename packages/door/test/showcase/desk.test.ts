@@ -829,15 +829,18 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const stage = () => S().stages.get(S().sel).top;
     const bar = () => { (app as any).paint(); return plain(h.painted.at(-1) ?? ""); };
     void app.heldAsks.seed(board);
-    await until(() => app.heldAsks.count() === 1, "the held request", 8000);
-    const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
-    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · ask again to send" }]);
-    await until(() => bar().includes("‼1"), "the count in the status bar");
+    // tidy's own demo note holds its ask for an R too (PIE-1737: a demo's ask never runs on install), so the showcase's
+    // cap-held one is found by its title, beside it.
+    const SWAP = "Reply to the seed swap thread";
+    const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held" && r.title === SWAP);
+    await until(() => held().length === 1, "the held request", 8000);
+    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: SWAP, why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · ask again to send" }]);
+    await until(() => app.heldAsks.count() === 2 && bar().includes("‼2"), "both counted in the status bar");
     await stage().dispatch.press("status.pick", { n: held()[0].n }, "waiting");
     await until(() => screen().includes("@tidy · Reply to"), "the row");
     // An agent opens it, never sends it.
     await expect(app.act({ action: "held.send", tile: "waiting", args: { id: held()[0].block }, as: "test-agent" })).rejects.toThrow("waits for a person");
-    expect(app.heldAsks.count()).toBe(1);
+    expect(held()).toHaveLength(1);
     const request = held()[0];
     await stage().dispatch.press("tile.open", { kind: "detail", name: "held-preview", note: seeded.notes.notebook.id }, "waiting");
     await stage().dispatch.press("tile.link", { to: "held-preview", verb: "select" }, "waiting");
@@ -848,8 +851,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(stage().pane("held-preview").msg?.id).toBe(request.block);
     // The person sends it (r on its row): its agent tidies the line, and the request leaves the list.
     await stage().dispatch.press("held.send", { id: held()[0].block }, "waiting");
-    await until(() => app.heldAsks.count() === 0, "sent: nothing held", 15_000);
-    expect(bar()).not.toContain("‼");
+    await until(() => held().length === 0 && app.heldAsks.count() === 1, "sent: the request leaves the list", 15_000);
+    expect(bar()).toContain("‼1");
     app.heldAsks.stop();
   }, 60_000);
 

@@ -34,7 +34,7 @@ test("each list main kept is now one column of the table", () => {
   // screens.list and screens.save are answered by their own module, which asks the service for what it reads and writes.
   expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
-  expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", ...MARKS.writes]));
+  expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", "properties.patch", ...MARKS.writes]));
   expect(sorted(DECLARED.events)).toEqual(sorted([...MAIN.events, ...MARKS.writes]));
   // Watchable reads stay listed in outline-core, the wire's side; the rows must say the same.
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
@@ -43,7 +43,7 @@ test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
   expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "screens.list", "lists.read", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
-  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
+  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "properties.patch", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",
     // PIE-1711: yo reads a find's words into a query, as the facets tile's query line does.
     "query.suggest", "screens.list", "lists.read"]));

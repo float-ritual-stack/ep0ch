@@ -43,6 +43,17 @@ export function formatProperty(property: BlockProperty): string {
   return `[${validated.key}::${validated.value}]`;
 }
 
+/**
+ * What every properties.patch is checked against before anything is read or written (PIE-1752, PIE-1756): one
+ * operation at least; a revision unless every operation names its key (`set`, `add`) or is a `line`; that revision the saved one.
+ * The store's write and the held draft's (draft-patch-router) both start here.
+ */
+export function checkPropertyPatch(saved: { id: string; revision: number }, expectedRevision: number | undefined, operations: readonly PropertyPatchOperation[]): void {
+  if (operations.length === 0) throw new Error("Property patch requires at least one operation");
+  if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add" && op.op !== "line")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set, add or line");
+  if (expectedRevision !== undefined && saved.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${saved.id}`);
+}
+
 /** PIE-1752: `set` and `add` name a key, so they become a replace or an append on the text as it is now. */
 export function keyedPropertyOps(text: string, operations: PropertyPatchOperation[]): PropertyPatchOperation[] {
   const tokens = parsePropertyRecords(text);
@@ -56,7 +67,30 @@ export function keyedPropertyOps(text: string, operations: PropertyPatchOperatio
   });
 }
 
+/**
+ * `text` with `operations` applied: its chips replaced, removed or appended, then each `line` at the end, a paragraph
+ * of its own (PIE-1760).
+ */
 export function patchPropertyText(text: string, operations: PropertyPatchOperation[]): string {
+  const lines = patchLines(operations);
+  const chips = patchChipText(text, operations.filter(op => op.op !== "line"));
+  return lines.length ? withLines(chips, lines) : chips;
+}
+
+/** The `line` operations' texts, each one line, checked once here. */
+export function patchLines(operations: readonly PropertyPatchOperation[]): string[] {
+  return operations.flatMap(op => {
+    if (op.op !== "line") return [];
+    const line = typeof op.text === "string" ? op.text.trim() : "";
+    if (!line || /[\r\n]/.test(line)) throw new Refusal("invalid", "a line operation takes one line of text");
+    return [line];
+  });
+}
+
+/** `text` with `lines` after it, each a paragraph of its own. */
+export const withLines = (text: string, lines: readonly string[]): string => `${text.trimEnd()}${text.trim() ? "\n\n" : ""}${lines.join("\n\n")}`;
+
+function patchChipText(text: string, operations: PropertyPatchOperation[]): string {
   const tokens = parsePropertyRecords(text);
   const mutations: Array<{ start: number; end: number; replacement: string }> = [];
   const touchedOrdinals = new Set<number>();
@@ -105,7 +139,18 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
 
   let patched = text;
   for (const mutation of mutations.sort((left, right) => right.start - left.start)) {
-    patched = patched.slice(0, mutation.start) + mutation.replacement + patched.slice(mutation.end);
+    let { start, end } = mutation;
+    if (!mutation.replacement) {
+      // A chip taken out leaves no doubled space (one between two others goes with it) and no empty line where it stood
+      // alone (PIE-1765), so a restored ticket reads as it did before it was parked. Other source stays as written.
+      const lineStart = patched.lastIndexOf("\n", start - 1) + 1, next = patched.indexOf("\n", end), lineEnd = next < 0 ? patched.length : next;
+      const chipsAfter = /^(?:[ \t]*\[[^\]\n]*::[^\]\n]*\])+[ \t]*$/.test(patched.slice(end, lineEnd));
+      if (chipsAfter && /[ \t]/.test(patched[start - 1] ?? "") && /[ \t]/.test(patched[end] ?? "")) start -= 1;
+      if (!(patched.slice(lineStart, start) + patched.slice(end, lineEnd)).trim()) {
+        if (next >= 0) { start = lineStart; end = next + 1; } else if (lineStart > 0) { start = lineStart - 1; end = lineEnd; }
+      }
+    }
+    patched = patched.slice(0, start) + mutation.replacement + patched.slice(end);
   }
   if (appends.length === 0) return patched;
 

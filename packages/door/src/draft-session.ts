@@ -641,12 +641,19 @@ export class DraftSession {
     // The cursor's line goes with it: an ask being written there waits for the person (PIE-1743).
     if (r.kind === "read") return { text: d.text, revision: d.base, cursorLine: d.writingOn };
     const redraw = () => this.env.redraw?.();
-    if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
+    if (r.kind === "revert") {
+      const reverted = d.revertPatch(r.patchId), back = d.unstand(r.patchId);
+      if (back !== undefined) this.hold?.revise(back);
+      redraw(); return { reverted };
+    }
     const by = patchActor(r.mutation);
     const a = d.applyPatch(r, by);
+    // The saved note took it too (a property stamp, PIE-1756): the draft stands on that revision, so its event is no news.
+    if (a.applied && r.standsOn) { d.standOn(r.patchId, r.standsOn); this.hold?.revise(r.standsOn.revision); }
     if (a.applied) {
       if (r.replyTo) this.env.answered?.(r.replyTo, by);
-      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
+      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft"
+        : r.standsOn ? "set a property: saved, and in your draft beside your words" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }

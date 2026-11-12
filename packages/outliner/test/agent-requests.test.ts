@@ -1303,7 +1303,11 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "re " + request.
 // while the agent works: the door sends its next open, undo and read on that one connection.
 test("r on a slow agent answers at once with running, and the same connection keeps answering while it works (PIE-1737)", async () => {
   const { store, create, agentOf, writeAgent, socket } = await setup();
-  await writeAgent("slow", `await Bun.sleep(2500);
+  // Slow on the r only: the ask's first answer, when the note is made, isn't what's timed (PIE-1762).
+  const ran = JSON.stringify(join(store.workspaceRoot!, "slow-ran"));
+  await writeAgent("slow", `import { existsSync, writeFileSync } from "node:fs";
+if (existsSync(${ran})) await Bun.sleep(2500);
+writeFileSync(${ran}, "");
 process.stdout.write(JSON.stringify({ ok: true, value: { reply: "took my time" } }));`);
   const note = await create("Seed list\n@slow think it over", "agent");
   await agentOf(note.id, (p) => p.agent?.status !== "running");

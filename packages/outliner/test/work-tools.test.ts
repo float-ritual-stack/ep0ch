@@ -39,7 +39,7 @@ async function runCli(env: Record<string, string>, args: string[], stdin?: strin
  * A private service with a work queue and a `gh` stand-in on PATH that
  * answers `gh pr view` from `pulls`.
  */
-async function setup() {
+async function setup(o: { fresh?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "outliner-work-tools-"));
   const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
@@ -50,8 +50,10 @@ async function setup() {
     store.close();
     rmSync(root, { recursive: true, force: true });
   });
-  store.configureWorkIdPrefix("PIE");
-  store.create("Work [type::work-queue] [project::demo]");
+  if (!o.fresh) {
+    store.configureWorkIdPrefix("PIE");
+    store.create("Work [type::work-queue] [project::demo]");
+  }
   const bin = join(root, "bin");
   const pulls = join(root, "pulls");
   Bun.spawnSync(["mkdir", "-p", bin, pulls]);
@@ -80,6 +82,81 @@ async function setup() {
   ]);
   return { store, run, pull, file, create };
 }
+
+// PIE-1760 (the verifier on #1461): on a fresh outline work create refused four times, one missing piece a run.
+test("work create on a fresh outline names everything it's missing in one answer, and work prefix sets the Work-ID prefix", async () => {
+  const h = await setup({ fresh: true });
+  const first = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--priority", "medium", "--json"]);
+  expect(first.exitCode).toBe(1);
+  for (const missing of ["--arc", "--track", "no work queue for project garden", "no Work-ID prefix"]) expect(first.error).toContain(missing);
+  expect(first.error).toContain("[type::work-queue] [project::garden]");
+  expect(first.error).toContain("ep0ch work prefix");
+  const bare = await h.run(["work", "create"]);
+  expect(bare.exitCode).toBe(1);
+  for (const missing of ["no title (--title)", "no project (--project)", "no priority", "--arc", "--track", "no work queue yet", "no Work-ID prefix"]) expect(bare.error).toContain(missing);
+  // Set up as the answer says, then it files, --json and all.
+  const prefixed = await h.run(["work", "prefix", "GATE"]);
+  expect(prefixed.json).toMatchObject({ prefix: "GATE" });
+  h.store.create("Garden work [type::work-queue] [project::garden]");
+  const filed = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--arc", "floor", "--track", "garden", "--priority", "medium", "--json"]);
+  expect(filed.exitCode).toBe(0);
+  expect(filed.json.workId).toMatch(/^GATE-/);
+});
+
+// PIE-1767 (the verifier on #1463): `work create "Mend the gate"` answered "takes no positional arguments" and never
+// named --title, so the first thing typed had no next step.
+test("a title typed as a positional files the ticket; a second title names --title", async () => {
+  const h = await setup();
+  const filed = await h.run(["work", "create", "Mend the gate", "--project", "demo", "--arc", "floor", "--track", "garden", "--priority", "low"]);
+  expect({ code: filed.exitCode, error: filed.error }).toEqual({ code: 0, error: "" });
+  expect(h.store.require(filed.json.blockId).text).toStartWith("PIE-001 — Mend the gate [type::roadmap-item]");
+  // Bare, the one answer names everything else it needs and never asks for the title it was given.
+  const bare = await h.run(["work", "create", "Oil the hinge"]);
+  expect(bare.exitCode).toBe(1);
+  for (const missing of ["--project", "--priority", "--arc", "--track"]) expect(bare.error).toContain(missing);
+  expect(bare.error).not.toContain("no title");
+  for (const args of [["Oil the hinge", "--title", "Oil the hinge"], ["Oil", "the hinge"]]) {
+    const twice = await h.run(["work", "create", ...args, "--project", "demo", "--arc", "floor", "--track", "garden", "--priority", "low"]);
+    expect(twice.exitCode).toBe(1);
+    expect(twice.error).toContain("--title");
+    expect(twice.error).toContain('"Oil the hinge"');
+  }
+}, 30_000);
+
+// PIE-1767: `work stage OTHER-7` said "No block has Work ID OTHER-007" where `show` names the prefixes the outline has.
+test("a Work ID nobody has is refused with the words show says, and both exit 1", async () => {
+  const h = await setup();
+  await h.create();
+  for (const address of ["OTHER-7", "PIE-9"]) {
+    const staged = await h.run(["work", "stage", address, "doing"]);
+    expect(staged.exitCode).toBe(1);
+    // show's sentence is the one resolver's (`blocks.resolve`, the door's resolveNotes): the same words, said once.
+    expect(staged.error).toBe(`error: ${(h.store.lookupBlockRef(address, "note") as { message: string }).message}\nkind: not-found`);
+  }
+  expect((await h.run(["work", "stage", "OTHER-7", "doing"])).error).toContain("no Work ID starts OTHER- here (this outline has PIE)");
+  // The outliner's read of a note that isn't there exits 1 too, its JSON still naming it unavailable.
+  const missing = "00000000-0000-4000-8000-000000000000", read = await h.run(["read", missing]);
+  expect(read.exitCode).toBe(1);
+  expect(JSON.parse(read.stdout).unavailable).toEqual([{ id: missing, status: "missing" }]);
+  expect(read.error).toBe(`error: no note ${missing} in this outline`);
+}, 30_000);
+
+// PIE-1761: a Work ID typed without its padding finds the ticket, whichever way its chip writes it.
+test("PIE-7 and PIE-007 find a ticket whose chip says PIE-7, and the one whose chip says PIE-008", async () => {
+  const h = await setup();
+  const short = h.store.create("Mend the gate [type::roadmap-item] [work-stage::queued] [work-id::PIE-7]");
+  const padded = h.store.create("Oil the hinge [type::roadmap-item] [work-stage::queued] [work-id::PIE-008]");
+  for (const [address, id] of [["PIE-7", short.id], ["PIE-007", short.id], ["pie-7", short.id], ["PIE-8", padded.id], ["PIE-008", padded.id]] as const) {
+    expect(h.store.resolvePageAddress(address)).toMatchObject({ status: "resolved", block: { id } });
+  }
+  const staged = await h.run(["work", "stage", "PIE-7", "doing"]);
+  expect({ code: staged.exitCode, error: staged.error }).toEqual({ code: 0, error: "" });
+  expect(h.store.require(short.id).text).toContain("[work-stage::doing]");
+  // A number nothing has: the did-you-mean names others, never the id that was typed, padded.
+  const missing = await h.run(["work", "stage", "PIE-9", "doing"]);
+  expect(missing.exitCode).toBe(1);
+  expect(missing.error).not.toContain("PIE-009?");
+});
 
 test("an item is created, staged and read back by Work ID with its revision", async () => {
   const h = await setup();
@@ -117,7 +194,7 @@ test("unclear or unsafe property writes are refused before anything changes", as
     [["work", "set", "PIE-001", "track", "other"], "[track::…] is a list"],
     [["work", "set", "PIE-001", "depends-on", "other"], "[depends-on::…] is a list"],
     [["work", "stage", "Example outcome", "doing"], "not \"Example outcome\""],
-    [["work", "stage", "PIE-042", "doing"], "No block has Work ID PIE-042"],
+    [["work", "stage", "PIE-042", "doing"], "PIE-042 isn't in this outline; did you mean PIE-001?"],
     [["work", "stage", "PIE-001", "superseded"], "exactly one superseded-by"],
   ];
   for (const [args, message] of refusals) {
@@ -379,7 +456,7 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   // A second request, ticketed later by hand, and an unknown ticket refused before anything changes.
   const second = h.store.create("The same table, asked again [type::request] [status::new]");
   const unknown = await h.run(["work", "link", second.id, "PIE-042"]);
-  expect(unknown.error).toContain("No block has Work ID PIE-042");
+  expect(unknown.error).toContain("PIE-042 isn't in this outline");
   const linked = await h.run(["work", "link", second.id, "PIE-1", "--expected", "1"]);
   expect(linked.json).toMatchObject({ blockId: second.id, workId: "PIE-001", previous: null, ticketStage: "queued", changed: true });
   const again = await h.run(["work", "link", early.id, "PIE-001"]);
@@ -609,9 +686,13 @@ test("a service older than this client is refused with a restart instruction", a
   const root = mkdtempSync(join(tmpdir(), "outliner-work-old-"));
   const { env, socket } = scratchOutline(root);
   Bun.spawnSync(["mkdir", "-p", join(socket, "..")]);
+  // An older host refuses a request on another protocol, as every host since PIE-1747 does (8008353b9 dropped the CLI's
+  // ping-first, and this stand-in still answered every request as a ping, so the CLI read a ping as a lookup: PIE-1759).
   const old = createServer((connection) => connection.on("data", (chunk) => {
-    const { id } = JSON.parse(String(chunk).split("\n")[0]!);
-    connection.end(`${JSON.stringify({ id, ok: true, result: { status: "ready", protocolVersion: 1 } })}\n`);
+    const { id, protocol } = JSON.parse(String(chunk).split("\n")[0]!);
+    connection.end(`${JSON.stringify(protocol !== undefined && protocol !== 1
+      ? { id, ok: false, kind: "invalid", error: `this client speaks protocol ${protocol} and the outline host protocol 1: restart the outline host on current code (ep0ch install --apply updates and restarts it)` }
+      : { id, ok: true, result: { status: "ready", protocolVersion: 1 } })}\n`);
   }));
   await new Promise<void>((resolve) => old.listen(socket, resolve));
   cleanups.push(async () => {

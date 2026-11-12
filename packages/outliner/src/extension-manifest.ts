@@ -625,11 +625,30 @@ function parseJson(text: string, file: string): unknown {
 }
 
 /**
+ * A schema's compiled validator, compiled once: the manifest's and folder config's by the schema itself, an extension's
+ * own config schema (a new object each load) by its JSON. Compiling ManifestV2 on every load held the host for seconds
+ * whenever the extensions reloaded (PIE-1762: 17 s of a showcase host's 50 s of CPU).
+ */
+const compiled = new WeakMap<TSchema, ReturnType<typeof Compile>>();
+const compiledByJson = new Map<string, ReturnType<typeof Compile>>();
+function validatorOf(schema: TSchema): ReturnType<typeof Compile> {
+  const known = compiled.get(schema);
+  if (known) return known;
+  const json = JSON.stringify(schema);
+  const validator = compiledByJson.get(json) ?? Compile(schema);
+  compiledByJson.set(json, validator);
+  compiled.set(schema, validator);
+  return validator;
+}
+
+/**
  * The first problem a schema finds, as a person would say it:
  * `handlers/0/kind must be one of resource, data, output, component`.
  */
 export function schemaProblem(schema: TSchema, value: unknown): string | null {
-  const errors = [...Compile(schema).Errors(value)] as Array<{ keyword: string; instancePath: string; message: string; params: Record<string, unknown> }>;
+  const validator = validatorOf(schema);
+  if (validator.Check(value)) return null;
+  const errors = [...validator.Errors(value)] as Array<{ keyword: string; instancePath: string; message: string; params: Record<string, unknown> }>;
   if (!errors.length) return null;
   const where = (path: string) => path.replace(/^\//, "") || "the file";
   const unions = errors.find((error) => error.keyword === "anyOf");

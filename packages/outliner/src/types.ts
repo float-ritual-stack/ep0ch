@@ -179,7 +179,7 @@ export type PropertyMatchContext = import("@ep0ch/outline-core/protocol").Proper
 export type PropertyPatchOperation =
   | { op: "replace"; ordinal: number; key?: string; value: string }
   | { op: "remove"; ordinal: number }
-  | { op: "append"; key: string; value: string } | { op: "set"; key: string; value: string } | { op: "add"; key: string; by: number }; // set/add: by key, on the text now, no revision (PIE-1752)
+  | { op: "append"; key: string; value: string } | { op: "set"; key: string; value: string } | { op: "add"; key: string; by: number } | { op: "line"; text: string }; // set/add: by key, on the text now, no revision (PIE-1752); line: a paragraph of its own at the end (PIE-1760)
 
 export interface PropertyCatalogItem {
   key: string;
