@@ -8,8 +8,8 @@
 //
 //   EP0CH_BACKUP_MACHINE   this machine's name in the backups (its repository, `<mirrors>/<name>/` elsewhere): laptop
 //   EP0CH_BACKUP_REPO      the repository, `{machine}` for the name: s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}
-//   EP0CH_BACKUP_MIRRORS   other machines whose outlines are mirrored here: laptop, or laptop=<ssh-name> to also copy
-//                          straight from it with sqlite3_rsync when it answers (whichever copy is newer wins)
+//   EP0CH_BACKUP_MIRRORS   other machines whose outlines are mirrored here: laptop, or laptop=<ssh-name> to also ask
+//                          its host over ssh how far each outline is (changes no snapshot holds yet are said)
 //   EP0CH_BACKUP_SECRETS   the with-secrets groups restic runs with when its password isn't in the environment: hetzner-s3,restic
 //   EP0CH_RESTIC           the restic binary (default: restic on PATH)
 //   EP0CH_OUTLINES, EP0CH_MCP_MIRROR_DIR   the outlines and the mirrors, where they aren't the defaults
@@ -22,6 +22,7 @@ import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { outlinesDir } from "../discover";
 import { defaultStateDir } from "../state";
 
@@ -49,6 +50,11 @@ export interface BackupConfig {
   machineFrom: "env" | "file" | "hostname";
   repoOf: (machine: string) => string;
   outlines: string;
+  /**
+   * The outline host's socket (EP0CH_SOCKET, else `<outlines>/.host/host.sock`): the job asks it for each outline's change
+   * and for its copies, and never opens an outline's file (PIE-1750).
+   */
+  host: string;
   /** The job's own state (state.json) and the alert the door reads (alert.json): `<door state>/backup`. */
   state: string;
   /** `<mirrors>/<machine>/<outline>.sqlite`: the MCP gateway's mirrors (EP0CH_MCP_MIRROR_DIR, else ~/outline-mirrors). */
@@ -94,11 +100,13 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
   const repo = get("EP0CH_BACKUP_REPO") ?? DEFAULT_REPO;
   const hub = get("EP0CH_MCP_HUB");
   if (hub && !/^[A-Za-z0-9_][A-Za-z0-9_.@-]*$/.test(hub)) return { error: `EP0CH_MCP_HUB=${hub} isn't an ssh name: set it in ${file}` };
+  const outlines = outlinesDir({ EP0CH_OUTLINES: get("EP0CH_OUTLINES"), HOME: home });
   const state = join(env.EP0CH_STATE ?? defaultStateDir({ ...env, HOME: home }), "backup");
   return {
     machine, machineFrom: env.EP0CH_BACKUP_MACHINE?.trim() ? "env" : named ? "file" : "hostname",
     repoOf: m => repo.replaceAll("{machine}", m),
-    outlines: outlinesDir({ EP0CH_OUTLINES: get("EP0CH_OUTLINES"), HOME: home }),
+    outlines,
+    host: env.EP0CH_SOCKET?.trim() || outlineLayout(outlines).socket,
     state,
     mirrorsDir: resolve(get("EP0CH_MCP_MIRROR_DIR") || join(home, "outline-mirrors")),
     mirrors,

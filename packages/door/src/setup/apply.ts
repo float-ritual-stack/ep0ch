@@ -53,7 +53,7 @@ function stepLines(s: Step, i: number, f: Facts, applying: boolean): string[] {
   else out.push(...clauses(s.why).map(l => `    ${l}`));
   // The outlines it copies by name: the folders are in the why, once.
   if (s.backups && s.status !== "skip") out.push(`    ${s.backups.map(b => b.name).join(" · ")}`);
-  for (const c of s.commands) if (!(s.backups && c.startsWith("sqlite3"))) out.push(`    $ ${c}`);
+  for (const c of s.commands) if (!(s.backups && (c.startsWith("sqlite3") || c.startsWith("ep0ch backup copy")))) out.push(`    $ ${c}`);
   return out;
 }
 
@@ -236,6 +236,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       try { prepareInstallBackups(backupRoot, join(f.home, "wt"), total, keep, say); }
       catch (e) { throw new StepFailed((e as Error).message, "remove stale worktrees with git worktree remove <path>, or move old install backups off this volume, then rerun ep0ch install --apply"); }
       let copied = 0;
+      const live = f.host.running && await hostLive(f.host.socket) !== null;
+      const { hostCopy } = await import("../backup/jobs");
       // The folders once; then a short line per outline, in columns.
       if (backups.length) show(`    ${f.host.folder}/*.sqlite → ${dirname(backups[0]!.dest)}/ (VACUUM INTO, integrity-checked)`);
       const nameWidth = Math.max(...backups.map(b => b.name.length)), sizeWidth = Math.max(...sizes.map(n => size(n).length));
@@ -245,8 +247,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         task.flush();
         try {
           mkdirSync(dirname(b.dest), { recursive: true, mode: 0o700 });
-          const { integrity } = backupDatabase(b.path, b.dest);
-          record(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity})`);
+          // A served outline is copied by its host (PIE-1750); with no host answering, the file is stopped and copied here.
+          const integrity = live ? (await hostCopy({ host: f.host.socket }, b.name, b.dest), "ok") : backupDatabase(b.path, b.dest).integrity;
+          record(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity}${live ? ", by the host" : ""})`);
           show(`    ✓ ${b.name.padEnd(nameWidth)}  ${size(sizes[i]!).padStart(sizeWidth)}  integrity ${integrity}`);
           copied += sizes[i]!;
         } catch (e) {
@@ -513,7 +516,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
  * step or unreadable, which stop the step before anything is changed. One already at `to` or newer is left alone.
  */
 export function outlinesToMigrate(m: Migration, folder: string): { outlines: Migration["outlines"]; blocked: OutlineSchema[] } {
-  const all = databases(folder).map(outlineSchema).filter(o => !o.empty);
+  const all = databases(folder).map(d => outlineSchema(d)).filter(o => !o.empty);
   const outlines = all.filter(o => o.version !== null && o.version >= m.from && o.version < m.to).map(o => ({ name: o.name, path: o.path, version: o.version!,
     ...(m.outlines.find(p => p.path === o.path)?.copy ? { copy: m.outlines.find(p => p.path === o.path)!.copy } : m.copyDir ? { copy: join(m.copyDir, `${o.name}.schema-${o.version}.sqlite`) } : {}) }));
   return { outlines, blocked: all.filter(o => o.version === null || o.version < m.from) };

@@ -267,7 +267,7 @@ describe("the plan", () => {
     const text = formatPlan(f, buildPlan(f, opts()), false);
     expect(text).toContain([
       "1 → Back up every outline",
-      `    before anything changes: a consistent copy (VACUUM INTO) of each ${HOME}/outlines/*.sqlite, integrity-checked, into ${HOME}/backups/ep0ch/20260314T092653Z`,
+      `    before anything changes: a consistent copy (VACUUM INTO, by the host) of each ${HOME}/outlines/*.sqlite, integrity-checked, into ${HOME}/backups/ep0ch/20260314T092653Z`,
       "    bbs · boops · float-hub",
       "2 → Update the ep0ch checkout",
     ].join("\n"));
@@ -1326,18 +1326,24 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(checks(fine)["outlines/schema"]).toMatchObject({ status: "ok", detail: "float-hub at schema 3, what the checkout's code opens" });
   });
 
-  test("the code's schema from schema.ts and the migration folder's names; an outline's from its file, read-only", () => {
+  test("the code's schema from schema.ts and the migration folder's names; an outline's from its host, else its stopped file", () => {
     expect(schemaCodeOf("export const SCHEMA_VERSION = 4;\n", ["0001-stamp.ts", "0004-split-props.ts", "README.md"]))
       .toEqual({ version: 4, scripts: { 1: "packages/outliner/scripts/migrations/0001-stamp.ts", 4: "packages/outliner/scripts/migrations/0004-split-props.ts" } });
     expect(schemaCodeOf(null, [], "gone").version).toBeNull();
     const path = join(scratch, "schema-read.sqlite");
     const db = new Database(path);
     db.exec("PRAGMA journal_mode = WAL; CREATE TABLE seeds (name TEXT); PRAGMA user_version = 2");
-    // Open (as a host holds it): read all the same, and the file isn't changed.
-    expect(outlineSchema({ name: "schema-read", path })).toEqual({ name: "schema-read", path, version: 2 });
     db.close();
+    // No host answering: the file is stopped, and read by the outliner's own look.
+    expect(outlineSchema({ name: "schema-read", path })).toEqual({ name: "schema-read", path, version: 2 });
     writeFileSync(join(scratch, "not-a-db.sqlite"), "compost");
     expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") })).toMatchObject({ version: null, error: expect.any(String) });
+    // A host serving them: its answer, and the file is never opened (this one isn't a database at all) (PIE-1750).
+    const served = { running: true, socket: "/fictional/.host/host.sock", outlines: [{ name: "not-a-db", database: "", folder: "", open: true, changeSeq: 9, schema: 7 }] };
+    expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") }, served)).toEqual({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite"), version: 7 });
+    expect(outlineSchema({ name: "schema-read", path }, served)).toMatchObject({ version: null, error: "the host at /fictional/.host/host.sock doesn't list it" });
+    const older = { ...served, outlines: [{ name: "not-a-db", database: "", folder: "", open: true }] };
+    expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") }, older)).toMatchObject({ version: null, error: expect.stringContaining("runs older code") });
   });
 });
 

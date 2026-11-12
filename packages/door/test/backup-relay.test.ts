@@ -13,9 +13,11 @@ import { changeSeq, runAll, schemaVersion, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
 import { snapshots } from "../src/backup/restic";
 import { outliner, scratchDir } from "./scratch";
+import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-relay-test-");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+let host: OutlineHost | undefined;
+afterAll(async () => { await host?.close(); rmSync(root, { recursive: true, force: true }); });
 const RESTIC = Bun.which("restic") ?? (existsSync(`${process.env.HOME}/.local/bin/restic`) ? `${process.env.HOME}/.local/bin/restic` : null);
 const DOOR = resolve(import.meta.dir, "..");
 const DOWN = async () => "objects.example.test doesn't answer (no reply in 8s)";
@@ -44,7 +46,11 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   const laptopWith = (extra: Record<string, string> = {}) => { const c = backupConfig(laptopEnv(extra)); if ("error" in c) throw new Error(c.error); return c; };
   const say = () => {};
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    // The laptop's outlines are its host's (PIE-1750): the job asks it for their changes and copies.
+    mkdirSync(join(dir, "laptop-outlines"), { recursive: true });
+    host = new OutlineHost({ outlinesFolder: join(dir, "laptop-outlines"), log: () => {} });
+    await host.start();
     mkdirSync(join(dir, "bin"), { recursive: true }); mkdirSync(join(dir, "hub-home"), { recursive: true }); mkdirSync(join(dir, "hub-outlines"), { recursive: true });
     Object.assign(hubEnv, {
       HOME: join(dir, "hub-home"), PATH: process.env.PATH!, EP0CH_OUTLINES: join(dir, "hub-outlines"), EP0CH_STATE: join(dir, "hub-state"),

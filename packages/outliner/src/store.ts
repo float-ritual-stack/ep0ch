@@ -38,6 +38,7 @@ import { inLiveOrder, queryCandidates, structuralVersion } from "./graph-questio
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { copyOutline, MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, type OutlineFileFacts, outlineFileFacts, readOutlineAbout } from "./outline-file";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
@@ -278,11 +279,7 @@ export type BlockRefLookup =
   | { kind: "trashed"; message: string; id?: string }
   | { kind: "missing"; message: string; didYouMean?: string; titled?: { ids: string[]; said: string; places: string[] } };
 
-// Singleton outline configuration uses the existing metadata table when it is not canonical user content
-// and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
-export const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
-/** What a scratch outline says of itself (outline-core's OutlineAbout, JSON): who made it, why, when (PIE-679). */
-export const OUTLINE_ABOUT_METADATA_KEY = "outline.about";
+export { MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, readOutlineAbout } from "./outline-file";
 /** How many earlier texts of a block the store keeps (PIE-621, block_revisions): the newest. */
 export const REVISIONS_KEEP = 100;
 
@@ -806,6 +803,14 @@ export class OutlinerStore {
   outlineAbout(): OutlineAbout | undefined {
     return readOutlineAbout(this.database);
   }
+
+  /** Where this outline's file is: its newest change and its schema (`outlines.list`, the backup job's change check). */
+  fileFacts(): OutlineFileFacts { return outlineFileFacts(this.database); }
+  /**
+   * A consistent copy of this outline into `dest`, made on the store's own connection between its writes (PIE-1750):
+   * the backup job's and a snapshot's. It holds the loop while it copies and writes nothing to the outline.
+   */
+  backupTo(dest: string): OutlineFileFacts { return copyOutline(this.database, dest); }
 
   /** A value the service keeps about the outline that isn't note content (the metadata table), or undefined. */
   readMetadata(key: string): string | undefined {
@@ -6127,12 +6132,3 @@ export class OutlinerStore {
   }
 }
 
-/** An outline database's `about`, read from its metadata (a closed file opened read-only works too); undefined when it has none. */
-export function readOutlineAbout(database: Database): OutlineAbout | undefined {
-  try {
-    const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_ABOUT_METADATA_KEY) as { value: string } | null;
-    if (!row) return undefined;
-    const a = JSON.parse(row.value) as OutlineAbout;
-    return typeof a?.principal === "string" && typeof a.createdBy === "string" ? a : undefined;
-  } catch { return undefined; }
-}

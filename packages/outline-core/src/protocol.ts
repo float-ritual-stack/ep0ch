@@ -319,6 +319,22 @@ export interface HostedOutlineSummary {
   default?: boolean;
   /** Who made it and why, when an agent made it over MCP (`outline_new`). */
   about?: OutlineAbout;
+  /** The newest change in its change feed (0 with none): the backup job's change check, from the host, never the file. */
+  changeSeq?: number;
+  /** Its schema (`user_version`): install's check, from the host. Absent with `changeSeq` when the file can't be read. */
+  schema?: number;
+}
+
+/** `outlines.backup`: a consistent copy the host made of one outline (PIE-1750), and where its file was then. */
+export interface HostedOutlineBackup {
+  name: string;
+  /** The copy (mode 0600), never checked by the host: its reader checks it. */
+  path: string;
+  changeSeq: number;
+  schema: number;
+  bytes: number;
+  /** ISO time the copy was made. */
+  asOf: string;
 }
 
 /**

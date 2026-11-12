@@ -3,7 +3,7 @@
 // Scratch outlines (fictional notes) and local restic repositories in a temp folder only: no bucket, no real outline,
 // no real unit. The restic parts are skipped where restic isn't installed.
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,9 +19,20 @@ import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { writeAlert } from "../src/backup/alert";
 import { outliner, Scratch, scratchDir } from "./scratch";
+import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-restic-test-");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+const hosts: OutlineHost[] = [];
+afterAll(async () => { for (const h of hosts.splice(0)) await h.close(); rmSync(root, { recursive: true, force: true }); });
+
+/** The outline host that serves a machine's outlines (PIE-1750): the job asks it, and never opens an outline's file. */
+async function served(c: BackupConfig): Promise<BackupConfig> {
+  mkdirSync(c.outlines, { recursive: true });
+  const host = new OutlineHost({ outlinesFolder: c.outlines, log: () => {} });
+  await host.start();
+  hosts.push(host);
+  return c;
+}
 const RESTIC = Bun.which("restic") ?? (existsSync(`${process.env.HOME}/.local/bin/restic`) ? `${process.env.HOME}/.local/bin/restic` : null);
 const CMD = { run: "ep0ch backup run", log: "journalctl --user -u ep0ch-backup -n 50" };
 const T0 = Date.parse("2026-05-02T09:00:00Z");
@@ -176,6 +187,7 @@ describe("the alert", () => {
 describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic repository", () => {
   const laptop = machine("laptop");
   const said: string[] = [];
+  beforeAll(() => served(laptop));
   const say = (s: string) => said.push(s);
 
   test("only outlines that changed are snapshotted", async () => {
@@ -238,14 +250,14 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     s.mirrors["laptop/garden"]!.remoteSeq = 3; s.mirrors["laptop/garden"]!.pendingSince = iso(T0);
     await mirror(tower, s, { say, follower: async () => false });
     expect(s.mirrors["laptop/garden"]!.pendingSince).toBeUndefined();
-    // A newer copy here (from sqlite3_rsync) isn't replaced by an older snapshot.
-    s.mirrors["laptop/garden"] = { ...s.mirrors["laptop/garden"], seq: 99, source: "rsync", snapshot: undefined };
+    // A newer copy here (a relayed one) isn't replaced by an older snapshot.
+    s.mirrors["laptop/garden"] = { ...s.mirrors["laptop/garden"], seq: 99, source: "relay", snapshot: undefined };
     await mirror(tower, s, { say, follower: async () => false });
     expect(s.mirrors["laptop/garden"]!.seq).toBe(99);
   }, 120_000);
 
   test("a machine with no backups yet is nothing wrong here: said, never an incident", async () => {
-    const porch = machine("porch", { EP0CH_BACKUP_MIRRORS: "attic-box" });
+    const porch = await served(machine("porch", { EP0CH_BACKUP_MIRRORS: "attic-box" }));
     const r = await runAll(porch, { now: () => T0, announce: async () => {}, heartbeat: async () => {}, drill: false });
     expect(r.ok).toBe(true);
     expect(readBackupState(porch.state).sources?.["attic-box"]).toEqual({ missing: true });
@@ -257,7 +269,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     // restic that can't reach its repository (a VPN resetting connections), without restic's minutes of retries.
     const offline = join(root, "restic-offline.sh");
     writeFileSync(offline, "#!/bin/sh\necho 'Fatal: unable to open repository at s3:example.invalid: connection reset by peer' >&2\nexit 1\n", { mode: 0o755 });
-    const shed = machine("shed", { EP0CH_RESTIC: offline });
+    const shed = await served(machine("shed", { EP0CH_RESTIC: offline }));
     outline(join(shed.outlines, "garden.sqlite"), ["Sharpen the hoe"]);
     const announced: string[] = [];
     const announce = async (i: { key: string }[]) => { announced.push(...i.map(x => x.key)); };
@@ -299,7 +311,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(await backupCommand(["backup", "run"], { out: s => out.push(s), err: s => err.push(s), terminal }, env)).toBe(0);
     const text = drawn.join("").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
     expect(text).toContain("checking 2 outlines for changes");
-    expect(text).toContain("garden: snapshotting (VACUUM INTO)");
+    expect(text).toContain("garden: snapshotting (VACUUM INTO, by the host)");
     expect(text).toContain("garden: uploading to restic");
     expect(text).toMatch(/✓ garden \(change \d+\) → snapshot [0-9a-f]{8}/);
     expect(out).toEqual([]);
@@ -309,7 +321,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(piped.join("\n")).toContain("no outline changed since its newest snapshot");
   }, 120_000);
   test("a schema migration is a change: the outline is snapshotted again, tagged, and the mirror takes it at the same change", async () => {
-    const home = machine("harbor"), far = machine("dock", { EP0CH_BACKUP_MIRRORS: "harbor" });
+    const home = await served(machine("harbor")), far = machine("dock", { EP0CH_BACKUP_MIRRORS: "harbor" });
     const path = join(home.outlines, "orchard.sqlite");
     outline(path, ["Prune the pears"]);
     const db = new Database(path); db.run("PRAGMA user_version = 3"); db.close();
@@ -335,6 +347,47 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     await mirror(far, t, { say, follower: async () => false });
     expect(schemaVersion(copy)).toBe(5);
   }, 120_000);
+});
+
+describe.skipIf(!RESTIC)("only the host opens a live outline (PIE-1750)", () => {
+  test("the job backs up what the host serves, though it can't see the outlines' folder: it opens no outline's file", async () => {
+    // The host's folder, and a job whose own outlines folder holds nothing: every answer is the host's.
+    const vault = await served(machine("vault"));
+    outline(join(vault.outlines, "ledger.sqlite"), ["Seed money", "Fence posts"]);
+    const job = machine("vault-job", { EP0CH_SOCKET: vault.host, EP0CH_BACKUP_MACHINE: "vault" });
+    expect(job.outlines).not.toBe(vault.outlines);
+    const s = readBackupState(job.state), said: string[] = [];
+    expect(await snapshot(job, s, { say: l => said.push(l) })).toEqual({ uploaded: ["ledger"], failed: [], relayed: [] });
+    expect(s.outlines.ledger).toMatchObject({ seq: 2 });
+    const out: string[] = [];
+    const to = join(root, "vault-restored", "ledger.sqlite");
+    expect(await backupCommand(["backup", "restore", "ledger", "--to", to], { out: l => out.push(l), err: l => out.push(l) }, job.env)).toBe(0);
+    expect(out.join("\n")).toContain("2 blocks");
+  }, 120_000);
+
+  test("with no host answering, nothing is copied, the outlines wait, and the line says the command that starts it", async () => {
+    const attic = machine("attic", { EP0CH_SOCKET: join(root, "attic", "no-host.sock") });
+    const s = readBackupState(attic.state);
+    s.outlines.recipes = { seq: 4, at: iso(T0) };
+    const said: string[] = [];
+    expect(await snapshot(attic, s, { now: () => T0, say: l => said.push(l) })).toEqual({ uploaded: [], failed: ["recipes"], relayed: [] });
+    expect(said.join("\n")).toMatch(/the outline host doesn't answer at .*no-host\.sock.*start it: (systemctl --user start outliner-host\.service|launchctl kickstart)/);
+    expect(s.outlines.recipes).toMatchObject({ seq: 4, pendingSince: iso(T0) });
+  });
+
+  test("`ep0ch backup copy`: the host's copy, checked, to a new file; never over one", async () => {
+    const mill = await served(machine("mill"));
+    outline(join(mill.outlines, "flour.sqlite"), ["Rye", "Spelt", "Emmer"]);
+    const out: string[] = [], err: string[] = [];
+    const to = join(root, "mill-copies", "flour.sqlite");
+    expect(await backupCommand(["backup", "copy", "flour", to], { out: l => out.push(l), err: l => err.push(l) }, mill.env)).toBe(0);
+    expect(out.at(-1)).toMatch(/✓ flour \(change 3, schema 0, \d+ bytes\) → .*flour\.sqlite; integrity ok/);
+    const db = new Database(to, { readonly: true });
+    expect((db.query("SELECT count(*) AS n FROM blocks").get() as { n: number }).n).toBe(3);
+    db.close();
+    expect(await backupCommand(["backup", "copy", "flour", to], { out: l => out.push(l), err: l => err.push(l) }, mill.env)).toBe(1);
+    expect(err.at(-1)).toContain("already exists; not overwritten");
+  }, 60_000);
 });
 
 describe("install and doctor", () => {

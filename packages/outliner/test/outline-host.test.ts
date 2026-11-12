@@ -8,6 +8,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerStore } from "../src/store";
+import { SCHEMA_VERSION } from "../src/schema";
 import type { Block, HostedOutlineList, HostedOutlineSummary, OutlinerEvent, OutlinerResponse, OutlinerServiceStatus } from "../src/types";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -21,6 +22,9 @@ function scratch(): string {
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
+
+/** Where each listed outline's file is (PIE-1750): its newest change and its schema, as the host says them. */
+const at = { changeSeq: expect.any(Number), schema: SCHEMA_VERSION };
 
 /** The outlines folder under a scratch root. */
 const layoutOf = (root: string) => outlineLayout(join(root, "outlines"));
@@ -193,7 +197,7 @@ test("create makes a new empty outline, keeps a folder already there, and refuse
   const root = scratch();
   const host = await startHost(root);
   const created = await ok<HostedOutlineSummary>(host.socketPath, { action: "outlines.create", name: "uncle" });
-  expect(created).toEqual({ name: "uncle", database: layoutOf(root).database("uncle"), folder: layoutOf(root).folder("uncle"), open: true });
+  expect(created).toEqual({ name: "uncle", database: layoutOf(root).database("uncle"), folder: layoutOf(root).folder("uncle"), open: true, ...at });
   expect(lstatSync(layoutOf(root).database("uncle")).isFile()).toBe(true);
 
   const again = await send(host.socketPath, { action: "outlines.create", name: "uncle" });
@@ -223,8 +227,8 @@ test("outlines.list shows each outline, open or not, and creates nothing", async
   expect(listed).toEqual({
     defaultOutline: "fred",
     outlines: [
-      { name: "bob", database: layoutOf(root).database("bob"), folder: layoutOf(root).folder("bob"), open: true },
-      { name: "fred", database: layoutOf(root).database("fred"), folder: layoutOf(root).folder("fred"), open: true, default: true },
+      { name: "bob", database: layoutOf(root).database("bob"), folder: layoutOf(root).folder("bob"), open: true, ...at },
+      { name: "fred", database: layoutOf(root).database("fred"), folder: layoutOf(root).folder("fred"), open: true, default: true, ...at },
     ],
   });
   expect(host.list()).toEqual(listed);

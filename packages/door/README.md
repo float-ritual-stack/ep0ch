@@ -1122,7 +1122,7 @@ mirrors and forwards use it), so the gateway has no second credential and no way
   A new block and a comment don't conflict; a comment whose passage changed lands on the whole note, quoting it.
 - A pull cut off after applying and before the hub heard keeps a ledger (`<door state>/backup/netmail-applied.json`),
   so the next pull tells the hub again and applies nothing twice.
-- The mirror shows a write once it has been applied and the next snapshot (or sqlite3_rsync) has refreshed the copy.
+- The mirror shows a write once it has been applied and the next snapshot has refreshed the copy.
 - `ep0ch mcp queue status` on the hub, `ep0ch backup status` and `ep0ch doctor` on either side show the queue
   depth, the oldest write and the last pull per machine. A queue that has waited a day while its machine was seen
   online (a newer snapshot, an ssh answer) is an alert on the door's status bar, announced once, with the fix.

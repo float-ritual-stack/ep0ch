@@ -38,7 +38,8 @@ test("each list main kept is now one column of the table", () => {
   // Watchable reads stay listed in outline-core, the wire's side; the rows must say the same.
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
-  expect(sorted(DECLARED.host)).toEqual(MAIN.host);
+  // outlines.backup: the host's copy of an outline, so nothing else opens its file (PIE-1750).
+  expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
   expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,

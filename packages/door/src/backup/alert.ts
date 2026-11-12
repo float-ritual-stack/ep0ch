@@ -48,10 +48,10 @@ export interface MirrorState {
   folder?: string;
   snapshot?: string;
   seq?: number | null;
-  /** The snapshot's time (or, from sqlite3_rsync, when it was copied; a copy found there, its file's time). */
+  /** The snapshot's time (a copy found there, its file's time). */
   at?: string;
-  /** Where the copy came from: a snapshot, sqlite3_rsync, or found in the folder (Litestream's, a lost state file). */
-  source?: "restic" | "rsync" | "found" | "relay";
+  /** Where the copy came from: a snapshot, a relay, or found in the folder (Litestream's, a lost state file). */
+  source?: "restic" | "found" | "relay";
   refreshed?: string;
   /** The outline's change on its machine when last asked over ssh, and when. */
   remoteSeq?: number | null;

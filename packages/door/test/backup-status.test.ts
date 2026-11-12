@@ -12,6 +12,7 @@ import { plainFailure, plainReason } from "../src/backup/plain";
 import { resticChecks } from "../src/backup/setup";
 import { failedLine, relayedLine, verdict } from "../src/backup/verdict";
 import { scratchDir } from "./scratch";
+import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-backup-status-");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -179,6 +180,10 @@ describe("flags are never ignored", () => {
     const c = backupConfig({ HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_BACKUP_MACHINE: "float-hub", EP0CH_BACKUP_REPO: join(dir, "repos", "{machine}") });
     if ("error" in c) throw new Error(c.error);
     mkdirSync(c.outlines, { recursive: true });
+    // Its host says each outline's change (PIE-1750); the job never opens the file.
+    const host = new OutlineHost({ outlinesFolder: c.outlines, log: () => {} });
+    await host.start();
+    afterAll(() => host.close());
     const path = join(c.outlines, "pie.sqlite");
     const db = new Database(path);
     db.run("CREATE TABLE change_feed (change_id INTEGER PRIMARY KEY AUTOINCREMENT, sequence INTEGER)");

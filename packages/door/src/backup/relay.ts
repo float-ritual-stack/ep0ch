@@ -3,7 +3,7 @@
 // (EP0CH_MCP_HUB, float-2). The hub, which can reach the bucket, verifies it, installs it as its mirror of that machine
 // (never an older schema, never an older change) and uploads it to that machine's repository on its behalf.
 //
-//   sender    a consistent copy (jobs.ts copyDatabase) streamed over ssh to `ep0ch backup receive` in a login shell;
+//   sender    a consistent copy (the host's, jobs.ts hostCopy) streamed over ssh to `ep0ch backup receive` in a login shell;
 //             no scp: the file travels on the ssh command's stdin, so the fake ssh and the real one carry it the same
 //   receiver  `ep0ch backup receive --machine <m> --outline <n> --seq N --schema V --sha256 H` with the file on stdin:
 //             into a private incoming folder, checked (sha256, integrity_check, user_version, change feed), then the

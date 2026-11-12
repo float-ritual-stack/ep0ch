@@ -11,10 +11,19 @@ writes from the templates here:
 Install fills in the bun and checkout paths and rewrites a file only while it keeps its "Written by `ep0ch install`"
 line.
 
+## Only the host opens a live outline
+
+The job, install and `ep0ch backup copy` ask the outline host and never open an outline's file (PIE-1750): its
+`outlines.list` says each outline's change and schema, and `outlines.backup` makes the copy on the store's own
+connection. A host that doesn't answer means nothing is copied that run, said with the command that starts it. The
+files they do open are copies (a snapshot, a restore, a mirror). A script that needs a copy runs
+`ep0ch backup copy <outline> <file>`, never `sqlite3 .backup` on the live file.
+
 ## What a run does
 
-1. **Snapshot.** For each `<outlines>/<name>.sqlite` whose change feed (`max(change_id)`) moved since its newest
-   snapshot: a consistent copy (`VACUUM INTO` from a read-only connection, `integrity_check`), uploaded with
+1. **Snapshot.** For each outline the host lists whose change feed (`max(change_id)`, the host's `outlines.list`) moved
+   since its newest snapshot: a consistent copy the host makes (`outlines.backup`: `VACUUM INTO` on its own connection,
+   between its writes), checked here (`integrity_check`), uploaded with
    `restic backup --stdin` as `/<name>.sqlite`, tagged `ep0ch-outline`, `outline=<name>`, `seq=<change>`, `schema=<user_version>`. An outline
    that hasn't changed (same change feed and same schema version: a migration is a change) isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
    nothing to repair; the next run tries again. A repository that isn't there yet is made (`restic init`).
@@ -24,8 +33,8 @@ line.
    keeps older history, since only hours and days with a snapshot count).
 3. **Mirrors** (`EP0CH_BACKUP_MIRRORS`): each other machine's newest snapshot of each outline replaces
    `~/outline-mirrors/<machine>/<name>.sqlite` (atomic rename) when it's newer than the copy there. With
-   `<machine>=<ssh-name>` and `sqlite3_rsync` on both machines, the outline is also copied straight from it when it
-   answers; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
+   `<machine>=<ssh-name>`, that machine's host is asked over ssh how far each outline is (`ep0ch outline list --json`
+   there), so changes no snapshot holds yet are said; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
    is active or enabled, the copy goes to `~/outline-mirrors/.restic/<machine>/` instead, so the two never write one
    file; once it's disabled and stopped, a copy Litestream left there is read first and only a newer snapshot replaces it.
 3b. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host

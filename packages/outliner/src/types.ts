@@ -3,7 +3,7 @@ import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, 
 export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
-export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineBackup, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -1690,7 +1690,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.import"; path: string; name: string }
   | { id: string; action: "outlines.attach"; name: string; create?: boolean }
   | { id: string; action: "outlines.pane"; paneId: string; hostname: string }
-  | { id: string; action: "outlines.close"; name: string }
+  | { id: string; action: "outlines.close"; name: string } | { id: string; action: "outlines.backup"; name: string; out: string }
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "outlines.archive"; name: string }
   | { id: string; action: "outlines.unarchive"; name: string }

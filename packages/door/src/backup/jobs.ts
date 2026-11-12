@@ -1,57 +1,73 @@
 // The backup job's parts (PIE-607), each standing alone: a gap, an offline night or a failed upload leaves nothing to
 // repair, the next run simply tries again.
 //
-//   snapshot  each outline here whose change feed moved since its newest snapshot: a consistent copy (VACUUM INTO,
-//             integrity-checked) uploaded to this machine's repository. An outline that hasn't changed isn't snapshotted.
+//   snapshot  each outline here whose change feed moved since its newest snapshot, as its host says (`outlines.list`): a
+//             consistent copy the host makes (`outlines.backup`, VACUUM INTO on its own connection), integrity-checked
+//             here and uploaded to this machine's repository. An outline that hasn't changed isn't snapshotted. Nothing
+//             here opens a live outline (PIE-1750); the files it opens are copies.
 //   mirror    each other machine's outlines (EP0CH_BACKUP_MIRRORS): its newest snapshot, when it's newer than the copy
-//             here, replaces `<mirrors>/<machine>/<outline>.sqlite` by an atomic rename; with an ssh name and
-//             sqlite3_rsync on both machines, the outline itself is copied too when the machine answers. Newer wins.
+//             here, replaces `<mirrors>/<machine>/<outline>.sqlite` by an atomic rename. With an ssh name, its host is
+//             asked how far each outline is, so changes no snapshot holds yet are said. Newer wins.
 //   watch     what's stale (alert.ts), into alert.json for the door's status bar and doctor; each incident announced once.
 //   drill     monthly: each outline's newest snapshot restored into a temp folder and checked.
 import { Database } from "bun:sqlite";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { alive } from "../state";
-import { databases } from "../setup/outline-files";
+import { hostRequest } from "../socket";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { failedLine, moment, relayedLine } from "./verdict";
-import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type OutlineSnapshot, runRestic, snapshots } from "./restic";
+import { backupFile, complaint, dumpTo, forget, NO_REPO, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
 /** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
 type Step = (title: string) => void;
 
-/** The highest change in an outline's change feed (read-only), or null when it has none. */
+/** The highest change in a copy's change feed (read-only), or null when it has none. A copy, never a live outline. */
 export function changeSeq(path: string): number | null {
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
-    db.run("PRAGMA busy_timeout = 5000");
     const row = db.query("SELECT max(change_id) AS n FROM change_feed").get() as { n: number | null } | null;
     return row?.n ?? 0;
   } catch { return null; } finally { db?.close(); }
 }
 
-/** An outline's schema version (`PRAGMA user_version`, read-only), or null when it can't be read. */
+/** A copy's schema version (`PRAGMA user_version`, read-only), or null when it can't be read. A copy, never a live outline. */
 export function schemaVersion(path: string): number | null {
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
-    db.run("PRAGMA busy_timeout = 5000");
     return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
   } catch { return null; } finally { db?.close(); }
 }
 
-/** A consistent, integrity-checked copy of a database (VACUUM INTO from a read-only connection), mode 0600. */
-export function copyDatabase(path: string, dest: string): void {
-  const src = new Database(path, { readonly: true });
-  try { src.run("PRAGMA busy_timeout = 5000"); src.run("VACUUM INTO ?", [dest]); } finally { src.close(); }
-  chmodSync(dest, 0o600);
-  const verdict = integrity(dest);
-  if (verdict !== "ok") throw new Error(`the copy failed its integrity check: ${verdict}`);
+/** How a person starts the outline host here, when the job finds it not answering. */
+export const hostStartCommand = (platform = process.platform) =>
+  platform === "darwin" ? "launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host" : "systemctl --user start outliner-host.service";
+
+/**
+ * A consistent, integrity-checked copy of one of this machine's outlines at `dest`, made by its host (`outlines.backup`,
+ * on the store's own connection, PIE-1750): the job never opens a live outline. What the copy holds comes back with it.
+ */
+export async function hostCopy(c: Pick<BackupConfig, "host">, name: string, dest: string): Promise<{ seq: number; schema: number; bytes: number }> {
+  if (existsSync(dest)) throw new Error(`${dest} already exists; not overwritten`);
+  // Made beside it and published by a hard link once checked: `dest` is never half a copy, nor a failed one.
+  const part = join(dirname(dest), `.${basename(dest)}.incoming-${process.pid}`);
+  rmSync(part, { force: true });
+  try {
+    const made = await hostRequest(c.host, "outlines.backup", { name, out: part }, 600_000);
+    const verdict = integrity(part);
+    if (verdict !== "ok") throw new Error(`the copy failed its integrity check: ${verdict}`);
+    try { linkSync(part, dest); } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${dest} already exists; not overwritten`);
+      throw e;
+    }
+    return { seq: made.changeSeq, schema: made.schema, bytes: made.bytes };
+  } finally { rmSync(part, { force: true }); }
 }
 
 /** `PRAGMA integrity_check`, as one line. */
@@ -94,13 +110,22 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [], relayed: string[] = [];
-  const outlines = databases(c.outlines);
+  // The outlines here and where each one is, as its host says (PIE-1750): nothing here opens an outline's file.
+  let outlines: { name: string; seq: number | null; schema: number | null }[];
+  try {
+    outlines = (await hostRequest(c.host, "outlines.list", {}, 30_000)).outlines.map(o => ({ name: o.name, seq: o.changeSeq ?? null, schema: o.schema ?? null }));
+  } catch (e) {
+    const why = `the outline host doesn't answer at ${c.host} (${(e as Error).message}), so nothing was copied; start it: ${hostStartCommand()}`;
+    for (const st of Object.values(s.outlines)) { st.pendingSince ??= new Date(now()).toISOString(); st.error = why; }
+    say(`✗ ${why}`);
+    return { uploaded, failed: Object.keys(s.outlines), relayed };
+  }
   // Snapshots are the repository's: another repository (or machine name) starts every outline over.
   if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   o.step?.(`checking ${outlines.length} outline${outlines.length === 1 ? "" : "s"} for changes`);
-  const changed = outlines.map(x => ({ ...x, seq: changeSeq(x.path), schema: schemaVersion(x.path) })).filter(x => {
+  const changed = outlines.filter(x => {
     const st = s.outlines[x.name] ??= {};
     // A migration changes the schema and not the change feed: a different schema than the newest snapshot's is a change.
     const moved = o.force || st.relayed?.uploaded === false || x.seq === null || st.seq === undefined || st.seq !== x.seq || (x.schema !== null && st.schema !== x.schema);
@@ -126,11 +151,10 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     for (const x of changed) {
       const st = s.outlines[x.name]!;
       const copy = join(tmp, `${x.name}.sqlite`);
-      o.step?.(`${x.name}: snapshotting (VACUUM INTO)`);
-      try { copyDatabase(x.path, copy); }
-      catch (e) { st.error = `copying ${x.path}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); continue; }
+      o.step?.(`${x.name}: snapshotting (VACUUM INTO, by the host)`);
       // What the copy holds, which an edit between the check above and the copy may have moved on from.
-      x.seq = changeSeq(copy) ?? x.seq; x.schema = schemaVersion(copy) ?? x.schema;
+      try { const made = await hostCopy(c, x.name, copy); x.seq = made.seq; x.schema = made.schema; }
+      catch (e) { st.error = `copying ${x.name}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); continue; }
       let why = direct;
       if (!why) {
         o.step?.(`${x.name}: uploading to restic`);
@@ -231,26 +255,25 @@ export const newer = (a: { seq?: number | null; at?: string }, b: { seq?: number
 /** Whether a snapshot is newer than the mirror's copy: by change, else (no change feed) by the snapshot's `time` against the copy's `at`. */
 export const snapshotNewer = (snap: { seq: number | null; time: string }, m: { seq?: number | null; at?: string }) => newer({ seq: snap.seq, at: snap.time }, m);
 
-/** The outlines' changes on another machine, asked over ssh (read-only), or null when it doesn't answer. */
+/**
+ * The outlines' changes on another machine, as its host says them (`ep0ch outline list --json` there, over ssh, which asks
+ * that machine's host: PIE-1750, nothing opens its files), or null when it doesn't answer.
+ */
 async function remoteSeqs(ssh: string, names: string[], c: BackupConfig): Promise<Record<string, number> | null> {
-  const script = names.filter(n => OUTLINE_NAME.test(n)).map(n => `printf '%s %s\\n' ${n} "$(sqlite3 -readonly "\${EP0CH_OUTLINES:-$HOME/outlines}/${n}.sqlite" 'select max(change_id) from change_feed' 2>/dev/null)"`).join("; ");
-  const p = Bun.spawn([c.env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", ssh, script], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
+  const p = Bun.spawn([c.env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", ssh, REMOTE_LIST], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
   const timer = setTimeout(() => p.kill(), 30_000);
   const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]).finally(() => clearTimeout(timer));
   if (code !== 0) return null;
-  const seqs: Record<string, number> = {};
-  for (const line of out.split("\n")) { const m = /^(\S+) (\d+)$/.exec(line.trim()); if (m) seqs[m[1]!] = Number(m[2]); }
-  return seqs;
+  try {
+    const listed = (JSON.parse(out) as { outlines?: { name: string; changeSeq?: number }[] }).outlines ?? [];
+    const seqs: Record<string, number> = {};
+    for (const o of listed) if (names.includes(o.name) && typeof o.changeSeq === "number") seqs[o.name] = o.changeSeq;
+    return seqs;
+  } catch { return null; }
 }
 
-/** sqlite3_rsync of one outline from the machine into `work` (kept between runs, so only changed pages travel). */
-async function rsyncFrom(ssh: string, name: string, work: string, c: BackupConfig): Promise<boolean> {
-  const bin = Bun.which("sqlite3_rsync", { PATH: c.env.PATH ?? "" });
-  if (!bin) return false;
-  const p = Bun.spawn([bin, "--ssh", c.env.EP0CH_SSH || "ssh", `${ssh}:outlines/${name}.sqlite`, work], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
-  const timer = setTimeout(() => p.kill(), 300_000);
-  try { return (await p.exited) === 0 && integrity(work) === "ok"; } finally { clearTimeout(timer); }
-}
+/** The other machine's `ep0ch outline list --json`, in its login shell (as outline-core's REMOTE_STATUS runs `ep0ch status`). */
+const REMOTE_LIST = `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE -u EP0CH_WS "\${SHELL:-/bin/sh}" -lc 'command -v ep0ch >/dev/null || PATH="$HOME/.local/bin:$PATH"; ep0ch outline list --json'`;
 
 export async function mirror(c: BackupConfig, s: BackupState, o: { now?: () => number; say?: Say; follower?: typeof followerRuns } = {}): Promise<void> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
@@ -306,7 +329,7 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
     // A snapshot of a newer schema replaces the copy even at the same change: a migration doesn't move the change feed.
     const have = existsSync(file) ? schemaVersion(file) : null;
     const migrated = have !== null && snap.schema != null && snap.schema > have && m.snapshot !== snap.id;
-    // A copy here from sqlite3_rsync may be newer than the newest snapshot: it stays.
+    // A copy here newer than the newest snapshot (relayed, or found) stays.
     if (!existsSync(file) || migrated || (m.snapshot !== snap.id && snapshotNewer(snap, m) && !(have !== null && snap.schema != null && snap.schema < have))) {
       const r = await dumpTo(c, c.repoOf(src.machine), snap, tmp);
       const verdict = "error" in r ? r.error : integrity(tmp);
@@ -321,21 +344,6 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
       delete m.behindSince; delete m.error;
       o.say(`✓ mirror ${key} ← snapshot ${snap.id.slice(0, 8)} (change ${snap.seq ?? "?"}, ${hhmm(snap.time)})${folder.includes("/.restic/") ? " (beside the Litestream follower)" : ""}`);
     } else { delete m.behindSince; delete m.error; }
-    // Fresher, straight from the machine, when it answers and has more than the copy here.
-    if (src.ssh && remote && snap.outline in remote && newer({ seq: remote[snap.outline] }, m)) {
-      const work = join(c.state, "rsync", src.machine, `${snap.outline}.sqlite`);
-      mkdirSync(join(c.state, "rsync", src.machine), { recursive: true, mode: 0o700 });
-      if (await rsyncFrom(src.ssh, snap.outline, work, c)) {
-        const seq = changeSeq(work);
-        if (newer({ seq }, m)) {
-          copyDatabase(work, tmp);
-          replaceMirror(tmp, file);
-          Object.assign(m, { seq, at: o.iso(), source: "rsync", refreshed: o.iso() });
-          delete m.snapshot;
-          o.say(`✓ mirror ${key} ← ${src.ssh} by sqlite3_rsync (change ${seq})`);
-        }
-      }
-    }
   } catch (e) {
     m.behindSince ??= snap.time; m.error = (e as Error).message;
     o.say(`✗ mirror ${key}: ${m.error}`);

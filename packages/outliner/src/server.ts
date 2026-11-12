@@ -3202,7 +3202,7 @@ export class OutlinerServer {
             const by = request.mutation.author === "agent" ? "agent" : "user";
             result = wired(action, { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
               { annotationId: root.block.id, body: request.body.trim(), source: by, properties: { kind: TLDR_KIND } },
-              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] });
+              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0]! });
           } else throw new Error("annotations.tldr asking @margin requires asynchronous dispatch");
           break;
         }
