@@ -125,6 +125,19 @@ fn escape_during_a_border_s_drag_puts_the_border_back_and_undoes_nothing_else() 
     assert_eq!(rect_of(&rt, "tile/beds").unwrap(), beds, "the border is back where it was at the press");
     assert_eq!((names(&rt.state), rt.state.journal.len()), (tiles.clone(), steps), "the split before the drag is neither undone nor buried under a step");
     assert!(!rt.state.steps.iter().any(|step| step.action == "layout.undo"), "the drag's way back is a resize, never the undo");
+    // The drag let go with Escape is over. The same border dragged again is a change of its own: one step back, and
+    // undoing it puts the border back and takes nothing else (the split before it) with it.
+    let grip = rt.find("grip/s1/0").expect("the border is where it was");
+    rt.pointer_down(grip.0, grip.1);
+    rt.frame(0.0);
+    rt.pointer_move(grip.0 + 120.0, grip.1);
+    rest(&mut rt);
+    rt.pointer_up(grip.0 + 120.0, grip.1);
+    rest(&mut rt);
+    assert!(rect_of(&rt, "tile/beds").unwrap()[2] > beds[2] + 80.0, "the border moved again");
+    assert_eq!(rt.state.journal.len(), steps + 1, "a drag after one let go with Escape leaves its own step");
+    assert!(ran(&mut rt, "layout.undo", Actor::Person).ok);
+    assert_eq!((rect_of(&rt, "tile/beds").unwrap(), names(&rt.state)), (beds, tiles.clone()), "undoing it puts the border back, and the split before it stays");
     // A screen that keeps its sizes refuses the drag: Escape then has nothing to put back, and the split before stays.
     let kept = json!({ "focus": "bed", "policy": { "resizable": false }, "root": { "t": "split", "dir": "row", "weights": [0.3, 0.7], "kids": [leaf("tree", "beds"), leaf("reader", "bed")] } });
     let g = laid(json!({ "layout": kept }));
