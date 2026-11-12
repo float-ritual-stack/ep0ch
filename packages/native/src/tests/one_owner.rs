@@ -91,3 +91,15 @@ fn a_label_and_a_keycap_come_from_the_rows() {
     // The spike's parts that decided on their own are gone.
     for gone in ["enum Finder", "enum Tag", "Notice::Trashed", "fn palette(", "fn scene_", "fn on_key("] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
 }
+
+/// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
+/// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
+/// (`--snap`, `--tree`) serves no control socket beside a window's.
+#[test]
+fn main_asks_whether_the_run_is_headless_the_way_that_answers_before_run() {
+    let texts = sources();
+    let main = &texts.iter().find(|(path, _)| path == "main.rs").expect("main.rs").1;
+    let body = main.split("fn main()").nth(1).expect("main.rs has main");
+    assert!(!body.contains("headless_run()"), "main asks headless_run() before run, where it is always None");
+    assert!(body.contains("rune::is_headless()"), "main asks rune::is_headless() whether to serve the control socket");
+}

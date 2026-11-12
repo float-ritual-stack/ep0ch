@@ -79,8 +79,9 @@ fn main() {
         on_key: Some(keys::press),
         ..AppSpec::new("ep0ch", (1180.0, 760.0), init, view::view)
     });
-    // Agents reach a window that is on screen; a headless render is one frame and has no one to answer.
-    let _control = (rune::tooling::headless_run().is_none()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {
+    // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
+    // the arguments: Rune says which headless run this is only once the state is made, after this.
+    let _control = (!rune::is_headless()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {
         control::serve(std::path::Path::new(&path), window.handle()).map_err(|why| eprintln!("ep0ch-native: {why}")).ok()
     });
     window.run();
