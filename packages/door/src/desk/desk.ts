@@ -1008,8 +1008,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Whether a change is drawing its way (a test and the status line ask). */
   get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
-  /** Snap to the settled layout: the first key or click, a peek, a snapshot. True when something was in flight. */
-  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; return was; }
+  /** Snap to the settled layout (the first key or click, a peek, a snapshot) and draw it: no tick asks for that frame now (PIE-1769). True when something was in flight. */
+  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; if (was) this.redraw(); return was; }
   /**
    * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
    * entry, for the person; an agent takes back its own (or what a script it asked for did) only. With a transaction, all of
