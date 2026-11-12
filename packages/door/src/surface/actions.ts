@@ -109,12 +109,8 @@ export interface ActionDef<A, H> extends ActionDescription<{ [K in keyof A]-?: A
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
    */
   ownGate?: true;
-  /**
-   * The person's own: an agent's is refused with this, which says why and what an agent does instead. Their press of a
-   * script invites its run (src/surface/invite.ts), and a pressed run is their keystroke (PIE-1186), so an invitation
-   * lifts it; yolo never does.
-   */
-  person?: string;
+  // `person` (the person's own: an agent's is refused with it) is the row's, outline-core's ActionDescription: their
+  // press of a script invites its run (src/surface/invite.ts) and lifts it; yolo never does.
   /**
    * The person's alone, never lifted (PIE-1294): not by their press's invitation, not by yolo. For what is theirs to
    * decide rather than their keys (what agents may reach, handing the door over, ending their session): a script an

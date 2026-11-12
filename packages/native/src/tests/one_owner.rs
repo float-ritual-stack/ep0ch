@@ -168,6 +168,24 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
     assert!(text("keys.rs").contains("e.tile == self.layout.focus"), "the person's layer is read from the tile with the keys");
 }
 
+/// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
+/// No action's run refuses an agent for whose the thing is: the three left are named, each with why it is not the
+/// row's to say.
+#[test]
+fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
+    let found: Vec<String> = sources().iter().filter(|(path, _)| path.starts_with("actions/") && path != "actions/mod.rs").flat_map(|(path, text)| {
+        text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains("refused(") && (line.contains("an agent") || line.contains("person's"))).map(|line| format!("{path}: {}", line.split("refused(").nth(1).unwrap_or("").chars().take(40).collect::<String>())).collect::<Vec<_>>()
+    }).collect();
+    assert_eq!(found, [
+        // An agent's pick is its own (it runs the row as itself); what it must name is the request's shape.
+        "actions/bar.rs: \"an agent's pick names its row: source= ",
+        // The draft session's rule, while the person is the only holder there is: W5's session takes it.
+        "actions/draft.rs: format!(\"the editor is the person's: an ",
+        // Which row an agent may fold depends on the note the person has open: no row can say that ahead.
+        "actions/tree.rs: \"the person's note is under that row: an",
+    ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
+}
+
 /// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
 /// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
 /// (`--snap`, `--tree`) serves no control socket beside a window's.

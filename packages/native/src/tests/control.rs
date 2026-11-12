@@ -103,7 +103,8 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
         (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "tile": "reader" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "reader holds an edit or a comment"),
         (json!({ "cmd": "act", "action": "tile.close", "tile": "reader" }), "not closed: it holds an edit of Plot"),
-        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "an agent doesn't move what they look at"),
+        // The person's own, said on its row: refused in the row's words whether or not they type.
+        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "the person's keys are theirs: an agent never moves them"),
         (json!({ "cmd": "act", "action": "link.follow", "args": { "ref": "ep0ch:b/shed" } }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "back" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "edit.close", "args": { "discard": "true" } }), "the editor is the person's"),

@@ -98,11 +98,15 @@ pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|n
 
 pub fn find(id: &str) -> Option<&'static Action> { all().find(|action| action.row.id == id) }
 
-/// The actor rule: whether `by` may run an action that touches `touches`, given where the person is and the tile
-/// the act is about. The person always may. An agent never takes the person's keys, their draft or the tile they
-/// type in. (What an agent may do to the arrangement is the layout's own rule, asked by `reshape`.)
+/// The actor rule, and the one check of who acts: whether `by` may run an action, given what its row says it
+/// touches and whose it is, where the person is and the tile the act is about. The person always may. An agent
+/// never runs what the row says is the person's own, never takes the person's keys, their draft or the tile they
+/// type in, and waits to change what they look at until they have been idle. (What an agent may do to the
+/// arrangement is the layout's own rule, asked by `reshape`.) No action refuses an agent in its own run for whose
+/// it is: it says so on its row (`person`).
 fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result<(), String> {
     let Actor::Agent(_) = by else { return Ok(()) };
+    if let Some(theirs) = row.person { return Err(theirs.to_string()) }
     let way = "block.mark gets their attention";
     match row.touches {
         Touches::Nothing | Touches::Shape => Ok(()),
@@ -113,8 +117,10 @@ fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result
         }
         // The draft session's rule decides, in the action: it knows which note the act is about.
         Touches::Draft => Ok(()),
-        Touches::Screen => match &person.why {
-            Some(why) if person.busy => Err(format!("{why}; an agent doesn't move what they look at · {way}")),
+        Touches::Screen => match (&person.why, person.idle) {
+            (Some(why), _) if person.busy => Err(format!("{why}; an agent doesn't move what they look at · {way}")),
+            // The door's words (its dispatcher's screen rule), with its wait.
+            (_, Some(idle)) if idle < crate::keys::IDLE => Err(format!("the person is at the keys (last key {:.1}s ago); try again once they've been idle {}s", idle.as_secs_f32(), crate::keys::IDLE.as_secs())),
             _ => Ok(()),
         },
     }

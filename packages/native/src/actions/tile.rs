@@ -31,6 +31,7 @@ static CLOSE: ActionRow = ActionRow::new("tile.close", Touches::Shape, "close a 
     .examples(&[Example { act: "tile.close tile=reader2", does: "closes the second reader", safe: None }]);
 
 static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, or dir= the next one that way from the tile that has them. The person's: an agent never moves their keys")
+    .person("the person's keys are theirs: an agent never moves them · block.mark gets their attention")
     .args(&[("dir", ArgSpec::text("the next tile that way").optional().choices(&["left", "right", "up", "down"]))])
     .keys(&[
         KeyRow::with("mod+alt+left", None, "the keys to the tile on the left", &[("dir", Scalar::Text("left"))]),
@@ -89,7 +90,6 @@ fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
 }
 
 fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    if !by.is_person() { return Outcome::refused("the person's keys are theirs: an agent never moves them · block.mark gets their attention") }
     let tile = match (app.aimed.clone(), args.text("dir").and_then(Dir::read)) {
         (Some(tile), _) => tile,
         (None, Some(dir)) => match neighbour(&app.layout.rects(app.area, &|_| false), &app.layout.focus, dir) { Some(next) => next, None => return Outcome::refused(format!("there is no tile {} of this one", match dir { Dir::Left => "left", Dir::Right => "right", Dir::Up => "above", Dir::Down => "below" })) },

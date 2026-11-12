@@ -484,6 +484,9 @@ impl App {
         self.pump();
     }
 
+    /// When the person last pressed a key, as the key table remembers it.
+    pub fn last_key(&self) -> Option<std::time::Instant> { self.held.last_key() }
+
     /// The key table's memory of a sequence under way (`keys::press` is the one caller).
     pub fn held(&mut self) -> &mut crate::keys::Held { &mut self.held }
 

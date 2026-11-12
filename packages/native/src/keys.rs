@@ -14,6 +14,7 @@
 //! - **Esc closes one thing at a time**: `esc_steps` is the rows bound to Escape in the order their layers are
 //!   tried, and the hint under the bar and the editor reads it.
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, TextEdit, Tx};
 use rune_kit::{TextArea, TextInput};
@@ -52,11 +53,17 @@ pub struct Whereabouts {
     pub busy: bool,
     /// What holds them, in words for a refusal.
     pub why: Option<String>,
+    /// How long since their last key. None: no key yet.
+    pub idle: Option<Duration>,
 }
+
+/// How long the person has been away from the keys before an agent changes what they look at (the door's
+/// `SHELL_IDLE_MS`).
+pub const IDLE: Duration = Duration::from_secs(2);
 
 impl Whereabouts {
     pub fn json(&self) -> Value {
-        json!({ "layer": self.layer.name(), "focus": self.focus, "typingIn": self.typing_in, "busy": self.busy, "why": self.why, "esc": esc(self.layer).map(|bind| bind.line.clone()) })
+        json!({ "layer": self.layer.name(), "focus": self.focus, "typingIn": self.typing_in, "busy": self.busy, "why": self.why, "idle": self.idle.map(|idle| idle.as_secs_f64()), "esc": esc(self.layer).map(|bind| bind.line.clone()) })
     }
 }
 
@@ -65,13 +72,14 @@ impl App {
     /// in its draft when that tile holds one. A draft open on another tile is not where they are.
     pub fn person(&self) -> Whereabouts {
         let focus = self.layout.name(&self.layout.focus);
+        let idle = self.last_key().map(|at| at.elapsed());
         if self.bar.open {
-            Whereabouts { layer: Layer::Bar, focus, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
+            Whereabouts { layer: Layer::Bar, focus, idle, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
         } else if let Some(e) = self.editing.as_ref().filter(|e| e.tile == self.layout.focus) {
             let tile = self.layout.name(&e.tile);
-            Whereabouts { layer: Layer::Draft, focus, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
+            Whereabouts { layer: Layer::Draft, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
-            Whereabouts { layer: Layer::Tile, focus, typing_in: None, busy: false, why: None }
+            Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None }
         }
     }
 }
@@ -158,7 +166,12 @@ pub fn rows() -> Value {
 /// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
 /// Rune's focus as it was last read, and the focus last asked of Rune (with the tiles shown then).
 #[derive(Default)]
-pub struct Held { seq: Vec<KeyEvent>, seen: Option<String>, asked: Option<(String, Vec<String>)> }
+pub struct Held { seq: Vec<KeyEvent>, seen: Option<String>, asked: Option<(String, Vec<String>)>, last: Option<Instant> }
+
+impl Held {
+    /// When the person last pressed a key.
+    pub fn last_key(&self) -> Option<Instant> { self.last }
+}
 
 enum Found {
     Run(&'static Bind),
@@ -183,6 +196,7 @@ fn find(layer: Layer, seq: &[KeyEvent], tx: &Tx) -> Found {
 /// A key, asked of the table: true when a row took it (or it started a sequence). The window's `on_key`, and
 /// every field's before its editor.
 pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
+    s.held().last = Some(Instant::now());
     let layer = s.person().layer;
     let mut seq = std::mem::take(&mut s.held().seq);
     seq.push(e.clone());

@@ -173,3 +173,41 @@ fn the_person_s_layer_is_read_from_the_tile_with_the_keys() {
     assert!(ran(&mut rt, "tile.focus tile=bed", Actor::Person).ok);
     assert_eq!((rt.state.person().layer.name(), rt.state.editor.focused), ("draft", true));
 }
+
+// ── who acts, and whether: the row says it, and `rule()` is the one check ─────────────────────────────────────
+
+/// What is the person's alone is said on the action's row, so `actions`, the bar and an agent reading the row are
+/// told before they run it; the refusal an agent gets is the row's own words.
+#[test]
+fn an_action_that_is_the_person_s_says_so_on_its_row_and_an_agent_is_refused_in_its_words() {
+    let mut g = garden(ok());
+    for id in ["bar.close", "bar.move", "bar.narrow", "notice.dismiss", "tile.focus"] {
+        let row = crate::actions::find(id).unwrap().row;
+        let why = row.person.unwrap_or_else(|| panic!("{id} is the person's and its row doesn't say so"));
+        let line = std::iter::once(id.to_string()).chain(row.required().map(|arg| format!("{arg}=1"))).collect::<Vec<_>>().join(" ");
+        let line = if id == "tile.focus" { "tile.focus tile=tree".to_string() } else { line };
+        let refused = g.app.act(&line, agent());
+        assert!(!refused.ok && refused.said == why, "{line}: {}", refused.said);
+    }
+    // A row that says nothing is the person's is run by anyone its `touches` lets.
+    for action in crate::actions::all().filter(|action| action.row.person.is_none() && action.row.touches == crate::actions::row::Touches::Nothing && action.row.required().next().is_none()) {
+        let said = g.app.act(action.row.id, agent()).said;
+        for words in ["is the person's", "the person's to", "an agent never", "the person's keys are theirs"] { assert!(!said.contains(words), "{} says `touches: nothing` and no `person`, yet refuses an agent as the person's: {said}", action.row.id) }
+    }
+}
+
+/// An agent's change to what the person looks at waits until they have been idle, as the row's `touches: screen`
+/// says: at the keys a moment ago, it is refused with how long to wait.
+#[test]
+fn an_agent_s_screen_change_waits_until_the_person_has_been_idle() {
+    let mut g = garden(ok());
+    screens_are(&mut g, json!([screen_row("beds", json!({ "focus": "reader", "root": leaf("reader", "reader") }), json!([]))]));
+    let mut rt = window(g.app);
+    chord(&mut rt, Key::Text("i".into()), primary());
+    assert!(rt.state.person().idle.is_some_and(|idle| idle < crate::keys::IDLE), "a key was pressed just now");
+    let opened = ran(&mut rt, "screen.open name=beds", agent());
+    assert!(!opened.ok && opened.said.contains("the person is at the keys") && opened.said.contains("idle 2s"), "{}", opened.said);
+    std::thread::sleep(crate::keys::IDLE + std::time::Duration::from_millis(100));
+    let opened = ran(&mut rt, "screen.open name=beds", agent());
+    assert!(opened.ok, "{}", opened.said);
+}

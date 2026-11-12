@@ -133,6 +133,13 @@ export interface ActionDescription<Args extends object = Record<string, ArgSpec>
   touches: Touches;
   /** `touches: "tile"`: refused in the tile with the person's keys (`focused`, the default), or only while they type in it. */
   while?: "focused" | "typing";
+  /**
+   * The person's own: an agent's is refused with this, which says why and what an agent does instead. Declared here,
+   * on the row every client reads, so a listing, a bar and an agent are told before they run it, and a dispatcher's
+   * actor rule is the one check (the door's src/surface/dispatch.ts, native's `rule()`): no action refuses an agent
+   * in its own run. In the door, the person's press of a script invites its run and lifts it (PIE-1186); yolo never does.
+   */
+  person?: string;
   args: Args;
   answer?: Readonly<Record<string, AnswerField>>;
   /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (the door's test/action-pages.test.ts). */
@@ -154,6 +161,7 @@ export function actionRow(id: string, d: ActionDescription<any, any>): ActionRow
     id, summary: d.summary, args: d.args ?? {}, touches: d.touches,
     ...(d.keys !== undefined ? { keys: d.keys } : {}),
     ...(d.while ? { while: d.while } : {}),
+    ...(d.person ? { person: d.person } : {}),
     ...(menu.length ? { menu: menu.map(m => ({ label: m.label, group: m.group, ...(m.key !== undefined ? { key: m.key } : {}), ...(m.args !== undefined ? { args: m.args } : {}) })) } : {}),
     ...(d.examples?.length ? { examples: d.examples } : {}),
     ...(d.answer ? { answer: d.answer } : {}),
