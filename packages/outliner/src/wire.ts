@@ -371,6 +371,7 @@ export type WireClosed = Closed<Missing>;
 export type { AuthoredLinkCompleteness, AuthoredLinkDiagnostic, AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredOutlinkResolution, AuthoredResourceLink, AuthoredResourceResolution } from "./authored-links";
 export type { AuthoredResourceReference } from "./resource-references";
 export type { ExtensionProjectionOutput, ResourceProjection, ResourceProjectionReadResult, ResourceProjectionStatus } from "./resource-projection";
+export type { PropertyPatchOperation } from "./types";
 export type { Decoration, RuleListEntry } from "./extension-rules";
 export type { ResourceDescription } from "./resources";
 export type { LinkTargetFacets } from "./types";

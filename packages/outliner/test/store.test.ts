@@ -2329,6 +2329,20 @@ Second paragraph`;
     expect(store.resolvePageAddress("2031-04-02-2").status).toBe("missing");
   });
 
+  test("a keyed create finds the parent's live child with that property or makes one, and set/add need no revision (PIE-1752)", () => {
+    const store = makeStore();
+    const parent = store.create("Days");
+    const made = store.create("2026-10-10 [file-day::2026-10-10]", parent.id, "agent", undefined, { keyed: { key: "file-day", value: "2026-10-10" } });
+    const again = store.create("2026-10-10 again [file-day::2026-10-10]", parent.id, "agent", undefined, { keyed: { key: "file-day", value: "2026-10-10" } });
+    expect(again).toMatchObject({ id: made.id, deduplicated: true });
+    expect(store.children(parent.id).map(child => child.id)).toEqual([made.id]);
+    const touch = store.create("a.ts [touches::1] [added::2]", parent.id);
+    store.update(touch.id, `${touch.text} edited`, touch.revision);
+    const counted = store.patchProperties(touch.id, undefined, [{ op: "add", key: "touches", by: 1 }, { op: "add", key: "removed", by: 3 }, { op: "set", key: "added", value: "5" }]);
+    expect(counted.text).toBe("a.ts [touches::2] [added::5] edited\n[removed::3]");
+    expect(() => store.patchProperties(touch.id, undefined, [{ op: "append", key: "x", value: "y" }])).toThrow("needs expectedRevision");
+  });
+
   test("a create with freePage takes the next free name a live note doesn't hold, and a name Trash holds as asked (PIE-1752)", () => {
     const store = makeStore();
     store.create("Mine [page::extensions]");

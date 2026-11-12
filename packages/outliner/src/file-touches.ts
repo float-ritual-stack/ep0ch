@@ -18,7 +18,6 @@
  * Views have no group-by, so day › project › session is the tree itself, and project › session › day is a view per
  * project (sorted by its last touch, its session and day shown on each row).
  */
-import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -101,26 +100,9 @@ async function create(client: AgentToolsClient, parentId: string | null, text: s
   return client.request<Block>({ action: "create", text, parentId, author: "agent", provenance: { actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}) } });
 }
 
-/** The live children of `parentId` carrying `[key::value]`, oldest first. */
-async function matching(client: AgentToolsClient, parentId: string, key: string, val: string): Promise<Block[]> {
-  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { limit: 20, filters: [{ key, value: val }], subtreeRootId: parentId, machinery: "show" } });
-  return (found.blocks as Block[]).filter(b => b.parentId === parentId && !b.effectiveDeletedRootId)
-    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
-}
-
-/**
- * A child of `parentId` carrying `[key::value]`, made with `text` when there is none. Two sessions filing their first
- * touch of a day at once may both make one: each looks again after making it, and the one that isn't the oldest is
- * trashed while still empty, so both go on under the same block.
- */
+/** A child of `parentId` carrying `[key::value]`, made with `text` when there is none: the host finds or makes it in one step. */
 async function ensure(client: AgentToolsClient, parentId: string, key: string, val: string, text: string, actor: AgentActor): Promise<Block> {
-  const found = await matching(client, parentId, key, val);
-  if (found.length) return found[0]!;
-  const made = await create(client, parentId, text, actor);
-  const now = await matching(client, parentId, key, val);
-  const first = now[0] ?? made;
-  if (first.id !== made.id) await client.request({ action: "delete", blockId: made.id, ifEmpty: true, mutation: mutationOf(actor) }).catch(() => {});
-  return first;
+  return client.request<Block>({ action: "create", text, parentId, keyed: { key, value: val }, author: "agent", provenance: { actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}) } });
 }
 
 const mutationOf = (actor: AgentActor) => ({ author: "agent" as const, actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}) });
@@ -157,22 +139,14 @@ export async function touchFile(client: AgentToolsClient, input: TouchFileInput,
   const root = input.projectRoot?.trim();
   const shown = root && path.startsWith(`${root.replace(/\/+$/, "")}/`) ? path.slice(root.replace(/\/+$/, "").length + 1) : path;
 
-  // The session's block for this file, wherever its day put it: one per file per session. Its counts are read again
-  // and the write tried again when another write got there first (a revision conflict), so no touch is lost.
-  for (let attempt = 0; ; attempt++) {
+  // The session's block for this file, wherever its day put it: one per file per session. The host adds to its counts
+  // on the note as it is then (PIE-1752), so two touches at once both count and nothing is tried again.
   const existing = await findOne(client, [{ key: "type", value: FILE_TOUCH_TYPE }, { key: "session", value: session }, { key: "file", value: path }]);
-  if (!existing) break;
-  try {
-    const p = props(existing);
-    const snapshot = p.get("snapshot");
-    const touches = (Number(p.get("touches")) || 1) + 1;
-    const sum = { added: (Number(p.get("added")) || 0) + added, removed: (Number(p.get("removed")) || 0) + removed };
-    const text = touchText(shown, { path, day: p.get("day") ?? day, project: p.get("project") ?? project, session, touches, at, ...sum, ...(snapshot ? { snapshot } : {}) });
-    const updated = await client.request<Block>({ action: "update", blockId: existing.id, text, expectedRevision: existing.revision, mutation: mutationOf(actor) });
-    return { id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, created: false, touches, ...sum, ...(snapshot ? { snapshot } : {}) };
-  } catch (error) {
-    if (attempt >= 4 || refusalKindOf(error) !== "stale-revision") throw error;
-  }
+  if (existing) {
+    const updated = await client.request<Block>({ action: "properties.patch", blockId: existing.id, mutation: mutationOf(actor), operations: [
+      { op: "add", key: "touches", by: 1 }, { op: "add", key: "added", by: added }, { op: "add", key: "removed", by: removed }, { op: "set", key: "last-touch", value: at }] });
+    const p = props(updated), snapshot = p.get("snapshot");
+    return { id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, created: false, touches: Number(p.get("touches")), added: Number(p.get("added")), removed: Number(p.get("removed")), ...(snapshot ? { snapshot } : {}) };
   }
 
   const { hub: h, byProject } = await hub(client, actor);

@@ -1,4 +1,5 @@
 export { matchesFilters, normalizePropertyKey } from "@ep0ch/outline-core/query-properties";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isHexColour, isWritablePropertyValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
@@ -42,6 +43,18 @@ export function formatProperty(property: BlockProperty): string {
   return `[${validated.key}::${validated.value}]`;
 }
 
+/** PIE-1752: `set` and `add` name a key, so they become a replace or an append on the text as it is now. */
+export function keyedPropertyOps(text: string, operations: PropertyPatchOperation[]): PropertyPatchOperation[] {
+  const tokens = parsePropertyRecords(text);
+  return operations.map(op => {
+    if (op.op !== "set" && op.op !== "add") return op;
+    if (op.op === "add" && !Number.isFinite(op.by)) throw new Refusal("invalid", `add needs a number for ${op.key}`);
+    const ordinal = tokens.findIndex(token => token.key === op.key);
+    const value = op.op === "set" ? op.value : String((Number(tokens[ordinal]?.value) || 0) + op.by);
+    return ordinal < 0 ? { op: "append", key: op.key, value } : { op: "replace", ordinal, value };
+  });
+}
+
 export function patchPropertyText(text: string, operations: PropertyPatchOperation[]): string {
   const tokens = parsePropertyRecords(text);
   const mutations: Array<{ start: number; end: number; replacement: string }> = [];
@@ -58,7 +71,7 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
     if (operationKind !== "remove" && operationKind !== "replace") {
       throw new Error(`Unknown property patch operation: ${operationKind}`);
     }
-    const tokenOperation = operation as Exclude<PropertyPatchOperation, { op: "append" }>;
+    const tokenOperation = operation as Extract<PropertyPatchOperation, { ordinal: number }>;
     if (!Number.isInteger(tokenOperation.ordinal) || tokenOperation.ordinal < 0) {
       throw new Error(`Invalid property token ordinal: ${tokenOperation.ordinal}`);
     }

@@ -159,6 +159,8 @@ const MAX_MESSAGE = 300;
 export class ExtensionSchedules {
   private kept = new Map<string, Kept>();
   private readonly running = new Set<string>();
+  /** Entries asked to run again once the run going now ends (`runAfter`, PIE-1752). */
+  private readonly again = new Set<string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
 
@@ -285,6 +287,18 @@ export class ExtensionSchedules {
     return this.runOne(entry);
   }
 
+  /**
+   * Runs one entry now, or, when it's running, once more as soon as that run ends (a packet that arrived mid-toss): the
+   * one asking never waits and retries (PIE-1752). Two asks while it runs are one run after it.
+   */
+  async runAfter(extensionId: string, entryName: string): Promise<void> {
+    const entry = this.entries().find((candidate) => candidate.extension.id === extensionId && candidate.entry === entryName);
+    if (!entry) return void await this.runNow(extensionId, entryName);
+    const holder = this.holder(entry);
+    if (holder.isRunning(entry)) { holder.again.add(holder.key(entry)); return; }
+    await holder.runOne(entry);
+  }
+
   private async runOne(entry: ScheduledEntry): Promise<ScheduleRun> {
     const key = this.key(entry);
     const hostKey = this.hostKey(entry);
@@ -307,6 +321,7 @@ export class ExtensionSchedules {
     this.kept.set(key, { firstSeen, last: run, next: new Date(nextRun(entry.schedule, started)).toISOString() });
     this.save();
     this.options.ran?.(entry.extension.id);
+    if (this.again.delete(key)) void this.runOne(entry).catch(() => {});
     return run;
   }
 

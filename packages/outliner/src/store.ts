@@ -87,7 +87,7 @@ import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
+import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
@@ -827,13 +827,11 @@ export class OutlinerStore {
    * `place`: an id minted beforehand (an extension's write group names its new blocks before any is written, so its
    * other writes can link to them) and a position among the parent's children (the end when left out).
    */
-  create(
-    text: string,
-    parentId: string | null = null,
-    author: BlockAuthor = "user",
-    provenance?: BlockProvenance,
-    place: { id?: string; position?: number; requestId?: string; freePage?: true } = {},
-  ): Block & { deduplicated?: true } {
+  create(text: string, parentId: string | null = null, author: BlockAuthor = "user", provenance?: BlockProvenance,
+    place: { id?: string; position?: number; requestId?: string; freePage?: true; keyed?: { key: string; value: string } } = {}): Block & { deduplicated?: true } {
+    // `keyed` (PIE-1752): the parent's live child carrying `[key::value]` when there is one, read and made in one step.
+    const kept = place.keyed && this.database.query(`SELECT b.id FROM blocks b JOIN block_properties p ON p.block_id = b.id WHERE p.scope = 'block' AND p.key = ? AND p.value = ? AND b.parent_id IS ? AND b.effective_deleted_root_id IS NULL ORDER BY b.created_at, b.id LIMIT 1`).get(place.keyed.key, place.keyed.value, parentId) as { id: string } | null;
+    if (kept) return { ...this.require(kept.id), deduplicated: true };
     return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author },
       () => this.createAt(place.freePage ? this.freePageFromCurrentRead(text)?.text ?? text : text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
   }
@@ -2647,18 +2645,17 @@ export class OutlinerStore {
 
   patchProperties(
     id: string,
-    expectedRevision: number,
+    expectedRevision: number | undefined,
     operations: PropertyPatchOperation[],
     mutation: MutationProvenance = { author: "system" },
     keepUpdated = false,
   ): Block {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
-    if (existing.revision !== expectedRevision) {
-      throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
-    }
-    const text = patchPropertyText(existing.text, operations);
-    return this.update(id, text, expectedRevision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
+    if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set or add");
+    if (expectedRevision !== undefined && existing.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
+    const text = patchPropertyText(existing.text, keyedPropertyOps(existing.text, operations));
+    return this.update(id, text, existing.revision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
   }
 
   /**

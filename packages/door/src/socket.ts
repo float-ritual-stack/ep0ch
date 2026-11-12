@@ -292,11 +292,8 @@ export interface McpReachability extends McpSource {
 }
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
-/** The outliner's PropertyPatchOperation. */
-export type PropertyPatch =
-  | { op: "replace"; ordinal: number; value: string }
-  | { op: "append"; key: string; value: string }
-  | { op: "remove"; ordinal: number };
+/** The outliner's PropertyPatchOperation, imported rather than copied (PIE-1752 added `set` and `add`). */
+export type PropertyPatch = import("@ep0ch/outliner/wire").PropertyPatchOperation;
 
 /** One property change a planned move makes: `from` null when the key is appended. */
 export type PlannedChange = import("@ep0ch/outliner/wire").ViewWriteChange;
