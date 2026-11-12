@@ -18,45 +18,66 @@ use std::time::{Duration, Instant};
 use ep0ch_native_probes::median_max;
 use serde_json::Value;
 
-/// The window and its X server: both this test's own children, stopped by their own pids when it ends.
+/// A process this test started, stopped by its own pid when dropped: a start that fails part way (no Vulkan driver,
+/// no libxkbcommon-x11) leaves nothing running behind it.
+struct Kid(Child);
+
+impl Drop for Kid {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The window and its X server: both this test's own children. The window is stopped first, then its server.
 struct Live {
-    xvfb: Child,
-    window: Child,
+    window: Kid,
+    /// Held for its drop, which stops the server.
+    _xvfb: Kid,
     control: BufReader<UnixStream>,
     dir: PathBuf,
 }
 
 impl Live {
-    fn start() -> Live {
-        let dir = std::env::temp_dir().join(format!("ep0ch-probe-live-{}", std::process::id()));
+    fn start() -> Live { Live::try_start("--control").unwrap_or_else(|(why, _)| panic!("{why}")) }
+
+    /// Starts the X server and the window, which is given the socket's path after `flag`. When the window ends or
+    /// never serves the socket, answers why, with the X server's pid so a test can see it was stopped.
+    fn try_start(flag: &str) -> Result<Live, (String, u32)> {
+        let dir = std::env::temp_dir().join(format!("ep0ch-probe-live-{}-{flag}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // -displayfd: the server picks a free display and writes its number, so nothing guesses one.
-        let mut xvfb = Command::new("Xvfb")
+        let mut xvfb = Kid(Command::new("Xvfb")
             .args(["-displayfd", "1", "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("Xvfb starts (install xvfb to run this probe)");
+            .expect("Xvfb starts (install xvfb to run this probe)"));
         let mut display = String::new();
-        BufReader::new(xvfb.stdout.take().unwrap()).read_line(&mut display).unwrap();
+        BufReader::new(xvfb.0.stdout.take().unwrap()).read_line(&mut display).unwrap();
         let socket = dir.join("native.sock");
-        let window = Command::new(env!("CARGO_BIN_EXE_probe-live"))
-            .args(["--control", socket.to_str().unwrap()])
+        let mut window = Kid(Command::new(env!("CARGO_BIN_EXE_probe-live"))
+            .args([flag, socket.to_str().unwrap()])
             .env("DISPLAY", format!(":{}", display.trim()))
             .env_remove("WAYLAND_DISPLAY")
             .env("VK_ICD_FILENAMES", std::env::var("VK_ICD_FILENAMES").unwrap_or_else(|_| "/usr/share/vulkan/icd.d/lvp_icd.json".into()))
             .stderr(Stdio::inherit())
             .spawn()
-            .expect("the window starts");
+            .expect("the window starts"));
         let deadline = Instant::now() + Duration::from_secs(60);
-        let stream = loop {
-            match UnixStream::connect(&socket) {
-                Ok(s) => break s,
-                Err(e) if Instant::now() > deadline => panic!("the window never served {}: {e}", socket.display()),
-                Err(_) => std::thread::sleep(Duration::from_millis(50)),
-            }
+        // Returning drops both children, which stops them.
+        let failed = |why: String, xvfb: &Kid| {
+            let _ = std::fs::remove_dir(&dir);
+            Err((why, xvfb.0.id()))
         };
-        Live { xvfb, window, control: BufReader::new(stream), dir }
+        let stream = loop {
+            if let Ok(s) = UnixStream::connect(&socket) { break s }
+            // A window that ended will never serve: say so now, not when the minute is up.
+            if let Some(status) = window.0.try_wait().unwrap() { return failed(format!("the window ended ({status}) before it served {}", socket.display()), &xvfb) }
+            if Instant::now() > deadline { return failed(format!("the window never served {}", socket.display()), &xvfb) }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        Ok(Live { window, _xvfb: xvfb, control: BufReader::new(stream), dir })
     }
 
     /// One line to the window, its one line of JSON back, and how long that took.
@@ -77,10 +98,10 @@ impl Live {
 
 impl Drop for Live {
     fn drop(&mut self) {
-        let _ = self.window.kill();
-        let _ = self.window.wait();
-        let _ = self.xvfb.kill();
-        let _ = self.xvfb.wait();
+        // The window first, so it writes nothing more into the folder; its `Kid` and the server's stop them again
+        // after this, which does nothing.
+        let _ = self.window.0.kill();
+        let _ = self.window.0.wait();
         let _ = std::fs::remove_file(self.dir.join("native.sock"));
         for name in ["one.png", "two.png", "hidden.png"] { let _ = std::fs::remove_file(self.dir.join(name)); }
         let _ = std::fs::remove_dir(&self.dir);
@@ -155,9 +176,20 @@ fn a_live_window_answers_act_peek_and_snap_over_its_control_socket() {
     // quit: the app's own way out, and the process ends by itself.
     assert_eq!(live.ask("quit").0["ok"], true);
     let deadline = Instant::now() + Duration::from_secs(10);
-    while live.window.try_wait().unwrap().is_none() {
+    while live.window.0.try_wait().unwrap().is_none() {
         assert!(Instant::now() < deadline, "the window quit when asked");
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(live.window.try_wait().unwrap().unwrap().success());
+    assert!(live.window.0.try_wait().unwrap().unwrap().success());
+}
+
+#[test]
+#[ignore = "needs Xvfb: cargo test --test live_window -- --ignored"]
+fn a_window_that_ends_before_it_serves_fails_at_once_and_leaves_no_x_server_running() {
+    let t = Instant::now();
+    // The window reads its socket's path after `--control`; given another flag it ends before it opens anything.
+    let Err((why, xvfb)) = Live::try_start("--no-control") else { panic!("a window with no control socket served one") };
+    assert!(why.contains("the window ended"), "{why}");
+    assert!(t.elapsed() < Duration::from_secs(20), "said when the window ended, not when the minute was up: {:?}", t.elapsed());
+    assert!(!Path::new(&format!("/proc/{xvfb}")).exists(), "the X server this test started (pid {xvfb}) is still running");
 }
