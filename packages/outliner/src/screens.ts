@@ -147,7 +147,8 @@ export async function saveScreen(own: Own, request: Extract<ScreensRequest, { ac
   const written = screenNoteBlocks(spec);
   const made = (await byProp(own, "type", SCREEN_TYPE, 500)).filter(note => screenNoteName(note.text).name === spec.name);
   if (made.length > 1) throw new Refusal("invalid", `${made.length} screen notes are named ${spec.name}: none is saved over · rename all but one (${made.map(n => `((${n.id}))`).join(", ")})`);
-  const create = (parentId: string | null, text: string) => own.request<{ id: string; revision: number }>({ action: "create", parentId, text, author: mutation.author, ...(mutation.actorId ? { provenance: { actorId: mutation.actorId } } : {}) });
+  // A block is made as its author: an agent's names the agent, a person's names no client (the store's rule for creates).
+  const create = (parentId: string | null, text: string) => own.request<{ id: string; revision: number }>({ action: "create", parentId, text, author: mutation.author, ...(mutation.author === "agent" && mutation.actorId ? { provenance: { actorId: mutation.actorId } } : {}) });
   const under = async (parentId: string, blocks: readonly WrittenBlock[]): Promise<void> => {
     // In order, one at a time: each lands last under its parent.
     for (const block of blocks) { const at = await create(parentId, block.text); await under(at.id, block.children); }

@@ -107,6 +107,11 @@ test("screens.save writes the block form under the Screens note, and saves over 
   const first = (await list()).screens[0]!;
   expect([first.spec, first.note?.form]).toEqual([spec as never, "blocks"]);
 
+  // A person's save names their client as every write of theirs does: the blocks are made as theirs.
+  const mine = await client.request<ScreenSaved>({ action: "screens.save", spec: { ...spec, name: "Seed trays" }, mutation: { author: "user", actorId: "ep0ch-native:box" } } as never);
+  expect([mine.name, mine.title, mine.created]).toEqual(["seed-trays", "Seed trays", true]);
+  await client.request({ action: "delete", blockId: mine.id, mutation: { author: "user" } } as never);
+
   // Saved again from the revision read: the same note, its blocks replaced.
   const again = { ...spec, layout: { ...spec.layout, root: { ...spec.layout.root, weights: [0.5, 0.5] } } };
   const saved = await client.request<ScreenSaved>({ action: "screens.save", spec: again, base: first.note, mutation: { author: "user" } } as never);
