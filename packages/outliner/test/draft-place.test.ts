@@ -131,3 +131,17 @@ test("completion.rows asked with the text and the cursor finds the token and ans
   expect(await client.request<{ token: null; rows: unknown[] }>({ action: "completion.rows", text: "Sow the peas.", cursor: 5 })).toMatchObject({ token: null, rows: [] });
   await expect(client.request({ action: "completion.rows", text: "Sow", cursor: 9 })).rejects.toThrow("cursor");
 });
+
+test("a row left out of the text-and-cursor form takes what its source said of it: nothing is offered that can't be chosen", async () => {
+  const { store, client } = await service();
+  store.create("Shed [page::shed]");
+  // A page nobody wrote yet: the door offers to make it (`↓ then ⏎ makes it`), which needs a client that runs that
+  // write first. A thin client is told there is no such page, and never how to choose a row it wasn't sent.
+  const text = "See [[compost-heap";
+  const answer = await client.request<{ token: { kind: string; query: string } | null; rows: unknown[]; message?: string }>({ action: "completion.rows", text, cursor: text.length });
+  expect(answer.token).toMatchObject({ kind: "page", query: "compost-heap" });
+  expect(answer.rows).toEqual([]);
+  expect(answer.message).toContain("no matching named addresses");
+  expect(answer.message).not.toContain("makes it");
+  expect(answer.message).not.toContain("partial search");
+});

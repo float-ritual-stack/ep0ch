@@ -29,8 +29,15 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
   const { start, end, ...asked } = target;
   // The text being written is its note's own draft (`((#heading` searches it): said once, as `text`, with `near`.
   const found = await rows({ ...rest, target: asked, ...(rest.draft === undefined && rest.near ? { draft: { blockId: rest.near, text } } : {}) });
-  const merged = mergeSourceAnswers(found.answers, target.query, { picks: found.picks })
-    .filter(merged => !merged.anchor && !merged.newPage && !merged.newComponent);
+  // A row that makes something when chosen is left out (see above), and with it what its source said of that row
+  // alone: a source whose every row went says only that it has nothing (`empty`), never how to choose what wasn't sent.
+  const answers = found.answers.map(answer => {
+    const rows = answer.rows.filter(row => !row.anchor && !row.newPage && !row.newComponent);
+    if (rows.length === answer.rows.length) return answer;
+    const { partial: _, ...rest } = answer;
+    return rows.length ? { ...answer, rows } : { ...rest, rows };
+  });
+  const merged = mergeSourceAnswers(answers, target.query, { picks: found.picks });
   const listed: CompletionAtRow[] = merged.map((merged, index) => {
     const insert = insertText(merged.insert), select = insertSelection(merged.insert);
     return {
@@ -39,7 +46,7 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
       ...(select ? { select } : {}), ...(merged.enter ? { enter: merged.enter } : {}),
     };
   });
-  const said = completionSaid(found.answers, listed.length);
+  const said = completionSaid(answers, listed.length);
   return {
     answers: [], picks: {}, token: { kind: target.kind, start: lineStart + start, end: lineStart + end, query: target.query }, rows: listed,
     heading: said.heading, ...(said.message ? { message: said.message } : {}), pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }),
