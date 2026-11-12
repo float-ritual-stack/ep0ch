@@ -96,7 +96,10 @@ pub fn build(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     }
 }
 
-fn children(prim: &Value, cx: &PrimCx, k: &Kit) -> Vec<El> { list(prim, "children").iter().enumerate().map(|(n, child)| build(child, &cx.under(n), k)).collect() }
+fn children(prim: &Value, cx: &PrimCx, k: &Kit) -> Vec<El> { list(prim, "children").iter().enumerate().map(|(n, child)| stood(child, build(child, &cx.under(n), k))).collect() }
+
+/// `built` where a column holds it: a primitive that fills takes the column's width, a control stands at its own.
+fn stood(prim: &Value, built: El) -> El { if find(parts::ty(prim)).is_none_or(|entry| entry.fills) { built } else { row().w_full().child(built) } }
 
 fn sized(base: TextStyle, size: f32, line: f32) -> TextStyle { TextStyle { size, line_height: line, ..base } }
 fn quiet(said: &str, k: &Kit) -> El { text(said.to_string()).font(k.ty.small).color(k.c.text_faint).wrap() }
@@ -345,7 +348,7 @@ fn picture(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 /// title, its question or how fresh its answer is, what is wrong, its view, and what a press of it last did.
 fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let c = &k.c;
-    let view = build(&prim["view"], &cx.view_of(prim), k);
+    let view = stood(&prim["view"], build(&prim["view"], &cx.view_of(prim), k));
     let Some(name) = parts::text(prim, "name") else { return view.key(cx.frame()) };
     let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name).variant(BadgeVariant::Accent).build(k));
     if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }

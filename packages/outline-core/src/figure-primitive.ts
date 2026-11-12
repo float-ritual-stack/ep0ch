@@ -26,7 +26,7 @@ export const FIGURE_PRIMITIVES: Record<string, (p: Props) => Primitive | null> =
   meter: p => {
     const items = records(p.items), limit = number(p.limit);
     if (items.length) return bars(items, limit > 0 ? limit : Math.max(1, ...items.map(i => number(i.value))));
-    return p.value === undefined || p.value === null ? null : { type: "bar", label: words(p.label ?? p.title), value: number(p.value), max: limit > 0 ? limit : 1 };
+    return p.value === undefined || p.value === null ? null : { type: "bar", label: words(p.label), value: number(p.value), max: limit > 0 ? limit : 1 };
   },
   rank: p => { const items = records(p.items); return items.length ? bars(items, Math.max(1, ...items.map(i => number(i.value)))) : null; },
   spark: p => { const values = (Array.isArray(p.data) ? p.data : []).map(number); return values.length ? { type: "sparkline", ...(typeof p.label === "string" ? { label: p.label } : {}), values } : null; },

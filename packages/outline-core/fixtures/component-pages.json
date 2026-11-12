@@ -218,7 +218,7 @@
       "title": "Disk",
       "view": {
        "type": "bar",
-       "label": "Disk",
+       "label": "",
        "value": 0.6,
        "max": 1
       }
