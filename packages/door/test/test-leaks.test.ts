@@ -62,6 +62,16 @@ test.skipIf(!outliner)("a host Bun ended at a timed-out setup is named as that, 
   expect(r.code).not.toBe(0);
 }, 60_000);
 
+// PIE-1774: dispatch.test's fake action sets, weakly held, were in action-pages' examples check whenever garbage
+// collection hadn't run between the two files. A set a test file made itself is dropped when the file ends, without a
+// word; a built-in that file happened to import first stays.
+test("the fake action sets a file made aren't the next file's, held or not", () => {
+  const r = run("makes-actions.ts", "reads-actions.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.out).not.toContain("left behind");
+  expect(r.code).toBe(0);
+}, 60_000);
+
 test("the last file of a run is checked too", () => {
   const r = run("binds.ts");
   expect(r.out).toContain("test/fixtures/leaks/binds.ts left behind: extensions bound (tarot)");
