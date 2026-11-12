@@ -23,7 +23,7 @@ impl Ui for Queue {
     fn run(&self, job: Job) { let _ = self.0.send(job); }
 }
 
-struct Door { rt: Runtime<App>, jobs: Receiver<Job>, asked: Asked, _control: control::Control, path: PathBuf, dir: PathBuf }
+pub(super) struct Door { pub(super) rt: Runtime<App>, jobs: Receiver<Job>, asked: Asked, _control: control::Control, path: PathBuf, dir: PathBuf }
 
 impl Drop for Door {
     fn drop(&mut self) { let _ = std::fs::remove_file(&self.path); let _ = std::fs::remove_dir(&self.dir); }
@@ -31,16 +31,21 @@ impl Drop for Door {
 
 fn door(name: &str) -> Door {
     let g = garden(ok());
+    door_over(g.app, g.asked, name)
+}
+
+/// A window over `app` with its control socket served in a scratch folder: what an agent reaches.
+pub(super) fn door_over(app: App, asked: Asked, name: &str) -> Door {
     let dir = std::env::temp_dir().join(format!("ep0ch-native-control-{}-{name}", std::process::id()));
     let path = dir.join("native.sock");
     let (send, jobs) = channel();
     let control = control::serve(&path, Queue(send)).expect("the socket is served");
-    Door { rt: window(g.app), jobs, asked: g.asked, _control: control, path, dir }
+    Door { rt: window(app), jobs, asked, _control: control, path, dir }
 }
 
 impl Door {
     /// One request down the socket, with the window's loop turning until it is answered.
-    fn ask(&mut self, request: Value) -> Value {
+    pub(super) fn ask(&mut self, request: Value) -> Value {
         let mut stream = UnixStream::connect(&self.path).expect("the socket answers");
         writeln!(stream, "{request}").unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
@@ -94,7 +99,7 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     let mut d = door("refusals");
     d.rt.update(|s, _| { s.act("edit", Actor::Person); });
     rest(&mut d.rt);
-    d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace("Plot, half written"));
+    d.rt.update(|s, _| write(s, "Plot, half written"));
     let before = d.asked.borrow().len();
     for (request, why) in [
         // An open aimed at the reader that holds their draft is the actor rule's no.
@@ -106,6 +111,8 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
         (json!({ "cmd": "act", "action": "back" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "edit.close", "args": { "discard": "true" } }), "the editor is the person's"),
         (json!({ "cmd": "act", "action": "edit.save" }), "the editor is the person's"),
+        (json!({ "cmd": "act", "action": "draft.paste", "args": { "text": "an agent's words" } }), "the editor is the person's"),
+        (json!({ "cmd": "act", "action": "complete.accept" }), "the editor is the person's"),
         (json!({ "cmd": "act", "action": "note.trash" }), "has a draft open on it"),
         (json!({ "cmd": "act", "action": "dock.toggle", "args": { "side": "left" } }), "an agent doesn't move what they look at"),
         (json!({ "cmd": "act", "action": "bar.close" }), "the bar is the person's"),
@@ -114,7 +121,7 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
         let answer = d.ask(request.clone());
         assert!(answer["ok"] == false && answer["error"].as_str().unwrap().contains(why), "{request}: {answer}");
     }
-    assert_eq!((d.asked.borrow().len(), d.rt.state.editor.words(), d.rt.state.editor.takes_keys(), d.rt.state.subject().as_deref()), (before, "Plot, half written", true, Some("plot")), "nothing was written and nothing of theirs moved");
+    assert_eq!((d.asked.borrow().len(), words(&d.rt.state), draft(&d.rt.state).unwrap().buf.takes_keys(), d.rt.state.subject().as_deref()), (before, "Plot, half written", true, Some("plot")), "nothing was written and nothing of theirs moved");
     assert!(d.rt.state.agent_said.as_deref().unwrap().contains("refused"), "a refusal is said too: {:?}", d.rt.state.agent_said);
     // An open that names no tile is the layout's to place, as the door places one from outside: the screen's
     // landing reader holds their draft, so it gets a reader of its own beside, and nothing of theirs moves.
@@ -124,7 +131,7 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
         let landed = if answer["result"]["ran"].is_string() { &answer["result"]["answer"] } else { &answer["result"] };
         assert!(answer["ok"] == true && landed["tile"].as_str().is_some_and(|tile| tile != "reader"), "{request}: {answer}");
     }
-    assert_eq!((d.rt.state.editor.words(), d.rt.state.editor.takes_keys(), d.rt.state.note_of("reader").as_deref(), d.rt.state.layout.focus.as_str()), ("Plot, half written", true, Some("plot"), "reader"), "the draft, its reader and the keys are where they were");
+    assert_eq!((words(&d.rt.state), draft(&d.rt.state).unwrap().buf.takes_keys(), d.rt.state.note_of("reader").as_deref(), d.rt.state.layout.focus.as_str()), ("Plot, half written", true, Some("plot"), "reader"), "the draft, its reader and the keys are where they were");
     // A request that is itself wrong says so in the door's kinds.
     let answer = d.ask(json!({ "cmd": "act", "action": "note.bin" }));
     assert_eq!((answer["ok"].as_bool(), answer["kind"].as_str()), (Some(false), Some("invalid")));

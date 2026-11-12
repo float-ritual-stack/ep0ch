@@ -26,7 +26,7 @@ mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, CELL, Editing, Field, Notice, Said, TileUi, Tone};
+pub use app::{App, CELL, Field, Notice, Said, TileUi, Tone};
 pub use row::ActionRow;
 
 use crate::actline::{self, Args};
@@ -103,13 +103,15 @@ pub enum About {
     Lists,
     /// A list tile whose list is a tree.
     Tree,
+    /// A tile a block is being written in.
+    Drafts,
     /// A note the layout places: about no tile until it lands, unless it names the one it comes from.
     Placed,
 }
 
 impl About {
     /// How a refusal says the sort: "tree is no tile that reads notes".
-    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", _ => "tile" } }
+    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", About::Drafts => "tile a block is being written in", _ => "tile" } }
 }
 
 /// An action: what it says about itself, what runs, and the sort of tile it is about.
@@ -143,7 +145,8 @@ fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result
             let held = if row.while_ == Some(While::Typing) { typing } else { person.focus == tile || typing };
             if held { Err(format!("{}; an agent doesn't run {} there · {way}", person.why.clone().unwrap_or_else(|| format!("{} has the person's keys", person.focus)), row.id)) } else { Ok(()) }
         }
-        // The draft session's rule decides, in the action: it knows which note the act is about.
+        // What is the person's own of a draft (opening it, typing in it, saving, closing) says so on its row (`person`,
+        // refused above); the rest is decided where the note is known: the action's, and for a patch the service's.
         Touches::Draft => Ok(()),
         Touches::Screen => match (&person.why, person.idle) {
             (Some(why), _) if person.busy => Err(format!("{why}; an agent doesn't move what they look at · {way}")),

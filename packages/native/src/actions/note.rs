@@ -46,11 +46,6 @@ static MOVE: ActionRow = ActionRow::new("note.move", Touches::Nothing, "move the
 pub static ACTIONS: &[Action] = &[Action { row: &NEW, run: new, about: About::Any }, Action { row: &TRASH, run: trash, about: About::Notes }, Action { row: &UNTRASH, run: untrash, about: About::Nothing }, Action { row: &MOVE, run: step, about: About::Notes }];
 
 fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    // The person's new note opens in the editor: text the editor holds unsaved stays where it is.
-    if by.is_person() && let Some(why) = app.editing.as_ref().map(|e| e.tile.clone()).and_then(|tile| app.holds_edit(&tile)) {
-        app.st.notice = Some(Notice::problem(why.clone()));
-        return Outcome::refused(why);
-    }
     // The tile it is made from: the one aimed at, else the one with the keys. The screen's rule for a new note
     // made there may be another action altogether (a board's lane makes a card).
     let from = app.about().unwrap_or_else(|| app.layout.focus.clone());
@@ -106,7 +101,7 @@ fn trash(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if let Some(confirm) = args.text("confirm") && confirm != id && !(confirm.len() >= 8 && id.starts_with(confirm)) {
         return Outcome::refused(format!("confirm={confirm} isn't the note {id}: say the same note twice"));
     }
-    if app.editing.as_ref().is_some_and(|e| e.note == id) {
+    if app.draft_of(&id).is_some() {
         let why = "This note has a draft open on it: save or close it before it goes to the Trash.".to_string();
         if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) }
         return Outcome::refused(why);

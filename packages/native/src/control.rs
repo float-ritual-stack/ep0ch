@@ -133,7 +133,8 @@ pub fn peek(s: &App) -> Value {
     text.extend(s.tree().iter().map(|row| format!("{}{} {}", "  ".repeat(row.depth), if s.subject().as_deref() == Some(row.id.as_str()) { ">" } else { " " }, row.label)));
     if let Some(page) = page {
         text.push(String::new());
-        text.extend(if s.editing.is_some() { s.editor.words().lines().map(str::to_string).collect::<Vec<_>>() } else { page.text.lines().map(str::to_string).collect() });
+        // A block being written reads as it is typed.
+        text.extend(s.draft_of(&page.id).map_or(page.text.as_str(), |draft| draft.buf.words()).lines().map(str::to_string));
     }
     json!({
         "screen": {

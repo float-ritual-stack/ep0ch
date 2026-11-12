@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::support::act;
+use super::support::{act, unsaved, words, write};
 
 /// The window has opened on a screen: the host's extensions may still be loading when the window first asks, and
 /// the watched list says so when they have.
@@ -12,7 +12,7 @@ fn opened(app: &mut App) {
     for _ in 0..200 { if !app.screen.is_nowhere() && !app.kinds().is_empty() { return } std::thread::sleep(Duration::from_millis(50)); app.settle(); }
     panic!("no screen opened: {:?}", app.notice);
 }
-use crate::actions::{App, Field, Tone};
+use crate::actions::{App, Tone};
 use crate::client::Link;
 
 /// The window against a scratch outline host this test starts (`bun src/host-main.ts` in a temp folder): the socket,
@@ -73,10 +73,10 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
 
         // This window writes: saved at the revision it read, and the page it shows is the saved one.
         act(&mut app, "edit");
-        let text = format!("{}\n\nBring the trug.", app.editor.words());
-        app.field(Field::Draft).replace(text);
+        let text = format!("{}\n\nBring the trug.", words(&app));
+        write(&mut app, &text);
         act(&mut app, "edit.save");
-        assert!(!app.unsaved() && app.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said.starts_with("Saved")), "{:?}", app.notice);
+        assert!(!unsaved(&app) && app.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said.starts_with("Saved")), "{:?}", app.notice);
         assert!(app.page().unwrap().text.ends_with("Bring the trug."));
         assert!(act(&mut app, "edit.close").ok);
 
@@ -396,4 +396,157 @@ fn live_the_shipped_screens_open_from_the_bar_and_every_list_is_the_service_s() 
     let _ = host.wait();
     let _ = std::fs::remove_dir_all(&root);
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
+/// A scratch outline host started for one test (`bun src/host-main.ts` in a temp folder), its outline made, and
+/// stopped when the test is over, however it went.
+fn with_host(name: &str, test: impl FnOnce(&str, &std::path::Path) + std::panic::UnwindSafe) {
+    use crate::client::Socket;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-{name}-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let folder = root.clone();
+    let result = std::panic::catch_unwind(move || {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        asked(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true })).expect("the host makes the outline");
+        test(&path, &folder);
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
+/// One request on a connection of another client's, answered: its result, or the host's refusal in its words.
+fn asked(raw: &mut crate::client::Socket, request: Value) -> Result<Value, String> {
+    raw.send(&request);
+    raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(20));
+    let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+    if line["ok"] == true { Ok(line["result"].clone()) } else { Err(line["error"].as_str().unwrap_or("refused").to_string()) }
+}
+
+/// The wave's sentence against a real outline host: a block is written in place with completions from the
+/// service's own sources while an agent, over the window's control socket, patches it; the patch lands in front of
+/// the person and never in the block they are typing in; the window ends mid-word, and the next one finds the text
+/// back in its block. Everything the service decides, it decides here: the token, the rows, where the patch goes.
+/// `cargo test -- --ignored live` (it needs bun and the checkout around this crate).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_block_is_written_with_completions_while_an_agent_patches_it_and_comes_back_after_the_window_ends() {
+    use super::control::door_over;
+    use super::support::{chord, draft, press, primary, rest, typed};
+    use crate::client::Socket;
+    use crate::draft::Hold;
+    use rune::{Key, Mods, Runtime};
+    with_host("draft", |path, root| {
+        let mut raw = Socket::connect(path);
+        let mut ask = |request: Value| asked(&mut raw, request);
+        ask(json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": "Shed [page::shed] [type::place]\nWhere the tools live.", "author": "user" })).unwrap();
+        let saved = "Seed list [type::list]\n\nThe beans  go  along the fence.\n\nSow the peas by the sh";
+        let note = ask(json!({ "id": "c", "action": "create", "outline": "scratch", "parentId": null, "text": saved, "author": "user" })).unwrap();
+        let id = note["id"].as_str().unwrap().to_string();
+        let kept = root.join("state/native-scratch.layout.json");
+        // Frames with the clock running, until something is so: answers come over a socket, in their own time, and a
+        // held draft is renewed as the window's own loop would.
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&App) -> bool) {
+            // (Once it is so, the frames that draw it run before anything is pressed.)
+            for _ in 0..400 { if so(&rt.state) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); rt.update(|s, _| { s.beat(); }); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, status {:?}, draft {:?}, steps {:?}", rt.state.notice, rt.state.agent_said, draft(&rt.state).map(|d| (d.buf.words().to_string(), d.hold.clone())), rt.state.steps.iter().rev().take(3).map(|step| (step.line(), step.ok, step.said.clone())).collect::<Vec<_>>());
+        }
+        let open = |kept: &std::path::Path| -> App {
+            let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(kept.to_path_buf());
+            app.start();
+            opened(&mut app);
+            app
+        };
+
+        // What another client asks while the window's own loop turns: the service asks the window before it answers.
+        fn beside(rt: &mut Runtime<App>, raw: &mut Socket, request: Value) -> Value {
+            raw.send(&request);
+            for _ in 0..400 {
+                for _ in 0..3 { rt.frame(1.0 / 60.0); }
+                raw.wait(request["id"].as_str().unwrap(), Duration::from_millis(20));
+                if let Some(line) = raw.take().into_iter().find(|line| line["id"] == request["id"]) { assert_eq!(line["ok"], true, "{line}"); return line["result"].clone() }
+            }
+            panic!("the host never answered {request}");
+        }
+        let mut other = Socket::connect(path);
+
+        let mut app = open(&kept);
+        act(&mut app, &format!("open id={id}"));
+        let mut door = door_over(app, Default::default(), "live-draft");
+        until(&mut door.rt, "the note's page", |s| s.page().is_some_and(|page| page.title == "Seed list"));
+        press(&mut door.rt, "tile/reader/edit");
+        until(&mut door.rt, "the hold", |s| draft(s).is_some_and(|d| matches!(d.hold, Hold::Held { .. })));
+        // Another client reads the note: what it gets is the draft this window holds.
+        assert_eq!(beside(&mut door.rt, &mut other, json!({ "id": "d", "action": "drafts.read", "outline": "scratch", "blockId": id }))["route"], "draft");
+
+        // Typed: a line of its own, and a page's name begun. The service finds the token and lists what completes it.
+        chord(&mut door.rt, Key::Enter, Mods::default());
+        chord(&mut door.rt, Key::Enter, Mods::default());
+        typed(&mut door.rt, "See [[she");
+        until(&mut door.rt, "the completion list", |s| s.completing("reader").is_some_and(|found| !found.rows.is_empty()));
+        let found = door.rt.state.completing("reader").unwrap().clone();
+        assert_eq!((found.token.as_ref().map(|token| (token.kind.as_str(), token.query.as_str())), found.rows[0].insert.as_str()), (Some(("page", "she")), "[[shed]]"), "{found:?}");
+        chord(&mut door.rt, Key::Enter, Mods::default());
+        let typed_text = format!("{saved}\n\nSee [[shed]]");
+        assert_eq!(words(&door.rt.state), typed_text);
+
+        // An agent, over the control socket, tidies a passage above: the service places it in the draft, in front of
+        // the person, attributed; their caret is still at the end of what they typed, and the saved note is as it was.
+        let sent = door.ask(json!({ "cmd": "act", "action": "draft.patch", "args": { "observed": "The beans  go  along the fence.", "replacement": "The beans go along the fence." }, "as": "tidy-agent" }));
+        assert_eq!(sent["ok"], true, "{sent}");
+        until(&mut door.rt, "the agent's patch", |s| words(s).contains("The beans go along the fence."));
+        let patched = typed_text.replace("beans  go  along", "beans go along");
+        let session = draft(&door.rt.state).unwrap();
+        assert_eq!((session.buf.words(), session.buf.ends(), session.buf.takes_keys()), (patched.as_str(), (patched.len(), patched.len()), true));
+        assert_eq!(session.told.as_ref().map(|told| told.line()).as_deref(), Some("an agent (tidy-agent) edited text above your cursor"));
+        assert_eq!(ask(json!({ "id": "e", "action": "get", "outline": "scratch", "blockId": id })).unwrap()["text"], saved, "the saved note is untouched: the patch is in the draft");
+        rest(&mut door.rt);
+        assert!(door.rt.find("tile/reader/told").is_some(), "who changed the text is said on the tile");
+
+        // The paragraph at the cursor is the person's while they type in it: refused, with why, and nothing changes.
+        let sent = door.ask(json!({ "cmd": "act", "action": "draft.patch", "args": { "observed": "See [[shed]]", "replacement": "See the [[shed]]" }, "as": "tidy-agent" }));
+        assert_eq!(sent["ok"], true, "{sent}");
+        until(&mut door.rt, "the refusal", |s| s.agent_said.as_deref().is_some_and(|said| said.contains("not changed")));
+        assert!(door.rt.state.agent_said.as_deref().unwrap().contains("it changes the block being typed in"), "{:?}", door.rt.state.agent_said);
+        assert_eq!(words(&door.rt.state), patched);
+
+        // Saved: what was typed and what the agent changed, as one text at the revision the draft stood on.
+        chord(&mut door.rt, Key::Command('s'), primary());
+        until(&mut door.rt, "the save", |s| draft(s).is_some_and(|d| !d.unsaved()));
+        assert_eq!(ask(json!({ "id": "f", "action": "get", "outline": "scratch", "blockId": id })).unwrap()["text"], patched);
+
+        // Typed on, mid-word, and the window ends: nothing closes the draft, nothing saves it.
+        typed(&mut door.rt, " Sow the pe");
+        drop(door);
+        let left = format!("{patched} Sow the pe");
+        // The host lets go of a hold whose window is gone: the note reads as saved again.
+        let mut released = false;
+        for _ in 0..100 { if ask(json!({ "id": "g", "action": "drafts.read", "outline": "scratch", "blockId": id })).unwrap()["route"] == "saved" { released = true; break } std::thread::sleep(Duration::from_millis(50)) }
+        assert!(released, "a window that ended holds nothing");
+
+        // The next window finds the text back in its block, says so, and holds it again.
+        let mut rt = super::support::window(open(&kept));
+        until(&mut rt, "the draft back and held", |s| draft(s).is_some_and(|d| matches!(d.hold, Hold::Held { .. })));
+        assert_eq!((words(&rt.state), draft(&rt.state).map(|d| d.unsaved())), (left.as_str(), Some(true)));
+        assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.contains("is back in its block")), "{:?}", rt.state.notice);
+        typed(&mut rt, "as.");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the save", |s| draft(s).is_some_and(|d| !d.unsaved()));
+        assert_eq!(ask(json!({ "id": "h", "action": "get", "outline": "scratch", "blockId": id })).unwrap()["text"], format!("{left}as."));
+        // Closed: the hold is released, and the note is the saved one for everybody.
+        chord(&mut rt, Key::Escape, Mods::default());
+        assert!(draft(&rt.state).is_none());
+        let mut released = false;
+        for _ in 0..100 { rt.frame(1.0 / 60.0); if ask(json!({ "id": "i", "action": "drafts.read", "outline": "scratch", "blockId": id })).unwrap()["route"] == "saved" { released = true; break } std::thread::sleep(Duration::from_millis(50)) }
+        assert!(released, "a draft closed is held no longer");
+    });
 }

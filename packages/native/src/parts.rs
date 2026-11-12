@@ -54,12 +54,14 @@ pub fn around(page: &Page) -> (Vec<Value>, Vec<Value>) {
     if !page.ancestors.is_empty() {
         head.push(json!({ "type": "text", "key": "path", "tone": "dim", "text": page.ancestors.iter().map(|a| a.title.as_str()).collect::<Vec<_>>().join(" › ") }));
     }
-    head.push(json!({ "type": "row", "key": "head", "children": [
+    // (The title and the chips are drawn from the block's own first line: `source` says so, and the block's source
+    // stands in their place while it is written.)
+    head.push(json!({ "type": "row", "key": "head", "source": true, "children": [
         { "type": "band", "key": "title", "level": 1, "text": page.title },
         { "type": "button", "key": "edit", "label": actions::label("edit"), "act": "edit" },
     ] }));
     if !page.chips.is_empty() {
-        head.push(json!({ "type": "row", "key": "chips", "minWidth": 0, "children": page.chips.iter().map(|chip| json!({
+        head.push(json!({ "type": "row", "key": "chips", "source": true, "minWidth": 0, "children": page.chips.iter().map(|chip| json!({
             "type": "badge", "key": format!("chip/{}/{}", chip.key, chip.value), "label": format!("{} · {}", chip.key, chip.value),
             "act": format!("bar.narrow key={} value={}", word(&chip.key), word(&chip.value)),
         })).collect::<Vec<_>>() }));

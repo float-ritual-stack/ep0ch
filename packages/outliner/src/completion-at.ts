@@ -27,7 +27,8 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
   // No token, or one only a door's own sources answer (its actions, its tiles): nothing to list.
   if (!target || !triggerOf(target.kind)) return { answers: [], picks: {}, token: null, rows: [] };
   const { start, end, ...asked } = target;
-  const found = await rows({ ...rest, target: asked });
+  // The text being written is its note's own draft (`((#heading` searches it): said once, as `text`, with `near`.
+  const found = await rows({ ...rest, target: asked, ...(rest.draft === undefined && rest.near ? { draft: { blockId: rest.near, text } } : {}) });
   const merged = mergeSourceAnswers(found.answers, target.query, { picks: found.picks })
     .filter(merged => !merged.anchor && !merged.newPage && !merged.newComponent);
   const listed: CompletionAtRow[] = merged.map((merged, index) => {

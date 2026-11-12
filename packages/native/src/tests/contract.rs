@@ -303,3 +303,23 @@ fn every_question_narrowed_by_picks_is_written_as_outline_core_writes_it() {
         assert_eq!(json!(crate::query::narrowed(case["raw"].as_str().unwrap(), &picks)), case["query"], "{} narrowed by {:?}", case["raw"], picks);
     }
 }
+
+/// Where an offset of a draft is once a patch's placed spans are replaced is outline-core's `mapCursor` (the door
+/// moves its cursor by it), asked of `draft::map_cursor`: the same place for every offset of every row, so a patch
+/// that lands under the caret leaves it where the door would.
+#[test]
+fn a_caret_beside_a_placed_patch_goes_where_outline_core_s_map_cursor_puts_it() {
+    use crate::draft::{Caret, Placed, map_cursor};
+    let rows = table("core-contract")["cursor"].as_array().unwrap().clone();
+    assert!(rows.len() >= 8);
+    for case in &rows {
+        let spans: Vec<Placed> = case["spans"].as_array().unwrap().iter().map(|span| Placed {
+            start: span["start"].as_u64().unwrap() as usize, end: span["end"].as_u64().unwrap() as usize, len: span["replacement"].as_str().unwrap().encode_utf16().count(),
+            caret: match span["caret"].as_str() { Some("stays") => Caret::Stays, Some("apart") => Caret::Apart, _ => Caret::Moves },
+        }).collect();
+        for at in case["at"].as_array().unwrap() {
+            let (offset, want) = (at[0].as_u64().unwrap() as usize, at[1].as_u64().unwrap() as usize);
+            assert_eq!(map_cursor(offset, &spans), want, "{}: offset {offset}", case["name"]);
+        }
+    }
+}

@@ -77,6 +77,11 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+s` | `edit.save` | everywhere | save |
 | `mod+enter` | `edit.save` | draft | save, from the note's source |
 | `escape` | `edit.close` | draft | leave the editor, when everything is saved |
+| `tab` | `complete.accept` | complete | write the lit row |
+| `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
+| `down` | `complete.move by=1` | complete | the next row |
+| `up` | `complete.move by=-1` | complete | the row before |
+| `escape` | `complete.dismiss` | complete | put the list away |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |

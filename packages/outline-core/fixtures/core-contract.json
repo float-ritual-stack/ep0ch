@@ -1,5 +1,5 @@
 {
-  "about": "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), and a links list's groups (linkGroupsNamed, with each group's glyph and label). Made by calling each; never edited by hand.",
+  "about": "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), and where an offset of a draft is once a patch's placed spans are replaced (mapCursor). Made by calling each; never edited by hand.",
   "by": "packages/outline-core/scripts/core-contract.ts",
   "linkGroups": {"all":["outlinks","resources","backlinks","children"],"groups":[{"group":"outlinks","glyph":"→","label":"Outlinks"},{"group":"resources","glyph":"♦","label":"Resources"},{"group":"backlinks","glyph":"←","label":"Backlinks"},{"group":"children","glyph":"↓","label":"Children"},{"group":"matches","glyph":"≡","label":"Matches"}]},
   "written": [
@@ -65,5 +65,15 @@
     {"names":["all","children"],"groups":["outlinks","resources","backlinks","children"]},
     {"names":["cousins"],"groups":{"bad":"cousins"}},
     {"names":["backlinks","matches"],"groups":{"bad":"matches"}}
+  ],
+  "cursor": [
+    {"name":"a passage made shorter: before it stays, inside it goes to its end, after it moves by the change","spans":[{"start":10,"end":26,"replacement":"beans go along"}],"at":[[0,0],[2,2],[3,3],[4,4],[5,5],[8,8],[10,10],[12,24],[13,24],[20,24],[21,24],[26,24],[30,28],[31,29],[40,38],[41,39],[42,40],[44,42],[60,58]]},
+    {"name":"a passage made longer","spans":[{"start":4,"end":8,"replacement":"sweet peas"}],"at":[[0,0],[2,2],[3,3],[4,4],[5,14],[8,14],[10,16],[12,18],[13,19],[20,26],[21,27],[26,32],[30,36],[31,37],[40,46],[41,47],[42,48],[44,50],[60,66]]},
+    {"name":"words put in at a point: an offset there moves past them","spans":[{"start":12,"end":12,"replacement":"late "}],"at":[[0,0],[2,2],[3,3],[4,4],[5,5],[8,8],[10,10],[12,17],[13,18],[20,25],[21,26],[26,31],[30,35],[31,36],[40,45],[41,46],[42,47],[44,49],[60,65]]},
+    {"name":"an answer under its ask: an offset at the ask's end stays on its line","spans":[{"start":12,"end":12,"replacement":"\n> sown in March","caret":"stays"}],"at":[[0,0],[2,2],[3,3],[4,4],[5,5],[8,8],[10,10],[12,12],[13,29],[20,36],[21,37],[26,42],[30,46],[31,47],[40,56],[41,57],[42,58],[44,60],[60,76]]},
+    {"name":"an answer that takes the place of an older one: at its start stays, inside goes to its end","spans":[{"start":12,"end":30,"replacement":"\n> sown in April","caret":"stays"}],"at":[[0,0],[2,2],[3,3],[4,4],[5,5],[8,8],[10,10],[12,12],[13,28],[20,28],[21,28],[26,28],[30,28],[31,29],[40,38],[41,39],[42,40],[44,42],[60,58]]},
+    {"name":"a paragraph of its own added at the very end moves nothing","spans":[{"start":40,"end":42,"replacement":"\n\nRestored on the first frost.","caret":"apart"}],"at":[[0,0],[2,2],[3,3],[4,4],[5,5],[8,8],[10,10],[12,12],[13,13],[20,20],[21,21],[26,26],[30,30],[31,31],[40,40],[41,41],[42,42],[44,44],[60,60]]},
+    {"name":"two spans: each moves what is after it","spans":[{"start":2,"end":5,"replacement":"a"},{"start":20,"end":20,"replacement":"garlic, "}],"at":[[0,0],[2,2],[3,3],[4,3],[5,3],[8,6],[10,8],[12,10],[13,11],[20,26],[21,27],[26,32],[30,36],[31,37],[40,46],[41,47],[42,48],[44,50],[60,66]]},
+    {"name":"a span above and a paragraph added at the end: only the first moves the offsets","spans":[{"start":2,"end":5,"replacement":"leeks and"},{"start":40,"end":44,"replacement":"\nLifted.","caret":"apart"}],"at":[[0,0],[2,2],[3,11],[4,11],[5,11],[8,14],[10,16],[12,18],[13,19],[20,26],[21,27],[26,32],[30,36],[31,37],[40,46],[41,47],[42,48],[44,50],[60,66]]}
   ]
 }

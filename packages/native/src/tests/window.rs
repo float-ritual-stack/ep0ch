@@ -3,7 +3,7 @@
 use rune::{Key, Mods, Runtime};
 
 use super::support::*;
-use crate::actions::{Actor, App, Field};
+use crate::actions::{Actor, App};
 use crate::keys;
 
 #[test]
@@ -30,19 +30,26 @@ fn a_press_on_a_tree_row_opens_its_note_and_on_the_open_note_folds_it() {
     assert!(rt.find("tile/tree/row/fork").is_none(), "and a press on the open note folds it again");
 }
 
+/// A block is written where it is read: its source stands in the page in place of what is drawn from it, with the
+/// rest of the page around it, and the buttons say what leaving would do.
 #[test]
-fn the_editor_s_buttons_say_what_leaving_would_do() {
+fn a_block_is_written_in_place_and_its_buttons_say_what_leaving_would_do() {
     let mut rt = window(garden(ok()).app);
     press(&mut rt, "tile/reader/edit");
-    assert_eq!(rt.state.editor.words(), "Plot [type::chore]\nBefore the rain.");
-    assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/done").is_some() && rt.find("tile/reader/discard").is_none() && rt.find("tile/reader/title").is_none());
-    rt.update(|s, _| s.field(Field::Draft).replace("Plot, changed"));
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the rain.");
+    assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/done").is_some() && rt.find("tile/reader/discard").is_none());
+    // What is drawn from the block's own text gives way to its source: the title, the chips, its parts.
+    for gone in ["tile/reader/title", "tile/reader/chip/type/chore", "tile/reader/part/0", "tile/reader/part/2"] { assert!(rt.find(gone).is_none(), "{gone} is drawn from the block's text: its source stands there") }
+    // The rest of the page is still around it, in the same scroll: the notes under the note, below the field.
+    let (field, under) = (rect_of(&rt, "tile/reader/source").unwrap(), rect_of(&rt, "tile/reader/child/fork").expect("the notes under it are still listed"));
+    assert!(under[1] > field[1] + field[3] - 1.0, "the notes under the note stand below its source: {field:?} {under:?}");
+    rt.update(|s, _| write(s, "Plot, changed"));
     for _ in 0..30 { rt.frame(1.0 / 60.0); }
     assert!(rt.find("tile/reader/discard").is_some() && rt.find("tile/reader/done").is_none(), "with unsaved text the way out is Discard, by name");
     press(&mut rt, "tile/reader/save");
-    assert!(rt.state.editing.is_some() && !rt.state.unsaved());
+    assert!(draft(&rt.state).is_some() && !unsaved(&rt.state));
     press(&mut rt, "tile/reader/done");
-    assert!(rt.state.editing.is_none() && rt.find("tile/reader/title").is_some());
+    assert!(draft(&rt.state).is_none() && rt.find("tile/reader/title").is_some());
 }
 
 #[test]
@@ -118,14 +125,14 @@ fn the_bar_s_keys_move_its_lit_row_and_a_line_typed_whole_runs_as_written() {
 fn esc_closes_one_thing_at_a_time_the_bar_then_the_editor_then_the_notice() {
     let mut rt = window(garden(ok()).app);
     let steps: Vec<&str> = keys::esc_steps().iter().map(|bind| bind.line.as_str()).collect();
-    assert_eq!(steps, ["bar.close", "edit.close", "notice.dismiss"], "the list is the rows bound to Escape, by layer");
+    assert_eq!(steps, ["bar.close", "complete.dismiss", "edit.close", "notice.dismiss"], "the list is the rows bound to Escape, by layer");
     rt.update(|s, _| { s.act("link.follow ref=ep0ch:p/Seed%20list", Actor::Person); s.act("edit", Actor::Person); s.act("bar.open", Actor::Person); });
     rest(&mut rt);
     assert_eq!(rt.state.person().layer, keys::Layer::Bar);
     chord(&mut rt, Key::Escape, Mods::default());
-    assert_eq!((rt.state.bar.open, rt.state.editing.is_some(), rt.state.notice.is_some()), (false, true, true));
+    assert_eq!((rt.state.bar.open, draft(&rt.state).is_some(), rt.state.notice.is_some()), (false, true, true));
     chord(&mut rt, Key::Escape, Mods::default());
-    assert_eq!((rt.state.editing.is_some(), rt.state.notice.is_some()), (false, true));
+    assert_eq!((draft(&rt.state).is_some(), rt.state.notice.is_some()), (false, true));
     chord(&mut rt, Key::Escape, Mods::default());
     assert!(rt.state.notice.is_none());
 }
@@ -139,18 +146,18 @@ fn in_the_note_s_source_the_table_has_a_chord_first_and_return_types_a_line() {
     typed(&mut rt, " Now");
     chord(&mut rt, Key::Enter, Mods::default());
     typed(&mut rt, "then");
-    assert_eq!(rt.state.editor.words(), "Plot [type::chore]\nBefore the rain. Now\nthen", "plain Return is a line in a note's source");
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the rain. Now\nthen", "plain Return is a line in a note's source");
     // The save chord is the table's, from inside the field: the editor never sees it, and it keeps the keys.
     chord(&mut rt, Key::Command('s'), primary());
     let saved = asked.borrow().iter().rev().find(|a| a["action"] == "update").cloned().expect("the save chord saved");
     assert_eq!(saved["text"], "Plot [type::chore]\nBefore the rain. Now\nthen");
-    assert!(rt.state.editing.is_some() && rt.state.editor.takes_keys());
+    assert!(draft(&rt.state).is_some_and(|d| d.buf.takes_keys()));
     // A chord that moves or bins a note on a tile is the editor's own while a note is being written: it edits the
     // text, and nothing is asked of the host.
     chord(&mut rt, Key::Up, Mods { alt: true, ..Mods::default() });
     chord(&mut rt, Key::Backspace, primary());
     assert!(!asked.borrow().iter().any(|a| a["action"] == "move" || a["action"] == "delete"), "tile-layer rows don't hold in a draft");
-    assert!(rt.state.editing.is_some() && rt.state.unsaved(), "the editor took them as its own keys");
+    assert!(draft(&rt.state).is_some() && unsaved(&rt.state), "the editor took them as its own keys");
 }
 
 #[test]

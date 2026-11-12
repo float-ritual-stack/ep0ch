@@ -293,3 +293,59 @@ impl Page {
         })
     }
 }
+
+/// The token the cursor is in, as the service found it (`completion.rows` asked with the text and the cursor): where
+/// a choice replaces it, in UTF-16 units of the text.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct Token {
+    #[serde(default)]
+    pub kind: String,
+    pub start: usize,
+    pub end: usize,
+    #[serde(default)]
+    pub query: String,
+}
+
+/// One row of a completion list (outline-core's `CompletionAtRow`): what it shows and what choosing it writes.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct CompletionRow {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// The source it came from, as `completion.picked` names it.
+    #[serde(default)]
+    pub from: String,
+    /// The text a choice writes in place of the token.
+    pub insert: String,
+    /// The span of `insert` (UTF-16) selected once it is in.
+    #[serde(default)]
+    pub select: Option<Span>,
+    /// What `completion.picked` counts this choice as.
+    #[serde(default)]
+    pub pick: String,
+    /// `new line`: until a deliberate choice, Return belongs to the field.
+    #[serde(default)]
+    pub enter: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+pub struct Span { pub start: usize, pub end: usize }
+
+/// `completion.rows`' answer for a text and a cursor: the token there (none: nothing to complete) and its rows,
+/// merged by the service and ready to draw; what the list says of itself, and the key a choice is counted under.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct Completion {
+    #[serde(default)]
+    pub token: Option<Token>,
+    #[serde(default)]
+    pub rows: Vec<CompletionRow>,
+    #[serde(default)]
+    pub heading: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(rename = "pickKey", default)]
+    pub pick_key: Option<String>,
+}
