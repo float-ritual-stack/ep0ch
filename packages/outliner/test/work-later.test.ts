@@ -108,8 +108,10 @@ test("a parked item comes back when a new note links it, with a line saying why;
   expect(back).toContain("**Back from later,");
   expect(back.split("\n").every(l => !/^\s+\[\w[\w-]*::/.test(l))).toBe(true);
   expect(back).toContain("named in a note since");
-  expect(back).toContain(`((${note.id}))`);
+  expect(back).toContain(`((${note.id}|the note))`);   // labelled: the line has its words already (PIE-1765)
   expect(store.require(nudged.id).text).toContain("nudged: a comment");
+  // The comment's words once, in the line; its link is labelled, so a reader doesn't draw them twice (PIE-1765).
+  expect(store.require(nudged.id).text).toMatch(/still want this before winter \(\([0-9a-f-]+\|the comment\)\)/);
   expect(stage(wrong.id)).toBe("later");
   // As the Oct 25 audit restored: `wreckage` means parked now, so it comes off and `restored` says when and why.
   expect(store.require(wanted.id).properties.find(p => p.key === "wreckage")).toBeUndefined();

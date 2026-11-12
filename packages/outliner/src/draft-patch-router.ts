@@ -342,12 +342,14 @@ export class DraftPatchRouter {
     // Each chip the saved note changes, followed through the draft's edits since the revision it stands on to the one
     // place it is now, and still that chip there (Codex on #1462). A note empty as saved has nothing to follow: its
     // chips go on a first line of their own (CodeRabbit on #1461).
-    if (draft.revision !== now.revision) throw new Refusal("stale-revision", `not applied: the draft is on revision ${draft.revision} and the note on ${now.revision}; save or reload it first`);
+    // What the writer does next (PIE-1765): the person at his shell saves or puts the edit aside; an agent reads again.
+    const next = input.mutation.author === "user" ? "save the edit open on it, or put it aside, then run this again" : "read it again";
+    if (draft.revision !== now.revision) throw new Refusal("stale-revision", `not applied: the draft is on revision ${draft.revision} and the note on ${now.revision}; ${input.mutation.author === "user" ? next : "save or reload it first"}`);
     const savedChips = parsePropertyRecords(now.text);
     const patches: DraftPatchSpan[] = !now.text.trim() ? [{ observed: "", replacement: `${chips}${draft.text ? "\n" : ""}`, range: { start: 0, end: 0 } }] : chipSpans(now.text, chips).map(span => {
       const was = savedChips.find(r => r.start === span.range!.start && r.end === span.range!.end);
       const at = followSpan(now.text, draft.text, { start: span.range!.start, end: span.range!.end, observed: span.observed }, was);
-      if ("reason" in at) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (${at.reason}); read it again`);
+      if ("reason" in at) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (${at.reason}); ${next}`);
       return { ...span, range: at };
     });
     // A line goes at the draft's end, a paragraph of its own, the way the saved note takes it: the draft's trailing
@@ -362,10 +364,10 @@ export class DraftPatchRouter {
       alongside: () => {
         written = store.patchProperties(saved.id, input.expectedRevision, input.operations, input.mutation, input.keepUpdated === true);
         // Someone saved it between: the draft would stand on a text that isn't the note's. Taken back, both.
-        if (written.revision !== now.revision + 1 || written.text !== text) throw new Refusal("stale-revision", "the note was saved while the change went in; read it again");
+        if (written.revision !== now.revision + 1 || written.text !== text) throw new Refusal("stale-revision", `the note was saved while the change went in; ${input.mutation.author === "user" ? "run this again" : "read it again"}`);
       },
     });
-    if (!outcome.ok) throw new DraftPatchRefusal(outcome.reason, outcome.kind ?? "conflict");
+    if (!outcome.ok) throw new DraftPatchRefusal(input.mutation.author === "user" ? `${outcome.reason}; ${next}` : outcome.reason, outcome.kind ?? "conflict");
     // The draft as the door has it now; a door that took the patch and then didn't answer the read is said so, never
     // given the saved text as its draft's (CodeRabbit on #1458).
     const after = await this.read(saved.id);

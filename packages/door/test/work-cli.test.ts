@@ -23,6 +23,15 @@ describe.skipIf(!outliner)("ep0ch work stage with --as", () => {
     return page.changes?.filter(c => c.blockId === id).at(-1)?.actor;
   };
 
+  // PIE-1765: piped (no terminal), a groom's progress is no `\r…\x1b[K`.
+  test("a groom piped to a file prints plain lines, no carriage returns or erase codes", async () => {
+    await board.request("create", { parentId: null, text: "Sweep the path [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01] [work-id::GATE-8]", author: "user" });
+    const groom = await work("groom", "--later", "--no-jev");
+    expect(groom.code).toBe(0);
+    expect(groom.out + groom.err).not.toMatch(/\r|\x1b\[K/);
+    expect(groom.out).toContain("parked items");
+  }, 30_000);
+
   test("--as names the agent the stage change is recorded as; without it, the person", async () => {
     const ticket = (await board.request("create", { parentId: null, text: "Mend the gate [type::roadmap-item] [work-stage::queued] [work-id::GATE-7]", author: "user" })).id as string;
     const asAgent = await work("stage", ticket, "doing", "--as", "fern");

@@ -90,6 +90,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
     return await run.exited;
   }
   const rest = args.slice(2), opts: Record<string, string> = {}, ids: string[] = [];
+  // A progress line redrawn in place is for a terminal; piped or kept in a file, it's left out (PIE-1765).
+  const live = process.stderr.isTTY === true;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (SOLO.includes(a)) continue;
@@ -116,8 +118,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
         io.out(json ? JSON.stringify(report, null, 2) : l.laterSummary(report));
         return 0;
       }
-      const report = await l.revive(clientOf(source), { ...common, jev, progress: line => { if (!json) process.stderr.write(`\r${line}\x1b[K`); } });
-      if (!json) process.stderr.write("\r\x1b[K");
+      const report = await l.revive(clientOf(source), { ...common, jev, progress: line => { if (!json && live) process.stderr.write(`\r${line}\x1b[K`); } });
+      if (!json && live) process.stderr.write("\r\x1b[K");
       // Then the groom's own pass over what stays parked, only those: one that shipped gets its comment for the
       // verifier, kept in --into, else (with --apply) in the outline it read.
       const stays = report.rows.filter(r => r.outcome === "stays").map(r => r.ticket);
@@ -139,8 +141,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       const changelog = m.changelogText(repo);
       if (changelog === null) throw new Error(`no CHANGELOG.md in ${repo}: --repo names the checkout`);
       const prs = await mergedPullRequests(repo, opts["--since"] ?? "120d");
-      const report = await m.groom(clientOf(source), { changelog, prs }, { jev, ...(opts["--where"] ? { where: opts["--where"] } : {}), ...(limit ? { limit } : {}), progress: line => { if (!rest.includes("--json")) process.stderr.write(`\r${line}\x1b[K`); } });
-      if (!rest.includes("--json")) process.stderr.write("\r\x1b[K");
+      const report = await m.groom(clientOf(source), { changelog, prs }, { jev, ...(opts["--where"] ? { where: opts["--where"] } : {}), ...(limit ? { limit } : {}), progress: line => { if (!rest.includes("--json") && live) process.stderr.write(`\r${line}\x1b[K`); } });
+      if (!rest.includes("--json") && live) process.stderr.write("\r\x1b[K");
       const kept = into ? await m.keepGroom(clientOf(into), report) : undefined;
       io.out(rest.includes("--json") ? JSON.stringify({ ...(report as object), ...(kept ? { kept } : {}) }, null, 2)
         : `${m.groomSummary(report)}${kept ? `\n\nkept in ${opts["--into"]}: ${kept.verdicts} verdicts, ${kept.comments} comments for the verifier, run ${kept.run}` : "\n\nread only: --into <name> keeps it"}`);

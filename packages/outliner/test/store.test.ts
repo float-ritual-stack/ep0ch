@@ -1963,7 +1963,9 @@ Second paragraph`;
     expect(malformed.properties).toContainEqual({ key: "work-id", value: "PIE-x" });
     expect(unpadded.properties).toContainEqual({ key: "work-id", value: "PIE-7" });
     expect(store.resolvePageAddress("OTHER-001").status).toBe("missing");
-    expect(store.resolvePageAddress("PIE-7").status).toBe("missing");
+    // A hand-written unpadded chip of the outline's own prefix is found by its number (PIE-1761); another prefix isn't.
+    expect(store.resolvePageAddress("PIE-7").block?.id).toBe(unpadded.id);
+    expect(store.resolvePageAddress("PIE-007").block?.id).toBe(unpadded.id);
     expect(allocation.workId).toBe("PIE-124");
     expect(() =>
       store.allocateWorkId(existing.id, existing.revision)

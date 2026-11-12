@@ -127,7 +127,7 @@ export async function wantedAgain(client: WorkJevClient, item: Block, since: Dat
   const out: Signal[] = [];
   // Nudged: a comment on it, by anyone but a loop.
   const under = (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=annotation OR type=annotation-reply", subtreeRootId: item.id, limit: 200 } })).blocks;
-  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" "), 160) });
+  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" ") || c.text.split("\n")[0]!.replace(/\s*\[[^\]\n]*::[^\]\n]*\]/g, "").trim(), 160) }); // a one-line comment's words are its first line
   // Linked or named: the service's backlinks, which say each source's placement and stage (backlink-facets.ts).
   const back = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: item.id, limit: 100 } });
   const others = back.sources.filter(s => s.facets?.placement !== "self" && s.facets?.placement !== "descendant" && (after(s.createdAt) || after(s.updatedAt)));
@@ -208,7 +208,8 @@ export async function restore(client: WorkJevClient, id: string, why: string, so
   const day = (o.now ?? new Date()).toISOString().slice(0, 10), kind = why.split(/[,:]/)[0]!;
   const item = await client.request<Block>({ action: "get", blockId: id });
   const marks = parsePropertyRecords(item.text).filter(p => p.scope === "block" && (p.key === "wreckage" || p.key === "parked-at"));
-  const line = `**Back from later, ${day}:** ${why.replace(/\s*\n\s*/g, " ")}${source ? ` ((${source}))` : ""}`;
+  // A labelled link to the note that asked: its words are in `why` already, so the reference doesn't draw them again (PIE-1765).
+  const line = `**Back from later, ${day}:** ${why.replace(/\s*\n\s*/g, " ")}${source ? ` ((${source}|${kind === "nudged" ? "the comment" : "the note"}))` : ""}`;
   return client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
     operations: [propertyTransition(item, "work-stage", "queued"), ...marks.map(p => ({ op: "remove" as const, ordinal: p.ordinal })), { op: "append" as const, key: "restored", value: `${day}: ${kind}, ${o.actor ?? LOOP}` }, { op: "line" as const, text: line }] });
 }
