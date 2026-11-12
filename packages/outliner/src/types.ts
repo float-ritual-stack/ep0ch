@@ -1677,8 +1677,7 @@ export interface ComputedExecutionResult {
  * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
  * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-/** `protocol`: the PROTOCOL the client speaks (PIE-1747); a host on another one refuses the request, so no client asks first. */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string; protocol?: number };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string; /** PIE-1747: a host on another refuses it. */ protocol?: number };
 
 export type OutlinerRequestAction =
   | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest | import("./marks").MarkRequest))
