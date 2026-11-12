@@ -253,6 +253,19 @@ fn the_canned_stream_changes_every_row_but_the_status_row_s_frame() {
 }
 
 #[test]
+fn the_mono_slot_is_the_sans_face_until_the_app_names_a_monospace_one() {
+    let term = Term { grid: Grid::new(4, 1), draw: Draw::Rich, cell: (8.0, LINE), style: style(), colors: colors(), pixels: Pixels::new(), row_builds: Rc::default() };
+    let mut rt = Runtime::new(term, view, (200.0, 40.0), env());
+    turn(&mut rt);
+    let widths = |rt: &mut Runtime<Term>| (rt.text.measure(&"i".repeat(40), style(), 1.0).0, rt.text.measure(&"M".repeat(40), style(), 1.0).0);
+    let (i, m) = widths(&mut rt);
+    assert!(m > i * 1.5, "as a runtime starts (families \"Inter\", \"Inter\"), Family::Mono sets forty i's {i} pt wide and forty M's {m} pt");
+    rt.set_font_families("Inter", "ui-monospace");
+    let (i, m) = widths(&mut rt);
+    assert_eq!(i, m, "with the system's monospace face behind the slot they are the same width");
+}
+
+#[test]
 fn one_rich_text_per_row_lets_wide_cells_drift_off_the_column_grid() {
     let mut stage = marked(Draw::Rich);
     stage.snap("marked-rich.png");
@@ -305,6 +318,24 @@ fn a_row_is_drawn_again_only_when_its_cells_changed() {
     let before = stage.rt.state.row_builds.get();
     stage.feed(|g| grid::scroll(g, 2));
     assert_eq!(stage.rt.state.row_builds.get() - before, 24, "a scroll drew them all");
+}
+
+#[test]
+fn a_frame_committed_without_tx_instant_is_still_moving_when_it_is_drawn() {
+    let unsettled = |rt: &Runtime<Term>| rt.elements().iter().filter(|e| e.exiting || e.moving || e.opacity < 1.0).count();
+    // As a handler with no say about motion would commit it.
+    let mut eased = stage(80, 24, Draw::Split);
+    eased.feed(|g| grid::scroll(g, 1));
+    grid::scroll(&mut eased.rt.state.grid, 2);
+    eased.rt.invalidate();
+    eased.rt.frame(1.0 / 60.0);
+    // And as the terminal's feed commits it.
+    let mut instant = stage(80, 24, Draw::Split);
+    instant.feed(|g| grid::scroll(g, 1));
+    instant.feed(|g| grid::scroll(g, 2));
+    println!("one frame after a scroll: {} elements still leaving, moving or fading without Tx::instant, {} with it", unsettled(&eased.rt), unsettled(&instant.rt));
+    assert!(unsettled(&eased.rt) > 0, "Rune eases what a commit replaced: the frame drawn shows old and new rows together");
+    assert_eq!(unsettled(&instant.rt), 0);
 }
 
 #[test]
