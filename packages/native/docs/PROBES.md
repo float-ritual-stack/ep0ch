@@ -3,7 +3,8 @@
 **Every question [DESIGN.md](DESIGN.md) left "not verified" now has an answer: seven from running code, four from
 reading it.** Six are a plain yes. The live window is yes while it draws and no while it is hidden; the door's pty host
 is no. Each no names what it changes. The probes are a crate of their own, [`../probes/`](../probes), on the app's Rune
-rev; nothing in it is a dependency of the app.
+rev; nothing in it is a dependency of the app. The generated contract tables, what the door's layout answers written
+down for native to be tested against, are [below](#the-contract-tables).
 
 | # | Question | Answer | Evidence | What it changes in DESIGN.md |
 |---|---|---|---|---|
@@ -360,6 +361,49 @@ registers the kind that replaces it, in one wave.
 **Hydra risk for W2:** the map from an old name to its kind lives in the door (`resolveKind`). Native must not write
 a second one. The resolution moves to where both doors read it: `screens.list` as it validates, or outline-core over
 the served rows.
+
+## The contract tables
+
+**What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
+(DESIGN.md §5, §6.1). Five tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
+own functions on made-up garden layouts and never edited by hand.
+
+| Table | Asks | Holds the answer of |
+|---|---|---|
+| `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal in words |
+| `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves |
+| `act-lines.json` | an act line; a `tile=` | the line's words, its request, its arguments typed by the action; the address it is |
+| `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
+| `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
+
+```sh
+scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows
+scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check   # exit 1 naming the first stale row
+```
+
+- **Kept true:** the door's `test/layout-contract.test.ts` makes them again and fails on a stale row. It also counts
+  what they ask against the door's source: every operation, node kind, place, policy field, open rule, alt rule and
+  wire verb, and every agent-gated operation asked by an agent.
+- **Read without the door:** outline-core's `test/screen-spec.test.ts` reads every table through `screen-spec.ts`,
+  `action-row.ts` and `action-line.ts`. Nothing in cargo reads them yet: that is W2's first test.
+- **Where the door decides today:** `LAYOUT_FAMILIES` in the door's `test/one-owner.test.ts`.
+
+Three things the tables record as the door does them, for W2 to match or to raise:
+
+- **An agent's lock is any agent's to undo.** The layout keeps that an agent locked it, not which agent.
+- **A least width can fold the tile with the person's keys.** Opening a spine in a row too narrow for its open pages
+  folds the one touched longest ago, and the keys stay on its spine when that is the tile they were on.
+- **EchoNet's hint is drawn text.** Its spec holds a strip in the theme's colours with click marks, not `|NN` words;
+  `screens.json` holds the words and marks the field `drawn`.
+
+What the tables do not hold:
+
+- **A saved layout as state.** The generator's `build()` mirrors `Desk.build` (a leaf's wires, its source, its fold),
+  and `saved()` mirrors the desk's save. A pure pair in `screen-layout.ts`, used by both, is the fold.
+- **Geometry.** No rectangles from `place`, and no flow squeeze, beyond what the typing guard and spine room exercise.
+- **What the desk does with a landing:** making the reader, a kind's own hand-off, a carry between two layouts.
+- **Inputs that are functions:** a mount taking an open inward, and the shell's idle rule. In the tables, busy is the rule.
+- **The built-in named layouts** (`daily`, `river`, `board`, `desk`): layouts, not screens.
 
 ## Found on the way
 
