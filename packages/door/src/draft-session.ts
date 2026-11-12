@@ -24,7 +24,7 @@ import { replyKey } from "./surface/reader-keys";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
-import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
+import { locateSpans, markStart } from "@ep0ch/outline-core/draft-patch-compare";
 import { patchDid } from "@ep0ch/outline-core/draft-patch-place";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
 import { heldBack, MARK_THEM } from "./whereabouts";
@@ -95,7 +95,8 @@ export interface SessionEnv {
   redraw?(): void;
   /** An agent's patch landed in the draft: the host says so (its header line). */
   agentDid?(by: Actor, did: string): void;
-  answered?(ask: string, by: Actor): void;
+  /** An agent's answer landed under `ask` (`fold`: the answer's own fold, so a twin in the same words isn't credited). */
+  answered?(ask: string, by: Actor, fold?: string): void;
   /** The session ended (written, closed or put aside); the host lets go of it. */
   closed?(how: Ended, s: DraftSession): void;
   /** What a leave kept as unsent, said at once (before the click that left does what it does). */
@@ -648,11 +649,14 @@ export class DraftSession {
       redraw(); return { reverted };
     }
     const by = patchActor(r.mutation);
+    // The row of the ask an answer is under, as the text was read: of two asks in the same words, the one it answered
+    // takes the tile, by its own fold (PIE-1771). The rows above the patch are the same once it lands.
+    const at = r.replyTo ? locateSpans(d.text, r.patches, !!r.force) : null, askRow = at?.ok ? d.text.slice(0, at.spans[0]!.start).split("\n").length - 1 : -1;
     const a = d.applyPatch(r, by);
     // The saved note took it too (a property stamp, PIE-1756): the draft stands on that revision, so its event is no news.
     if (a.applied && r.standsOn) { d.standOn(r.patchId, r.standsOn); this.hold?.revise(r.standsOn.revision); }
     if (a.applied) {
-      if (r.replyTo) this.env.answered?.(r.replyTo, by);
+      if (r.replyTo) this.env.answered?.(r.replyTo, by, d.answerFolds().find(f => f.line - 1 === askRow)?.key);
       this.env.agentDid?.(by, patchDid(r));
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();

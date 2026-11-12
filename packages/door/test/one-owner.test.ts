@@ -239,7 +239,7 @@ const LAYOUT_FAMILIES: Family[] = [
     // note, apply()'s open for a tile beside another. The desk asks placement(), never these.
     pattern: /(?<![.\w])landing\(s,|\bbesideAttempt\(s,|\bbesideOrder\(b,/g,
     allowed: {
-      "desk/landing.ts": { n: 2, why: "the owner: an alt-open reads the open's own route; besideAttempt weighs besideOrder's places" },
+      "desk/landing.ts": { n: 3, why: "the owner: an alt-open reads the open's own route; besideAttempt weighs besideOrder's places; closeHeir asks where the closed reader's opens land" },
       "desk/screen-layout.ts": { n: 3, why: "placement() asks the route (and whether a fresh open has one); apply()'s open beside a tile asks besideAttempt" },
     },
   },

@@ -76,7 +76,7 @@ short and they are the contract.
   picker, a panel, an editor) is a `ReaderMode` with its place in `PRECEDENCE`, never a field `key`, `click`
   and `render` each check. NoteSurface stays the only reader.
 - **Agents are first-class, and never take the person's cursor.** An agent can do what the person can, with
-  honest provenance (`author: agent`, its actor id, said on screen). It never moves the person's focus,
+  honest provenance (`author: agent`, its actor id, said on screen; a read its `ActionDef` declares `reads` says nothing). It never moves the person's focus,
   selection or keys, and never the reader they type in; refusals say why. Safety comes from revision
   checks, attribution and undo, not from forbidding agents.
 - **One session per outline, many terminals** (PIE-418, `src/session/`): the door can run as a session that outlives

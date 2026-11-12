@@ -530,7 +530,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   "status.speed": def({
     summary: "how fast the door settles: the time from the last input of a burst to the frame that shows it (p50, p95, worst, over the latest bursts), said on the status line; the same object is `peek speed`. The status bar's `slow: N ms to settle` chip is a click on this",
     keys: "click the status bar's slow chip",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     answer: { since: { type: "string", about: "when the counts began" }, frames: { type: "number", about: "frames painted" }, reports: { type: "number", about: "input reports handled" }, motionCoalesced: { type: "number", about: "hover reports folded into a newer one" }, settle: { type: "object", about: "p50, p95, worst (ms, null before the first burst) and n, the bursts kept" } },
     examples: [{ act: "status.speed", does: "says how fast the door has settled lately and returns the counts" }],
@@ -660,7 +660,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   "share.list": def({
     summary: "the open share sessions: each one's id, link, what it shares, when it ends and whether it takes comments; the status bar says how many and the soonest to end. Read-only. `ep0ch share list` from a shell; the tailnet's /pub/shares page shows the same, with Revoke and Kill all",
     keys: [{ via: "> share.list in the power bar" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { ctx }) {
       const { shares } = await listShares(ctx.board);
@@ -1043,7 +1043,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "screen.list": def({
     summary: "the screens the menu opens (key, label, what it is), every registered screen by name (what `ep0ch --screen <name>` and screen.open take, and what a target fills; made=true and its note for one a person made, a screen note), what kept a screen note from opening, and the stack the person is on, bottom first",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { ctx }) {
       return {
@@ -1203,7 +1203,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   }),
   "list.read": def({
     summary: "the list's rows (numbered from 1) and which one is lit; moves nothing",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: { from: { type: "number", optional: true, about: "the first row, from 1 (default 1)" }, limit: { type: "number", optional: true, about: "how many rows (default 100)" } },
     examples: [
       { act: "list.read", does: "gives the list's numbered rows and which one is lit" },

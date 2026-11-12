@@ -220,7 +220,7 @@ export const READING_DEFS = {
   }),
   "folds": def({
     summary: "list the note's fold points (headings, and list items with nested lines): which are folded, and the line each is on",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       const m = await surface.whole();

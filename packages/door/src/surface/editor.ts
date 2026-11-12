@@ -254,9 +254,18 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
+/**
+ * The answer row each draft's last press in its text was on (`editorClick`): a double click there is two clicks on a
+ * control, never a word to select (`selectClicks`, PIE-1770).
+ */
+const foldPresses = new WeakMap<Draft, { line: number; key: string }>();
+/** A double click's release in draft `d`: on an answer's row, the answer goes to the tile when it isn't showing it (shown, it stays: the second click never folds it). False anywhere else. */
+export function foldTwice(d: Draft): boolean { const f = foldPresses.get(d); if (f) d.showInTile(f); return !!f; }
+
 export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; attach?: () => void; fileNew?: () => void; follow?: (to?: LinkTarget) => void; fold?: (line: number) => void }, mods = 0, preview = true): boolean {
   const f = draftView(d).frame;
   if (!f) return false;
+  if (!on) foldPresses.delete(d);
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
   // Without `on` it's a press: a control is hit, and its click (the release) runs it.
   if (ctl && !on) return true;
@@ -282,8 +291,12 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
   // An answer's fold row (its ask's progress): the click opens or shuts the answer (fold.toggle), the cursor stays (PIE-1738).
   // A host that can't toggle that draft's answers (a comment's: fold.toggle acts on the note's) leaves it a placement.
-  const fold = extend || !on?.fold ? null : draftView(d).foldAt(x - f.col, y - f.row);
-  if (fold) { on!.fold!(fold.line + 1); return true; }
+  const fold = extend ? null : draftView(d).foldAt(x - f.col, y - f.row);
+  // Its press is the click's (PIE-1768: the press put the cursor on the ask, so the tile followed it, and the click then
+  // unfolded the callout's raw source, buttons and all). Where a tile beside shows answers, the click shows this one
+  // there; a click while the tile shows it folds as before.
+  if (fold && !on) { foldPresses.set(d, fold); return true; }
+  if (fold && on?.fold) { if (!d.showInTile(fold)) on.fold(fold.line + 1); return true; }
   const p = draftView(d).posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;
@@ -295,7 +308,7 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
  * in its tile, the board's composer, an inspector field. `run` is the host's way to run a draft action (attributed).
  */
 export async function selectClicks(d: Draft, n: number, run: (name: string, args: Record<string, unknown>) => Promise<unknown> = (name, args) => DRAFT_ACTIONS.run(name as never, args as never, d, USER)): Promise<void> {
-  if (n < 2) return;
+  if (n < 2 || foldPresses.has(d)) return;
   const line = d.lines[d.row] ?? "", span = n === 2 ? wordIn(line, d.col) : { start: 0, end: line.length };
   if (span.start === span.end) return;
   await run("draft.place", { line: d.row + 1, col: span.start + 1 });

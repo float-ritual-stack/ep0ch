@@ -1299,7 +1299,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.list": def({
     summary: "read the tile: the query, the picks, the sort, every facet with its notes and (opened) its values with uses and last use, and the notes the selection leaves",
-    touches: "nothing", replay: "safe", args: {},
+    reads: true, touches: "nothing", replay: "safe", args: {},
     run: (_, { pane }) => (pane as FacetsPane).describe(),
   }),
 });

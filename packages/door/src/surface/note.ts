@@ -122,7 +122,7 @@ export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, def, keyCaption, agentLabel, agentWords, asActor, type ActionSet, type ArgsOf, type ArgsOfSet } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
-import { editHint, editState, saidRows, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
+import { editHint, editState, saidRows, editorClick, foldTwice, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind } from "./attachments";
@@ -2974,9 +2974,9 @@ export class NoteSurface {
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
       // The person's own `@name` line invites its answer beside their edit (as the draft rule reads it): an agent's
       // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
-      answered: (ask, by) => {
+      answered: (ask, by, fold) => {
         const as = s.openedBy.kind === "user" && by.kind === "agent" ? { ...by, invitation: INVITES.mint("your ask", ["shape"]) } : by;
-        const at = now(); void this.act("ask.beside", { ask }, at, as).catch(e => at.ctx.flash(String(e), undefined, errorDetails(e))); if (s.draft.lines[s.draft.row] === ask) s.draft.following(ask);   // the cursor still on it (one ↑ up its wrap, PIE-1757): typing on it follows
+        const at = now(); void this.act("ask.beside", { ask, ...(fold ? { fold } : {}) }, at, as).catch(e => at.ctx.flash(String(e), undefined, errorDetails(e))); if (s.draft.lines[s.draft.row] === ask) s.draft.following(ask);   // the cursor still on it (one ↑ up its wrap, PIE-1757): typing on it follows
       },
       closed: how => this.draftClosed(s, how, now()),
     });
@@ -8218,7 +8218,7 @@ export class NoteSurface {
     }
     // In a draft: the draft's own selection, copied the same way (draft.copy), when the mouse made it (a double or
     // triple click's word or line once it's selected).
-    const d = g.kind === "draft" && r.copy ? this.writingDraft : null;
+    const d = g.kind === "draft" && r.copy && !(!r.moved && this.writingDraft && foldTwice(this.writingDraft)) ? this.writingDraft : null;   // a double click on an answer's row shows it (PIE-1770)
     if (d) {
       void (g.kind === "draft" && g.selecting || Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       return true;

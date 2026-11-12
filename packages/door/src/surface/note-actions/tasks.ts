@@ -8,7 +8,7 @@ import { type On, STEP_ARGS } from "./shared";
 export const TASK_DEFS = {
   "tasks": def({
     summary: "list the checklist steps this reader draws, in the note and inside its embeds (anchored ones too), in reading order: status, id, the note each is in",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       await surface.whole();

@@ -38,7 +38,7 @@ export const figureActions = {
   }),
   "figures": def({
     summary: "list the live figures the reader draws in its note: each one's number, kind, title and density, and a tabs figure's tabs with their counts and which is shown (this reader's choice; the note never changes)",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { surface }: On) {
       surface.requireDrawn();
