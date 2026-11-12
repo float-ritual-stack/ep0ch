@@ -30,6 +30,8 @@ struct Desk {
     focus: String,
     weights: Vec<f32>,
     memoized: bool,
+    /// Build only the rows a tile's scroll viewport shows (`El::virtual_rows`), as the app's one list will.
+    virtualized: bool,
     /// Something outside every tile that changes: the status line's count.
     tick: u32,
     /// Leave the cursor out of the version, to see what goes stale.
@@ -45,31 +47,43 @@ fn desk(memoized: bool) -> Desk {
         weights: vec![1.0; TILES],
         order,
         memoized,
+        virtualized: false,
         tick: 0,
         forget_cursor: false,
         views: Rc::new(Cell::new(0)),
     }
 }
 
-/// One tile's drawer: a title, a field and a list of rich rows. Everything it reads is in `version` below.
+/// One row of a tile's list: a rich line that shows the cursor and the generation.
+fn list_row(s: &Desk, id: &str, i: usize) -> El {
+    let ui = &s.tiles[id];
+    let line = format!("{} row {i} of generation {}", if ui.cursor == i { ">" } else { " " }, ui.generation);
+    let spans = vec![Span::new(0, 1).bold(), Span::new(2, 5).color(rune::oklch(0.6, 0.15, 30.0)), Span::new(6, line.len()).mono()];
+    // A handler in a memo keeps what it captured at build: capture ids, read the state when it runs.
+    let (tile, at) = (id.to_owned(), i);
+    row().key(format!("tile/{id}/row/{i}")).h(18.0).child(rich(line, spans)).on_press(move |s: &mut Desk| s.tiles.get_mut(&tile).unwrap().cursor = at)
+}
+
+/// One tile's drawer: a title, a field and a list of rich rows. Everything it reads is in the memo's version.
 fn draw(s: &Desk, k: &Kit, id: &str) -> El {
     let ui = &s.tiles[id];
     ui.builds.set(ui.builds.get() + 1);
     let field_id = id.to_owned();
     let field = TextInput::new(&ui.field).on_edit(move |s: &mut Desk| &mut s.tiles.get_mut(&field_id).unwrap().field).build(k).key(format!("tile/{id}/field"));
-    let rows = (0..ROWS).map(|i| {
-        let line = format!("{} row {i} of generation {}", if ui.cursor == i { ">" } else { " " }, ui.generation);
-        let spans = vec![Span::new(0, 1).bold(), Span::new(2, 5).color(rune::oklch(0.6, 0.15, 30.0)), Span::new(6, line.len()).mono()];
-        // A handler in a memo keeps what it captured at build: capture ids, read the state when it runs.
-        let (tile, at) = (id.to_owned(), i);
-        row().key(format!("tile/{id}/row/{i}")).h(18.0).child(rich(line, spans)).on_press(move |s: &mut Desk| s.tiles.get_mut(&tile).unwrap().cursor = at)
-    });
+    let rows = col().growth(GrowthSpec::default());
+    let rows = if s.virtualized {
+        let (a, b) = (id.to_owned(), id.to_owned());
+        // The rows read the generation and the cursor, so the list is told when they changed.
+        rows.virtual_rows(ROWS, 18.0, move |_: &Desk, i| format!("tile/{a}/row/{i}").into(), move |s: &Desk, i| list_row(s, &b, i)).virtual_rows_version((ui.generation, ui.cursor))
+    } else {
+        rows.children((0..ROWS).map(|i| list_row(s, id, i)))
+    };
     col()
         .grow(1.0)
         .min_h(0.0)
         .child(text(format!("{id}{}", if s.focus == id { " (focus)" } else { "" })).key(format!("tile/{id}/title")))
         .child(field)
-        .child(col().key(format!("tile/{id}/scroll")).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0).child(col().growth(GrowthSpec::default()).children(rows)))
+        .child(col().key(format!("tile/{id}/scroll")).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0).child(rows))
 }
 
 fn view(s: &Desk, cx: &mut Cx<Desk>) -> El {
@@ -90,8 +104,10 @@ fn view(s: &Desk, cx: &mut Cx<Desk>) -> El {
     col().child(tiles).child(text(format!("{} answers landed", s.tick)).key("status"))
 }
 
-fn window(memoized: bool) -> Runtime<Desk> {
-    let mut rt = Runtime::new(desk(memoized), view, (1600.0, 600.0), env());
+fn window(memoized: bool) -> Runtime<Desk> { window_of(desk(memoized)) }
+
+fn window_of(desk: Desk) -> Runtime<Desk> {
+    let mut rt = Runtime::new(desk, view, (1600.0, 600.0), env());
     turn(&mut rt);
     rest(&mut rt);
     // One more view run: see `a_tile_with_a_kit_field_draws_once_more_after_its_first_layout`.
@@ -213,29 +229,34 @@ fn focus_moving_between_tiles_draws_the_two_it_touches() {
 }
 
 /// Wall-clock cost of one frame, with and without the per-tile memo, for two changes: one tile's data, and
-/// something outside every tile (the status line). `cargo test --release --test memo measure -- --nocapture
-/// --test-threads 1` prints the numbers PROBES.md quotes.
+/// something outside every tile (the status line); then the same with each tile's list building only the rows its
+/// viewport shows. `cargo test --release --test memo measure -- --nocapture --test-threads 1` prints the numbers
+/// PROBES.md quotes. Timings are printed, never asserted: what is asserted is how many tiles drew.
 #[test]
 fn measure_a_frame_with_and_without_the_per_tile_memo() {
     let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
-    let mut medians = Vec::new();
-    for memoized in [false, true] {
-        let mut rt = window(memoized);
-        let elements = rt.elements().len();
-        let mut one_tile = Vec::new();
-        for i in 0..80 {
-            let id = format!("bed{}", i % TILES);
-            rt.update(move |s, _| s.tiles.get_mut(&id).unwrap().generation += 1);
-            one_tile.push(ms(|| turn(&mut rt)));
+    println!("{TILES} tiles of {ROWS} rows, {profile} build");
+    println!("{:<8} {:<6} {:>9} {:>22} {:>22} {:>24}", "rows", "memo", "elements", "one tile changed, ms", "status line only, ms", "tiles drawn per frame");
+    for virtualized in [false, true] {
+        for memoized in [false, true] {
+            let mut rt = window_of(Desk { virtualized, ..desk(memoized) });
+            let elements = rt.elements().len();
+            let mut one_tile = Vec::new();
+            for i in 0..80 {
+                let id = format!("bed{}", i % TILES);
+                rt.update(move |s, _| s.tiles.get_mut(&id).unwrap().generation += 1);
+                one_tile.push(ms(|| turn(&mut rt)));
+            }
+            let mut status = Vec::new();
+            let drew: u32 = drawn(&mut rt, |rt| {
+                for _ in 0..80 {
+                    rt.update(|s, _| s.tick += 1);
+                    status.push(ms(|| turn(rt)));
+                }
+            }).iter().sum();
+            assert_eq!(drew, if memoized { 0 } else { 80 * TILES as u32 }, "a frame that changes no tile draws none of them with the memo, and all of them without");
+            let ((tile, tile_worst), (line, line_worst)) = (median_max(one_tile), median_max(status));
+            println!("{:<8} {:<6} {:>9} {:>22} {:>22} {:>24}", if virtualized { "shown" } else { "all" }, memoized, elements, format!("{tile:.2} (worst {tile_worst:.2})"), format!("{line:.2} (worst {line_worst:.2})"), format!("{} and {}", if memoized { 1 } else { TILES }, drew / 80));
         }
-        let mut status = Vec::new();
-        for _ in 0..80 {
-            rt.update(|s, _| s.tick += 1);
-            status.push(ms(|| turn(&mut rt)));
-        }
-        let ((tile_median, tile_worst), (status_median, status_worst)) = (median_max(one_tile), median_max(status));
-        println!("memo={memoized} ({profile}, {elements} elements, {TILES} tiles of {ROWS} rows): one tile changed: median {tile_median:.2} ms, worst {tile_worst:.2} ms; only the status line changed: median {status_median:.2} ms, worst {status_worst:.2} ms");
-        medians.push((tile_median, status_median));
     }
-    assert!(medians[1].1 < medians[0].1, "a frame that changes no tile is cheaper with the memo: {medians:?}");
 }
