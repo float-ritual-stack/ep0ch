@@ -174,10 +174,30 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
     }
 }
 
+/// `completion.rows` for a text and a cursor (a UTF-16 offset), as the stand-in host answers it: a `[[` left open
+/// before the cursor on its line is a token, and the garden's pages whose names hold what was typed are its rows.
+fn completion(text: &str, cursor: usize) -> Value {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let before = String::from_utf16_lossy(&units[..cursor.min(units.len())]);
+    let line = before.rsplit('\n').next().unwrap_or("");
+    let Some(open) = line.rfind("[[").filter(|open| !line[*open..].contains("]]")) else { return json!({ "answers": [], "picks": {}, "token": null, "rows": [] }) };
+    let query = &line[open + 2..];
+    let start = cursor - line[open..].encode_utf16().count();
+    let pages = [("Seed list", "seed-list", "a page"), ("Shed", "shed", "a page"), ("Sowing calendar", "sowing-calendar", "a page")];
+    let rows: Vec<Value> = pages.iter().filter(|(title, _, _)| title.to_lowercase().contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") })).collect();
+    let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
+    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": cursor, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
+}
+
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
 
 /// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
-pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden {
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None) }
+
+/// The garden, in a window that keeps its arrangement (and what is being written) in `kept` between runs.
+pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept)) }
+
+fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>) -> Garden {
     let (asked, said): (Asked, Said) = Default::default();
     let texts: Rc<RefCell<std::collections::HashMap<String, (u64, String)>>> = Default::default();
     let screens: Rc<RefCell<Value>> = Rc::new(RefCell::new(json!([])));
@@ -220,10 +240,21 @@ pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_sc
             // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
             "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "running", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
             "scripts.answer" => Ok(json!({ "accepted": true })),
+            // A draft is held while it is written, renewed, and let go; what the service asks of it is a line a test says.
+            "drafts.hold" => Ok(json!({ "holdId": format!("hold-{note}"), "blockId": note, "clientId": ask["clientId"], "revision": ask["revision"], "leaseMs": ask["leaseMs"] })),
+            "drafts.heartbeat" | "drafts.touch" => Ok(json!({ "holdId": ask["holdId"] })),
+            "drafts.release" => Ok(json!({ "released": true })),
+            "drafts.answer" => Ok(json!({ "accepted": true })),
+            "draft.patch" => Ok(json!({ "outcome": "applied", "edits": [{ "blockId": note, "route": "saved", "revision": ask["revision"].as_u64().map_or(1, |r| r + 1) }] })),
+            // What completes the words at the cursor, as the service answers a text and a cursor: here, the garden's
+            // two pages for a `[[` left open, and no token anywhere else.
+            "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize)),
+            "completion.picked" => Ok(json!({})),
             action => Err(("failed", format!("no action {action}"))),
         }
     });
     let mut app = App::new(Box::new(Standin { answers, asked: asked.clone(), said: said.clone() }), "garden");
+    if let Some(kept) = kept { app = app.arranged_in(kept.to_path_buf()) }
     app.start();
     app.settle();
     Garden { app, asked, said, screens, shipped: installed }
@@ -271,6 +302,19 @@ pub fn act(app: &mut App, line: &str) -> Outcome {
 
 /// The note the reader shows.
 pub fn open_note(app: &App) -> Option<String> { app.subject() }
+
+/// The block being written (the first there is), as its session.
+pub fn draft(app: &App) -> Option<&crate::draft::DraftSession> { app.drafts.first() }
+/// What is typed in it.
+pub fn words(app: &App) -> &str { draft(app).map_or("", |draft| draft.buf.words()) }
+/// Some block being written holds text the service doesn't.
+pub fn unsaved(app: &App) -> bool { app.drafts.iter().any(|draft| draft.unsaved()) }
+/// Everything in the block being written replaced, as a paste over all of it would: through the field, as the kit's editor does.
+pub fn write(app: &mut App, text: &str) {
+    let field = crate::actions::Field::Draft(draft(app).expect("a block is being written").tile.clone());
+    app.field(&field).replace(text);
+    app.typed(&field);
+}
 
 /// The host says a line between answers, and what follows lands.
 pub fn host_says(app: &mut App, said: &Said, line: Value) {

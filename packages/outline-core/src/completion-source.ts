@@ -261,3 +261,22 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
   }
   return out;
 }
+
+/** What of a source's answer a merged list's own words are made from. */
+export interface SaidAnswer { rows: readonly unknown[]; source: { title: string }; problem?: string; truncated?: number | null; empty?: string; partial?: string; heading?: string }
+
+/**
+ * What a merged list says of itself, in its sources' own words: its heading, and the line under it (that it is
+ * partial or cut, what failed; or, with nothing to show, why). `failed`: the lookup itself failed. Every client that
+ * shows the list says this.
+ */
+export function completionSaid(all: readonly SaidAnswer[], shown: number, failed?: string): { heading: string; message: string; truncated: number | null } {
+  const truncated = all.find(a => a.truncated)?.truncated ?? null;
+  const partial = all.map(a => a.partial).find(Boolean) ?? "";
+  const problems = [failed, ...all.map(a => a.problem)].filter(Boolean).join(" · ");
+  const empty = all.map(a => a.empty).filter(Boolean).join(" · ");
+  const message = shown ? [partial || (truncated ? `showing the first ${truncated} matches` : ""), problems].filter(Boolean).join(" · ")
+    : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
+  const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
+  return { heading, message, truncated };
+}

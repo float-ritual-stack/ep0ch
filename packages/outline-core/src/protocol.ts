@@ -785,6 +785,13 @@ export interface CompletionRowsRequest {
   semantic?: boolean;
 }
 
+/**
+ * `completion.rows` from a client that reads no Blockdown (the native window): in place of a detected `target`, the
+ * text being written and the cursor in it (a UTF-16 offset). The service finds the token itself
+ * (`completionTargetAtCursor`) and answers it with its rows merged and ready to draw (`CompletionRowsResult.token`, `.rows`).
+ */
+export interface CompletionAtRequest extends Omit<CompletionRowsRequest, "target"> { text: string; cursor: number }
+
 /** One source's answer to `completion.rows`, with what its list says when it's empty or cut. */
 export interface CompletionSourceAnswer extends SourceAnswer {
   queryWords?: boolean;
@@ -818,6 +825,36 @@ export interface CompletionRowsResult {
   answers: CompletionSourceAnswer[];
   /** This trigger's picks (`pickKey`), indexed by `pickId`: how often and how lately each insert was chosen. */
   picks: Record<string, PickRecord>;
+  /**
+   * Asked with `text` and `cursor`: the token the cursor is in (null: none), where a choice replaces it (UTF-16
+   * offsets of the text), and every source's rows merged as each client merges them (`mergeSourceAnswers`), each
+   * ready to draw and to write. `heading` and `message` are the list's own words (`completionSaid`); `pickKey` is
+   * what `completion.picked` counts a choice under.
+   */
+  token?: { kind: string; start: number; end: number; query: string } | null;
+  rows?: CompletionAtRow[];
+  heading?: string;
+  message?: string;
+  pickKey?: string;
+}
+
+/** One merged row for a client that only draws and writes: its words, what choosing it writes, and what to select once it's in. */
+export interface CompletionAtRow {
+  id: string;
+  label: string;
+  kind?: string;
+  detail?: string;
+  group?: string;
+  /** The source it came from, as `completion.picked` names it. */
+  from: string;
+  /** The text a choice writes in place of the token. */
+  insert: string;
+  /** The span of `insert` (UTF-16) selected once it's in: a snippet's first slot. */
+  select?: { start: number; end: number };
+  /** What `completion.picked` counts this choice as (`pickId` of its insert). */
+  pick: string;
+  /** Until a deliberate choice, Enter belongs to the field; Tab still inserts. */
+  enter?: "new line" | "applies";
 }
 
 /** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */

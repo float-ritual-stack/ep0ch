@@ -107,15 +107,15 @@ impl App {
         self.st.journal.push(before);
     }
 
-    /// What follows from the arrangement having changed: the state of tiles that are gone is let go, and a draft
-    /// with nothing unsaved ends with its tile (one that holds unsaved text never goes: the layout refuses that).
+    /// What follows from the arrangement having changed: the state of tiles that are gone is let go, a draft with
+    /// nothing unsaved ends with its tile (a tile a block is being written in never goes: the layout refuses that),
+    /// and a draft's field takes what is typed only while its tile has the keys.
     fn settled(&mut self) {
         let here = self.st.layout.all();
         self.st.tiles.retain(|tile, _| here.contains(tile));
-        if self.st.editing.as_ref().is_some_and(|e| !here.contains(&e.tile)) { self.st.editing = None }
-        // The editor takes what is typed only while its tile has the keys.
-        let typing = self.st.editing.as_ref().is_some_and(|e| e.tile == self.st.layout.focus);
-        self.st.editor.give_keys(typing);
+        self.end_gone(&here);
+        let focus = self.st.layout.focus.clone();
+        for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
     }
 
     /// The arrangement and what each tile shows, written to the file they are kept in.

@@ -31,6 +31,9 @@ pub const WATCH_BUDGET: usize = 64;
 const SCRIPT_ACT: &str = "scripts.act";
 /// The event a script run's end arrives as (outline-core's `ScriptEnded`).
 const SCRIPT_ENDED: &str = "scripts.ended";
+/// What the service asks the holder of a draft, each an event aimed at this window (outline-core's
+/// `DraftHolderRequest`): its draft as it is, a patch, a patch taken back, and the spans of one the service placed.
+const DRAFT_ASKS: &[&str] = &["draft.read", "draft.patch", "draft.revert", "draft.place"];
 /// How many answers nobody shows are kept for `last` and a quick return.
 const IDLE_KEPT: usize = 128;
 
@@ -168,6 +171,10 @@ pub enum Landed {
     Call { at: OutlineAt, call: Call },
     /// A script run ended (the service's `scripts.ended`): which, how, and its last word.
     Ended { run: String, reason: String, message: String },
+    /// The service asks about a draft this window holds (a `draft` event aimed at this client), as the wire said
+    /// it, and who the change it carries is recorded as (none: it carries none): the draft's own actions answer,
+    /// through `held`.
+    Asked { at: OutlineAt, ask: Value, by: Option<Actor> },
 }
 
 /// An action a script asks this window to run (outline-core's `ScriptActionCall`), as the wire said it.
@@ -233,11 +240,20 @@ impl Store {
     /// The name this window is registered under: a press names it, so a script's acts come back here.
     pub fn client(&self) -> &str { &self.client }
 
-    /// Registers this window on a link as a client that runs actions (`events.subscribe`): the service then sends
-    /// it the acts of the scripts it started and how each run ended, and nothing else of the event feed.
+    /// Registers this window on a link as a client that runs actions and holds drafts (`events.subscribe`): the
+    /// service then sends it the acts of the scripts it started, how each run ended and what it asks of a draft
+    /// held here, and nothing else of the event feed.
     pub fn register(&mut self, at: &OutlineAt) {
         let client = json!({ "clientId": self.client, "role": "observer", "contextId": self.client, "app": "native" });
-        self.send(at, "events.subscribe", json!({ "client": client, "kinds": [SCRIPT_ACT, SCRIPT_ENDED] }));
+        let kinds: Vec<&str> = [SCRIPT_ACT, SCRIPT_ENDED].into_iter().chain(DRAFT_ASKS.iter().copied()).collect();
+        self.send(at, "events.subscribe", json!({ "client": client, "kinds": kinds }));
+    }
+
+    /// Answers what the service asked of a draft held here (`drafts.answer`): the answer, or why there is none.
+    pub fn held(&mut self, at: &OutlineAt, request: &str, answer: Result<Value, String>) {
+        let mut said = json!({ "requestId": request, "clientId": self.client });
+        match answer { Ok(answer) => said["answer"] = answer, Err(error) => said["error"] = json!(error) }
+        self.send(at, "drafts.answer", said);
     }
 
     /// Answers a script's act (`scripts.answer`): what the action answered, or why it didn't run.
@@ -373,7 +389,10 @@ impl Store {
 
     // ── asking once, and writing ────────────────────────────────────────────────────────────────────────────
 
-    fn send(&mut self, at: &OutlineAt, action: &str, mut request: Value) -> String {
+    fn send(&mut self, at: &OutlineAt, action: &str, request: Value) -> String { self.send_as(at, action, request, self.blocking) }
+
+    /// `waited`: nothing goes on until the answer is here (a headless render's every ask).
+    fn send_as(&mut self, at: &OutlineAt, action: &str, mut request: Value, waited: bool) -> String {
         self.next += 1;
         let id = format!("n{}", self.next);
         request["id"] = json!(id);
@@ -382,7 +401,7 @@ impl Store {
         match self.wires.get_mut(at) {
             Some(wire) => {
                 wire.link.send(&request);
-                if self.blocking { wire.link.wait(&id, Duration::from_secs(20)) }
+                if waited { wire.link.wait(&id, Duration::from_secs(20)) }
             }
             None => {}
         }
@@ -396,7 +415,22 @@ impl Store {
     }
 
     /// A write, recorded as whoever acts: the person as this window (`author: user`), an agent as itself.
-    pub fn write(&mut self, at: &OutlineAt, action: &str, mut params: Value, by: &Actor, then: Then, ctx: Value) {
+    pub fn write(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
+        let (params, waited) = (self.stamped(action, params, by), self.blocking);
+        let id = self.send_as(at, action, params, waited);
+        self.out.insert(id, Out::Reply { at: at.clone(), then, ctx, by: by.clone() });
+    }
+
+    /// A write the service answers only once this window has answered it in turn (a patch to a draft held here):
+    /// never waited for with the link held, even by a headless render, which lands what the host says meanwhile
+    /// until the answer is in (`App::settled_for`).
+    pub fn write_through(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
+        let params = self.stamped(action, params, by);
+        let id = self.send_as(at, action, params, false);
+        self.out.insert(id, Out::Reply { at: at.clone(), then, ctx, by: by.clone() });
+    }
+
+    fn stamped(&self, action: &str, mut params: Value, by: &Actor) -> Value {
         let (author, actor_id) = match by { Actor::Person => ("user", self.person.clone()), Actor::Agent(id) => ("agent", id.clone()) };
         if action == "create" {
             // The store records who made a block: a person's names no client, an agent's names the agent.
@@ -405,7 +439,7 @@ impl Store {
         } else {
             params["mutation"] = json!({ "author": author, "actorId": actor_id });
         }
-        self.request(at, action, params, by, then, ctx);
+        params
     }
 
     /// A write of `action` is out.
@@ -433,6 +467,11 @@ impl Store {
                 } else if line["event"]["action"] == SCRIPT_ACT {
                     let call = &line["event"]["script"];
                     if call["targetClientId"] == self.client.as_str() && let Some(call) = Call::read(call) { landed.push(Landed::Call { at: at.clone(), call }) }
+                } else if line["event"]["domain"] == "draft" {
+                    let ask = &line["event"]["draft"];
+                    // Who a patch is recorded as, read where an attribution is written: an agent by its id, else the person.
+                    let by = match (ask["mutation"]["author"].as_str(), ask["mutation"]["actorId"].as_str()) { (Some("agent"), id) => Some(Actor::Agent(id.unwrap_or("agent").to_string())), (Some(_), _) => Some(Actor::Person), (None, _) => None };
+                    if ask["targetClientId"] == self.client.as_str() && ask["requestId"].is_string() { landed.push(Landed::Asked { at: at.clone(), ask: ask.clone(), by }) }
                 } else if line["event"]["action"] == SCRIPT_ENDED {
                     let ended = &line["event"]["ended"];
                     let text = |key: &str| ended[key].as_str().unwrap_or("").to_string();

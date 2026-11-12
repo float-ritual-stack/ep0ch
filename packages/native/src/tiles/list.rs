@@ -24,7 +24,7 @@ use crate::list::{self, Rows};
 use crate::page::{ListAnswer, ListGroup, ListRow, ListView, Section};
 use crate::store::Ask;
 
-pub static DRAWER: Drawer = Drawer { id: "list", about: "one list, whatever it is of: a tree, rows under their groups, a table or lanes, as the list says", notes: false, lists: true, asks, draw, facts, takes_keys: false, version };
+pub static DRAWER: Drawer = Drawer { id: "list", about: "one list, whatever it is of: a tree, rows under their groups, a table or lanes, as the list says", notes: false, lists: true, asks, draw, facts, takes_keys: false, version, over: None };
 
 static DOT: Icon = Icon { name: "ep0ch-dot", view: 16.0, body: r#"<circle cx="8" cy="8" r="1.6" fill="currentColor"/>"# };
 

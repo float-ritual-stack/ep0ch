@@ -15,10 +15,13 @@
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
 //! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
 //! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
+//! - `drafts.rs`: a block written in place, as a person works: typed in, completed from the service's list, saved;
+//!   held on the service, read and patched under the caret; kept as typed and found back after the window ended.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
 mod control;
+mod drafts;
 mod garden;
 mod lists;
 mod live;

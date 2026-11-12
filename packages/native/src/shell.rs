@@ -204,6 +204,16 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     }
     let mut body = col().key("shell").w_full().h_full().child(toolbar(s, &k));
     if let Some(n) = notice(s, &k) { body = body.child(el().w_full().px(10.0).pb(6.0).child(n)) }
+    // What a tile draws over the window (the list that completes what is typed in it, at its caret), while the bar is
+    // away. The caret is read only while there is something to hang on it: a view that reads it runs again when it moves.
+    if !s.bar.open {
+        for id in s.shown_tiles() {
+            let Some(tile) = s.cx(&id) else { continue };
+            let Some(over) = tiles::drawer_of(tile.row).and_then(|drawer| drawer.over) else { continue };
+            let caret = (tile.focused && s.completing(&id).is_some()).then(|| cx.caret("input")).flatten();
+            over(&tile, caret, &k, &mut layer);
+        }
+    }
     crate::bar::view(s, &k, &mut layer);
     rune_kit::root(body.child(area), layer)
 }

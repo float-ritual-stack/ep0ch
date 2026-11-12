@@ -13,22 +13,13 @@ use serde_json::{Value, json};
 use super::{Actor, Step, About};
 use crate::client::{Link, PROTOCOL};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
-use crate::page::{ListAnswer, ListRow, Page, Picture, SourceRow};
+use crate::draft::{DraftSession, Kept, Recovery};
+use crate::page::{Completion, ListAnswer, ListRow, Page, Picture, SourceRow};
 use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
 use crate::keys::Text;
 use crate::tiles::picture::{Pictures, Shown};
 use crate::tiles::{self, TileCx};
-
-/// The note being typed in. `base` is the text the service holds at `revision`: a save names that revision, and the
-/// editor has something unsaved exactly when its text differs from `base`.
-pub struct Editing {
-    /// The tile the draft is on.
-    pub tile: Id,
-    pub note: String,
-    pub revision: u64,
-    pub base: String,
-}
 
 /// A tile's own state: what it was last told to show. Kept by the tile's id, so it outlives a move or a rename.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -94,12 +85,12 @@ pub struct BarUi {
 }
 
 /// A place the person types: the kit's editor writes the text, through `App::field`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Field {
     /// The bar's one line.
     Bar,
-    /// The note's source.
-    Draft,
+    /// The source of the block being written in this tile.
+    Draft(Id),
 }
 
 pub struct State {
@@ -137,9 +128,12 @@ pub struct State {
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
     pub pictured: HashMap<Id, (String, u64)>,
 
-    /// The editor's text, there whether or not a note is being edited, so a key always has somewhere to land.
-    pub editor: Text,
-    pub editing: Option<Editing>,
+    /// The blocks being written, one session each: held by the window, shown by the tile each is written in.
+    pub drafts: Vec<DraftSession>,
+    /// What a window left unsaved when it ended, until each is back in its block.
+    pub recovered: Vec<Kept>,
+    /// Where a key lands when the field it was typed in is gone: nowhere anyone reads.
+    pub nowhere: Text,
 
     pub bar: BarUi,
     pub notice: Option<Notice>,
@@ -165,6 +159,8 @@ pub struct App {
     held: crate::keys::Held,
     /// Where the arrangement is kept between runs. None: nowhere (a test, a headless render).
     pub(in crate::actions) kept_in: Option<PathBuf>,
+    /// Where what is being written is kept while it is unsaved. None: nowhere.
+    pub(in crate::actions) recovery: Option<Recovery>,
 }
 
 impl Deref for App {
@@ -214,8 +210,9 @@ impl App {
                 screen_wrote: false,
                 dragging: None,
                 pictured: HashMap::new(),
-                editor: Text::new(""),
-                editing: None,
+                drafts: Vec::new(),
+                recovered: Vec::new(),
+                nowhere: Text::new(""),
                 bar: BarUi { open: false, scope: "all".into(), edit: Text::new(""), cursor: 0 },
                 notice: None,
                 agent_said: None,
@@ -228,11 +225,16 @@ impl App {
             pictures: Pictures::default(),
             held: crate::keys::Held::default(),
             kept_in: None,
+            recovery: None,
         }
     }
 
-    /// The arrangement is kept in this file between runs, and read from it now when it is there.
+    /// The arrangement is kept in this file between runs, and read from it now when it is there; what is being
+    /// written is kept in the file beside it while it is unsaved, and what a window left there comes back.
     pub fn arranged_in(mut self, path: PathBuf) -> App {
+        let recovery = Recovery::beside(&path);
+        self.st.recovered = recovery.read();
+        self.recovery = Some(recovery);
         self.kept_in = Some(path);
         self.restore();
         self
@@ -337,6 +339,7 @@ impl App {
             About::Notes => self.reads_notes(tile),
             About::Lists => self.drawer_of(tile).is_some_and(|drawer| drawer.lists),
             About::Tree => self.is_tree(tile),
+            About::Drafts => self.draft_on(tile).is_some(),
             About::Nothing | About::Any | About::Placed => self.spec(tile).is_some(),
         }
     }
@@ -488,11 +491,22 @@ impl App {
 
     pub fn picture(&self, picture: &Picture) -> Option<&Shown> { self.pictures.get(&picture.key()) }
 
-    /// The editor holds text the service doesn't.
-    pub fn unsaved(&self) -> bool { self.editing.as_ref().is_some_and(|e| self.editor.words() != e.base) }
+    // ── drafts: the blocks being written ────────────────────────────────────────────────────────────────────
 
-    /// A save is out for the note being edited.
+    /// The draft written in a tile.
+    pub fn draft_on(&self, tile: &str) -> Option<&DraftSession> { self.drafts.iter().find(|draft| draft.tile == tile) }
+    /// The draft of a block, whichever tile it is written in.
+    pub fn draft_of(&self, note: &str) -> Option<&DraftSession> { self.drafts.iter().find(|draft| draft.note == note) }
+
+    /// A save is out.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
+
+    /// The list that completes what is being typed in a tile's draft, while it is open: the service's answer for the
+    /// text and the caret as they are now, when it found a token there and has rows or a word to say for it.
+    pub fn completing(&self, tile: &str) -> Option<&Completion> {
+        let draft = self.draft_on(tile)?;
+        self.store.read::<Completion>(draft.completes()?).filter(|found| found.token.is_some() && (!found.rows.is_empty() || found.message.is_some()))
+    }
 
     // ── screens ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -519,8 +533,8 @@ impl App {
         let spec = self.spec(tile);
         let kind = spec.map_or("tile".to_string(), |spec| self.known_as(&spec.kind));
         let drawer = self.drawer_of(tile);
-        // A reader that holds unsaved text holds an edit: an open lands beside it, and it isn't closed.
-        let editing = self.editing.as_ref().filter(|e| e.tile == tile && self.unsaved()).map(|e| format!("an edit of {}", self.page_of(tile).map_or(e.note.as_str(), |p| p.title.as_str())));
+        // A reader a block is being written in holds an edit: an open lands beside it, and it isn't closed.
+        let editing = self.draft_on(tile).map(|draft| format!("an edit of {}", self.page_of(tile).map_or(draft.note.as_str(), |p| p.title.as_str())));
         // A tile that reads no notes has a home, where its own opens land when no wire or container says: the tile
         // it follows (`source: tile:`), else where the screen says opens land.
         let notes = drawer.is_some_and(|d| d.notes);
@@ -529,7 +543,7 @@ impl App {
         layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing: drawer.filter(|d| d.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
     }
 
-    /// Why a tile stays on its note: it holds unsaved text. The fact is the one the layout's rules read
+    /// Why a tile stays on its note: a block is being written in it. The fact is the one the layout's rules read
     /// (`Facts.editing`) and the words are the layout's, so nothing restates either.
     pub(in crate::actions) fn holds_edit(&self, tile: &str) -> Option<String> { self.facts(tile).editing.map(|_| layout::holds_edit(&self.layout.name(tile))) }
 
@@ -542,6 +556,8 @@ impl App {
             let Some(drawer) = tiles::drawer_of(cx.row) else { continue };
             wants.extend((drawer.asks)(&cx).into_iter().map(|(role, ask)| Want { tile: tile.clone(), role, ask }));
         }
+        // What completes the words being typed, for the draft with the keys.
+        if let Some(draft) = self.draft_on(&self.layout.focus) && let Some(ask) = draft.completes() { wants.push(Want { tile: draft.tile.clone(), role: "complete", ask: ask.clone() }) }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
@@ -556,14 +572,20 @@ impl App {
     pub fn start(&mut self) {
         let at = self.at.clone();
         self.store.request(&at, "ping", json!({}), &Actor::Person, hello, Value::Null);
-        // The window says who it is, so a script it starts can send its acts back here (`actions/script.rs`).
+        // The window says who it is, so a script it starts can send its acts back here (`actions/script.rs`), and the
+        // service can ask about a draft held here. A link made again holds each draft again.
         self.store.register(&at);
+        self.hold_all();
         self.pump();
     }
 
     /// Asks for whatever is wanted and not yet asked.
     pub(in crate::actions) fn pump(&mut self) {
         self.follow();
+        self.recover();
+        // What completes the words being typed is asked for the text and the caret as they are now.
+        let (at, focus) = (self.at.clone(), self.layout.focus.clone());
+        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == focus) { draft.complete(&at) }
         let wants = self.wants();
         self.store.want(wants);
     }
@@ -644,9 +666,8 @@ impl App {
     /// The open screen as the service lists it now, in a word: its name and a mark of its spec.
     fn seen_of(&self) -> Option<(String, String)> {
         let spec = self.served_row()?.get("spec").filter(|spec| spec.is_object())?;
-        // (FNV-1a over the spec as the service wrote it: the same words, the same mark, in every run.)
-        let mark = spec.to_string().bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
-        Some((self.screen.name.clone(), format!("{mark:016x}")))
+        // (The spec as the service wrote it: the same words, the same mark, in every run.)
+        Some((self.screen.name.clone(), crate::draft::version(&spec.to_string())))
     }
 
     /// The arrangement is of the screen as the service lists it now: what a later change is measured against.
@@ -669,6 +690,7 @@ impl App {
                 Landed::Reply(reply) => (reply.then)(self, reply),
                 Landed::Call { at, call } => super::script::called(self, &at, &call),
                 Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
+                Landed::Asked { at, ask, by } => super::draft::asked(self, &at, &ask, by),
                 Landed::Lost { detail } => {
                     self.st.online = false;
                     self.st.notice = Some(Notice::problem(format!("Offline: {detail}")));
@@ -708,12 +730,22 @@ impl App {
 
     // ── the kit's own hands: text typed into a field, a pane dragged by its edge ─────────────────────────────
 
-    /// The text of a field, for the kit's editor to type into (`keys::field` is the one caller).
-    pub fn field(&mut self, field: Field) -> &mut Text { match field { Field::Bar => &mut self.st.bar.edit, Field::Draft => &mut self.st.editor } }
+    /// The text of a field, for the kit's editor to type into (`keys.rs` is the one caller). A field whose draft
+    /// is gone types nowhere.
+    pub fn field(&mut self, field: &Field) -> &mut Text {
+        match field {
+            Field::Bar => &mut self.st.bar.edit,
+            Field::Draft(tile) => match self.st.drafts.iter().position(|draft| draft.tile == *tile) { Some(at) => &mut self.st.drafts[at].buf, None => &mut self.st.nowhere },
+        }
+    }
 
-    /// A field's text changed under the kit's editor: what it asks is wanted now, and the bar's lit row is the first.
-    pub fn typed(&mut self, field: Field) {
-        if field == Field::Bar { self.st.bar.cursor = 0 }
+    /// A field's text changed under the kit's editor: what it asks is wanted now, the bar's lit row is the first,
+    /// and what a draft holds is kept as it is typed.
+    pub fn typed(&mut self, field: &Field) {
+        match field {
+            Field::Bar => self.st.bar.cursor = 0,
+            Field::Draft(tile) => self.wrote_in(tile),
+        }
         self.pump();
     }
 

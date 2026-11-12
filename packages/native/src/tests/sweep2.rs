@@ -141,7 +141,7 @@ fn a_new_note_rule_holds_for_a_tile_made_here_as_for_one_the_screen_came_with() 
     let mut g = laid(json!({ "lands": "bed", "newNote": rules, "layout": { "focus": "bed", "root": split(json!([leaf("screens.tree", "beds"), leaf("screens.reader", "bed")])) } }));
     assert!(act(&mut g.app, "tile.split tile=bed name=seeds").ok && act(&mut g.app, "tile.focus tile=seeds").ok);
     assert!(act(&mut g.app, "note.new").ok);
-    let made = g.app.editing.as_ref().map(|e| e.tile.clone()).expect("the new note is open to be written");
+    let made = draft(&g.app).map(|d| d.tile.clone()).expect("the new note is open to be written");
     let tabs = |tile: &str| crate::layout::tree::tabs_of(g.app.layout.tree(), tile);
     assert!(tabs(&made).is_some() && tabs(&made) == tabs(&g.app.layout.named("seeds").unwrap()), "a tab on the reader it was made in, as the rule for a reader says: {:?}", g.app.layout.save());
     assert_eq!(note_in(&g.app, "bed").as_deref(), Some("plot"), "and not where the screen's opens land, which is the rule for every other kind");

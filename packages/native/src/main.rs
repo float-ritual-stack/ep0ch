@@ -14,6 +14,7 @@ mod actline;
 mod bar;
 mod client;
 mod control;
+mod draft;
 mod keys;
 mod layout;
 mod list;
@@ -74,6 +75,8 @@ fn setup(s: &mut App, waker: rune::Waker) { s.set_waker(waker) }
 
 fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     let landed = s.take();
+    // The drafts held are renewed on the service, and it is told when the keys go quiet: asked again when due.
+    if let Some(due) = s.beat() { tx.wake_after(due) }
     let moved = keys::effects(s, tx) | keys::follow(s, tx);
     // A lost link is made again, now and every two seconds until the host answers.
     if !s.online && !s.blocking {

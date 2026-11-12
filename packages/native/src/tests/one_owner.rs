@@ -58,6 +58,7 @@ fn state_changes_only_under_actions_and_the_store() {
         (".revealed()", vec!["keys.rs"]),
         (".take()", vec!["main.rs", "store.rs", "client.rs"]),
         (".reconnect()", vec!["main.rs"]),
+        (".beat()", vec!["main.rs"]),
         (".start()", vec!["main.rs"]),
         (".settle()", vec!["main.rs"]),
         (".script(", vec!["main.rs"]),
@@ -140,7 +141,7 @@ fn nothing_beside_the_layout_decides_whether_the_arrangement_changes() {
     none("a share's limits outside the layout (layout/step.rs keeps them)", [".clamp(0.08", "0.92)"].iter().flat_map(|limit| strays(limit, |path| path.starts_with("layout"))).collect());
     // What unsaved text blocks is the layout's to say, from the fact it is handed (`App::facts`): the draft's own
     // actions ask whether there is any, and nothing else does.
-    none("a rule about unsaved text outside the layout and the draft's own actions", strays(".unsaved()", |path| ["actions/app.rs", "actions/draft.rs", "tiles/page.rs"].contains(&path)));
+    none("a rule about unsaved text outside the layout, the draft session and its own actions", strays(".unsaved()", |path| ["draft.rs", "actions/draft.rs", "tiles/page.rs"].contains(&path)));
 }
 
 /// What Esc does is the key table's rows (`keys::esc_steps`): nothing turns an Escape into an act line by hand. A
@@ -169,7 +170,7 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
     let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
     assert!(text("shell.rs").contains("keys::tile("), "each tile's root is made to hold the keys by keys::tile");
     assert!(text("main.rs").contains("keys::follow(s, tx)"), "the window's poll runs the reconciler");
-    assert!(text("keys.rs").contains("e.tile == self.layout.focus"), "the person's layer is read from the tile with the keys");
+    assert!(text("keys.rs").contains("self.draft_on(&self.layout.focus)"), "the person's layer is read from the tile with the keys");
 }
 
 /// Which tile an address names is `Layout::resolve` (layout/address.rs, held to the door's resolver by
@@ -186,8 +187,8 @@ fn an_address_is_read_by_the_layout_s_resolver_alone() {
 }
 
 /// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
-/// No action's run refuses an agent for whose the thing is: the three left are named, each with why it is not the
-/// row's to say.
+/// No action's run refuses an agent for whose the thing is: the two left are named, each with why it is not the
+/// row's to say. (The editor is the person's on every row that opens, types in, saves or closes a draft: W5.)
 #[test]
 fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
     let found: Vec<String> = sources().iter().filter(|(path, _)| path.starts_with("actions/") && path != "actions/mod.rs").flat_map(|(path, text)| {
@@ -196,8 +197,6 @@ fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
     assert_eq!(found, [
         // An agent's pick is its own (it runs the row as itself); what it must name is the request's shape.
         "actions/bar.rs: \"an agent's pick names its row: source= ",
-        // The draft session's rule, while the person is the only holder there is: W5's session takes it.
-        "actions/draft.rs: format!(\"the editor is the person's: an ",
         // Which row an agent may fold depends on the note the person has open: no row can say that ahead.
         "actions/tree.rs: \"the person's note is under that row: an",
     ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
@@ -242,7 +241,7 @@ fn rune_is_named_only_behind_the_renderer_seam() {
     none("Rune named in the model: draw it in a drawer, the shell or the bar, or hold it behind a type of the seam's", ["rune::", "rune_kit", "use rune", "TextEdit", "ImageCache", "&mut Tx"].iter().flat_map(|word| strays(word, seam)).collect());
     // The model, by name: each is there, and none of them is in the seam's list by another route.
     let texts = sources();
-    for path in ["actions/app.rs", "actions/mod.rs", "actions/draft.rs", "actions/script.rs", "store.rs", "client.rs", "screen.rs", "actline.rs", "page.rs", "parts.rs", "query.rs", "layout.rs"] {
+    for path in ["actions/app.rs", "actions/mod.rs", "actions/draft.rs", "actions/script.rs", "draft.rs", "store.rs", "client.rs", "screen.rs", "actline.rs", "page.rs", "parts.rs", "query.rs", "layout.rs"] {
         assert!(texts.iter().any(|(p, _)| p == path) && !seam(path), "{path} is the model's");
     }
     // What the state holds of a renderer's is made and reached only through the seam's own types.
@@ -373,4 +372,39 @@ fn a_primitive_is_built_by_the_registry_and_no_drawer_reads_what_a_part_was_writ
     none("a script's act answered outside the store", strays("\"scripts.answer\"", |path| path == "store.rs" || path.starts_with("tests/")));
     none("the window registered outside the store", strays("\"events.subscribe\"", |path| path == "store.rs" || path.starts_with("tests/")));
     // (That the page's model and the script noun hold no Rune is `rune_is_named_only_behind_the_renderer_seam`.)
+}
+
+/// A block being written (W5): one session a block, held by the App; the holder's side of the service's draft
+/// protocol asked by the draft's own actions and answered by the store; what completes a word asked in one place,
+/// with the text and the caret; and nothing in the window that finds a passage, a token or a block of the text.
+#[test]
+fn a_block_being_written_has_one_session_and_the_window_finds_no_passage_and_no_token() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // The spike's whole-note editor is gone, and so is a field with a scroll of its own inside the page's.
+    for gone in ["struct Editing", "pub editor: Text", "pub editing: Option<Editing>", "st.editing", "Field::Draft =>", "editor-scroll", ".auto_grow("] { none(&format!("{gone} is back: a block is written in place, a session each"), strays(gone, |_| false)) }
+    // The hold: asked for, renewed, touched and let go by the draft's own actions; what the service asks of it is
+    // landed and answered by the store.
+    none("a draft's hold asked outside the draft's own actions", ["\"drafts.hold\"", "\"drafts.heartbeat\"", "\"drafts.touch\"", "\"drafts.release\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/draft.rs")).collect());
+    none("a holder's answer sent outside the store", strays("\"drafts.answer\"", |path| path == "store.rs"));
+    none("a patch sent to the service outside the draft's own action", strays("\"draft.patch\"", |path| path == "actions/draft.rs" || path == "store.rs"));
+    // Where a patch goes, and whether it may, is the service's (outline-core's placeDraftPatch): the window compares no
+    // passage and knows no paragraph. It hands over its text and takes back ranges.
+    none("a passage named outside the action that sends one to the service", strays("observed", |path| path == "actions/draft.rs"));
+    for path in ["draft.rs", "actions/draft.rs", "tiles/page.rs", "keys.rs"] {
+        for read in [".find(observed", "split(\"\\n\\n\")", "starts_with(\"- \")", "starts_with('#')", "\"[[\"", "\"((\"", "\"::\"", "::]"] { assert!(!code(path).contains(read), "{path} has `{read}`: the window reads no Blockdown; a token and a block of the text are the service's to find") }
+    }
+    none("a second map of an offset through placed spans (`draft::map_cursor`, held by core-contract.json)", strays("fn map_cursor(", |path| path == "draft.rs"));
+    // Completions: one ask, made by the session from the text and the caret; the rows are drawn and written as served.
+    none("what completes a word asked outside the session", strays("\"completion.rows\"", |path| path == "draft.rs"));
+    assert!(code("draft.rs").contains("\"text\": text, \"cursor\": utf16_of(text, caret)") && !code("draft.rs").contains("\"target\""), "the service is handed the text and the caret, never a token found here");
+    none("a completion row made here: the list is the service's rows, drawn and written as served", ["CompletionRow {", "insert: format!"].iter().flat_map(|made| strays(made, |path| path == "page.rs")).collect());
+    // What is typed is kept by one writer, in one file beside the arrangement's.
+    none("what is being written kept outside the session's own file", strays(".drafts.json", |path| path == "draft.rs"));
+    // The guards in open() are gone: where an open lands beside a draft is the layout's rule, from the one fact.
+    for word in ["drafts", "unsaved", "draft_on", "draft_of"] { assert!(!code("actions/nav.rs").contains(word), "actions/nav.rs reads `{word}`: an open asks the layout, which reads the tile's fact (`Facts.editing`)") }
+    assert_eq!(texts.iter().filter(|(_, text)| text.lines().any(|line| !line.trim_start().starts_with("//") && line.contains("editing = self.draft_on(tile)"))).count(), 1, "the one fact the layout reads of a draft is made in `App::facts`");
+    // The block's source is one field, built in one place, through the key table's adapter.
+    none("a block's field built outside the page drawer", strays("keys::area(", |path| path == "tiles/page.rs"));
 }

@@ -1,0 +1,9 @@
+# A block written in place (scenes/parts.seed.ts writes the note into a scratch outline): found by its title, opened
+# to be written, and typed in, with a note's name begun, so the service's list of what completes it hangs at the
+# caret. Then an agent tidies the paragraph above, through the service: it lands in the draft in front of the
+# person, lit, and the tile says who changed what. The saved note is untouched until the person saves.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit
+draft.paste text=" It lives in the ((Pott"
+draft.patch observed="trays  on a cold  night" replacement="trays on a cold night" as=tidy-agent

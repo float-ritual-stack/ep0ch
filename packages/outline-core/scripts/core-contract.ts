@@ -9,8 +9,10 @@
 //   targets    a screen's spec, an argument   → the spec it opens as                          (targetFilled)
 //   terms      a question, the values picked  → the question they narrow it to                (selectionQuery)
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
+//   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
+import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, LINK_GROUPS, linkGroupsNamed } from "../src/link-blocks";
 import { listSections, type ListGroup, type ListRow } from "../src/list-row";
 import { selectionQuery, type Clause } from "../src/query-clauses";
@@ -97,6 +99,20 @@ const TERMS: { raw: string; picks: [string, string][] }[] = [
 
 const LINKS: string[][] = [[], ["all"], ["backlinks"], ["children", "outlinks"], ["Resources", " backlinks "], ["all", "children"], ["cousins"], ["backlinks", "matches"]];
 
+/** A patch's placed spans (offsets in UTF-16 units of the draft), and the offsets asked of each: before, at, inside and after every span. */
+const span = (start: number, end: number, replacement: string, caret?: PlacedSpan["caret"]): PlacedSpan => ({ start, end, replacement, ...(caret ? { caret } : {}) });
+const CURSOR: { name: string; spans: PlacedSpan[] }[] = [
+  { name: "a passage made shorter: before it stays, inside it goes to its end, after it moves by the change", spans: [span(10, 26, "beans go along")] },
+  { name: "a passage made longer", spans: [span(4, 8, "sweet peas")] },
+  { name: "words put in at a point: an offset there moves past them", spans: [span(12, 12, "late ")] },
+  { name: "an answer under its ask: an offset at the ask's end stays on its line", spans: [span(12, 12, "\n> sown in March", "stays")] },
+  { name: "an answer that takes the place of an older one: at its start stays, inside goes to its end", spans: [span(12, 30, "\n> sown in April", "stays")] },
+  { name: "a paragraph of its own added at the very end moves nothing", spans: [span(40, 42, "\n\nRestored on the first frost.", "apart")] },
+  { name: "two spans: each moves what is after it", spans: [span(2, 5, "a"), span(20, 20, "garlic, ")] },
+  { name: "a span above and a paragraph added at the end: only the first moves the offsets", spans: [span(2, 5, "leeks and"), span(40, 44, "\nLifted.", "apart")] },
+];
+const OFFSETS = [0, 2, 3, 4, 5, 8, 10, 12, 13, 20, 21, 26, 30, 31, 40, 41, 42, 44, 60];
+
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */
 function table(head: Record<string, unknown>, lists: Record<string, readonly unknown[]>): string {
   const lines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
@@ -106,7 +122,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), and a links list's groups (linkGroupsNamed, with each group's glyph and label). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), and where an offset of a draft is once a patch's placed spans are replaced (mapCursor). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
   }, {
@@ -116,6 +132,7 @@ export function coreContract(): string {
     targets: TARGETS.map(c => ({ name: c.name, spec: c.spec, args: c.args ?? null, filled: targetFilled(c.spec, c.args) })),
     terms: TERMS.map(c => ({ ...c, query: selectionQuery(c.picks.map(([key, value]) => pick(key, value)), c.raw) })),
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
+    cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
   });
 }
 

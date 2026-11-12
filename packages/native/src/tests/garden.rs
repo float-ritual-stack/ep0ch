@@ -26,9 +26,10 @@ fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
     assert_eq!(actions(&asked)[..4], ["ping", "events.subscribe", "screens.list", "lists.read"]);
     assert_eq!(lists(&asked), ["sources", "children", "properties", "links"], "what a list can be of, the tree, and the two lists about the open note once there is one");
     assert_eq!(actions(&asked).iter().filter(|a| *a == "notes.page").count(), 1, "the page is asked once");
-    // The window registers as itself, for the acts of the scripts it starts and nothing else of the event feed.
+    // The window registers as itself, for the acts of the scripts it starts and what the service asks of a draft it
+    // holds, and nothing else of the event feed.
     let hello = asked.borrow()[1].clone();
-    assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act", "scripts.ended"])));
+    assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act", "scripts.ended", "draft.read", "draft.patch", "draft.revert", "draft.place"])));
     assert_eq!((app.at.outline.as_str(), app.machine.as_str()), ("garden", "box"));
     assert_eq!((app.screen.name.as_str(), app.steps.len(), app.journal.len()), ("desk", 0, 0), "it opened on the screen whose spec says windows start there: nobody's act, and nothing to undo");
     assert_eq!(app.page().unwrap().title, "Plot");
@@ -82,8 +83,8 @@ fn an_answer_only_lands_in_the_slot_of_its_own_ask() {
     assert_eq!(app.page().unwrap().id, "shed");
     // The same for the bar: words typed on before the first answer came.
     app.act("bar.open scope=search query=on", Actor::Person);
-    app.field(Field::Bar).replace("onions");
-    app.typed(Field::Bar);
+    app.field(&Field::Bar).replace("onions");
+    app.typed(&Field::Bar);
     app.settle();
     assert_eq!(bar::rows(&app)[0].label, "found for onions");
 }
@@ -117,18 +118,18 @@ fn saving_names_the_revision_read_and_never_ends_editing() {
     let Garden { mut app, asked, .. } = garden(ok());
     act(&mut app, "open id=onions");
     act(&mut app, "edit");
-    assert!(!app.unsaved());
-    app.field(Field::Draft).replace("Lift the onions [type::chore]\nTake the fork.");
+    assert!(!unsaved(&app));
+    write(&mut app, "Lift the onions [type::chore]\nTake the fork.");
     app.act("edit.save", Actor::Person);
     let sent = last(&asked);
     assert_eq!((sent["action"].as_str(), sent["expectedRevision"].as_u64(), sent["text"].as_str(), sent["mutation"]["author"].as_str(), sent["mutation"]["actorId"].as_str()),
         (Some("update"), Some(3), Some("Lift the onions [type::chore]\nTake the fork."), Some("user"), Some("ep0ch-native:box")));
     assert!(app.saving());
     // Typed on while the save is out, and after it lands: the editor is still there for every key.
-    app.field(Field::Draft).replace("Lift the onions [type::chore]\nTake the fork. And the trug.");
+    write(&mut app, "Lift the onions [type::chore]\nTake the fork. And the trug.");
     app.settle();
-    let editing = app.editing.as_ref().expect("a save doesn't close the editor");
-    assert_eq!((editing.revision, app.unsaved(), app.saving()), (4, true, false));
+    let editing = draft(&app).expect("a save doesn't close the editor");
+    assert_eq!((editing.revision, unsaved(&app), app.saving()), (4, true, false));
     // After its own write the page is read now, unwatched: the kept answer is the one from before the write.
     let read = asked.borrow().iter().rev().find(|a| a["action"] == "notes.page").cloned().unwrap();
     assert_eq!((read.get("watch"), app.page().unwrap().revision), (None, 4));
@@ -136,9 +137,27 @@ fn saving_names_the_revision_read_and_never_ends_editing() {
     app.act("edit.save", Actor::Person);
     assert_eq!(last(&asked)["expectedRevision"].as_u64(), Some(4));
     app.settle();
-    assert!(!app.unsaved());
+    assert!(!unsaved(&app));
     assert!(act(&mut app, "edit.close").ok);
-    assert!(app.editing.is_none());
+    assert!(draft(&app).is_none());
+}
+
+/// Capture comes before interpretation: what is typed is what is sent, whatever it refers to. A reference that
+/// names nothing, one left unclosed and a property nobody has written are the service's to say of afterwards; the
+/// window asks nothing about them first, and the save is the one request it makes.
+#[test]
+fn a_save_never_waits_on_a_reference_resolving() {
+    let Garden { mut app, asked, .. } = garden(ok());
+    act(&mut app, "open id=onions");
+    act(&mut app, "edit");
+    let typed = "Lift the onions [type::chore] [frost::\nSee ((no-such-bed)) and [[A page nobody wrote]] and ((left open";
+    write(&mut app, typed);
+    let before = asked.borrow().len();
+    assert!(act(&mut app, "edit.save").ok);
+    let sent: Vec<Value> = asked.borrow()[before..].iter().filter(|a| !["notes.page", "lists.read", "drafts.heartbeat"].contains(&a["action"].as_str().unwrap())).cloned().collect();
+    assert_eq!(sent.iter().map(|a| a["action"].as_str().unwrap()).collect::<Vec<_>>(), ["update"], "the save is the only thing asked: nothing is resolved first");
+    assert_eq!(sent[0]["text"], typed);
+    assert!(info(&app, "Saved") && !unsaved(&app) && draft(&app).is_some());
 }
 
 #[test]
@@ -147,31 +166,37 @@ fn nothing_drops_unsaved_text_but_discard() {
     let Garden { mut app, .. } = garden(saves.clone());
     act(&mut app, "open id=onions");
     act(&mut app, "edit");
-    app.field(Field::Draft).replace("Mine, typed for a while");
+    write(&mut app, "Mine, typed for a while");
     // The service refuses the save: the text stays, and the notice says what to do.
     *saves.borrow_mut() = Err(("stale-revision", "Block changed since editing began: onions".into()));
     act(&mut app, "edit.save");
     assert!(problem(&app, "changed since you opened it"));
-    assert_eq!((app.editor.words(), app.saving()), ("Mine, typed for a while", false));
-    // Leaving doesn't drop it, and neither does going back, a new note or the Trash.
+    assert_eq!((words(&app), app.saving()), ("Mine, typed for a while", false));
+    // Leaving doesn't drop it, and neither does going back or the Trash.
     assert!(!act(&mut app, "edit.close").ok);
-    assert!(app.editing.is_some() && problem(&app, "Unsaved text"));
-    for line in ["back", "note.new", "note.trash"] {
+    assert!(draft(&app).is_some() && problem(&app, "Unsaved text"));
+    for line in ["back", "note.trash"] {
         assert!(!act(&mut app, line).ok, "{line} is refused over unsaved text");
-        assert_eq!((open_note(&app).as_deref(), app.editor.words()), (Some("onions"), "Mine, typed for a while"), "after {line}");
+        assert_eq!((open_note(&app).as_deref(), words(&app)), (Some("onions"), "Mine, typed for a while"), "after {line}");
     }
-    // Opening another note doesn't either: the layout opens it in a reader of its own beside the one that holds the
-    // draft (the door's rule for a tile that holds an edit), and the draft stays where it is.
+    // Opening another note doesn't either: the layout opens it in a reader of its own beside the one the block is
+    // being written in (the door's rule for a tile that holds an edit), and the draft stays where it is.
     // The keys stay where the person types.
     for line in ["open id=shed", "link.follow ref=ep0ch:b/beans tile=reader"] {
         assert!(act(&mut app, line).ok, "{line} opens beside the draft");
-        assert_eq!((app.layout.name(&app.layout.focus).as_str(), app.editing.as_ref().map(|e| (e.tile.as_str(), e.note.as_str())), app.editor.words()), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
+        assert_eq!((app.layout.name(&app.layout.focus).as_str(), draft(&app).map(|d| (d.tile.as_str(), d.note.as_str())), words(&app)), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
         assert_eq!(app.note_of("reader").as_deref(), Some("onions"), "the draft's reader still shows its note");
     }
     assert_eq!((app.note_of("reader2").as_deref(), app.note_of("reader3").as_deref()), (Some("shed"), Some("beans")));
+    // A new note is a block of its own, written in a tile of its own: the first draft is as it was, beside it.
+    assert!(act(&mut app, "note.new").ok);
+    assert_eq!((app.drafts.len(), words(&app), app.drafts[1].note.as_str()), (2, "Mine, typed for a while", "new"));
+    assert_ne!(app.drafts[1].tile, app.drafts[0].tile, "each block is written in its own tile");
+    let beside = app.layout.name(&app.drafts[1].tile);
+    assert!(act(&mut app, &format!("edit.close tile={beside}")).ok, "the new note's draft holds nothing unsaved: it closes");
     // Only Discard, asked for by name.
     assert!(act(&mut app, "edit.close discard=true").ok);
-    assert!(app.editing.is_none());
+    assert!(draft(&app).is_none());
 }
 
 #[test]
@@ -181,7 +206,7 @@ fn a_new_note_opens_to_be_written_at_the_revision_the_service_made_it_at() {
     let made = asked.borrow().iter().rev().find(|a| a["action"] == "create").cloned().expect("a create was sent");
     assert_eq!((made["parentId"].as_str(), made["author"].as_str(), made.get("mutation"), made.get("provenance")), (Some("plot"), Some("user"), None, None));
     app.settle();
-    let editing = app.editing.as_ref().unwrap();
+    let editing = draft(&app).unwrap();
     assert_eq!((editing.note.as_str(), editing.revision), ("new", 7));
     assert_eq!(open_note(&app).as_deref(), Some("new"));
     // The tree that shows the folder it went into is read again now, with that folder open.
@@ -219,8 +244,8 @@ fn a_query_is_a_watched_read_its_facets_narrow_it_and_a_refusal_is_the_service_s
     assert_eq!(last(&asked)["query"], "type=chore area=plot");
     app.act("bar.narrow key=area value=plot", Actor::Person);
     assert_eq!(app.bar.edit.words(), "type=chore area=plot", "picked twice is still once");
-    app.field(Field::Bar).replace("type!=chore");
-    app.typed(Field::Bar);
+    app.field(&Field::Bar).replace("type!=chore");
+    app.typed(&Field::Bar);
     app.settle();
     assert_eq!(bar::hint(&app).as_deref(), Some("There is no != ; put NOT before the clause."));
     assert!(app.notice.is_none(), "said where the rows would be, not as a window-wide problem");

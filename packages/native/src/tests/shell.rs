@@ -179,13 +179,13 @@ fn an_agent_s_open_lands_without_the_person_s_keys_and_beside_a_reader_that_hold
     let outcome = opened(&mut rt, "open id=shed", Actor::Agent("seedling-agent".into()));
     assert_eq!((outcome.ok, outcome.answer["tile"].as_str(), rt.state.layout.focus.as_str()), (true, Some("bed"), before.as_str()), "the first reader takes it; the keys stay");
     // The person edits in that reader: the agent's next open is given a reader of its own beside it, and says why.
-    rt.update(|s, _| { s.act("edit tile=bed", Actor::Person); s.field(crate::actions::Field::Draft).replace("Shed, rewritten"); });
+    rt.update(|s, _| { s.act("edit tile=bed", Actor::Person); write(s, "Shed, rewritten"); });
     rest(&mut rt);
     let outcome = opened(&mut rt, "open id=beans tile=bed", Actor::Agent("seedling-agent".into()));
     assert!(!outcome.ok && outcome.said.contains("the person is in an edit on bed"), "aimed at the tile they type in, it is refused: {}", outcome.said);
     let outcome = opened(&mut rt, "open id=beans", Actor::Agent("seedling-agent".into()));
     assert_eq!((outcome.ok, outcome.answer["tile"].as_str()), (true, Some("seeds")), "named no tile, it lands in the reader that is free: {}", outcome.said);
-    assert_eq!((rt.state.editor.words(), rt.state.layout.focus.as_str()), ("Shed, rewritten", before.as_str()));
+    assert_eq!((words(&rt.state), rt.state.layout.focus.as_str()), ("Shed, rewritten", before.as_str()));
 }
 
 #[test]

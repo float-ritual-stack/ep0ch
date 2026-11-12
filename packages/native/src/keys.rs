@@ -3,11 +3,14 @@
 //!
 //! - **The table is read from the actions' rows** (`KeyRow.keys`, `.on`, `.args`): a chord, the layer it belongs to
 //!   and the line it runs. Nothing else binds a key; a keycap on a button or a bar row is the table read backwards.
-//! - **`App::person()` says where the person's keys are**: in the bar, in a draft, or on a tile. The table is asked
-//!   with that layer first, then the rows that hold everywhere.
+//! - **`App::person()` says where the person's keys are**: in the bar, in a draft (in its completion list while that
+//!   is open: `complete` with rows to choose from, `said` with only a word to say), or on a tile. The table is asked with that layer first, then the layer under it (a completion list is
+//!   open over a draft), then the rows that hold everywhere.
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
 //!   same table.
+//! - **A field's text is `Text`**: the kit's editor behind a type of this file's, so the window's state holds what
+//!   is typed (its words, its caret, its selection, its way back) and names no renderer.
 //! - **Rune's focus follows the layout's** (`follow`, the one caller of `Tx::focus`): a press inside a tile gives it
 //!   the keys by `tile.focus`, and the tile the layout names is the one Rune focuses. A tile's root is made to
 //!   hold the keys by `tile`.
@@ -16,7 +19,7 @@
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, TextEdit, Tx};
+use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, Span, TextEdit, Tx};
 use rune_kit::{TextArea, TextInput};
 use serde_json::{Value, json};
 
@@ -28,17 +31,26 @@ use crate::actions::{self, Actor, App, Field, word};
 pub enum Layer {
     /// The command bar is open: its line has them.
     Bar,
-    /// A note is open for editing: its source has them.
+    /// A block is open for editing, and the list that completes what is being typed is open over it with rows to
+    /// choose from.
+    Complete,
+    /// That list is open with nothing to choose from, only the service's word (no such page yet): Escape puts it
+    /// away, and every other key is the draft's.
+    Said,
+    /// A block is open for editing: its source has them.
     Draft,
     /// A tile has them, and nothing is typed anywhere.
     Tile,
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Draft => "draft", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, draft and tile") }
+        match name { "bar" => Layer::Bar, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, complete, said, draft and tile") }
     }
+    /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
+    /// hold, and a list with rows has every key of one that only says something.
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
 }
 
 /// Where the person is: one answer, read by the key table, the actor rule and `peek`.
@@ -69,15 +81,18 @@ impl Whereabouts {
 
 impl App {
     /// Where the person's keys are now: in the bar while it is open, else on the tile the layout says has them,
-    /// in its draft when that tile holds one. A draft open on another tile is not where they are.
+    /// in its draft when that tile holds one (in the draft's completion list while that is open). A draft open on
+    /// another tile is not where they are.
     pub fn person(&self) -> Whereabouts {
         let focus = self.layout.name(&self.layout.focus);
         let idle = self.last_key().map(|at| at.elapsed());
         if self.bar.open {
             Whereabouts { layer: Layer::Bar, focus, idle, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
-        } else if let Some(e) = self.editing.as_ref().filter(|e| e.tile == self.layout.focus) {
-            let tile = self.layout.name(&e.tile);
-            Whereabouts { layer: Layer::Draft, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
+        } else if let Some(draft) = self.draft_on(&self.layout.focus) {
+            let tile = self.layout.name(&draft.tile);
+            // The list's own keys are for choosing: one with nothing to choose from keeps only the key that puts it away.
+            let layer = match self.completing(&draft.tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft };
+            Whereabouts { layer, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
             Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None }
         }
@@ -145,11 +160,11 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
-/// What Esc does where the person is: the first step of the list their layer has.
-pub fn esc(layer: Layer) -> Option<&'static Bind> { esc_steps().into_iter().find(|bind| bind.layer.is_none_or(|own| own == layer)) }
+/// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
+pub fn esc(layer: Layer) -> Option<&'static Bind> { esc_steps().into_iter().find(|bind| bind.layer.is_none_or(|own| layer.stack().contains(&own))) }
 
 /// The keys that are a layer's own, with what each does: the hint row under the bar and the editor. What Esc
 /// closes there comes first.
@@ -182,9 +197,9 @@ enum Found {
 
 fn find(layer: Layer, seq: &[KeyEvent], tx: &Tx) -> Found {
     let fits = |bind: &&Bind| bind.chords.len() >= seq.len() && bind.chords.iter().zip(seq).all(|(chord, e)| chord.matches_tx(e, tx));
-    // The layer's own rows first, then the rows that hold everywhere.
+    // The layer's own rows first, then the layer's under it, then the rows that hold everywhere.
     let mut waits = false;
-    for scope in [Some(layer), None] {
+    for scope in layer.stack().iter().copied().map(Some).chain([None]) {
         for bind in table().iter().filter(|bind| bind.layer == scope).filter(fits) {
             if bind.chords.len() == seq.len() { return Found::Run(bind) }
             waits = true;
@@ -242,7 +257,7 @@ pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
     let echo = s.held().asked.as_ref().and_then(|(key, _)| tile_of(key, &names));
     let pressed = now.as_deref().filter(|_| moved && !s.bar.open).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
     // The caret is in a draft whose tile hasn't the keys: a press put it there.
-    let drafted = s.editing.as_ref().filter(|e| s.editor.takes_keys() && e.tile != s.layout.focus && !s.bar.open).map(|e| s.layout.name(&e.tile));
+    let drafted = s.drafts.iter().find(|draft| draft.buf.takes_keys() && draft.tile != s.layout.focus && !s.bar.open).map(|draft| s.layout.name(&draft.tile));
     let Some(tile) = drafted.or(pressed) else { return false };
     let changed = s.act(&format!("tile.focus tile={}", word(&tile)), Actor::Person).ok;
     if let Some(asked) = wanted(s, &names) { ask(s, asked, tx); }
@@ -262,14 +277,14 @@ fn ask(s: &mut App, asked: Option<(String, Vec<String>)>, tx: &mut Tx) -> bool {
     false
 }
 
-/// The adapter every field's keys go through: the table first; then, in a note's source, plain Return types a line
+/// The adapter every field's keys go through: the table first; then, in a block's source, plain Return types a line
 /// (the kit's editor would submit instead); anything else is the editor's, and what it leaves goes up.
 fn table_first(field: Field, lines: bool) -> impl Fn(&mut App, &KeyEvent, &mut Tx) -> bool {
     move |s, e, tx| {
         if press(s, e, tx) { return true }
         if lines && e.key == Key::Enter && e.mods == Mods::default() {
-            s.field(field).insert("\n");
-            s.typed(field);
+            s.field(&field).insert("\n");
+            s.typed(&field);
             return true;
         }
         false
@@ -278,18 +293,22 @@ fn table_first(field: Field, lines: bool) -> impl Fn(&mut App, &KeyEvent, &mut T
 
 /// A one-line field over `field`'s text: the kit's input, its keys through the table.
 pub fn input(text: &Text, field: Field) -> TextInput {
-    TextInput::new(&text.0).on_edit(move |s: &mut App| &mut s.field(field).0).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, false))
+    let (edits, typed) = (field.clone(), field.clone());
+    TextInput::new(&text.0).on_edit(move |s: &mut App| &mut s.field(&edits).0).on_change(move |s: &mut App, _| s.typed(&typed)).on_key(table_first(field, false))
 }
 
-/// A field of lines over `field`'s text: the kit's text area, its keys through the table.
-pub fn area(text: &Text, field: Field) -> TextArea {
-    TextArea::new(&text.0).on_edit(move |s: &mut App| &mut s.field(field).0).on_change(move |s: &mut App, _| s.typed(field)).on_key(table_first(field, true))
+/// A field of lines over `field`'s text: the kit's text area, its keys through the table. `lit`: the ranges of its
+/// words (bytes) to draw on `ground`: what somebody else just wrote there.
+pub fn area(text: &Text, field: Field, lit: &[std::ops::Range<usize>], ground: rune::Color) -> TextArea {
+    let (edits, typed) = (field.clone(), field.clone());
+    let area = TextArea::new(&text.0).on_edit(move |s: &mut App| &mut s.field(&edits).0).on_change(move |s: &mut App, _| s.typed(&typed)).on_key(table_first(field, true));
+    if lit.is_empty() { area } else { area.spans(lit.iter().map(|range| Span { bg: Some(ground), ..Span::new(range.start, range.end) }).collect::<Vec<_>>()) }
 }
 
 /// A field's text as its editor holds it (the kit's `TextEdit`: the words, the caret, the selection, the way back),
-/// kept behind this file: the window's state holds one for the bar and one for a note's source and names no
-/// renderer's type. The model reads its words, sets them, and says whether the field takes what is typed; only the
-/// two field builders above reach the editor itself.
+/// kept behind this file: the window's state holds one for the bar and one for each block being written and names no
+/// renderer's type. The model reads its words and where the caret is, types into it, and replaces ranges of it;
+/// only the two field builders above reach the editor itself. Offsets are bytes of its words.
 #[derive(Clone, Default, PartialEq, Hash)]
 pub struct Text(TextEdit);
 
@@ -305,6 +324,23 @@ impl Text {
     pub fn insert(&mut self, words: &str) { self.0.insert(words) }
     /// Every word replaced, as a paste over everything would.
     pub fn replace(&mut self, words: impl Into<String>) { self.0.replace_text(words) }
+    /// An input method has a composition open in it: marked text at the caret that is not part of its words yet.
+    pub fn composing(&self) -> bool { self.0.is_composing() }
+    /// The selection's two ends: where it started and where the caret is (the same place with nothing selected).
+    pub fn ends(&self) -> (usize, usize) { let len = self.0.text.len(); (self.0.anchor.min(len), self.0.focus.min(len)) }
+    /// The caret, and the selection's other end, put here.
+    pub fn select(&mut self, anchor: usize, caret: usize) { self.0.set_selection(anchor, caret) }
+    /// Ranges of the words replaced (apart, in order), as one step of the field's own way back, by somebody who is not
+    /// typing in it: the caret and the selection's other end go where `moved` says each is after, and nothing else
+    /// of the editor's (whether it takes the keys, what is being composed) is touched.
+    pub fn splice(&mut self, edits: &[(usize, usize, &str)], moved: impl Fn(usize) -> usize) {
+        let (anchor, caret) = self.ends();
+        let (anchor, caret) = (moved(anchor), moved(caret));
+        self.0.undo_group(|edit| {
+            for (start, end, with) in edits.iter().rev() { edit.set_selection(*start, *end); edit.insert(with); }
+            edit.set_selection(anchor, caret);
+        });
+    }
 }
 
 /// What an act asked of the next frame, done: an element brought into view. True when something moved.

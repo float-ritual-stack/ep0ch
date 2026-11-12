@@ -18,7 +18,9 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("back", _) => vec!["open id=shed"],
         ("note.untrash", _) => vec!["note.trash ref=beans"],
         ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
-        ("edit.save" | "edit.close", _) => vec!["edit"],
+        ("edit.save" | "edit.close" | "draft.paste", _) => vec!["edit"],
+        // The list's own keys need the list: a block being written, with a page's name begun in it.
+        ("complete.accept" | "complete.enter" | "complete.move" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[se\""],
         // The keys go to the tile above or below from one that has a tile there; a dock is toggled where one is.
         ("tile.focus", "tile.focus dir=up") => vec!["tile.focus tile=backlinks"],
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
@@ -101,6 +103,7 @@ fn event(chord: &rune::Chord) -> rune::KeyEvent {
         ChordKey::Char(c) if primary => Key::Command(c),
         ChordKey::Char(c) => Key::Text(c.to_string()),
         ChordKey::Enter => Key::Enter,
+        ChordKey::Tab => Key::Tab,
         ChordKey::Escape => Key::Escape,
         ChordKey::Backspace => Key::Backspace,
         ChordKey::Up => Key::Up,
@@ -148,7 +151,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

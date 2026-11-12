@@ -1668,6 +1668,19 @@ A patch over several notes applies together or not at all: the drafts are
 patched, then the saved notes in one transaction, and a failure reverts the
 drafts already patched.
 
+**A holder that places nothing.** Whether a patch may land in a live draft, and
+where, is one function, outline-core's `placeDraftPatch` (`draft-patch-place.ts`):
+the revision, the spans, the mark, the cursor and the block being typed in. The
+door runs it over its own buffer. A client that reads no Blockdown (the native
+window) can't, so asked to `patch` or `revert` it answers with its draft as it
+stands (`HeldDraft`: the text, where the cursor and the selection's other end
+are, and a `version` naming that text). [`src/draft-place.ts`](../src/draft-place.ts)
+wraps the router's one way of asking a holder: it makes the same decision there
+and sends back the spans to replace (a `place` ask), which the holder takes only
+while its text is still that version; typed in since, it says what it holds now
+and the patch is placed again. The router asks either kind of holder the same
+three things and reads the same answers.
+
 **Proposals.** Only a failed compare (the note changed, the passage isn't there,
 the cursor is in it) or a `prose` refusal becomes a proposal: one reply block,
 however many changes it holds, a child of the note it targets (PIE-725). It is

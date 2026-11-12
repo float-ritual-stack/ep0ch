@@ -105,7 +105,7 @@ fn a_button_s_act_about_another_sort_of_tile_runs_where_the_one_rule_says_not_re
     rt.update(|s, _| { s.act("tile.focus tile=tree", crate::actions::Actor::Person); });
     let edited = pressed(&mut rt, "Write it");
     assert!(edited.ok, "{}", edited.said);
-    assert_eq!(rt.state.editing.as_ref().map(|e| rt.state.layout.name(&e.tile)).as_deref(), Some("reader"));
+    assert_eq!(draft(&rt.state).map(|d| rt.state.layout.name(&d.tile)).as_deref(), Some("reader"));
     assert_eq!(rt.state.steps.iter().rev().find(|step| step.action == "edit").unwrap().line(), "edit tile=reader");
 }
 
@@ -143,7 +143,7 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     let mut unasked = call("r4", &client, "edit", json!({}));
     unasked["event"]["script"]["requestedBy"] = json!({ "author": "agent", "actorId": "compost-agent" });
     rt.update({ let said = said.clone(); move |s, _| host_says(s, &said, unasked.clone()) });
-    assert!(answers(&asked)[2]["error"].is_string() && rt.state.editing.is_none(), "a script nobody pressed acts as the script: the person's editor is not its to open");
+    assert!(answers(&asked)[2]["error"].is_string() && draft(&rt.state).is_none(), "a script nobody pressed acts as the script: the person's editor is not its to open");
 
     // The run ends: the service says so, and the tile says how it went, where it was pressed. Another run's end is not this one's.
     let ended = |run: &str, reason: &str, message: &str| json!({ "event": { "domain": "script", "action": "scripts.ended", "ended": { "run": run, "reason": reason, "message": message, "requestedBy": { "author": "user" }, "written": [], "undo": true } } });

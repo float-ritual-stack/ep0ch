@@ -64,6 +64,9 @@ pub struct Drawer {
     pub takes_keys: bool,
     /// What changes what it draws, beside its answers: read into the tile's memo.
     pub version: fn(&TileCx) -> u64,
+    /// What it draws over the window, anchored in its tile (a list that completes what is typed there): added to
+    /// the window's overlays. `caret`: where the tile's caret is in the window, when it has one.
+    pub over: Option<fn(&TileCx, Option<[f32; 4]>, &Kit, &mut Vec<El>)>,
 }
 
 pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &list::DRAWER];

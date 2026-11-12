@@ -4,7 +4,7 @@ use rune::{Key, KeyEvent, Mods, Runtime};
 use serde_json::{Value, json};
 
 use super::support::*;
-use crate::actions::{Actor, App, Field, Outcome};
+use crate::actions::{Actor, App, Outcome};
 
 fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
 
@@ -43,23 +43,25 @@ fn a_step_undone_never_takes_away_a_tile_that_holds_an_edit() {
     assert!(act(&mut g.app, "tile.split").ok);
     assert_eq!(g.app.layout.name(&g.app.layout.focus), "reader2");
     assert!(act(&mut g.app, "edit").ok);
-    g.app.field(Field::Draft).replace("Plot, half written");
+    write(&mut g.app, "Plot, half written");
     let undone = act(&mut g.app, "layout.undo");
     assert!(!undone.ok && undone.said.contains("reader2") && undone.said.contains("holds an edit of"), "{}", undone.said);
     assert!(names(&g.app).contains(&"reader2".to_string()), "the tile that holds the edit is still here");
-    assert_eq!(g.app.editing.as_ref().map(|e| g.app.layout.name(&e.tile)).as_deref(), Some("reader2"));
-    assert_eq!(g.app.editor.words(), "Plot, half written");
+    assert_eq!(draft(&g.app).map(|d| g.app.layout.name(&d.tile)).as_deref(), Some("reader2"));
+    assert_eq!(words(&g.app), "Plot, half written");
     assert_eq!(g.app.journal.len(), 1, "the step is still there to undo once the edit is saved or dropped");
     // The same for a screen opened over it: the layout says no, in the same words.
     screens_are(&mut g, json!([screen_row("beds", json!({ "focus": "bed", "root": leaf("reader", "bed") }), json!([]))]));
     let opened = act(&mut g.app, "screen.open name=beds");
     assert!(!opened.ok && opened.said.contains("holds an edit of"), "{}", opened.said);
     assert_eq!(g.app.screen.name, "desk");
-    // Saved, nothing holds it: the step goes back, and the edit that was open on the tile ends with it.
+    // Saved, the block is still being written there: the tile stays. Closed, nothing holds it, and the step goes back.
     assert!(act(&mut g.app, "edit.save").ok);
+    assert!(!act(&mut g.app, "layout.undo").ok && draft(&g.app).is_some(), "a tile a block is being written in never goes, saved or not");
+    assert!(act(&mut g.app, "edit.close").ok);
     assert!(act(&mut g.app, "layout.undo").ok);
     assert!(!names(&g.app).contains(&"reader2".to_string()));
-    assert!(g.app.editing.is_none(), "no draft is left on a tile that is gone");
+    assert!(draft(&g.app).is_none(), "no draft is left on a tile that is gone");
     assert_eq!(g.app.person().layer.name(), "tile");
 }
 
@@ -179,12 +181,12 @@ fn the_person_s_layer_is_read_from_the_tile_with_the_keys() {
     assert!(ran(&mut rt, "tile.focus tile=beds", Actor::Person).ok);
     let at = rt.state.person();
     assert_eq!((at.layer.name(), at.focus.as_str(), at.typing_in.as_deref()), ("tile", "beds", None), "{at:?}");
-    assert!(!rt.state.editor.takes_keys(), "the text area no longer takes what is typed");
+    assert!(!draft(&rt.state).unwrap().buf.takes_keys(), "the block's field no longer takes what is typed");
     typed(&mut rt, "x");
-    assert!(!rt.state.editor.words().contains('x') || rt.state.editor.words() == rt.state.editing.as_ref().unwrap().base, "a key typed with the tree focused is not text in the draft");
-    assert!(rt.state.editing.is_some(), "the draft is still open on its tile");
+    assert!(!unsaved(&rt.state), "a key typed with the tree focused is not text in the draft");
+    assert!(draft(&rt.state).is_some(), "the draft is still open on its tile");
     assert!(ran(&mut rt, "tile.focus tile=bed", Actor::Person).ok);
-    assert_eq!((rt.state.person().layer.name(), rt.state.editor.takes_keys()), ("draft", true));
+    assert_eq!((rt.state.person().layer.name(), draft(&rt.state).unwrap().buf.takes_keys()), ("draft", true));
 }
 
 // ── who acts, and whether: the row says it, and `rule()` is the one check ─────────────────────────────────────
@@ -272,7 +274,7 @@ fn an_open_that_names_no_tile_lands_where_the_screen_says_whoever_asks() {
     assert_eq!((opened.ok, opened.answer["tile"].as_str()), (true, Some("seeds")), "an agent's: {}", opened.said);
     assert!(act(&mut g.app, "note.new").ok);
     assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "seeds").as_deref()), (Some("plot"), Some("new")), "a new note lands there too");
-    assert_eq!(g.app.editing.as_ref().map(|e| g.app.layout.name(&e.tile)).as_deref(), Some("seeds"));
+    assert_eq!(draft(&g.app).map(|d| g.app.layout.name(&d.tile)).as_deref(), Some("seeds"));
 }
 
 /// `lands` may name a container by its key (the screen validator allows it): an open from outside goes into it,
@@ -292,13 +294,13 @@ fn lands_naming_a_container_opens_into_it() {
 fn a_new_note_opens_where_the_screen_s_rule_says() {
     let mut g = three(json!({ "newNote": [{ "opens": "float" }] }));
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "note.new").ok);
-    let made = g.app.editing.as_ref().map(|e| e.tile.clone()).expect("the new note is open to be written");
+    let made = draft(&g.app).map(|d| d.tile.clone()).expect("the new note is open to be written");
     assert!(g.app.layout.is_float(&made), "it floats over the screen: {:?}", names(&g.app));
     assert_eq!((g.app.note_of(&made).as_deref(), note_in(&g.app, "bed").as_deref(), g.app.layout.focus.as_str()), (Some("new"), Some("plot"), made.as_str()));
     // (A rule's kinds come as the service resolved them, as a tile's do: `screens.list` serves both.)
     let mut g = three(json!({ "newNote": [{ "opens": "tab", "only": ["screens.reader"] }, { "opens": "lands" }] }));
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "note.new").ok);
-    let made = g.app.editing.as_ref().map(|e| e.tile.clone()).unwrap();
+    let made = draft(&g.app).map(|d| d.tile.clone()).unwrap();
     assert!(crate::layout::tree::tabs_of(g.app.layout.tree(), &made).is_some_and(|set| crate::layout::tree::tabs_of(g.app.layout.tree(), "bed") == Some(set)), "a tab beside bed");
     assert_eq!(note_in(&g.app, "bed").as_deref(), Some("plot"));
 }
