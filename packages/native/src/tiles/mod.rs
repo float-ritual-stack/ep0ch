@@ -8,6 +8,7 @@
 //!   one way out: `cx.act(line)`, an act line run in its tile (a row's own, a button's, one of this window's
 //!   actions). It gets no layout to change and no socket: a drawer can ask and can say, and nothing else.
 //! - **A kind this window has no drawer for** is drawn as its spec, as data, with what the service said is wrong.
+pub mod diff;
 pub mod list;
 pub mod page;
 pub mod picture;

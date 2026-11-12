@@ -17,6 +17,7 @@ mod layout;
 mod list;
 mod nav;
 mod note;
+mod review;
 pub mod row;
 mod screen;
 mod script;
@@ -121,12 +122,19 @@ pub struct Action {
     pub about: About,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }
 
 pub fn find(id: &str) -> Option<&'static Action> { all().find(|action| action.row.id == id) }
+
+/// Every action's row, as data (outline-core's `ActionRow`): what this window hands a list of its own keys
+/// (`lists.read from=actions`), so the keys screen is made from the rows that bind the keys and from nothing else.
+pub fn rows() -> &'static Value {
+    static ROWS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| all().map(|action| serde_json::to_value(action.row).unwrap_or(Value::Null)).collect());
+    &ROWS
+}
 
 /// The actor rule, and the one check of who acts: whether `by` may run an action, given what its row says it
 /// touches and whose it is, where the person is and the tile the act is about. The person always may. An agent
@@ -221,10 +229,18 @@ impl App {
     /// Runs a request that comes from a tile and may name none: a button pressed in a note, a row picked in a list, a
     /// script's call, a press a drawer drew. A tile it names itself is the one it runs in (`act_request` holds it to
     /// that). Naming none, it is about the tile it comes from when its action acts in a tile of that sort (a note's
-    /// button that edits, a tree's row that opens); else it names none, and is about the tile the one rule finds
+    /// button that edits, a tree's row that opens); about the reader that tile follows when it acts on a note and
+    /// the tile is a list about one; else it names none, and is about the tile the one rule finds
     /// (`App::target`), as the same line typed in the bar would be: where a press happened is no name for a tile.
     pub fn act_from(&mut self, mut req: actline::Request, from: &str, by: Actor) -> Outcome {
-        if req.tile.is_none() && let Some(action) = find(&req.action) && self.layout.named(from).is_some_and(|tile| self.is_a(&tile, action.about)) { req.tile = Some(from.to_string()) }
+        let about = match (find(&req.action), self.layout.named(from)) {
+            (Some(action), Some(tile)) if req.tile.is_none() && self.is_a(&tile, action.about) => Some(from.to_string()),
+            // A list about the note another tile shows speaks for that note: a press in it that acts on a note (a
+            // reply, a revision put back) is about the reader it follows, as its rows' opens land there.
+            (Some(action), Some(tile)) if req.tile.is_none() && action.about == About::Notes => self.home_of(&tile).map(|home| self.layout.name(&home)),
+            _ => None,
+        };
+        if let Some(tile) = about { req.tile = Some(tile) }
         self.act_request(req, by)
     }
 

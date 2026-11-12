@@ -316,7 +316,7 @@ fn live_the_shipped_screens_open_from_the_bar_and_every_list_is_the_service_s() 
         // It opened on the screen the extension says windows start on; every kind it names is a served row with a drawer here.
         let names = |app: &App| app.layout.all().iter().map(|id| app.layout.name(id)).collect::<Vec<_>>();
         assert!(app.screen.starts() && matches!(&app.screen.from, crate::screen::From::Extension(_)), "{:?}", app.screen.from);
-        assert_eq!(names(&app), ["tree", "reader", "props", "backlinks"]);
+        assert_eq!(names(&app), ["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]);
         for tile in app.layout.all() { assert!(app.drawer_of(&tile).is_some() && app.problems_of(&tile).is_empty(), "{tile}: {:?}", app.problems_of(&tile)) }
         // The tree is one list: unfolded, the same list with the folder's notes under it.
         assert!(app.tree().iter().any(|row| row.label == "Beds" && row.folds) && !app.tree().iter().any(|row| row.label == "North bed"));

@@ -148,13 +148,13 @@ fn peek_says_where_the_person_is_and_actions_lists_every_row() {
     for part in ["screen", "focus", "whereabouts", "watches", "tiles"] { assert!(!screen[part].is_null(), "peek has {part}: {screen}") }
     assert_eq!((screen["focus"].as_str(), screen["whereabouts"]["layer"].as_str(), screen["whereabouts"]["typingIn"].as_str(), screen["whereabouts"]["esc"].as_str()), (Some("reader"), Some("bar"), Some("bar"), Some("bar.close")));
     let tiles: Vec<&str> = screen["tiles"].as_array().unwrap().iter().map(|tile| tile["name"].as_str().unwrap()).collect();
-    assert_eq!(tiles, ["tree", "reader", "props", "backlinks", "bar"], "every tile of the arrangement, then the bar while it is open");
+    assert_eq!(tiles, ["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions", "bar"], "every tile of the arrangement, then the bar while it is open");
     assert_eq!(screen["tiles"][1]["asks"][0]["action"], "notes.page");
-    assert_eq!((screen["tiles"][4]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][4]["asks"][0]["params"]["from"].as_str(), screen["tiles"][4]["asks"][0]["params"]["query"].as_str()), (Some("open id=\"beans\""), Some("query"), Some("type=chore")), "the bar's rows are a list the service answers, each with its act line");
-    assert!(screen["tiles"][4]["facts"]["sources"].as_array().unwrap().iter().any(|source| source["id"] == "screens" && source["served"] == true), "the bar's sources say which are the service's: {}", screen["tiles"][4]["facts"]["sources"]);
+    assert_eq!((screen["tiles"][7]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][7]["asks"][0]["params"]["from"].as_str(), screen["tiles"][7]["asks"][0]["params"]["query"].as_str()), (Some("open id=\"beans\""), Some("query"), Some("type=chore")), "the bar's rows are a list the service answers, each with its act line");
+    assert!(screen["tiles"][7]["facts"]["sources"].as_array().unwrap().iter().any(|source| source["id"] == "screens" && source["served"] == true), "the bar's sources say which are the service's: {}", screen["tiles"][7]["facts"]["sources"]);
     assert_eq!((screen["tiles"][2]["facts"]["follows"].as_str(), screen["tiles"][3]["facts"]["rows"][0]["id"].as_str(), screen["tiles"][3]["asks"][0]["params"]["of"].as_str(), screen["tiles"][3]["asks"][0]["params"]["from"].as_str()), (Some("reader"), Some("plan"), Some("plot"), Some("links")), "the tiles that follow the reader list what is about its note");
     assert_eq!((screen["tiles"][0]["facts"]["arrange"].as_str(), screen["tiles"][0]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][0]["kind"].as_str()), (Some("tree"), Some("open id=\"plot\""), Some("screens.tree")), "the tree is a list like the rest, its kind the service's row");
-    assert_eq!(screen["watches"]["budget"][0]["said"], "6/64", "the tree, the page (one slot, though three tiles are about its note), the two lists about it, the outline's screens and the bar's query");
+    assert_eq!(screen["watches"]["budget"][0]["said"], "7/64", "the tree, the page (one slot, though several tiles are about its note), the three lists about it that are on screen (the properties, the links, the comments in front of their tabs), the outline's screens and the bar's query");
     assert!(peek["result"]["text"].as_array().unwrap().iter().any(|line| line.as_str().unwrap().contains("> Plot")), "the screen as text marks the open note");
 
     let listed = d.ask(json!({ "cmd": "actions" }));

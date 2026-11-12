@@ -147,7 +147,7 @@ fn with_no_screens_extension_the_window_says_so_and_opens_when_it_is_installed()
     // Installed: the host says its list moved.
     g.shipped.set(true);
     screens_are(&mut g, json!([]));
-    assert_eq!((g.app.screen.name.as_str(), names(&g.app)), ("desk", vec!["tree".to_string(), "reader".to_string(), "props".to_string(), "backlinks".to_string()]));
+    assert_eq!((g.app.screen.name.as_str(), names(&g.app)), ("desk", vec!["tree".to_string(), "reader".to_string(), "props".to_string(), "backlinks".to_string(), "threads".to_string(), "proposals".to_string(), "revisions".to_string()]));
     assert!(g.app.notice.is_none() && g.app.journal.is_empty(), "{:?}", g.app.notice);
     assert_eq!(g.app.page().map(|p| p.title.as_str()), Some("Plot"));
 }

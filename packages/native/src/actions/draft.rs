@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{About, Action, Actor, App, Field, Notice, Outcome, Then, Tone, nav};
 use crate::actline::Args;
-use crate::draft::{self, DraftSession, Hold};
+use crate::draft::{self, DraftSession, Hold, Writes};
 use crate::keys::{self, Text};
 use crate::layout::{Id, Op, Request};
 use crate::store::{OutlineAt, Reply};
@@ -31,7 +31,7 @@ static EDIT: ActionRow = ActionRow::new("edit", Touches::Draft, "open the note f
     .keys(&[KeyRow::keys("mod+e", "edit the open note")])
     .menu(&[MenuRow::new("Edit", "Note", Some("mod+e"))]);
 
-static SAVE: ActionRow = ActionRow::new("edit.save", Touches::Draft, "save the draft, checked against the revision it started from. Saving never ends editing: what the service holds is then what was sent, and the editor goes on")
+static SAVE: ActionRow = ActionRow::new("edit.save", Touches::Draft, "save the draft. A block's text is checked against the revision it started from, and saving never ends editing: what the service holds is then what was sent, and the editor goes on. A comment or a reply is sent, and its draft is done")
     .person(THEIRS)
     .keys(&[KeyRow::keys("mod+s", "save"), KeyRow::on("mod+enter", "draft", "save, from the note's source")])
     .menu(&[MenuRow::new("Save", "Note", Some("mod+s"))]);
@@ -111,15 +111,16 @@ impl App {
 
     /// A session takes its place: among the drafts, held on the service, its tile with the keys.
     fn seat(&mut self, session: DraftSession, by: &Actor) {
-        let (tile, note) = (session.tile.clone(), session.note.clone());
+        let (tile, note, block) = (session.tile.clone(), session.note.clone(), session.is_block());
         self.st.drafts.push(session);
-        self.hold(&note);
+        // Only a block's own text is held on the service: a comment or a reply being written is nobody's to patch.
+        if block { self.hold(&note) }
         if self.layout.focus != tile { self.reshape(&Op::Focus { tile, quiet: false }, by); }
     }
 
     /// The service is asked to hold the draft of `note`: patches to the note come here while it does.
     fn hold(&mut self, note: &str) {
-        let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.note == note) else { return };
+        let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.note == note && draft.is_block()) else { return };
         if !self.st.online || self.st.at.outline.is_empty() { draft.hold = Hold::None; return }
         draft.hold = Hold::Asked;
         let request = json!({ "blockId": note, "clientId": self.store.client(), "revision": draft.revision, "leaseMs": draft::LEASE.as_millis() as u64 });
@@ -129,7 +130,7 @@ impl App {
 
     /// Every draft is held again: the link was made, or made again, and the holds ended with the old one.
     pub(super) fn hold_all(&mut self) {
-        let notes: Vec<String> = self.drafts.iter().map(|draft| draft.note.clone()).collect();
+        let notes: Vec<String> = self.drafts.iter().filter(|draft| draft.is_block()).map(|draft| draft.note.clone()).collect();
         for note in notes { self.hold(&note) }
     }
 
@@ -148,6 +149,7 @@ impl App {
         let (now, at) = (Instant::now(), self.at.clone());
         let mut soon = false;
         for index in 0..self.drafts.len() {
+            if !self.drafts[index].is_block() { continue }
             let (note, hold, revision) = (self.drafts[index].note.clone(), self.drafts[index].hold.clone(), self.drafts[index].revision);
             match hold {
                 Hold::None => self.hold(&note),
@@ -193,7 +195,7 @@ impl App {
         if self.recovered.is_empty() || self.screen.is_nowhere() || self.kinds().is_empty() { return }
         let mut back = 0;
         for kept in std::mem::take(&mut self.st.recovered) {
-            if self.draft_of(&kept.note).is_some() { continue }
+            if kept.writes == Writes::Block && self.draft_of(&kept.note).is_some() { continue }
             let own = self.layout.named(&kept.tile).filter(|tile| self.reads_notes(tile) && self.draft_on(tile).is_none());
             let tile = match own {
                 Some(tile) => { if self.note_of(&tile).as_deref() != Some(kept.note.as_str()) { self.show(&tile, &kept.note, true) } Some(tile) }
@@ -203,7 +205,7 @@ impl App {
             let Some(tile) = tile else { self.st.recovered.push(kept); continue };
             let mut buf = focused(&kept.text);
             buf.select(kept.caret, kept.caret);
-            self.seat(DraftSession::new(tile, kept.note, kept.revision, kept.base, buf), &Actor::Person);
+            self.seat(DraftSession::new(tile, kept.note, kept.revision, kept.base, buf).writing(kept.writes), &Actor::Person);
             back += 1;
         }
         if back > 0 {
@@ -213,8 +215,14 @@ impl App {
         }
     }
 
+    /// Something else than a block's own text opens to be written on `tile`, for the person (a comment on `note`, a
+    /// reply in one of its threads): the same session, field and file as a block's, with nothing held on the service.
+    pub(super) fn compose(&mut self, tile: Id, note: String, revision: u64, writes: Writes, by: &Actor) {
+        self.seat(DraftSession::new(tile, note, revision, String::new(), focused("")).writing(writes), by);
+    }
+
     /// A draft ends: its hold is let go, and the file that kept it keeps it no longer.
-    fn end(&mut self, tile: &str) {
+    pub(super) fn end(&mut self, tile: &str) {
         let Some(index) = self.drafts.iter().position(|draft| draft.tile == tile) else { return };
         let draft = self.st.drafts.remove(index);
         if let Some(id) = draft.hold_id() {
@@ -233,7 +241,7 @@ impl App {
 
     /// A headless render lands what the host says until the answer to a write that goes through this window is in:
     /// the service asks about the draft held here before it answers.
-    fn settled_for(&mut self, then: Then) {
+    pub(super) fn settled_for(&mut self, then: Then) {
         let until = Instant::now() + Duration::from_secs(5);
         while self.store.out_for(then) && Instant::now() < until { if !self.take() { std::thread::sleep(Duration::from_millis(5)) } }
     }
@@ -244,7 +252,7 @@ fn held(app: &mut App, reply: Reply) {
     let note = reply.ctx["note"].as_str().unwrap_or("").to_string();
     let granted = reply.result.as_ref().ok().and_then(|result| result["holdId"].as_str()).map(str::to_string);
     let at = app.at.clone();
-    match (app.st.drafts.iter_mut().find(|draft| draft.note == note), granted) {
+    match (app.st.drafts.iter_mut().find(|draft| draft.note == note && draft.is_block()), granted) {
         (Some(draft), Some(id)) => draft.hold = Hold::Held { id, renewed: Instant::now() },
         (Some(draft), None) => draft.hold = Hold::Refused(reply.result.err().map_or_else(|| "the service gave no hold".to_string(), |refusal| refusal.error)),
         // The draft closed while the hold was on its way: it is let go as soon as it is granted.
@@ -257,7 +265,7 @@ fn held(app: &mut App, reply: Reply) {
 fn renewed(app: &mut App, reply: Reply) {
     if reply.result.is_ok() { return }
     let note = reply.ctx["note"].as_str().unwrap_or("");
-    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note) { draft.hold = Hold::None }
+    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note && draft.is_block()) { draft.hold = Hold::None }
 }
 
 /// Why a patch is turned away while an input method is open in the draft: its marked text is the person's, not yet typed.
@@ -274,7 +282,7 @@ pub(super) fn asked(app: &mut App, at: &OutlineAt, ask: &Value, by: Option<Actor
     let Some(request) = ask["requestId"].as_str() else { return };
     let (kind, note) = (ask["kind"].as_str().unwrap_or(""), ask["blockId"].as_str().unwrap_or("").to_string());
     let saving = app.saving();
-    let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note) else {
+    let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note && draft.is_block()) else {
         app.store.held(at, request, Err("this window holds no draft of that note any more".into()));
         return;
     };
@@ -309,6 +317,7 @@ fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(draft) = app.draft_of(&page.id) {
         return Outcome::refused(if draft.tile == tile { "the note is already open for editing".to_string() } else { format!("the note is being written in {}: tile.focus goes there", app.layout.name(&draft.tile)) });
     }
+    if app.draft_on(&tile).is_some() { return Outcome::refused(format!("{} is being written in {}: save or close it first", app.layout.name(&tile), super::label("edit.close"))) }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
     app.begin(tile, note, revision, text, by);
     Outcome::done()
@@ -321,6 +330,8 @@ fn save(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
     if app.saving() { return Outcome::refused("a save is already on its way") }
     let Some(draft) = app.draft_on(&tile) else { return Outcome::refused("no note is open for editing") };
+    // A comment or a reply is sent as one (`review.rs`): the same key and the same button, another write.
+    if !draft.is_block() { return super::review::send(app, &tile, by) }
     // What is sent is what was typed, as typed: whether a reference in it resolves is said after, never asked first.
     let (note, sent) = (draft.note.clone(), draft.buf.words().to_string());
     let request = json!({ "blockId": note, "text": sent, "expectedRevision": draft.revision });
@@ -342,7 +353,7 @@ pub(super) fn saved(app: &mut App, reply: Reply) {
     let revision = result["revision"].as_u64().unwrap_or(0);
     let (note, sent) = (reply.ctx["note"].as_str().unwrap_or("").to_string(), reply.ctx["sent"].as_str().unwrap_or("").to_string());
     // Saving never ends editing: what the service holds is now what was sent, and the editor goes on.
-    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note) {
+    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.note == note && draft.is_block()) {
         draft.revision = revision;
         draft.base = sent;
         app.st.notice = Some(Notice::info(format!("Saved · revision {revision}")));

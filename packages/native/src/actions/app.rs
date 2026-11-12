@@ -41,6 +41,8 @@ pub struct TileUi {
     pub subject: Option<String>,
     /// What a press in this tile last did, said on the part that was pressed.
     pub said: Option<Said>,
+    /// The words selected in a reader, as it shows them: what a comment made here is on.
+    pub passage: Option<String>,
 }
 
 /// What a press did, and where it was pressed: the note and the line of the part.
@@ -177,6 +179,8 @@ const QUERY: &str = "query";
 /// What the asker draws: the drawers this window has, and the kinds it draws itself (none: every kind is a served row's).
 const DRAWERS: &str = "drawers";
 const KINDS: &str = "kinds";
+/// What the asker runs: its own actions, each as its row (`ListsRequest.actions`: what a list of the keys is made from).
+const ROWS: &str = "actions";
 /// The list is of: the source it names (`from`), in a tile's fields.
 const FROM: &str = "from";
 
@@ -371,6 +375,11 @@ impl App {
     }
     /// The note a follower is about: its source tile's (`source: tile:<name>`), else the reader's.
     pub fn followed_by(&self, tile: &str) -> Option<String> { self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| self.reader()).and_then(|reader| self.note_of(&reader)) }
+    /// The reader a list about a note is about the note of: the tile it names as its source, when that reads notes;
+    /// else, following, the reader an act about the open note means.
+    pub fn home_of(&self, tile: &str) -> Option<Id> {
+        self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| if self.follows(tile) { self.reader() } else { None })
+    }
     /// The note a tree marks as the one open: the note of the reader its selection feeds, else the reader's.
     pub fn selected_in(&self, tile: &str) -> Option<String> {
         let fed = self.layout.select_targets(tile).into_iter().find(|to| self.reads_notes(to));
@@ -408,7 +417,7 @@ impl App {
         let mut params = serde_json::Map::new();
         params.insert(FROM.into(), json!(from));
         for name in self.source_params(from)? {
-            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), _ => None };
+            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), ROWS => Some(super::rows().clone()), _ => None };
             if let Some(value) = fill(name).or_else(own) { params.insert(name.to_string(), value); }
         }
         Some(if watched { Ask::watched(&self.at, "lists.read", Value::Object(params)) } else { Ask::read(&self.at, "lists.read", Value::Object(params)) })
@@ -495,8 +504,8 @@ impl App {
 
     /// The draft written in a tile.
     pub fn draft_on(&self, tile: &str) -> Option<&DraftSession> { self.drafts.iter().find(|draft| draft.tile == tile) }
-    /// The draft of a block, whichever tile it is written in.
-    pub fn draft_of(&self, note: &str) -> Option<&DraftSession> { self.drafts.iter().find(|draft| draft.note == note) }
+    /// The draft of a block's own text, whichever tile it is written in (a comment on it is another draft).
+    pub fn draft_of(&self, note: &str) -> Option<&DraftSession> { self.drafts.iter().find(|draft| draft.note == note && draft.is_block()) }
 
     /// A save is out.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
@@ -534,7 +543,7 @@ impl App {
         let kind = spec.map_or("tile".to_string(), |spec| self.known_as(&spec.kind));
         let drawer = self.drawer_of(tile);
         // A reader a block is being written in holds an edit: an open lands beside it, and it isn't closed.
-        let editing = self.draft_on(tile).map(|draft| format!("an edit of {}", self.page_of(tile).map_or(draft.note.as_str(), |p| p.title.as_str())));
+        let editing = self.draft_on(tile).map(|draft| format!("{} {}", draft.writes.what(), self.page_of(tile).map_or(draft.note.as_str(), |p| p.title.as_str())));
         // A tile that reads no notes has a home, where its own opens land when no wire or container says: the tile
         // it follows (`source: tile:`), else where the screen says opens land.
         let notes = drawer.is_some_and(|d| d.notes);
@@ -779,6 +788,8 @@ impl App {
     pub(in crate::actions) fn show(&mut self, tile: &str, id: &str, remember: bool) {
         let was = self.note_of(tile);
         let ui = self.st.tiles.entry(tile.to_string()).or_default();
+        // (Words selected in the note it showed are that note's: another note has none picked.)
+        if was.as_deref() != Some(id) { ui.passage = None }
         if remember && let Some(was) = was.filter(|was| was != id) { ui.history.push(was) }
         ui.note = Some(id.to_string());
     }

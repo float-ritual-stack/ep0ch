@@ -206,20 +206,20 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     let mut g = garden(ok());
     let asked = g.asked.clone();
     // The window opens on the screen it ships: the tree, a reader, and the note's details in a dock.
-    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()), ("desk", vec!["tree", "reader", "props", "backlinks"]));
+    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()), ("desk", vec!["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]));
     let mut rt = window(std::mem::replace(&mut g.app, App::new(Box::new(crate::client::Nowhere(None)), "")));
-    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "props", "backlinks"]);
+    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "props", "backlinks", "threads"]);
 
     // Split the reader, by its chord: a second reader on the same note, with the keys.
     chord(&mut rt, Key::Command('d'), primary());
-    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "reader2", "props", "backlinks"]);
+    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "reader2", "props", "backlinks", "threads"]);
     assert_eq!((rt.state.layout.focus.as_str(), rt.state.note_of("reader2").as_deref()), ("reader2", Some("plot")));
 
     // Drag the tree by its title onto the middle of the backlinks, in the dock: it becomes a tab there.
     let (from, onto) = (rt.find("tile/tree/bar").unwrap(), rect_of(&rt, "tile/backlinks").unwrap());
     drag(&mut rt, (from.0 - 40.0, from.1), (onto[0] + onto[2] / 2.0, onto[1] + onto[3] / 2.0));
     assert!(rt.state.steps.iter().any(|step| step.line() == "tile.move side=center to=backlinks tile=tree" && step.ok), "{:?}", rt.state.steps.iter().map(crate::actions::Step::line).collect::<Vec<_>>());
-    assert_eq!(sits_as_laid(&rt), ["reader", "reader2", "props", "tree"], "the tree is the dock's tab in front; the backlinks are behind it");
+    assert_eq!(sits_as_laid(&rt), ["reader", "reader2", "props", "tree", "threads"], "the tree is the dock's tab in front; the backlinks are behind it");
     assert!(rt.find("tile/tree/tab/backlinks").is_some());
 
     // Save it as a screen note: the service's write, with the arrangement as it stands.
@@ -256,11 +256,11 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     host_says_window(&mut rt, &g.said, json!({ "event": { "domain": "queries", "action": "queries.changed", "changes": [{ "key": key, "generation": 10 }] } }));
     chord(&mut rt, Key::Command('r'), rune::Mods { shift: true, ..primary() });
     assert!(rt.find("tile/reader2/problem/0").is_none() && rt.find("tile/reader2/title").is_some(), "reset: the tile reads again");
-    assert_eq!(sits_as_laid(&rt), ["reader", "reader2", "props", "tree"]);
+    assert_eq!(sits_as_laid(&rt), ["reader", "reader2", "props", "tree", "threads"]);
     // And every step of it can be taken back.
     rt.update(|s, _| { s.act("screen.open name=desk", Actor::Person); });
     rest(&mut rt);
-    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "props", "backlinks"]);
+    assert_eq!(sits_as_laid(&rt), ["tree", "reader", "props", "backlinks", "threads"]);
 }
 
 /// A screen opened by mistake is taken back whole: `layout.undo` puts back the arrangement and the screen it is of,
@@ -281,7 +281,7 @@ fn undo_after_a_screen_is_opened_goes_back_to_the_screen_it_was() {
     assert!(!g.asked.borrow().iter().any(|a| a["action"] == "screens.save"));
     // One more step back is the split, on the same screen.
     assert!(act(&mut g.app, "layout.undo").ok);
-    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()), ("desk", vec!["tree", "reader", "props", "backlinks"]));
+    assert_eq!((g.app.screen.name.as_str(), g.app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()), ("desk", vec!["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]));
     // A reset is the same screen read again: undone, the screen stays as it is served now.
     assert!(act(&mut g.app, "screen.open name=beds").ok && act(&mut g.app, "tile.split").ok && act(&mut g.app, "screen.reset").ok);
     assert!(act(&mut g.app, "layout.undo").ok);

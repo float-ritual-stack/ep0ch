@@ -24,7 +24,7 @@ fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
     // Who answers and who this window is, then what a window is made of (the screens and kinds, what a list can be
     // of), then one list a list tile and the first note's page: each asked once, though three tiles are about that note.
     assert_eq!(actions(&asked)[..4], ["ping", "events.subscribe", "screens.list", "lists.read"]);
-    assert_eq!(lists(&asked), ["sources", "children", "properties", "links"], "what a list can be of, the tree, and the two lists about the open note once there is one");
+    assert_eq!(lists(&asked), ["sources", "children", "properties", "links", "threads"], "what a list can be of, the tree, and the lists about the open note that are on screen once there is one (a hidden tab asks nothing)");
     assert_eq!(actions(&asked).iter().filter(|a| *a == "notes.page").count(), 1, "the page is asked once");
     // The window registers as itself, for the acts of the scripts it starts and what the service asks of a draft it
     // holds, and nothing else of the event feed.

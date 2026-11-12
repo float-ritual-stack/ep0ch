@@ -1,7 +1,7 @@
 //! The primitive registry: one builder a primitive type, and nothing else draws a primitive.
 //!
-//! `PRIMS` has an entry for every type the service answers (outline-core's primitive.ts, and the four a page adds
-//! in note-page.ts: `outline-core/fixtures/primitives.json` lists them, and a test holds this table to it). An entry
+//! `PRIMS` has an entry for every type the service answers (outline-core's primitive.ts, and the five a page adds
+//! in note-page.ts, a change among them, built in `diff.rs`: `outline-core/fixtures/primitives.json` lists them, and a test holds this table to it). An entry
 //! says its type, how it is drawn here (`describe`: what `actions` over the control socket and the coverage table
 //! print) and the function that builds it. A drawer hands a primitive to `build` and reads none of it itself: no
 //! figure name, no component name, no property key is matched anywhere under `tiles/`.
@@ -52,6 +52,7 @@ pub static PRIMS: &[Prim] = &[
     Prim { ty: "row", describe: "its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own", fills: true, build: beside },
     Prim { ty: "band", describe: "a heading, sized by its level; the glyph tracks of a heading style aren't drawn", fills: true, build: band },
     Prim { ty: "track", describe: "a ruled line; a heading style's glyph pattern isn't drawn", fills: true, build: track },
+    Prim { ty: "diff", describe: "a change to a text as the service found it: the two sides named, how many lines each way, then each line in the code face, written lines and lines taken out marked and tinted, a long run both sides share said in words; nothing is compared here", fills: true, build: super::diff::build },
     Prim { ty: "list", describe: "the one list, drawn as a list tile draws it: rows under their group headers (a table's as cells under its columns, lanes side by side), built only where they are in view; a row with an act line is a press, its cells as badges, its chips questions for the bar, its detail under it; no filter, selection or preview pane here", fills: true, build: listed },
 ];
 
@@ -80,9 +81,9 @@ impl<'a> PrimCx<'a> {
     fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1 } }
     /// The key of what is being built: a part's own view is `<part>/view`, under its frame; what it holds is keyed
     /// under the part (`sub`), so a row of a part's list is `part/<n>/<id>`.
-    fn key(&self) -> String { if self.own.is_some() { self.sub("view") } else { self.tile.key(&self.key) } }
+    pub(super) fn key(&self) -> String { if self.own.is_some() { self.sub("view") } else { self.tile.key(&self.key) } }
     fn frame(&self) -> String { self.tile.key(&self.key) }
-    fn sub(&self, part: impl std::fmt::Display) -> String { self.tile.key(format!("{}/{part}", self.key)) }
+    pub(super) fn sub(&self, part: impl std::fmt::Display) -> String { self.tile.key(format!("{}/{part}", self.key)) }
 }
 
 /// Builds one primitive by its type. One nobody has a builder for is its data.
