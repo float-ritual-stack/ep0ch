@@ -148,6 +148,21 @@ fn a_press_names_one_button_and_a_button_that_can_t_run_says_why() {
     assert_eq!(facts["parts"][4], json!({ "kind": "button", "line": 13, "name": "button", "title": null, "error": null, "draws": "button", "label": "Sow the peas" }));
 }
 
+/// peek lists every part a press can name, a box's too: an agent finds a button inside a box by its line.
+#[test]
+fn peek_lists_the_parts_written_inside_a_box_with_the_line_a_press_names_each_by() {
+    let rt = example_window(&json!({ "page": { "title": "Shed jobs", "text": "Shed jobs", "chips": [], "hero": null, "parts": [
+        part("example", "box", 1, json!({ "name": "box" }), json!({ "type": "box", "children": [
+            part("example", "prose", 2, json!({}), json!({ "type": "markdown", "text": "Before the frost:" })),
+            part("example", "button", 3, json!({ "name": "button" }), json!({ "type": "button", "label": "Mend the net", "act": "dock.toggle side=right" })),
+        ] })),
+    ] } }));
+    let reader = rt.state.reader().unwrap();
+    let facts = (crate::tiles::page::DRAWER.facts)(&rt.state.cx(&reader).unwrap());
+    let listed: Vec<(&str, u64, &str)> = facts["parts"].as_array().unwrap().iter().map(|part| (part["kind"].as_str().unwrap(), part["line"].as_u64().unwrap(), part["label"].as_str().unwrap_or(""))).collect();
+    assert_eq!(listed, [("box", 2, ""), ("prose", 3, ""), ("button", 4, "Mend the net")], "the box, then what is written inside it");
+}
+
 // ── the coverage table ──────────────────────────────────────────────────────────────────────────────────────
 
 /// A window on one note: the page the service answered of a component's own example.
