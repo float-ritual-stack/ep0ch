@@ -105,6 +105,12 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   const navigator = targetFilled(all.screens.find(s => s.name === "navigator")!.spec!, { query: "type=bed" });
   expect(savedNodes(navigator.layout.root).find(n => n.t === "leaf" && n.name === "facets")).toMatchObject({ query: "type=bed" });
 
+  // A window saves a tile under the kind its row names; the role the row gives it anyway isn't written, and reads back.
+  const potting = await client.request<{ id: string }>({ action: "screens.save", spec: { name: "Potting bench", layout: { root: { t: "leaf", kind: "screens.reader", role: "reader", name: "bench" } } } } as never);
+  expect((await client.request<{ text: string }[]>({ action: "children", parentId: potting.id } as never)).map(b => b.text)).toEqual(["tile screens.reader [name::bench]"]);
+  expect(savedNodes((await screens()).screens.find(s => s.name === "potting-bench")!.spec!.layout.root)[0]).toMatchObject({ kind: "screens.reader", role: "reader", name: "bench" });
+  await client.request({ action: "delete", blockId: potting.id, mutation: { author: "user" } } as never);
+
   // Uninstalled the same way: its screens and kinds are gone, and a screen a person saved stays.
   await client.request({ action: "screens.save", spec: { name: "Seed swap", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } } } as never);
   const removed = await client.request<{ removed: boolean }>({ action: "extensions.uninstall", extension: "screens", demo: "keep" } as never);

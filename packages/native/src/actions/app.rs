@@ -171,6 +171,9 @@ const FROM: &str = "from";
 
 static NO_ROWS: Vec<ListRow> = Vec::new();
 
+/// What a window says while the service lists no screen to open on.
+const NO_SCREENS: &str = "This outline has no screens to open: the ones every door ships are an extension's, and the bar's Screens says how to get them.";
+
 impl App {
     pub fn new(link: Box<dyn Link>, outline: &str) -> App {
         let at = OutlineAt { outline: outline.to_string(), machine: String::new() };
@@ -522,10 +525,11 @@ impl App {
         match first {
             // The window opening on its screen is nobody's act: it leaves no step, and nothing to undo.
             Some(screen) => {
+                if self.notice.as_ref().is_some_and(|notice| notice.said == NO_SCREENS) { self.st.notice = None }
                 let opened = super::screen::lay_out(self, screen, &Actor::Person);
                 if let (false, Some(asked)) = (opened.ok, &asked) { self.st.notice = Some(Notice::problem(format!("{asked}: {}", opened.said))) }
             }
-            None if self.notice.is_none() => self.st.notice = Some(Notice::problem("This outline has no screens to open: the ones every door ships are an extension's, and the bar's Screens says how to get them.")),
+            None if self.notice.is_none() => self.st.notice = Some(Notice::problem(NO_SCREENS)),
             None => {}
         }
     }

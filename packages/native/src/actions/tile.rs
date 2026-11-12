@@ -62,7 +62,7 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let reads = |kind: &str| app.kind_row(kind).and_then(crate::tiles::drawer_of).is_some_and(|drawer| drawer.notes);
     let kind = match args.text("kind") {
         Some(asked) => match app.kind_row(asked) { Some(row) => row.saved().to_string(), None => return Outcome::refused(format!("no tile kind {asked} here · the kinds: {}", app.kinds().iter().map(|row| row.saved()).collect::<Vec<_>>().join(", "))) },
-        None if reads(&own) => own.clone(),
+        None if reads(&own) => app.kind_row(&own).map_or(own.clone(), |row| row.saved().to_string()),
         None => match app.note_kind() { Some(row) => row.saved().to_string(), None => return Outcome::refused("no tile kind here reads notes: name one with kind=") },
     };
     // The same kind, by whichever of its names each tile carries.
