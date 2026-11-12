@@ -370,9 +370,33 @@ describe.skipIf(!RESTIC)("only the host opens a live outline (PIE-1750)", () => 
     const s = readBackupState(attic.state);
     s.outlines.recipes = { seq: 4, at: iso(T0) };
     const said: string[] = [];
-    expect(await snapshot(attic, s, { now: () => T0, say: l => said.push(l) })).toEqual({ uploaded: [], failed: ["recipes"], relayed: [] });
+    expect(await snapshot(attic, s, { now: () => T0, say: l => said.push(l) })).toEqual({ uploaded: [], failed: ["recipes", "(the outline host)"], relayed: [] });
     expect(said.join("\n")).toMatch(/the outline host doesn't answer at .*no-host\.sock.*start it: (systemctl --user start outliner-host\.service|launchctl kickstart)/);
     expect(s.outlines.recipes).toMatchObject({ seq: 4, pendingSince: iso(T0) });
+  });
+
+  test("with no host answering on a first run (no outlines known yet), the run still fails: never a silent green", async () => {
+    const cellar = machine("cellar", { EP0CH_SOCKET: join(root, "cellar", "no-host.sock") });
+    const s = readBackupState(cellar.state);
+    const r = await snapshot(cellar, s, { now: () => T0, say: () => {} });
+    expect(r.failed.length).toBeGreaterThan(0);
+    expect(s.host).toMatchObject({ failingSince: iso(T0), error: expect.stringContaining("doesn't answer") });
+    // The whole run: not ok, no heartbeat, and the state says so.
+    const beats: number[] = [];
+    let now = T0;
+    const run = await runAll(cellar, { now: () => now, announce: async () => {}, heartbeat: async () => { beats.push(now); }, drill: false });
+    expect(run.ok).toBe(false);
+    expect(beats).toEqual([]);
+    expect(readBackupState(cellar.state).lastRun).toMatchObject({ ok: false, detail: expect.stringContaining("the outline host") });
+    // Lasting, it is an incident with the command that starts the host.
+    now = T0 + STALE_AFTER_MS + 60_000;
+    const late = await runAll(cellar, { now: () => now, announce: async () => {}, heartbeat: async () => { beats.push(now); }, drill: false });
+    expect(late.alert.incidents.map(i => i.key)).toEqual(["host:cellar"]);
+    expect(late.alert.incidents[0]!.fix).toMatch(/systemctl --user start outliner-host\.service|launchctl kickstart/);
+    expect(beats).toEqual([]);
+    // `ep0ch backup snapshot` says it with its exit code too.
+    const out: string[] = [];
+    expect(await backupCommand(["backup", "snapshot"], { out: l => out.push(l), err: l => out.push(l) }, cellar.env)).toBe(1);
   });
 
   test("`ep0ch backup copy`: the host's copy, checked, to a new file; never over one", async () => {

@@ -115,11 +115,14 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   try {
     outlines = (await hostRequest(c.host, "outlines.list", {}, 30_000)).outlines.map(o => ({ name: o.name, seq: o.changeSeq ?? null, schema: o.schema ?? null }));
   } catch (e) {
-    const why = `the outline host doesn't answer at ${c.host} (${(e as Error).message}), so nothing was copied; start it: ${hostStartCommand()}`;
+    const why = `the outline host doesn't answer at ${c.host} (${(e as Error).message}), so nothing was copied`;
+    // Kept apart from the outlines it knows: a first run knows none, and must still fail (never a silent green).
+    s.host = { failingSince: s.host?.failingSince ?? new Date(now()).toISOString(), error: why, fix: hostStartCommand() };
     for (const st of Object.values(s.outlines)) { st.pendingSince ??= new Date(now()).toISOString(); st.error = why; }
-    say(`✗ ${why}`);
-    return { uploaded, failed: Object.keys(s.outlines), relayed };
+    say(`✗ ${why}; start it: ${hostStartCommand()}`);
+    return { uploaded, failed: [...Object.keys(s.outlines), "(the outline host)"], relayed };
   }
+  delete s.host;
   // Snapshots are the repository's: another repository (or machine name) starts every outline over.
   if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
