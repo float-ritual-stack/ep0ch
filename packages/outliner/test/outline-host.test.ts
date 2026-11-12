@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { OutlinerStore } from "../src/store";
 import type { Block, HostedOutlineList, HostedOutlineSummary, OutlinerEvent, OutlinerResponse, OutlinerServiceStatus } from "../src/types";
 
@@ -452,6 +453,19 @@ test("an outline made with an about says who made it, gives the others read, and
   expect(list.outlines.find(o => o.name === "gurgle")?.about?.createdBy).toBe("loki/claude-code@float-2");
   expect(list.outlines.find(o => o.name === "plain")?.about).toBeUndefined();
   expect((await send<{ level: string }>(host.socketPath, { action: "mcp.access.status", outline: "plain" })).result!.level).toBe("none");
+});
+
+// PIE-1747: a host action on another protocol is refused before it runs, a relayed listing included.
+test("a host action on another protocol is refused, relayed or not, and makes nothing", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  const made = await send(host.socketPath, { action: "outlines.create", name: "seedbank", protocol: PROTOCOL + 1 });
+  expect(made).toMatchObject({ ok: false, kind: "invalid" });
+  expect(existsSync(layoutOf(root).database("seedbank"))).toBe(false);
+  const listed = await send(host.socketPath, { action: "outlines.list", protocol: PROTOCOL - 1, relayed: { protocol: PROTOCOL, node: "seedbank@far" } });
+  expect(listed).toMatchObject({ ok: false, kind: "invalid" });
+  expect((listed as { error?: string }).error).toContain(`speaks protocol ${PROTOCOL - 1}`);
+  expect((await send(host.socketPath, { action: "outlines.list", protocol: PROTOCOL, relayed: { protocol: PROTOCOL, node: "seedbank@far" } })).ok).toBe(true);
 });
 
 test("an about with a purpose that can't be a property is refused and nothing is made", async () => {
