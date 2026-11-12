@@ -157,9 +157,11 @@ fn resize(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (again, steps) = (app.st.dragging == dragging, app.st.journal.len());
     let outcome = app.reshape(&Op::Resize { split, path: None, border, share: args.number("share").unwrap_or(0.5) }, by);
     if outcome.ok && again && app.st.journal.len() > steps { app.st.journal.pop(); }
-    // A drag that came back to where it started (let go with Escape) is no change at all: it leaves no step.
-    if outcome.ok && again && app.st.journal.last().is_some_and(|(before, screen)| screen.is_none() && same_shape(before, &app.st.layout)) { app.st.journal.pop(); }
-    if outcome.ok { app.st.dragging = dragging }
+    // A drag that came back to where it started (let go with Escape) is no change at all: it leaves no step, and it
+    // is over. The next move of that border starts a change of its own, with its own step back.
+    let back = outcome.ok && again && app.st.journal.last().is_some_and(|(before, screen)| screen.is_none() && same_shape(before, &app.st.layout));
+    if back { app.st.journal.pop(); }
+    if outcome.ok { app.st.dragging = if back { None } else { dragging } }
     outcome
 }
 
