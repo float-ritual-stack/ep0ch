@@ -38,10 +38,7 @@ export async function servedPage(
   if (typeof blockId !== "string") throw new Error("notes.page needs blockId");
   const block = require(blockId);
   if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
-  const listed = async (ids: readonly string[]): Promise<Listed[]> => ids.length
-    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren"] })).blocks : [];
-  const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
-  const host: LiveHost = { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id };
+  const { host, listed } = reader(own);
   const [body, { records }, context, back] = await Promise.all([
     noteParts(host, block, address),
     own.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [block.id] }),
@@ -62,6 +59,23 @@ export async function servedPage(
     backlinks: back.sources.filter(s => s.blockId !== block.id).map(s => ({ id: s.blockId, title: s.title || "untitled", ...(s.parentContext ? { context: s.parentContext } : {}) })),
     updated: record.updated, author: record.actor ?? record.author,
   };
+}
+
+/** The service asking itself, as the walk asks: for a reader who sees every note, with one reading of every title (the lists'). */
+function reader(own: Own): { host: LiveHost; listed(ids: readonly string[]): Promise<Listed[]> } {
+  const listed = async (ids: readonly string[]): Promise<Listed[]> => ids.length
+    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren"] })).blocks : [];
+  const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
+  return { host: { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id }, listed };
+}
+
+/**
+ * A text nobody saved, as the parts a page would answer for a note that held it: `text` (its first line the header
+ * line) walked as note `about`, which is the note its questions ask about (`this`). What a component's own example
+ * draws as (`lists.read from=components`).
+ */
+export async function drawnParts(own: Own, about: string, text: string): Promise<PagePart[]> {
+  return (await noteParts(reader(own).host, { id: about, text }, {})).parts;
 }
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));

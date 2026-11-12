@@ -7,6 +7,7 @@ import { actionLine } from "./action-line";
 import { prepareSearchQuery, matchesSearchText, type SearchQuery } from "./search-match";
 import { QUESTION_MAX_LIMIT } from "./protocol";
 import type { RuleTone } from "./rules";
+import type { PagePrimitive } from "./note-page";
 
 /** The tones a row is drawn in: the component primitives' (`good`, `warn`, … ). */
 export type ListTone = RuleTone;
@@ -60,6 +61,12 @@ export interface ListRow {
   folds?: boolean;
   open?: boolean;
   kids?: number;
+  /**
+   * What the row shows under itself, drawn as any primitive is: a proposal's change (a `diff`), a thread's replies, a
+   * component's own example. A row that `folds` in a list whose source reads `open` carries it while it is open
+   * (`lists.read`'s `open` names the rows that are), so a long one is answered only when asked for.
+   */
+  view?: PagePrimitive;
 }
 
 /** A property a row shows: its key and one of its values, as written. */
