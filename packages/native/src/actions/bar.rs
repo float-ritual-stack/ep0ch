@@ -55,9 +55,6 @@ static NARROW: ActionRow = ActionRow::new("bar.narrow", Touches::Nothing, "narro
 
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &CLOSE, run: close }, Action { row: &PICK, run: pick }, Action { row: &MOVE, run: step }, Action { row: &NARROW, run: narrow }];
 
-/// A row as an agent is answered it.
-fn listed(rows: &[bar::BarRow]) -> Vec<serde_json::Value> { rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "detail": row.detail, "act": row.line })).collect() }
-
 fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let scope = args.text("scope").unwrap_or(bar::ALL);
     let Some(source) = bar::source(app, scope) else {
@@ -74,10 +71,10 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
             let rows = bar::rows_for(app, &source, words);
             let mut request = ask.params.clone();
             request["action"] = json!(ask.action);
-            return Outcome::answer(json!({ "scope": source.id, "rows": listed(&rows), "answered": held, "ask": request }));
+            return Outcome::answer(json!({ "scope": source.id, "rows": bar::described(&rows), "answered": held, "ask": request }));
         }
         let here = bar::source(app, bar::ACTIONS).unwrap_or(source);
-        return Outcome::answer(json!({ "scope": here.id, "rows": listed(&bar::rows_for(app, &here, words)), "answered": true }));
+        return Outcome::answer(json!({ "scope": here.id, "rows": bar::described(&bar::rows_for(app, &here, words)), "answered": true }));
     }
     // Opened again on the same source with nothing said, the words typed stay.
     let text = args.text("query").map(str::to_string).unwrap_or_else(|| if app.bar.open && app.bar.scope == source.id { app.bar.edit.text.clone() } else { String::new() });

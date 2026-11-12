@@ -124,7 +124,7 @@ pub fn peek(s: &App) -> Value {
         let rows = bar::rows(s);
         tiles.push(json!({ "id": "bar", "name": "bar", "kind": "bar", "asks": s.store().asks_of("bar"),
             "facts": { "scope": s.bar.scope, "query": s.bar.edit.text, "lit": s.bar.cursor + 1, "sources": bar::sources(s).iter().map(|source| json!({ "id": source.id, "about": source.about, "served": source.served, "main": source.main })).collect::<Vec<_>>(),
-                "rows": rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "act": row.line })).collect::<Vec<_>>() } }));
+                "rows": bar::described(&rows) } }));
     }
     let page = s.shown();
     let mut text = vec![format!("{} on {}{} · screen {}", s.at.outline, if s.machine.is_empty() { "…" } else { &s.machine }, if s.online { "" } else { " (offline)" }, s.screen.name)];

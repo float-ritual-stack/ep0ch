@@ -71,6 +71,12 @@ pub struct BarRow {
     pub fill: bool,
 }
 
+/// The rows as an agent and `peek` are answered them: numbered from 1, each with its source, key and the act line a
+/// pick runs. The one place a bar row is written out as data.
+pub fn described(rows: &[BarRow]) -> Vec<serde_json::Value> {
+    rows.iter().enumerate().map(|(i, row)| json!({ "n": i + 1, "source": row.source, "key": row.key, "label": row.label, "detail": row.detail, "act": row.line })).collect()
+}
+
 /// A found row's height in the bar: two lines of text and its padding.
 const ROW: f32 = 46.0;
 
