@@ -189,6 +189,8 @@ export interface DraftHoldHandle {
 }
 /** How often ongoing typing reaches the service (ms); its quiet timer settles each ask independently. */
 export const DRAFT_TOUCH_MS = 1000;
+/** DRAFT_TOUCH_MS, or a test's shorter EP0CH_DRAFT_TOUCH_MS (beside its host's OUTLINER_AGENT_QUIET_MS). */
+const draftTouchMs = () => { const ms = Number(process.env.EP0CH_DRAFT_TOUCH_MS); return process.env.EP0CH_DRAFT_TOUCH_MS && Number.isFinite(ms) && ms >= 0 ? ms : DRAFT_TOUCH_MS; };
 /** Lease and heartbeat of a draft hold (ms): a door that dies loses its holds within the lease. */
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
@@ -1652,7 +1654,7 @@ export class SocketBoard implements Board {
       release: () => this.letGo(h),
       touched: () => {
         if (h.gone || h.touch) return;
-        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS));
+        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, draftTouchMs()));
         (h.touch as { unref?: () => void }).unref?.();
       },
     };
