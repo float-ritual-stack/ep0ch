@@ -21,18 +21,18 @@ export interface Hello {
   cols: number; rows: number; cellW: number; cellH: number;
   /** The terminal answered the Kitty graphics query (or EP0CH_KITTY says so). */
   kitty: boolean;
-  /** The terminal answered the Program Status Protocol's query (OSC 7501): the session reports its status to it. Left out by an older client: none. */
-  pst?: boolean;
-  /** The terminal shows a report's records one by one (Herdr's sidebar): the session sends its tiles as children too, else only the root. Left out by an older client: the root alone. */
-  tree?: boolean;
-  /** The terminal has Kitty's text sizing (OSC 66): readers draw their title at double height for it. Left out by an older client: no. */
-  sized?: boolean;
+  /** The terminal answered the Program Status Protocol's query (OSC 7501): the session reports its status to it. */
+  pst: boolean;
+  /** The terminal shows a report's records one by one (Herdr's sidebar): the session sends its tiles as children too, else only the root. */
+  tree: boolean;
+  /** The terminal has Kitty's text sizing (OSC 66): readers draw their title at double height for it. */
+  sized: boolean;
   /**
    * The terminal answers `CSI 5 n` (its status) in order, once it has taken what was sent before it, and no multiplexer
-   * answers for it: the session asks after each frame and keeps at most FRAMES_IN_FLIGHT unanswered (PIE-1163). Left out
-   * by an older client, or one that is behind a multiplexer: every frame is sent, as before.
+   * answers for it: the session asks after each frame and keeps at most FRAMES_IN_FLIGHT unanswered (PIE-1163). False
+   * behind a multiplexer: every frame is sent. A client on other code never gets this far: the daemon refuses its `proto`.
    */
-  acks?: boolean;
+  acks: boolean;
   /** The client's process, and where it runs (its tty, `EP0CH_NEST`): `session list` and `peek` say which is which. */
   pid: number; tty?: string; nest?: string;
   /** The client application's own host pane, when there is one (for example Tern), independent of the terminal/daemon. */

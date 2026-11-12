@@ -2861,12 +2861,9 @@ export class OutlinerStore {
     }).deferred();
   }
 
-  /**
-   * Structural changes record activity only when `mutation` says who made them;
-   * without it (older clients, internal moves) they stay unattributed, as before.
-   */
-  move(id: string, parentId: string | null, requestedPosition?: number, mutation?: MutationProvenance): Block {
-    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+  /** A move says who made it, and its activity is recorded as theirs (PIE-1749: no unattributed moves). */
+  move(id: string, parentId: string | null, requestedPosition: number | undefined, mutation: MutationProvenance): Block {
+    const provenance = normalizeMutationProvenance(mutation);
     const block = this.requireActive(id);
     if (parentId !== null) {
       this.requireActive(parentId);

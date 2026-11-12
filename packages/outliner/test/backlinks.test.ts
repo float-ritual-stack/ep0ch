@@ -100,7 +100,7 @@ describe("semantic backlink relation", () => {
     const source = workspace.create("Plan\n[[{{parent.destination}}]]", firstParent.id);
     const sources = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.map(s => s.blockId);
     expect(sources(first.id)).toContain(source.id);
-    workspace.move(source.id, secondParent.id);
+    workspace.move(source.id, secondParent.id, undefined, { author: "user" });
     expect(sources(first.id)).not.toContain(source.id);
     expect(sources(second.id)).toContain(source.id);
     expect(workspace.get(source.id)!.revision).toBe(source.revision);
@@ -117,12 +117,12 @@ describe("semantic backlink relation", () => {
     expect(sources(first.id)).not.toContain(source.id);
     expect(sources(second.id)).toContain(source.id);
     const other = workspace.create("First", source.id);
-    workspace.move(other.id, source.id, 0);
+    workspace.move(other.id, source.id, 0, { author: "user" });
     expect(sources(first.id)).toContain(source.id);
     expect(sources(second.id)).not.toContain(source.id);
-    workspace.move(other.id, null);
+    workspace.move(other.id, null, undefined, { author: "user" });
     expect(sources(second.id)).toContain(source.id);
-    workspace.move(child.id, null);
+    workspace.move(child.id, null, undefined, { author: "user" });
     expect(sources(first.id)).toContain(source.id);
   });
 

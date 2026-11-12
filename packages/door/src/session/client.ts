@@ -364,7 +364,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   term.probeAcks = true;
   await term.start();
   const hello: Hello = {
-    proto: PROTOCOL, ...term.info, pid: process.pid, remote: !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY),
+    proto: PROTOCOL, ...term.info, pst: !!term.info.pst, tree: !!term.info.tree, sized: !!term.info.sized, acks: !!term.info.acks, pid: process.pid, remote: !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY),
     remoteAddress: (process.env.SSH_CONNECTION || process.env.SSH_CLIENT)?.split(" ")[0],
     ...(ttyName() ? { tty: ttyName()! } : {}), ...(process.env.EP0CH_NEST ? { nest: process.env.EP0CH_NEST } : {}),
     ...(process.env.TERN_PANE ? { clientHost: { kind: "tern", pane: process.env.TERN_PANE } } : {}),

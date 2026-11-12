@@ -107,7 +107,7 @@ test("referenced batches retain their identity and project, including through an
   store.restore(member.id);
   store.update(batch.id, "Renamed [type::Work-Batch] [project::TEST]", batch.revision);
   expect(store.update(member.id, member.text + "\n\nStill editable", member.revision).text).toContain("Still editable");
-  store.move(member.id, batch.id);
+  store.move(member.id, batch.id, undefined, { author: "user" });
   store.delete(parent.id);
   store.restore(parent.id);
   expect(store.require(member.id).effectiveDeletedRootId).toBeUndefined();
@@ -149,7 +149,7 @@ test("delivery and task transitions commit together; retry preserves deliberate 
   expect(repeated.changed).toBe(false);
   expect(repeated.task.properties).toContainEqual({ key: "work-stage", value: "doing" });
   const other = store.createRoadmapItem({ ...input, title: "Another task" }).block;
-  store.move(delivery.id, other.id);
+  store.move(delivery.id, other.id, undefined, { author: "user" });
   expect(sync).toThrow("expected task");
   expect(store.require(other.id).revision).toBe(other.revision);
   expect(store.require(delivery.id).revision).toBe(repeated.delivery.revision);

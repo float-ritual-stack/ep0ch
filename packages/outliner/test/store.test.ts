@@ -1486,8 +1486,8 @@ Second paragraph`;
     const child = store.create("Child", root.id);
     const sibling = store.create("Sibling");
 
-    expect(store.move(sibling.id, child.id).parentId).toBe(child.id);
-    expect(() => store.move(root.id, sibling.id)).toThrow("beneath itself");
+    expect(store.move(sibling.id, child.id, undefined, { author: "user" }).parentId).toBe(child.id);
+    expect(() => store.move(root.id, sibling.id, undefined, { author: "user" })).toThrow("beneath itself");
   });
 
   test("reorders root siblings at final zero-based positions", () => {
@@ -1497,7 +1497,7 @@ Second paragraph`;
     const third = store.create("Third root");
 
     const original = store.children(null);
-    store.move(third.id, null, original.findIndex((block) => block.id === second.id));
+    store.move(third.id, null, original.findIndex((block) => block.id === second.id), { author: "user" });
     expect(
       store
         .children(null)
@@ -1506,7 +1506,7 @@ Second paragraph`;
     ).toEqual([first.id, third.id, second.id]);
 
     const reordered = store.children(null);
-    store.move(first.id, null, reordered.findIndex((block) => block.id === first.id) + 1);
+    store.move(first.id, null, reordered.findIndex((block) => block.id === first.id) + 1, { author: "user" });
     expect(
       store
         .children(null)
@@ -1522,8 +1522,8 @@ Second paragraph`;
     const second = store.create("Second child", parent.id);
     const third = store.create("Third child", parent.id);
 
-    store.move(second.id, parent.id, 0);
-    store.move(first.id, parent.id, 2);
+    store.move(second.id, parent.id, 0, { author: "user" });
+    store.move(first.id, parent.id, 2, { author: "user" });
 
     const children = store.children(parent.id);
     expect(children.map((block) => block.id)).toEqual([second.id, third.id, first.id]);
@@ -2582,7 +2582,7 @@ Second paragraph`;
       VALUES (?, ?, 'invalid lifecycle', ?)
     `).run(quarantined.id, quarantined.text, quarantined.createdAt);
     store.delete(deletedReply.block.id);
-    store.move(reply.block.id, null);
+    store.move(reply.block.id, null, undefined, { author: "user" });
     store.create("Ordinary child", root.block.id);
     const threads = store.listAnnotationThreads({
       subject: { kind: "block", blockId: source.id },
@@ -2618,9 +2618,9 @@ Second paragraph`;
     ]);
     const replyChild = store.create("Reply child", reply.id);
     const replyAnnotation = annotate(reply, "purge-reply-annotation");
-    store.move(root.id, null);
-    store.move(reply.id, null);
-    store.move(replyAnnotation.id, null);
+    store.move(root.id, null, undefined, { author: "user" });
+    store.move(reply.id, null, undefined, { author: "user" });
+    store.move(replyAnnotation.id, null, undefined, { author: "user" });
     store.delete(source.id);
     const sequence = store.sequence;
     const doomed = [source, child, root, childRoot, reply, replyChild, replyAnnotation];
@@ -2991,7 +2991,7 @@ Second paragraph`;
       const sibling = store.create("Sibling");
       const target = blockAnnotationTarget(source, 0, 5, "unchanged-after-move");
       setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
-      store.move(sibling.id, null, 0);
+      store.move(sibling.id, null, 0, { author: "user" });
       const receipt = store.createAnnotation("after-move", {
         target, body: "Still the same passage", source: "user",
       });
