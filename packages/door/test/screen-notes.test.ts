@@ -222,8 +222,9 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {
-    // The spec as the native window sends it: its shipped screen's own fields, named as the person typed it.
-    const shipped = JSON.parse(readFileSync(join(import.meta.dir, "../../native/screens/desk.json"), "utf8"));
+    // The spec as the native window sends it: the fields of the screen it opens on (the screens extension's, the one
+    // whose spec says windows start there), named as the person typed it.
+    const { start: _start, ...shipped } = (JSON.parse(readFileSync(join(import.meta.dir, "../../outliner/extensions/screens/extension.json"), "utf8")) as { screens: Record<string, unknown>[] }).screens.find(s => s.start === true)!;
     const saved = await board.request("screens.save", { spec: { ...shipped, name: "Potting bench", title: "Potting bench" }, mutation: { author: "user" } });
     expect(saved).toMatchObject({ name: "potting-bench", title: "Potting bench", created: true });
     await until(() => screenNames().includes("potting-bench"), "the door registered the native window's screen");
@@ -232,8 +233,10 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     await until(() => top().name === "potting-bench", "potting-bench opened");
     const tiles = get().tiles;
     expect(tiles.map(t => t.name)).toEqual(["tree", "reader", "props", "backlinks"]);
-    // props is the native window's kind: the door keeps its spec and says the kind isn't one it has; the rest draw.
-    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "props"], ["backlinks", null]]);
+    // The service lists each tile's kind as the screens extension's row names it; the door's own kinds answer to
+    // those names (desk/shipped.ts), so the tree, the reader and the links draw. The properties list is a kind this
+    // door has no drawer for: it keeps its spec and says the kind isn't one it has.
+    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "screens.props"], ["backlinks", null]]);
     expect(() => render()).not.toThrow();
   });
 });

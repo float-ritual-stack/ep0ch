@@ -24,7 +24,7 @@ fn every_primitive_type_the_service_answers_has_a_builder_and_no_builder_is_for_
         assert!(entry.describe.len() > 20, "`{}` says how it is drawn here", entry.ty);
     }
     // The registry is what `actions` over the control socket says of it: read from the entries, written nowhere else.
-    let said = crate::tiles::described();
+    let said = crate::tiles::described(&garden(ok()).app);
     assert_eq!(said["primitives"].as_array().unwrap().len(), prim::PRIMS.len());
     assert_eq!(said["primitives"][0], json!({ "type": prim::PRIMS[0].ty, "describe": prim::PRIMS[0].describe, "fills": prim::PRIMS[0].fills }));
 }
@@ -171,11 +171,17 @@ fn example_window(component: &Value) -> rune::Runtime<crate::actions::App> {
     let page = component["page"].clone();
     let answers: Answers = Box::new(move |ask| match ask["action"].as_str().unwrap_or("") {
         "ping" => Ok(json!({ "status": "ready", "protocolVersion": crate::client::PROTOCOL, "location": { "machine": "box" }, "outline": { "name": "garden" } })),
-        "blocks.read" => Ok(json!({ "generation": 0, "blocks": if ask["under"].is_null() { json!([{ "id": "example", "title": page["title"], "hasChildren": false }]) } else { json!([]) } })),
+        // The outline is the one note, as its tree lists it; the lists about it are empty.
+        "lists.read" => Ok(match ask["from"].as_str().unwrap_or("") {
+            "sources" => json!({ "from": "sources", "list": { "type": "list", "rows": served()["sources"] }, "anyChange": true }),
+            "children" => json!({ "from": "children", "list": { "type": "list", "arrange": "tree", "rows": [{ "id": "example", "label": page["title"], "act": "open id=\"example\"" }] }, "open": [], "anyChange": true }),
+            from => json!({ "from": from, "list": { "type": "list", "rows": [] }, "anyChange": true }),
+        }),
         "notes.page" => Ok(json!({ "blockId": "example", "revision": 1, "title": page["title"], "text": page["text"], "chips": page["chips"], "properties": [], "parts": page["parts"], "hero": page["hero"],
             "ancestors": [], "children": [], "backlinks": [], "updated": "2031-04-01T09:00:00.000Z", "author": "user" })),
         "media.read" => Ok(json!({ "path": ask["path"], "mime": "image/svg+xml", "from": "file", "base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, SUN) })),
-        "screens.list" => Ok(json!({ "screens": [], "problems": [], "anyChange": true })),
+        // The screens and kinds every door ships, as the service answers them (outline-core's fixture): the window opens on the desk.
+        "screens.list" => Ok(json!({ "screens": served()["screens"], "kinds": served()["kinds"], "problems": [], "anyChange": true })),
         "events.subscribe" => Ok(json!({ "subscribed": true })),
         action => Err(("failed", format!("no action {action}"))),
     });

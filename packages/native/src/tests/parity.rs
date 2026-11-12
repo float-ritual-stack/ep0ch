@@ -24,8 +24,10 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
         ("dock.toggle", "dock.toggle side=left") => vec!["tile.dock edge=left tile=tree"],
         ("layout.undo", _) => vec!["tile.split"],
-        // The screen this window ships is saved under a name of the person's own first.
+        // An extension's screen is saved under a name of the person's own first.
         ("screen.save", _) => vec!["screen.save name=Beds"],
+        // A list's own actions run on a list tile: the garden's own screen has one, named as the examples name it.
+        ("list.pick" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
         _ => vec![],
     };
     match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), _ => {} }
@@ -56,7 +58,11 @@ fn cases() -> Vec<Case> {
 
 /// A garden in the state the case needs, drawn.
 fn ready(case: &Case) -> Runtime<App> {
-    let mut app = garden(ok()).app;
+    let mut g = garden(ok());
+    // The outline has a screen of its own, as the examples name it: a list of the beds beside a reader.
+    screens_are(&mut g, serde_json::json!([screen_row("garden-work", serde_json::json!({ "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [
+        { "t": "leaf", "kind": "screens.query", "role": "query", "name": "beds", "query": "type=chore", "wires": [{ "verb": "select", "to": "reader" }] }, { "t": "leaf", "kind": "screens.reader", "role": "reader", "name": "reader" }] } }), serde_json::json!([]))]));
+    let mut app = g.app;
     for line in setup(case.action, &case.line, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
     let mut rt = window(app);
     rest(&mut rt);
@@ -140,7 +146,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "bar.narrow", "tree.pick", "tree.fold", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

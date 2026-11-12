@@ -196,6 +196,45 @@ fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
     ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
 }
 
+/// What a tile's kind is and what a screen is are the service's rows (`screens.list`); what a list's rows are is the
+/// service's answer (`lists.read`). The window keeps no catalogue, compiles no screen in, asks no other read for a
+/// list and builds no act line for a row: a second place that knows any of these is a second vocabulary.
+#[test]
+fn kinds_screens_and_a_list_s_rows_are_the_service_s_and_the_window_keeps_no_copy() {
+    // No catalogue and no screen compiled in; the drawers the two lists replaced are gone.
+    for gone in ["static KINDS", "static SOURCES", "fn shipped(", "From::Shipped", "screen::default(", "struct Hits", "struct Matches", "struct TreeLine", "fn tree_of(", "fn level_ask(", "fn inspector("] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!manifest.join("screens").exists(), "the window ships no screens: they are the screens extension's");
+    for gone in ["src/tiles/tree.rs", "src/tiles/about.rs"] { assert!(!manifest.join(gone).exists(), "{gone}: a tree and what is about a note are lists, drawn by tiles/list.rs") }
+    none("a screen or a kind catalogue compiled in", strays("include_str!(", |path| path == "main.rs"));
+    // Rows come from one read. The reads the window mapped to rows itself are asked by nobody here.
+    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\"", "\"extensions.list\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    none("lists.read asked from somewhere new (a tile's is App::list_ask, the bar's bar::ask)", strays("\"lists.read\"", |path| path == "actions/app.rs" || path == "bar.rs"));
+    none("the screens asked from somewhere new", strays("\"screens.list\"", |path| path == "actions/app.rs"));
+    // A row's act line is the row's own: nothing under the list drawer or the bar writes an open for a row.
+    none("an act line written for a list's row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line("].iter().flat_map(|line| strays(line, |path| !["tiles/list.rs", "bar.rs", "list.rs"].contains(&path))).collect());
+    // A kind is found by the service's row (`App::kind_row`), never compared by name.
+    none("a tile's kind compared with a name: ask its row (`App::kind_row`, `App::drawer_of`)", ["spec.kind == \"", "s.kind == \"", "kind: \""].iter().flat_map(|test| strays(test, |path| path.starts_with("layout"))).collect());
+    none("a drawer looked up by a name written here: a kind's row names it", calls("drawer", |path| path == "tiles/mod.rs"));
+    // What a list tile sends is what its source says it reads: no list of parameters, and no property key, lives here.
+    let texts = sources();
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").unwrap().1;
+    assert!(app.contains("for name in self.source_params(from)?"), "a list's parameters are read from its source's own row");
+    none("a property a list is grouped, sorted or filtered by, named in the window", ["work-stage", "work-id", "\"outbox\"", "\"stage\""].iter().flat_map(|key| strays(key, |_| false)).collect());
+}
+
+/// The renderer seam: Rune is the shell's, the drawers', the bar's, the one list's, the key table's, the control
+/// socket's and main's. The model (the layout, the actions, the screens and kinds, the act-line grammar, the wire's
+/// shapes) names no Rune type, so another renderer could draw the same state. The four files left that do are
+/// named: each holds a kit editor's text or a waker, not a drawing.
+#[test]
+fn rune_is_named_only_by_what_draws_and_the_four_files_left() {
+    let draws = |path: &str| ["shell.rs", "bar.rs", "list.rs", "keys.rs", "control.rs", "main.rs"].contains(&path) || path.starts_with("tiles/");
+    let left = ["actions/app.rs", "actions/draft.rs", "store.rs", "client.rs"];
+    none("Rune named in the model: draw it in a drawer, the shell or the bar", ["rune::", "rune_kit::", "use rune"].iter().flat_map(|word| strays(word, |path| draws(path) || left.contains(&path))).collect());
+    for path in left { assert!(sources().iter().any(|(p, text)| p == path && text.contains("rune::")), "{path} names Rune no more: take it off the list") }
+}
+
 /// Which host and outline the window opens, and where its control socket is, is the door's rule (`resolveTarget`
 /// and `placeFor`, asked through resolve.ts): the window reads no outline or host setting itself, and the socket's
 /// name is the door's own (`DOORS`), so `--door native` looks where the window serves.

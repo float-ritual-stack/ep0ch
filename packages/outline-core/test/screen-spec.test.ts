@@ -10,7 +10,7 @@ import { actionRow, isKeyName, type ActionRow } from "../src/action-row";
 import {
   AGENT_LEVELS, canonKind, containerKeys, groupSpec, isAgentLevel, leafNames, matches, menuRowProblem, newNoteRule, parseTileAddress, partSpec, policyOf, readSpec, resolveAddress, resolveRelative,
   savedNodes, screenNameProblem, screenParts, screenSlug, slotNames, specData, tileNameProblem, whyNone, WIRE_VERBS, OPEN_RULES, ALT_RULES, POLICY_KEYS,
-  type AddressCandidate, type LayoutSpec, type ScreenSpec, type TileAddress,
+  type AddressCandidate, type LayoutSpec, type ScreenSpec, type TileAddress, targetFilled,
 } from "../src/screen-spec";
 
 const table = <T>(file: string): T => JSON.parse(readFileSync(join(import.meta.dir, "../fixtures", file), "utf8")) as T;
@@ -26,13 +26,28 @@ describe("a screen's spec, read back (readSpec)", () => {
   });
 
   test("the kinds are checked only when the caller says which exist", () => {
-    const spec = screens.find(s => s.name === "lastcall")!.spec;
+    // (Last callers as the screens extension ships it: no longer one of the door's own screens, so not in its table.)
+    const spec = readSpec({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "reader" }] } } });
     expect(readSpec(spec, kind => kind === "activity" || kind === "reader")).toEqual(spec);
     expect(() => readSpec(spec, kind => kind === "reader")).toThrow(/no tile kind activity here/);
     // A retired name for a kind is asked by the kind it is now.
     const asked: string[] = [];
     readSpec({ name: "old", title: "old", layout: { root: { t: "leaf", kind: "detail", name: "detail" } } }, kind => (asked.push(kind), true));
     expect(asked).toEqual(["reader"]);
+  });
+
+  test("a screen opened on a target carries it in the tile and field its spec says, and one that names a tile it hasn't is refused", () => {
+    const beds = { name: "beds", title: "Beds", target: { arg: "query", fills: "list.query" }, start: true, layout: { root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "query", name: "list" }, { t: "leaf", kind: "reader", name: "reader" }] } } };
+    const spec = readSpec(beds);
+    expect([spec.start, spec.target]).toEqual([true, { arg: "query", fills: "list.query" }]);
+    const leaves = (s: typeof spec) => (s.layout.root as { kids: Record<string, unknown>[] }).kids;
+    expect(leaves(targetFilled(spec, { query: " type=bed " }))[0]).toMatchObject({ name: "list", query: "type=bed" });
+    // No target given, a blank one, or a spec that takes none: the spec as it is, and never changed in place.
+    expect(targetFilled(spec, {})).toBe(spec);
+    expect(targetFilled(spec, { query: "  " })).toBe(spec);
+    expect(leaves(spec)[0]!.query).toBeUndefined();
+    expect(() => readSpec({ ...beds, target: { arg: "query", fills: "shed.query" } })).toThrow("its target fills shed.query, a tile its layout hasn't");
+    expect(() => readSpec({ ...beds, target: { arg: "query" } })).toThrow("target is { arg, fills }");
   });
 
   test("a bad spec is refused with what's wrong", () => {

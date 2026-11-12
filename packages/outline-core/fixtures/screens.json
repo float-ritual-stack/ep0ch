@@ -14,9 +14,6 @@
     {"name":"keys","target":"filter","spec":{"name":"keys","title":"keys","digits":false,"layout":{"focus":"keys","root":{"t":"leaf","kind":"keys","name":"keys","state":{"screen":true}}}}},
     {"name":"settings","target":"ext","spec":{"name":"settings","title":"settings","lands":"card","layout":{"focus":"index","root":{"t":"flow","key":"settings","anchor":1,"held":[0,1],"kids":[{"t":"leaf","kind":"settings-index","name":"index","wires":[{"verb":"select","to":"card"},{"verb":"open","to":"card"}]},{"t":"leaf","kind":"settings","name":"card","args":{"fills":true}}]}}}},
     {"name":"detail","target":"note","spec":{"name":"detail","title":"detail","lands":"detail","digits":false,"layout":{"focus":"detail","root":{"t":"leaf","kind":"reader","name":"detail"}}}},
-    {"name":"home","spec":{"name":"home","title":"home base","band":"home","digits":false,"layout":{"focus":"home","policy":{"host":"none"},"root":{"t":"leaf","kind":"home","name":"home","state":{}}}}},
-    {"name":"navigator","target":"query","spec":{"name":"navigator","title":"navigator","lands":"reader","layout":{"focus":"facets","root":{"t":"flow","key":"navigator","anchor":1,"held":[0,1,2],"kids":[{"t":"leaf","kind":"facets","name":"facets","args":{"place":"tile","open":["views"]}},{"t":"leaf","kind":"matches","name":"matches","source":"tile:facets","wires":[{"verb":"select","to":"reader"},{"verb":"open","to":"reader"}]},{"t":"leaf","kind":"reader","name":"reader"}]}}}},
-    {"name":"who","spec":{"name":"who","title":"who's online","layout":{"focus":"who","root":{"t":"leaf","kind":"who","name":"who"}}}},
-    {"name":"lastcall","spec":{"name":"lastcall","title":"last callers","layout":{"focus":"activity","root":{"t":"split","dir":"row","weights":[0.5,0.5],"kids":[{"t":"leaf","kind":"activity","name":"activity"},{"t":"leaf","kind":"reader","name":"reader"}]}}}}
+    {"name":"home","spec":{"name":"home","title":"home base","band":"home","digits":false,"layout":{"focus":"home","policy":{"host":"none"},"root":{"t":"leaf","kind":"home","name":"home","state":{}}}}}
   ]
 }

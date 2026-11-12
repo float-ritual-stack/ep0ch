@@ -7,6 +7,7 @@
 //! - `store.rs`: one slot an ask, the watch budget, what the service dropped.
 //! - `contract.rs`: every row of the door's layout and place tables, asked of `layout::apply` and `layout::place`.
 //! - `shell.rs`: tiles and screens: one test a container kind, where opens land, a screen saved, broken and reset.
+//! - `lists.rs`: one list, whatever it is of: lanes, a table, facets as chips, the shipped screens opened from the bar.
 //! - `actline.rs`: the act-line grammar and the action rows against outline-core's fixtures.
 //! - `parts.rs`: a page's parts through the primitive registry: every type has a builder, a button runs here or is
 //!   the service's, a script's act is run and answered, and every component's own example is drawn (the coverage table).
@@ -18,6 +19,7 @@ mod actline;
 mod contract;
 mod control;
 mod garden;
+mod lists;
 mod live;
 mod one_owner;
 mod owners;

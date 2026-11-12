@@ -191,7 +191,8 @@ fn spine_fits(s: &Layout, keep: &(Id, At), area: Rect) -> bool {
     let before = s.unzoomed().rects(area, &|_| false);
     const SPINE_ID: &str = "\u{0}spine";
     let mut with = s.unzoomed();
-    *with.tree_mut() = put_at(s.tree().clone(), TileSpec::new(SPINE_ID, "reader"), &keep.1);
+    let kind = s.spec(&keep.0).map_or("tile", |spec| spec.kind.as_str());
+    *with.tree_mut() = put_at(s.tree().clone(), TileSpec::new(SPINE_ID, kind), &keep.1);
     spine_weights(with.tree_mut(), &keep.0, SPINE_ID, &before);
     with.collapsed.set(SPINE_ID, Fold::default());
     let after = with.rects(area, &|_| false);

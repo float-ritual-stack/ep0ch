@@ -5,12 +5,14 @@
  *
  * - `notes.page`: everything a client draws of one note (note-page.ts).
  * - `screens.list`, `screens.save`: the outline's screens (screens.ts).
+ * - `lists.read`: one list, whatever it is of (list-producers.ts).
  *
  * A read here that is asked with `watch` is kept by `QueryWatches.askLater`: answered now, and again on each pass
  * that reaches it, with `queries.changed` when the answer moved.
  */
 import type { OutlinerResponse } from "@ep0ch/outline-core/protocol";
 import { isWatchedLater } from "./actions";
+import { readList } from "./list-producers";
 import { servedPage } from "./note-page";
 import type { QueryWatches, WatchConnection } from "./query-watches";
 import { refusalEnvelope } from "./request-envelope";
@@ -39,6 +41,7 @@ export function answeredInModule(request: OutlinerRequest, connection: WatchConn
     case "notes.page": return answered(request, connection, host, () => servedPage(host.own, host.require, request.blockId, host.address()));
     case "screens.list": return answered(request, connection, host, () => listScreens(host.own, request));
     case "screens.save": return answered(request, connection, host, () => saveScreen(host.own, request));
+    case "lists.read": return answered(request, connection, host, () => readList(host.own, request));
     default: return null;
   }
 }

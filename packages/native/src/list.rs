@@ -1,6 +1,6 @@
-//! The one list: rows built by index, only the ones in view. The bar's rows and a tree tile's are it today; lanes
-//! and the tiles that follow a note are it next. Whoever lists gives a count, a key and a builder a row, and
-//! finds each row's item by that key, never by where it sat.
+//! The one list: rows built by index, only the ones in view. The bar's rows and every list tile's are it: a tree, a
+//! table, rows under their groups and each lane of a board. Whoever lists gives a count, a key and a builder a row,
+//! and finds each row's item by that key, never by where it sat.
 use std::borrow::Cow;
 
 use rune::{El, GrowthSpec, ScrollSpec, col};

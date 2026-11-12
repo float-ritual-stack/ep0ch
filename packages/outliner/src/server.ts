@@ -512,9 +512,9 @@ export class OutlinerServer {
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
         heldBy(`open ${this.outline?.name ?? "outline"}: handler lines`, () => this.extensionCalls?.registryChanged());
-        // Clients read the list again on the event: its resource providers are current by then.
+        // Clients read the list again on the event: its resource providers are current by then. Watched answers made from the registry (the screens) are asked again too.
         void this.refreshResourceProviders().finally(() => {
-          if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+          if (!this.stopping) { this.watches.changed(); this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }); }
         });
       },
       // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).

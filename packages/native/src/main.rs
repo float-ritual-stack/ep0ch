@@ -1,7 +1,7 @@
 //! ep0ch as a native window. `ep0ch-native [--ws <name>] [--machine <ssh-name>]` opens the outline the usual rule
 //! names (`--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`) on a screen: tiles arranged by a layout, each drawn
-//! by its kind's drawer, with the command bar over all of it. The screen it ships is the outline's tree, a
-//! reader, and what the service knows about the open note in a dock.
+//! by its kind's drawer, with the command bar over all of it. It ships no screen and no tile kind: both are the
+//! service's rows (the screens extension has the ones every door ships), and it opens on the one that says so.
 //!
 //! It speaks the outline host's socket and draws what the host answers: see the README beside Cargo.toml.
 //! Every change is an act line through one dispatcher (`actions/`), whoever asks: a key (`keys.rs`), a press
@@ -56,14 +56,10 @@ fn init() -> App {
         }
         Err(why) => App::new(Box::new(Nowhere(Some(why))), ""),
     };
-    let mut app = app.blocking(headless);
+    // The screen it opens on is asked of the service's list, when that has come: a headless render waits for it.
+    let mut app = app.blocking(headless).opening_on(flag("--screen"));
     app.start();
     if headless { app.settle(); }
-    if let Some(name) = flag("--screen") {
-        let opened = app.act(&format!("screen.open name={}", actions::word(&name)), actions::Actor::Person);
-        if !opened.ok { eprintln!("ep0ch-native: {}", opened.said) }
-        if headless { app.settle(); }
-    }
     if let Some(file) = flag("--act") {
         match std::fs::read_to_string(&file) {
             Ok(lines) => { app.script(&lines); }

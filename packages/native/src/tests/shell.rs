@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 use super::support::*;
 use crate::actions::{Actor, App, CELL};
 use crate::layout::tree::Node;
-use crate::screen;
 use crate::tiles;
 
 fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
@@ -115,17 +114,21 @@ fn a_float_is_drawn_over_the_tiles_where_it_was_left() {
     assert_eq!(order, ["tile/bed", "tile/roots"], "the float is drawn after the tile it is over");
 }
 
-/// Every kind a shipped screen names is one this window draws, and every act line of its toolbar is an action here.
+/// Every kind a shipped screen names is one the service's rows give a drawer this window has, and every act line of
+/// its toolbar is an action here: the screens extension, as the service answers it, opens whole in this window.
 #[test]
 fn every_kind_a_shipped_screen_names_resolves_and_its_toolbar_is_act_lines() {
-    let shipped = screen::shipped();
-    assert!(shipped.iter().any(|s| s.name == screen::DEFAULT));
+    let g = garden(ok());
+    let shipped = g.app.screens();
+    assert_eq!(shipped.iter().filter(|s| s.starts()).count(), 1, "one screen says a window starts on it");
+    assert!(shipped.len() >= 5, "{:?}", shipped.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
     for screen in shipped {
+        assert!(screen.problems.is_empty(), "{}: {:?}", screen.name, screen.problems);
         let layout = screen.layout().unwrap_or_else(|| panic!("{} has a layout", screen.name));
         for id in layout.all() {
             let spec = layout.spec(&id).unwrap();
-            let row = tiles::kind(&spec.kind).unwrap_or_else(|| panic!("{}: no kind {} here", screen.name, spec.kind));
-            assert!(tiles::drawer(row.drawer).is_some(), "{}: {} has a drawer", screen.name, spec.kind);
+            let row = g.app.kind_row(&spec.kind).unwrap_or_else(|| panic!("{}: no kind {} here", screen.name, spec.kind));
+            assert!(tiles::drawer_of(row).is_some(), "{}: {} has a drawer", screen.name, spec.kind);
             // What it names by name is in its layout.
             if let Some(source) = spec.text("source").and_then(|s| s.strip_prefix("tile:")) { assert!(layout.named(source).is_some(), "{}: {} follows {source}, which it hasn't", screen.name, layout.name(&id)) }
         }
@@ -225,7 +228,7 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     let sent = asked.borrow().iter().rev().find(|a| a["action"] == "screens.save").cloned().expect("the screen was saved");
     assert_eq!((sent["spec"]["name"].as_str(), sent["spec"]["title"].as_str(), sent["base"].is_null(), sent["mutation"]["author"].as_str()), (Some("Garden work"), Some("Garden work"), true, Some("user")));
     assert_eq!(sent["spec"]["layout"], rt.state.layout.save(), "its layout is the arrangement, in the door's saved form");
-    assert_eq!(sent["spec"]["toolbar"], json!(screen::default().toolbar()), "and the screen's own fields stay");
+    assert_eq!(sent["spec"]["toolbar"], json!(rt.state.screens().iter().find(|s| s.starts()).unwrap().toolbar()), "and the screen's own fields stay");
     assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.contains("every door on this outline opens it")), "{:?}", rt.state.notice);
     assert_eq!(rt.state.screen.note(), Some(("screen-note", 1)), "the arrangement is that note's screen now");
 
@@ -274,7 +277,7 @@ fn undo_after_a_screen_is_opened_goes_back_to_the_screen_it_was() {
     assert_eq!(g.app.layout.save(), before, "the arrangement is the one before the screen was opened");
     assert_eq!((g.app.screen.name.as_str(), g.app.screen.note()), ("desk", None), "and it is that screen's again, not the one undone");
     let saved = act(&mut g.app, "screen.save");
-    assert!(!saved.ok && saved.said.contains("ships with this window"), "a save now is the desk's, never written over beds: {}", saved.said);
+    assert!(!saved.ok && saved.said.contains("extension's screen: a screen you make takes a name of its own"), "a save now is the desk's, never written over beds: {}", saved.said);
     assert!(!g.asked.borrow().iter().any(|a| a["action"] == "screens.save"));
     // One more step back is the split, on the same screen.
     assert!(act(&mut g.app, "layout.undo").ok);

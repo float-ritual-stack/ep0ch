@@ -54,7 +54,9 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // The tile it is made from: the one aimed at, else the one with the keys. The screen's rule for a new note
     // made there may be another action altogether (a board's lane makes a card).
     let from = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
-    let rule = app.spec(&from).map(|spec| spec.kind.clone()).and_then(|kind| app.screen.new_note(&kind).cloned());
+    // A rule names kinds as screens save them: the tile's kind by any name its row answers to.
+    let named: Vec<String> = app.spec(&from).map(|spec| spec.kind.clone()).into_iter().chain(app.kind_of(&from).into_iter().flat_map(|row| std::iter::once(row.kind.clone()).chain(row.replaces.iter().cloned()))).collect();
+    let rule = named.iter().find_map(|kind| app.screen.new_note(kind).cloned()).or_else(|| app.screen.new_note("").cloned());
     if by.is_person() && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
         let given = rule.as_ref().and_then(|rule| rule["args"].as_object()).cloned().unwrap_or_default();
         return app.act(&crate::actline::line_of(action, &given), by.clone());
@@ -122,7 +124,7 @@ fn trashed(app: &mut App, reply: Reply) {
     app.st.notice = Some(Notice { undo: Some(format!("note.untrash id={}", word(&note))), ..Notice::info(said) });
     // A note on screen is gone: each reader that showed it moves to the note above it, whoever trashed it.
     for tile in app.layout.all() {
-        if app.ui(&tile).note.as_deref() == Some(note.as_str()) || (app.ui(&tile).note.is_none() && app.spec(&tile).is_some_and(|s| s.kind == "reader") && app.note_of(&tile).as_deref() == Some(note.as_str())) { app.ui_mut(&tile).note = parent.clone() }
+        if app.ui(&tile).note.as_deref() == Some(note.as_str()) || (app.ui(&tile).note.is_none() && app.reads_notes(&tile) && app.note_of(&tile).as_deref() == Some(note.as_str())) { app.ui_mut(&tile).note = parent.clone() }
         if app.ui(&tile).history.contains(&note) { app.ui_mut(&tile).history.retain(|id| *id != note) }
     }
     app.wrote(&[parent]);

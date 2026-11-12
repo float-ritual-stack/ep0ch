@@ -373,6 +373,9 @@ export const ACTIONS = {
   // watched as `notes.page` is: its answer takes a turn (`QueryWatches.askLater`).
   "screens.list": { read: true, async: true, watch: "later" },
   "screens.save": { async: true },
+  // One list, whatever it is of (list-producers.ts): a tree, a query's matches, a search, a note's links, lanes, facets,
+  // the screens. Watched as `notes.page` is.
+  "lists.read": { read: true, async: true, watch: "later" },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
   "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },

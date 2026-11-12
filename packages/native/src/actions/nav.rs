@@ -42,8 +42,9 @@ pub(super) fn go(app: &mut App, id: &str, by: &Actor, remember: bool) -> Outcome
 /// from is somewhere to go back to. This is the one place an open is placed; the tile it landed in is answered.
 pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) -> Outcome {
     let id = request.note.clone();
-    // A tile made for it is named, and its name is its id.
-    let sprout = TileSpec::new(app.layout.auto_name("reader", &[]), "reader");
+    // A tile made for it is named, and its name is its id: a tile of the kind the service says reads notes.
+    let Some(kind) = app.note_kind().map(|row| row.saved().to_string()) else { return Outcome::refused("no tile kind here reads notes: the service lists none") };
+    let sprout = TileSpec::new(app.layout.auto_name(&kind, &[]), kind);
     let landing = app.asked(by, |ctx| layout::place(&app.layout, &request, &sprout, ctx));
     let (name, why) = (landing.tile.clone(), landing.why.clone());
     let done = match landing.after {

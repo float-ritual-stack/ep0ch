@@ -5,7 +5,6 @@ use super::{Action, Actor, App, Outcome};
 use crate::actline::Args;
 use crate::layout::tree::neighbour;
 use crate::layout::{At, Dir, Op, Place, TileSpec};
-use crate::tiles;
 
 static SPLIT: ActionRow = ActionRow::new("tile.split", Touches::Shape, "a new tile beside this one (tile=, else the one with the keys): on its right unless dir= says another side. A reader's split shows the same note; kind= makes another kind")
     .args(&[
@@ -58,14 +57,24 @@ fn target(app: &App) -> String { app.aimed.clone().unwrap_or_else(|| app.layout.
 fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let from = target(app);
     let own = app.spec(&from).map(|spec| spec.kind.clone()).unwrap_or_default();
-    let kind = args.text("kind").map(str::to_string).unwrap_or_else(|| if tiles::kind(&own).is_some_and(|row| row.notes) { own.clone() } else { "reader".into() });
+    // The new tile's kind: the one named, as the service's rows know it; else this tile's when it reads notes, else
+    // the kind that does.
+    let reads = |kind: &str| app.kind_row(kind).and_then(crate::tiles::drawer_of).is_some_and(|drawer| drawer.notes);
+    let kind = match args.text("kind") {
+        Some(asked) => match app.kind_row(asked) { Some(row) => row.saved().to_string(), None => return Outcome::refused(format!("no tile kind {asked} here · the kinds: {}", app.kinds().iter().map(|row| row.saved()).collect::<Vec<_>>().join(", "))) },
+        None if reads(&own) => app.kind_row(&own).map_or(own.clone(), |row| row.saved().to_string()),
+        None => match app.note_kind() { Some(row) => row.saved().to_string(), None => return Outcome::refused("no tile kind here reads notes: name one with kind=") },
+    };
+    // The same kind, by whichever of its names each tile carries.
+    let same = app.kind_row(&own).map(|row| &row.kind) == app.kind_row(&kind).map(|row| &row.kind);
     let dir = args.text("dir").and_then(Dir::read).unwrap_or(Dir::Right);
     // A tile made here is named, and its name is its id.
-    let name = args.text("name").map(str::to_string).unwrap_or_else(|| app.layout.auto_name(&kind, &[]));
+    let stem = app.kind_row(&kind).map_or(kind.clone(), |row| row.saved().to_string());
+    let name = args.text("name").map(str::to_string).unwrap_or_else(|| app.layout.auto_name(&stem, &[]));
     let mut spec = TileSpec::new(name.clone(), kind.clone());
     // A split of a follower follows what it followed.
-    if kind == own && let Some(source) = app.spec(&from).and_then(|s| s.fields.get("source")).cloned() { spec.fields.insert("source".into(), source); spec.fields.insert("subject".into(), "follows".into()); }
-    let note = app.note_of(&from).filter(|_| tiles::kind(&kind).is_some_and(|row| row.notes) && kind == own);
+    if same && let Some(source) = app.spec(&from).and_then(|s| s.fields.get("source")).cloned() { spec.fields.insert("source".into(), source); spec.fields.insert("subject".into(), "follows".into()); }
+    let note = app.note_of(&from).filter(|_| reads(&kind) && same);
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }
     outcome

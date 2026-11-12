@@ -14,6 +14,7 @@ mod app;
 mod bar;
 mod draft;
 mod layout;
+mod list;
 mod nav;
 mod note;
 pub mod row;
@@ -25,7 +26,7 @@ mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, CELL, Editing, Field, Notice, Said, Shown, TileUi, Tone, TreeLine};
+pub use app::{App, CELL, Editing, Field, Notice, Said, Shown, TileUi, Tone};
 pub use row::ActionRow;
 
 use crate::actline::{self, Args};
@@ -92,7 +93,7 @@ pub struct Action {
     pub run: fn(&mut App, &Args, &Actor) -> Outcome,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }

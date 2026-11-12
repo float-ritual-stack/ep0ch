@@ -1,6 +1,7 @@
 //! The `page` drawer: one note as the service answered it (`notes.page`), drawn by walking its parts through the
-//! primitive registry (`prim.rs`): nothing here reads Blockdown, and nothing here knows a figure from a button. The reader tile is its one kind today, and
-//! the note's source in the editor is drawn here while the draft is on this tile.
+//! primitive registry (`prim.rs`): nothing here reads Blockdown, and nothing here knows a figure from a button.
+//! Whichever kinds the service's rows give this drawer are tiles it draws, and the note's source in the editor is
+//! drawn here while the draft is on this tile.
 use std::hash::{Hash, Hasher};
 
 use rune::{El, ScrollSpec, col, row, text};
@@ -11,11 +12,11 @@ use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use crate::actions::{self, Field, Shown};
 use crate::keys::{self, Layer};
-use crate::page::{NoteRow, Page};
+use crate::page::Page;
 use crate::parts;
 use crate::store::Ask;
 
-pub static DRAWER: Drawer = Drawer { id: "page", asks, draw, facts, takes_keys: false, version };
+pub static DRAWER: Drawer = Drawer { id: "page", about: "one note as the service answers it: read, and written in its source", notes: true, lists: false, asks, draw, facts, takes_keys: false, version };
 
 fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> { cx.app.note_of(cx.id).map(|note| ("page", cx.app.page_ask(&note))).into_iter().collect() }
 
@@ -48,11 +49,6 @@ fn version(cx: &TileCx) -> u64 {
 fn button(cx: &TileCx, line: &str, variant: ButtonVariant) -> Button {
     let b = Button::new(actions::label(line)).variant(variant).on_press(cx.act(line));
     match keys::cap(line) { Some(cap) => b.shortcut(cap), None => b }
-}
-
-/// A note in a list (a child, a backlink): press to open. The registry's own row.
-pub(super) fn link_row(cx: &TileCx, r: &NoteRow, scope: &str, k: &Kit) -> El {
-    prim::line(cx, if r.title.is_empty() { "untitled" } else { &r.title }, Some(&r.id), Vec::new(), (!r.context.is_empty()).then_some(r.context.as_str()), cx.key(format!("{scope}/{}", r.id)), k)
 }
 
 /// The page, walked: what stands above its parts, each part, what stands under them, every one a primitive built

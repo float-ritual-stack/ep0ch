@@ -1,0 +1,71 @@
+#!/usr/bin/env bun
+// The native window is forkable: it ships no screen and no tile kind of its own. The ones every door ships are one
+// extension's (packages/outliner/extensions/screens), read the way any extension's are, so a person changes what
+// the window opens on by forking that extension or saving a screen note, never by building the window again.
+//
+// This fails when packages/native/src names a shipped screen or kind: a quoted word that is one of them, or an act
+// line that names one (`screen.open name=desk`, `kind=reader`). Tests are not source (they name them to test them).
+// A word that is also something else's own (a list's arrangement `tree`, the list source `query`) is allowed where
+// it is that, by file and with why; `--why` prints the allowances. Run at the repository root.
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+
+const root = join(import.meta.dir, "..");
+const src = join(root, "packages/native/src");
+const manifest = JSON.parse(readFileSync(join(root, "packages/outliner/extensions/screens/extension.json"), "utf8")) as {
+  id: string; screens: { name: string }[]; tiles: { kind: string; drawer?: string; replaces?: string[] }[];
+};
+const screens = manifest.screens.map(s => s.name);
+const kinds = [...new Set(manifest.tiles.flatMap(t => [t.kind, `${manifest.id}.${t.kind}`, ...(t.replaces ?? [])]))];
+const shipped = new Set([...screens, ...kinds]);
+
+/** A shipped name that is also another thing's own word, where it is that: `file` under src/, the quoted word, and why. */
+const ALLOWED: { file: string; word: string; why: string }[] = [
+  { file: "tiles/list.rs", word: "tree", why: "a list's arrangement, the list primitive's own word (`arrange: tree`)" },
+  { file: "actions/app.rs", word: "tree", why: "a list's arrangement, the list primitive's own word (`arrange: tree`)" },
+  { file: "actions/app.rs", word: "query", why: "the list request's parameter for its question (`ListsRequest.query`)" },
+  { file: "actions/bar.rs", word: "query", why: "the list source a question is typed on (`lists.read from=query`), named by the bar's own key row" },
+  { file: "tiles/prim.rs", word: "query", why: "a part's own field: the question its component asks (`PagePart.query`), and the element that shows it" },
+  { file: "layout.rs", word: "backlinks", why: "the door's saved form before wires (`link` with no `linkRole`), read as the door reads it" },
+  { file: "layout/tree.rs", word: "reader", why: "an open rule's name (`opens: reader`), the door's word for where an open lands, and what the retired `detail` and `pinned` read as" },
+  { file: "layout/placement.rs", word: "reader", why: "the door's rule for a new note as a tab, by language: a container's `accepts` and a tile's `tabs` name the kind that reads notes as screens write it" },
+];
+
+const files: string[] = [];
+const walk = (dir: string) => { for (const name of readdirSync(dir)) { const at = join(dir, name); if (statSync(at).isDirectory()) { if (name !== "tests") walk(at); } else if (name.endsWith(".rs")) files.push(at); } };
+walk(src);
+
+if (process.argv.includes("--why")) { for (const a of ALLOWED) console.log(`${a.file}: "${a.word}": ${a.why}`); process.exit(0); }
+
+const found: string[] = [];
+const used = new Set<string>();
+for (const file of files) {
+  const rel = relative(src, file);
+  for (const [n, line] of readFileSync(file, "utf8").split("\n").entries()) {
+    if (line.trimStart().startsWith("//")) continue;
+    const hits = new Set<string>();
+    // A quoted word that is a shipped name; an act line or a refusal that names one by `name=` or `kind=`.
+    for (const m of line.matchAll(/"((?:[^"\\]|\\.)*)"/g)) {
+      const text = m[1]!;
+      // (A quoted word before a colon is a key of a JSON object being written, which names no kind.)
+      const key = /^\s*:(?!:)/.test(line.slice(m.index! + m[0].length));
+      if (shipped.has(text) && !key) hits.add(text);
+      for (const arg of text.matchAll(/\b(?:name|kind)=([A-Za-z][\w.-]*)/g)) if (shipped.has(arg[1]!)) hits.add(arg[1]!);
+    }
+    for (const word of hits) {
+      const allowed = ALLOWED.find(a => a.file === rel && a.word === word);
+      if (allowed) { used.add(`${allowed.file}\0${allowed.word}`); continue; }
+      found.push(`packages/native/src/${rel}:${n + 1}: names ${screens.includes(word) ? "the shipped screen" : "the shipped kind"} ${word}: ${line.trim().slice(0, 140)}`);
+    }
+  }
+}
+// The window compiles no screen in, and has a drawer for every kind the extension serves for one.
+if (existsSync(join(root, "packages/native/screens"))) found.push("packages/native/screens: a folder of screens the window ships; they are the screens extension's");
+for (const file of files) if (/include_str!\([^)]*screens\//.test(readFileSync(file, "utf8"))) found.push(`packages/native/src/${relative(src, file)}: a screen compiled in`);
+const drawers = new Set([...readFileSync(join(src, "tiles/mod.rs"), "utf8").matchAll(/&(\w+)::DRAWER/g)].map(m => m[1]!));
+for (const tile of manifest.tiles) if (tile.drawer && !drawers.has(tile.drawer)) found.push(`packages/outliner/extensions/screens/extension.json: the kind ${tile.kind} names the drawer ${tile.drawer}, which the window hasn't (${[...drawers].join(", ")})`);
+// An allowance nothing uses any more is taken out, so the list stays what is true.
+for (const a of ALLOWED) if (!used.has(`${a.file}\0${a.word}`)) found.push(`scripts/native-forkable: the allowance for "${a.word}" in ${a.file} matches nothing now: take it out`);
+
+if (found.length) { console.error(`native-forkable: ${found.length} thing(s) to fix\n${found.join("\n")}`); process.exit(1); }
+console.log(`native-forkable: packages/native/src names none of ${screens.length} shipped screens and ${manifest.tiles.length} kinds (${files.length} files; ${ALLOWED.length} words allowed where they are something else's: --why)`);

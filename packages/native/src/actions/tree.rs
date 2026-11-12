@@ -1,6 +1,7 @@
-//! The outline's tree in its tile: picking a row, folding one.
+//! A tree in its tile (a list arranged as a tree): picking a row, folding one. A row is the service's; what a
+//! pick runs is the row's own act line, and where its note opens is the layout's to say.
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
-use super::{Action, Actor, App, Outcome, nav};
+use super::{Action, Actor, App, Outcome};
 use crate::actline::Args;
 
 static PICK: ActionRow = ActionRow::new("tree.pick", Touches::Nothing, "pick a row of the outline tree by id. The person's opens its note and unfolds what is under it; on the note already open it folds or unfolds instead. An agent's shows the row's note in the reader, as `open` does, and folds nothing")
@@ -15,7 +16,8 @@ static FOLD: ActionRow = ActionRow::new("tree.fold", Touches::Nothing, "open (op
 
 pub static ACTIONS: &[Action] = &[Action { row: &PICK, run: pick }, Action { row: &FOLD, run: fold }];
 
-fn folds(app: &App, id: &str) -> bool { app.tree().iter().any(|line| line.row.id == id && line.row.has_children) }
+/// The row of a tree stands for a folder: the service's row says so.
+fn folds(app: &App, tree: &str, id: &str) -> bool { app.rows_of(tree).iter().any(|row| row.id == id && row.folds) }
 
 fn set(app: &mut App, id: &str, open: Option<bool>) {
     let Some(tree) = app.tree_tile() else { return };
@@ -27,19 +29,21 @@ fn set(app: &mut App, id: &str, open: Option<bool>) {
 
 fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let id = args.text("id").unwrap_or("").to_string();
+    let tree = app.tree_tile();
+    // What the pick runs is the row's own act line; a row the tree doesn't list yet is an open of that note.
+    let line = tree.as_ref().and_then(|tree| app.rows_of(tree).iter().find(|row| row.id == id).and_then(|row| row.act.clone())).unwrap_or_else(|| format!("open id={}", super::word(&id)));
     // An agent's pick is an open, by the same rule as any agent's open: asked of the dispatcher, not done round it.
-    if !by.is_person() { return app.act(&format!("open id={}", super::word(&id)), by.clone()) }
-    let Some(tree) = app.tree_tile() else { return Outcome::refused("this screen has no tree to pick a row of") };
+    if !by.is_person() { return app.act(&line, by.clone()) }
+    let Some(tree) = tree else { return Outcome::refused("this screen has no tree to pick a row of") };
     // A press opens the note; on the note the tree marks as open it folds or unfolds what's under it.
     if app.selected_in(&tree).as_deref() == Some(id.as_str()) {
-        if folds(app, &id) { set(app, &id, None) }
+        if folds(app, &tree, &id) { set(app, &id, None) }
         return Outcome::done();
     }
-    let unfold = folds(app, &id);
-    // The open comes from the tree: where it lands is the layout's to say.
-    app.st.aimed = Some(tree);
-    let outcome = nav::go(app, &id, by, true);
-    if outcome.ok && unfold { set(app, &id, Some(true)) }
+    let unfold = folds(app, &tree, &id);
+    // The row's act comes from the tree: where its note lands is the layout's to say.
+    let outcome = app.act(&format!("{line} tile={}", super::word(&app.layout.name(&tree))), by.clone());
+    if outcome.ok && unfold { app.st.aimed = Some(tree); set(app, &id, Some(true)) }
     outcome
 }
 

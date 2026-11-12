@@ -9,7 +9,7 @@ use crate::keys;
 #[test]
 fn the_note_draws_every_part_and_a_row_in_a_component_opens_its_note() {
     let mut rt = window(garden(ok()).app);
-    for key in ["tile/tree/row/plot", "tile/tree/row/shed", "tile/reader/title", "tile/reader/part/0", "tile/reader/part/1", "tile/reader/part/2", "tile/reader/part/3", "tile/reader/part/3/fork", "tile/reader/part/4", "tile/reader/child/fork", "tile/backlinks/backlink/plan", "tile/reader/edit", "tool/bar.open", "tool/bar.open scope=query", "tool/note.new"] {
+    for key in ["tile/tree/row/plot", "tile/tree/row/shed", "tile/reader/title", "tile/reader/part/0", "tile/reader/part/1", "tile/reader/part/2", "tile/reader/part/3", "tile/reader/part/3/fork", "tile/reader/part/4", "tile/reader/child/fork", "tile/backlinks/row/plan", "tile/props/row/type=chore#0", "tile/props/column/property", "tile/reader/edit", "tool/bar.open", "tool/bar.open scope=query", "tool/note.new"] {
         assert!(rt.find(key).is_some(), "{key} is on screen");
     }
     assert!(rt.find("tile/tree/row/onions").is_none(), "a folded folder's notes aren't asked for or built");
@@ -51,7 +51,7 @@ fn a_chip_is_a_query_for_every_note_that_carries_it_and_binning_offers_undo() {
     let asked = g.asked.clone();
     let mut rt = window(g.app);
     press(&mut rt, "tile/reader/chip/type/chore");
-    assert_eq!(last(&asked)["query"]["where"], "type=chore");
+    assert_eq!((last(&asked)["from"].as_str(), last(&asked)["query"].as_str()), (Some("query"), Some("type=chore")));
     assert!(rt.find("bar/field").is_some() && rt.find("bar/facet/area/plot").is_some());
     press(&mut rt, "bar/row/query/beans");
     assert_eq!(rt.state.subject().as_deref(), Some("beans"));
@@ -85,7 +85,7 @@ fn the_bar_opened_by_its_chord_finds_an_action_by_a_word_and_runs_it() {
     typed(&mut rt, "trash");
     assert_eq!(rt.state.bar.edit.text, "trash", "the bar's line has the keys as soon as it is there");
     let rows = crate::bar::rows(&rt.state);
-    assert_eq!((rows[0].source, rows[0].line.as_str(), rows[0].keycap.clone()), ("actions", "note.trash", keys::cap("note.trash")), "the first row is the action named, with its keycap from the table");
+    assert_eq!((rows[0].source.as_str(), rows[0].line.as_str(), rows[0].keycap.clone()), ("actions", "note.trash", keys::cap("note.trash")), "the first row is the action named, with its keycap from the table");
     assert!(rt.find("bar/row/actions/note.trash").is_some() && rt.find("bar/row/actions/note.untrash").is_some());
     chord(&mut rt, Key::Enter, Mods::default());
     let sent = asked.borrow().iter().rev().find(|a| a["action"] == "delete").cloned().expect("the note went to the Trash");

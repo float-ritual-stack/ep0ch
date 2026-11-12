@@ -60,8 +60,7 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     let ancestors = match id { "onions" | "beans" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }]), "fork" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }, { "id": "onions", "title": "Lift the onions", "hasChildren": true }]), _ => json!([]) };
     json!({
         "blockId": id, "revision": revision, "title": title, "text": text,
-        "chips": [{ "key": "type", "value": "chore" }], "properties": [{ "key": "type", "value": "chore" }, { "key": "room", "value": "north" }],
-        "updated": "2026-03-01T09:30:00.000Z", "author": "user", "ancestors": ancestors,
+        "chips": [{ "key": "type", "value": "chore" }], "ancestors": ancestors,
         "parts": [
             part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
             part(id, "links", 3, json!({ "name": "links", "title": "On the plot", "query": "type=chore", "status": "live · 1 match" }),
@@ -74,30 +73,119 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
             part(id, "button", 13, json!({ "name": "button", "sequence": true }), json!({ "type": "button", "label": "Tidy the shed", "act": "tidy" })),
         ],
         "children": [{ "id": "fork", "title": "Take the fork" }],
-        "backlinks": [{ "id": "plan", "title": "Plan for Saturday", "context": "Plot" }],
     })
 }
 
 /// A made-up outline: Plot › (Lift the onions › Take the fork, Water the beans), Shed. `saves`: how `update` answers.
-/// `screens`: the rows the host's `screens.list` answers, for a test to set (then `screens_changed`).
-pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>> }
+/// `screens`: the rows the host's `screens.list` answers beside the shipped ones, for a test to set (then
+/// `screens_are`). `shipped`: whether the screens extension is installed there.
+pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>>, pub shipped: Rc<std::cell::Cell<bool>> }
 
-pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden {
+/// What the service answers with the screens extension installed: its screens, its kind rows and the list sources.
+pub fn served() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/served-screens.json")).expect("the served fixture is JSON") }
+
+/// The garden's notes under a parent (None: the top), as a tree lists them.
+fn under(parent: Option<&str>) -> &'static [(&'static str, &'static str, bool)] {
+    match parent {
+        None => &[("plot", "Plot", true), ("shed", "Shed", false)],
+        Some("plot") => &[("onions", "Lift the onions", true), ("beans", "Water the beans", false)],
+        Some("onions") => &[("fork", "Take the fork", false)],
+        _ => &[],
+    }
+}
+
+fn opens(id: &str) -> String { format!("open id=\"{id}\"") }
+
+/// `lists.read`, as the host would answer it for the garden: a row says what it shows and the act line a pick runs.
+fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: bool) -> Result<Value, (&'static str, String)> {
+    let from = ask["from"].as_str().unwrap_or("");
+    let words = ask["query"].as_str().unwrap_or("");
+    let note = |id: &str, label: &str, detail: &str| json!({ "id": id, "label": label, "detail": detail, "do": { "open": id }, "act": opens(id) });
+    let answer = |list: Value| Ok(json!({ "from": from, "list": list, "anyChange": true }));
+    match from {
+        "sources" => answer(json!({ "type": "list", "arrange": "table", "rows": served()["sources"] })),
+        "children" => {
+            let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            fn walk(parent: Option<&str>, depth: usize, open: &[&str], rows: &mut Vec<Value>, answered: &mut Vec<String>) {
+                for (id, title, folds) in under(parent) {
+                    let unfolded = *folds && open.contains(id);
+                    rows.push(json!({ "id": id, "label": title, "depth": depth, "folds": folds, "open": unfolded, "do": { "open": id }, "act": opens(id) }));
+                    if unfolded { answered.push(id.to_string()); walk(Some(id), depth + 1, open, rows, answered) }
+                }
+            }
+            let (mut rows, mut answered) = (Vec::new(), Vec::new());
+            walk(ask["of"].as_str(), 0, &open, &mut rows, &mut answered);
+            Ok(json!({ "from": from, "list": { "type": "list", "arrange": "tree", "rows": rows, "empty": "No notes yet." }, "open": answered, "anyChange": true }))
+        }
+        "search" if words.trim().is_empty() => answer(json!({ "type": "list", "arrange": "rows", "rows": [], "empty": "Type to search." })),
+        "search" => answer(json!({ "type": "list", "arrange": "rows", "rows": [note("beans", &format!("found for {words}"), "Plot")] })),
+        "query" | "lanes" | "facets" if words == "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
+        // A long list: every row is listed, and a window builds only the ones in view.
+        "query" if words == "type=seed" => answer(json!({ "type": "list", "arrange": "rows", "rows": (0..600).map(|i| note(&format!("seed{i}"), &format!("Seed packet {i}"), "2026-03-01")).collect::<Vec<_>>() })),
+        "query" | "lanes" => {
+            let mut beans = note("beans", "Water the beans", "2026-03-01");
+            beans["chips"] = json!([{ "key": "type", "value": "chore" }, { "key": "area", "value": "plot" }]);
+            let mut onions = note("onions", "Lift the onions", "2026-03-02");
+            onions["chips"] = json!([{ "key": "type", "value": "chore" }, { "key": "area", "value": "bed" }]);
+            let columns: Vec<&str> = ask["columns"].as_str().map(|c| c.split_whitespace().collect()).unwrap_or_default();
+            for row in [&mut beans, &mut onions] { if !columns.is_empty() { row["cells"] = json!(columns.iter().map(|c| if *c == "title" { row["label"].clone() } else { row["chips"].as_array().unwrap().iter().find(|chip| chip["key"] == *c).map_or(json!(""), |chip| chip["value"].clone()) }).collect::<Vec<_>>()) } }
+            // Narrowed by a property, only the notes that carry it are left: the question is the tile's own words.
+            let rows: Vec<Value> = [beans, onions].into_iter().filter(|row| !words.contains("area=") || row["chips"].as_array().unwrap().iter().any(|chip| words.contains(&format!("area={}", chip["value"].as_str().unwrap())))).collect();
+            let group = ask["group"].as_str();
+            let groups = group.map(|key| { let mut seen: Vec<Value> = Vec::new(); for row in &rows { let value = row["chips"].as_array().unwrap().iter().find(|chip| chip["key"] == key).map_or(json!(""), |chip| chip["value"].clone()); match seen.iter_mut().find(|g| g["name"] == value) { Some(g) => { g["ids"].as_array_mut().unwrap().push(row["id"].clone()); g["count"] = json!(g["ids"].as_array().unwrap().len()) } None => seen.push(json!({ "name": value, "label": value, "count": 1, "ids": [row["id"]] })) } } seen });
+            let arrange = if from == "lanes" { "lanes" } else { ask["arrange"].as_str().unwrap_or(if columns.is_empty() { "rows" } else { "table" }) };
+            let mut list = json!({ "type": "list", "arrange": arrange, "rows": rows, "empty": "Nothing matches." });
+            if !columns.is_empty() { list["columns"] = json!(columns); list["headers"] = json!(columns) }
+            if let Some(groups) = groups { list["groups"] = json!(groups) }
+            let mut out = json!({ "from": from, "list": list, "facets": [{ "key": "area", "count": 2, "values": [{ "value": "plot", "count": 1 }, { "value": "bed", "count": 1 }] }], "anyChange": true });
+            if let Some(sort) = ask["sort"].as_str() { out["sort"] = json!(sort) }
+            if let Some(group) = group { out["group"] = json!(group) }
+            Ok(out)
+        }
+        "facets" => answer(json!({ "type": "list", "arrange": "rows", "groups": [{ "name": "area", "label": "area", "count": 2 }],
+            "rows": [{ "id": "area=plot", "label": "plot", "detail": "1", "group": "area", "act": "facets.set key=\"area\" value=\"plot\"" }, { "id": "area=bed", "label": "bed", "detail": "1", "group": "area", "act": "facets.set key=\"area\" value=\"bed\"" }] })),
+        "links" => match ask["of"].as_str() {
+            None => Err(("invalid", "lists.read from=links is about one note: name it with of=<a block id>".into())),
+            Some(_) => answer(json!({ "type": "list", "arrange": "rows", "title": "Linked from · 1", "rows": [note("plan", "Plan for Saturday", "Plot")], "empty": "No note links here." })),
+        },
+        "properties" => match ask["of"].as_str() {
+            None => Err(("invalid", "lists.read from=properties is about one note: name it with of=<a block id>".into())),
+            Some(of) => answer(json!({ "type": "list", "arrange": "table", "columns": ["property", "value"], "headers": ["property", "value"], "title": titled(of),
+                "groups": [{ "name": "properties", "label": "Properties", "count": 2 }, { "name": "record", "label": "Record", "count": 2 }],
+                "rows": [
+                    { "id": "type=chore#0", "label": "type", "detail": "chore", "cells": ["type", "chore"], "group": "properties", "act": "bar.open scope=\"query\" query=\"type=chore\"" },
+                    { "id": "room=north#0", "label": "room", "detail": "north", "cells": ["room", "north"], "group": "properties", "act": "bar.open scope=\"query\" query=\"room=north\"" },
+                    { "id": "record:revision", "label": "revision", "detail": "3", "cells": ["revision", "3"], "group": "record" },
+                    { "id": "record:id", "label": "id", "detail": of, "cells": ["id", of], "group": "record" },
+                ] })),
+        },
+        "activity" => answer(json!({ "type": "list", "arrange": "rows", "rows": [note("beans", "Water the beans", "compost-agent · text · 2026-03-01 09:30")], "empty": "Nothing has changed yet." })),
+        "clients" => answer(json!({ "type": "list", "arrange": "rows", "rows": [{ "id": "potting-bench", "label": "potting-bench", "detail": "door · box" }], "empty": "Nobody else is here." })),
+        "screens" => {
+            let mut all = if shipped { served()["screens"].as_array().cloned().unwrap_or_default() } else { Vec::new() };
+            all.extend(screens.as_array().cloned().unwrap_or_default());
+            let rows: Vec<Value> = all.iter().filter(|s| s["spec"].is_object()).filter(|s| words.is_empty() || s["name"].as_str().unwrap_or("").contains(words)).map(|s| json!({ "id": s["name"], "label": s["title"], "detail": "a screen", "act": format!("screen.open name=\"{}\"", s["name"].as_str().unwrap()) })).collect();
+            answer(json!({ "type": "list", "arrange": "rows", "rows": rows, "empty": "No screens here: the screens extension adds the ones every door ships (extensions.install id=screens)." }))
+        }
+        other => Err(("invalid", format!("lists.read lists children, search, query, lanes, facets, links, properties, activity, clients, screens (from=sources says what each reads), not \"{other}\""))),
+    }
+}
+
+pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
+
+/// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden {
     let (asked, said): (Asked, Said) = Default::default();
     let texts: Rc<RefCell<std::collections::HashMap<String, (u64, String)>>> = Default::default();
     let screens: Rc<RefCell<Value>> = Rc::new(RefCell::new(json!([])));
     let listed = screens.clone();
+    let shipped = Rc::new(std::cell::Cell::new(with_screens));
+    let installed = shipped.clone();
     let answers: Answers = Box::new(move |ask| {
         let note = ask["blockId"].as_str().unwrap_or("").to_string();
         let titled = |id: &str| match id { "plot" => "Plot", "onions" => "Lift the onions", "beans" => "Water the beans", "shed" => "Shed", "new" => "", _ => "Take the fork" }.to_string();
         match ask["action"].as_str().unwrap_or("") {
             "ping" => Ok(json!({ "status": "ready", "protocolVersion": PROTOCOL, "location": { "machine": "box" }, "outline": { "name": "garden" } })),
-            "blocks.read" => Ok(json!({ "generation": 0, "blocks": match ask["under"].as_str() {
-                None => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }, { "id": "shed", "title": "Shed", "hasChildren": false }]),
-                Some("plot") => json!([{ "id": "onions", "title": "Lift the onions", "hasChildren": true }, { "id": "beans", "title": "Water the beans", "hasChildren": false }]),
-                Some("onions") => json!([{ "id": "fork", "title": "Take the fork", "hasChildren": false }]),
-                _ => json!([]),
-            } })),
             "notes.page" => {
                 let (revision, text) = texts.borrow().get(&note).cloned().unwrap_or((3, format!("{} [type::chore]\nBefore the rain.", titled(&note))));
                 Ok(page(&note, &titled(&note), revision, &text))
@@ -116,13 +204,15 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
                 path => Ok(json!({ "path": path, "mime": "image/svg+xml", "from": "file", "base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, SUN) })),
             },
             "screens.save" => Ok(json!({ "name": "beds", "title": "Beds", "id": "screen-note", "revision": ask["base"]["revision"].as_u64().map_or(1, |r| r + 1), "created": ask["base"].is_null() })),
-            // The outline's own screens: none, until a test's host says otherwise (`host_says`).
-            "screens.list" => Ok(json!({ "screens": listed.borrow().clone(), "problems": [], "anyChange": true })),
-            "tree.search" => Ok(json!({ "matches": [{ "block": { "id": "beans", "revision": 1 }, "title": format!("found for {}", ask["query"].as_str().unwrap()), "path": "Plot" }] })),
-            "blocks.query" => match ask["query"]["where"].as_str().unwrap() {
-                "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
-                _ => Ok(json!({ "generation": 0, "blocks": [{ "id": "beans", "title": "Water the beans", "updatedAt": "2026-03-01T09:30:00.000Z" }], "facets": [{ "key": "area", "count": 2, "values": [{ "value": "plot", "count": 2, "last": "" }] }] })),
-            },
+            // The screens and kinds every door ships, as the service answers them with the screens extension
+            // installed (outline-core's fixture, written by the outliner's own test), then the outline's own
+            // screens: none, until a test's host says otherwise (`screens_are`).
+            "screens.list" => {
+                let mut screens = if shipped.get() { served()["screens"].as_array().cloned().unwrap_or_default() } else { Vec::new() };
+                screens.extend(listed.borrow().as_array().cloned().unwrap_or_default());
+                Ok(json!({ "screens": screens, "kinds": if shipped.get() { served()["kinds"].clone() } else { json!([]) }, "problems": [], "anyChange": true }))
+            }
+            "lists.read" => list(ask, &titled, &listed.borrow(), shipped.get()),
             "events.subscribe" => Ok(json!({ "subscribed": true })),
             // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
             "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "running", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
@@ -133,7 +223,7 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
     let mut app = App::new(Box::new(Standin { answers, asked: asked.clone(), said: said.clone() }), "garden");
     app.start();
     app.settle();
-    Garden { app, asked, said, screens }
+    Garden { app, asked, said, screens, shipped: installed }
 }
 
 /// The host's screens are `rows` now, and it says so: the watched `screens.list` is read again.
@@ -164,7 +254,7 @@ pub fn drag(rt: &mut Runtime<App>, from: (f32, f32), to: (f32, f32)) {
 }
 
 pub fn ok() -> Rc<RefCell<Result<(), (&'static str, String)>>> { Rc::new(RefCell::new(Ok(()))) }
-pub fn listed(app: &App) -> Vec<(usize, String)> { app.tree().iter().map(|line| (line.depth, line.row.title.clone())).collect() }
+pub fn listed(app: &App) -> Vec<(usize, String)> { app.tree().iter().map(|row| (row.depth, row.label.clone())).collect() }
 pub fn last(asked: &Asked) -> Value { asked.borrow().last().unwrap().clone() }
 pub fn actions(asked: &Asked) -> Vec<String> { asked.borrow().iter().map(|a| a["action"].as_str().unwrap().to_string()).collect() }
 

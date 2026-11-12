@@ -459,7 +459,8 @@ impl Step<'_, '_> {
             if let Some((kept, at)) = &plan.keep {
                 // The reader's old note stays in a spine beside it.
                 let before = self.rects();
-                self.open(&open_at(at, "reader", false), true)?;
+                // (A tile of the kind the open brought: the kind that reads notes, by whatever name it has here.)
+                self.open(&open_at(at, &tile.kind, false), true)?;
                 self.d.collapsed.set(&tile.id, self.ctx.by.fold());
                 spine_weights(self.d.tree_mut(), kept, &tile.id, &before);
             }

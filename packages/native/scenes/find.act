@@ -1,2 +1,2 @@
-# The bar on the outline's notes, with words typed.
-bar.open scope=notes query=beans
+# The bar on the outline's notes, with words typed: the service's search, each row its own act line.
+bar.open scope=search query=beans

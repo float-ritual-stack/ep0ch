@@ -27,6 +27,8 @@ export type ScreensRequest =
     kinds?: string[];
     /** Screen names the asker keeps for itself (its built-ins): a note by one of them opens nothing. */
     reserved?: string[];
+    /** The drawers the asker has (`list`, `page`): a kind an extension serves for a drawer it hasn't is said on the tile. Left out: every served kind counts as drawn. */
+    drawers?: string[];
   }
   | { id: string; action: "screens.save"; spec: unknown; base?: { id: string; revision: number } | null; mutation?: MutationProvenance };
 
@@ -46,8 +48,16 @@ export interface ScreenRow {
   problems: ScreenProblem[];
 }
 
+/**
+ * A tile kind an extension serves, as a screen's reader needs it: the name tiles carry, what it is, the drawer that draws
+ * it and the fields a tile of it starts with, and the names it serves in place of. The row a client finds its drawer by.
+ */
+export interface ScreenKind { kind: string; extension: string; name: string; about?: string; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; replaces?: readonly string[] }
+
 export interface ScreensList {
   screens: ScreenRow[];
+  /** The tile kinds extensions serve here (`extensions.list`'s rows): what a tile's kind names. */
+  kinds: ScreenKind[];
   /** What is wrong that no one row holds: two notes with one name, a note named as an extension's screen is. */
   problems: string[];
   /** A watched answer hears every change: a screen note's children carry none of its properties. */
@@ -60,7 +70,7 @@ type Own = { request<T>(input: { action: string } & Record<string, unknown>): Pr
 type Read = { id: string; text: string; revision: number };
 type ExtensionsListed = {
   extensions?: readonly { id: string; screens?: readonly ({ name: string } & Record<string, unknown>)[] }[];
-  tileKinds?: readonly { kind: string; replaces?: readonly string[] }[];
+  tileKinds?: readonly { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>> }[];
 };
 
 const HOME_TYPE = "screens";
@@ -85,13 +95,17 @@ const near = (kind: string, among: readonly string[]): string | undefined => {
 };
 
 /** What is wrong with each tile's kind: one no door asked for and no extension serves. A replaced name is no problem. */
-function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: ReadonlyMap<string, string>): ScreenProblem[] {
+function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: ReadonlyMap<string, string>, undrawn: ReadonlyMap<string, string>): ScreenProblem[] {
   const leaves = [...savedNodes(spec.layout.root), ...(spec.layout.floats ?? []).map(f => f.tile)].filter(n => n?.t === "leaf");
   return leaves.flatMap(leaf => {
     const kind = canonKind(String(leaf.kind ?? ""));
-    if (kinds.includes(kind) || replaced.has(kind)) return [];
-    const guess = near(kind, kinds);
+    const as = replaced.get(kind) ?? kind;
     const tile = typeof leaf.name === "string" ? leaf.name : undefined;
+    // A kind an extension serves for a drawer this door hasn't: said as that, never as a typo.
+    if (undrawn.has(as)) return [{ ...(tile ? { tile } : {}), said: `this door has no ${undrawn.get(as)} drawer, which draws a ${as} tile` }];
+    if (kinds.includes(kind) || replaced.has(kind)) return [];
+    // A guess among the names a screen writes: the kinds, and the names served kinds answer to.
+    const guess = near(kind, [...replaced.keys(), ...kinds]);
     return [{ ...(tile ? { tile } : {}), said: `no tile kind ${kind || "(none)"} here${guess ? ` · did you mean ${guess}?` : ""}` }];
   });
 }
@@ -99,26 +113,35 @@ function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: Read
 /**
  * `spec` with each tile's kind as the kind it is: a retired name (`detail`, `pinned`) and a name an extension's kind
  * replaces read as the kind that took their place, with what the retired name said as the tile's fields (outline-core's
- * `canonLeaf`: a pin is still a pin). The one place a served screen's kinds are resolved: a client finds its drawer by
- * the kind the row says, and keeps no map from old names of its own.
+ * `canonLeaf`: a pin is still a pin). A tile whose kind is served under another name keeps the name its screen wrote as
+ * its role, so an address by role names it in every door. The one place a served screen's kinds are resolved: a client
+ * finds its drawer by the kind the row says, and keeps no map from old names of its own.
  */
-function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>): ScreenSpec {
+function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>, roles: ReadonlyMap<string, string>): ScreenSpec {
   const served = structuredClone(spec);
   for (const leaf of [...savedNodes(served.layout.root), ...(served.layout.floats ?? []).map(f => f.tile)]) {
     if (leaf?.t !== "leaf" || typeof leaf.kind !== "string") continue;
     Object.assign(leaf, canonLeaf(leaf as { kind: string; mode?: string; page?: string }));
     leaf.kind = replaced.get(leaf.kind) ?? leaf.kind;
+    // The tile's role is the name screens write its kind by (`tile=role:reader` finds it), whichever kind serves that name now.
+    const role = roles.get(leaf.kind);
+    if (role && (typeof leaf.role !== "string" || !leaf.role)) leaf.role = role;
   }
   return served;
 }
 
+/** The role a tile of each served kind has when its screen names none: the first name the kind serves in place of. */
+const rolesOf = (served: NonNullable<ExtensionsListed["tileKinds"]>): Map<string, string> => new Map(served.flatMap(k => k.replaces?.length ? [[k.kind, k.replaces[0]!] as const] : []));
+
 /** `screens.list`: the outline's screen notes and its extensions' screens, each read, checked and named once. */
-export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest, { action: "screens.list" }>, "kinds" | "reserved">): Promise<ScreensList> {
+export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest, { action: "screens.list" }>, "kinds" | "reserved" | "drawers">): Promise<ScreensList> {
   const [notes, listed] = await Promise.all([byProp(own, "type", SCREEN_TYPE, 500), own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}))]);
   const served = listed.tileKinds ?? [];
   const replaced = new Map(served.flatMap(k => (k.replaces ?? []).map(old => [old, k.kind] as const)));
+  const roles = rolesOf(served);
   const kinds = request.kinds ? [...new Set([...request.kinds.map(canonKind), ...served.map(k => k.kind)])] : null;
-  const checked = (spec: ScreenSpec): ScreenProblem[] => [...addressProblems(spec), ...(kinds ? kindProblems(spec, kinds, replaced) : [])];
+  const undrawn = new Map(request.drawers ? served.flatMap(k => k.drawer && !request.drawers!.includes(k.drawer) ? [[k.kind, k.drawer] as const] : []) : []);
+  const checked = (spec: ScreenSpec): ScreenProblem[] => [...addressProblems(spec), ...(kinds ? kindProblems(spec, kinds, replaced, undrawn) : [])];
   const problems: string[] = [];
   const rows: ScreenRow[] = [];
   const theirs = new Map<string, string>();
@@ -126,7 +149,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
     theirs.set(screen.name, extension.id);
     try {
       const spec = readSpec({ ...screen, title: typeof screen.title === "string" && screen.title ? screen.title : screen.name });
-      rows.push({ name: spec.name, title: spec.title, from: "extension", extension: extension.id, spec: kindsResolved(spec, replaced), problems: checked(spec) });
+      rows.push({ name: spec.name, title: spec.title, from: "extension", extension: extension.id, spec: kindsResolved(spec, replaced, roles), problems: checked(spec) });
     } catch (e) { rows.push({ name: screen.name, title: screen.name, from: "extension", extension: extension.id, problems: [{ said: `the ${extension.id} extension's screen ${screen.name}: ${(e as Error).message}` }] }); }
   }
   const read = await Promise.all(notes.map(async note => readScreenNote(await subtree(own, note))));
@@ -141,11 +164,15 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
     if (clash) problems.push(clash);
     for (const r of same) {
       if ("problem" in r) rows.push({ name, title: name, from: "note", note: { id: r.id, revision: 0, form: "blocks" }, problems: [{ said: r.problem }, ...(clash ? [{ said: clash }] : [])] });
-      else rows.push({ name, title: r.title, from: "note", note: { id: r.id, revision: r.revision, form: r.form }, ...(clash ? {} : { spec: kindsResolved(r.spec, replaced) }), problems: [...(clash ? [{ said: clash }] : []), ...checked(r.spec)] });
+      else rows.push({ name, title: r.title, from: "note", note: { id: r.id, revision: r.revision, form: r.form }, ...(clash ? {} : { spec: kindsResolved(r.spec, replaced, roles) }), problems: [...(clash ? [{ said: clash }] : []), ...checked(r.spec)] });
     }
   }
   rows.sort((a, b) => a.name.localeCompare(b.name) || (a.note?.id ?? "").localeCompare(b.note?.id ?? ""));
-  return { screens: rows, problems, anyChange: true };
+  const kindRows: ScreenKind[] = served.map(k => ({
+    kind: k.kind, extension: k.extension, name: k.name, ...(k.description ? { about: k.description } : {}),
+    ...(k.drawer ? { drawer: k.drawer } : {}), ...(k.fields ? { fields: k.fields } : {}), ...(k.replaces?.length ? { replaces: k.replaces } : {}),
+  }));
+  return { screens: rows, kinds: kindRows, problems, anyChange: true };
 }
 
 /** `screens.save`: `spec` written as its screen note in the block form: the note by that name, else a new one. */
@@ -157,7 +184,10 @@ export async function saveScreen(own: Own, request: Extract<ScreensRequest, { ac
   try { spec = readSpec(typed === null ? given : { ...given, title: typed, name: screenSlug(typed) }); } catch (e) { throw new Refusal("invalid", `screens.save: ${(e as Error).message}`); }
   const bad = screenNameProblem(spec.name);
   if (bad) throw new Refusal("invalid", bad);
-  const { extensions = [] } = await own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}));
+  const { extensions = [], tileKinds = [] } = await own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}));
+  // A role that only says what its kind's row says already isn't written: the note names each tile's kind once.
+  const roles = rolesOf(tileKinds);
+  for (const leaf of [...savedNodes(spec.layout.root), ...(spec.layout.floats ?? []).map(f => f.tile)]) if (leaf?.t === "leaf" && typeof leaf.kind === "string" && leaf.role !== undefined && leaf.role === roles.get(leaf.kind)) delete leaf.role;
   const theirs = extensions.find(e => e.screens?.some(s => s.name === spec.name));
   if (theirs) throw new Refusal("invalid", `${spec.name} is the ${theirs.id} extension's screen: a screen you make takes a name of its own · try ${JSON.stringify(`${spec.title} 2`)}`);
   const mutation: MutationProvenance = request.mutation ?? { author: "user" };
