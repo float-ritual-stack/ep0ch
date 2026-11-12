@@ -7,6 +7,8 @@ export interface Ran { code: number; out: string; err: string }
 
 /** restic's exit code for "there's no repository there" (restic 0.17 and later). */
 export const NO_REPO = 10;
+/** restic's exit code for "the repository is locked by another process" (restic 0.17 and later). */
+export const LOCKED = 11;
 
 /** The argv that runs restic with its secrets. */
 export function resticArgv(c: Pick<BackupConfig, "restic" | "secrets" | "env">, args: readonly string[]): string[] {
@@ -90,6 +92,35 @@ export async function dumpTo(c: BackupConfig, repo: string, s: Pick<OutlineSnaps
 /** The retention PIE-607 set: every snapshot of two days, then hourly for three, daily for a month, weekly for 12. */
 export const KEEP = ["--keep-within", "48h", "--keep-hourly", "72", "--keep-daily", "30", "--keep-weekly", "12"];
 
-export async function forget(c: BackupConfig, repo: string, prune: boolean, host: string = c.machine): Promise<Ran> {
-  return runRestic(c, repo, ["forget", "--host", host, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])], { timeoutMs: 900_000 });
+/**
+ * Who holds the lock restic couldn't take, as it says it ("repository is already locked by PID 41 on garden by evan …,
+ * lock was created at …"): one line, for a state file and a status bar. complaint() keeps only restic's last line,
+ * which is its advice to unlock, not who holds it.
+ */
+export function lockHolder(r: Ran): string {
+  const lines = r.err.split("\n").map(l => l.trim());
+  const by = lines.find(l => /already locked/i.test(l))?.replace(/^.*?(repository is already locked)/i, "$1");
+  const at = lines.find(l => /^lock was created at/i.test(l));
+  return by ? [by, at].filter(Boolean).join(", ").slice(0, 240) : complaint(r);
+}
+
+/** How many locks `restic unlock` said it removed. */
+export const removedLocks = (r: Ran) => Number(/removed (\d+) locks?/i.exec(r.out + r.err)?.[1] ?? 0);
+
+/**
+ * Retention (KEEP), and once a day the prune. forget takes the repository exclusively, so one lock left behind, by a
+ * run killed mid-upload (a reboot, a deploy) or a machine that slept through a restore, refuses every forget after it,
+ * while backups (which share the repository) still land (PIE-1755). So a refused lock is cleared and forget tried
+ * again: `restic unlock` without `--remove-all` removes only stale locks, those whose process on this machine is gone or
+ * that nobody refreshed for 30 minutes; a live one stays, and the second try waits a few minutes for it. `cleared`: the
+ * lock it found, when unlock removed it.
+ */
+export async function forget(c: BackupConfig, repo: string, prune: boolean, o: { host?: string; wait?: string } = {}): Promise<Ran & { cleared?: string }> {
+  const args = ["forget", "--host", o.host ?? c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])];
+  const first = await runRestic(c, repo, args, { timeoutMs: 900_000 });
+  if (first.code !== LOCKED) return first;
+  const held = lockHolder(first);
+  const unlocked = await runRestic(c, repo, ["unlock"], { timeoutMs: 120_000 });
+  const again = await runRestic(c, repo, ["--retry-lock", o.wait ?? "5m", ...args], { timeoutMs: 900_000 + 300_000 });
+  return unlocked.code === 0 && removedLocks(unlocked) > 0 ? { ...again, cleared: held } : again;
 }

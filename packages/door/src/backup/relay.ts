@@ -130,7 +130,7 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     if (problem) return { ok: true, mirror, uploadError: problem };
     const up = await backupFile(c, repo, o.part, o.outline, seq, got, o.machine);
     if ("error" in up) return { ok: true, mirror, uploadError: up.error };
-    await forget(c, repo, false, o.machine);
+    await forget(c, repo, false, { host: o.machine });
     return { ok: true, mirror, snapshot: up.id };
   } finally {
     for (const f of tmpFiles) rmSync(f, { force: true });

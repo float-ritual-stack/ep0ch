@@ -98,6 +98,22 @@ history
     expect(text).not.toContain("verbose: true");
   });
 
+  test("no host answering: the command that starts it, not only `ep0ch backup run` (PIE-1750)", () => {
+    const fix = "systemctl --user start outliner-host.service";
+    const host = { failingSince: iso(20), error: "the outline host doesn't answer at /fictional/outlines/.host/host.sock (connect ENOENT), so nothing was copied", fix };
+    const c = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host });
+    const out = statusLines(c, NOW);
+    expect(out[0]).toBe("✗ failing");
+    expect(out).toContain(`  ✗ ${host.error}`);
+    expect(out).toContain(`  run: ${fix}`);
+    // Two hours on it's an incident as well: said once, with the same command.
+    const late = world({ lastRun: { at: iso(5), ok: false, detail: "failed: (the outline host)" }, host: { ...host, failingSince: iso(180) } },
+      [{ key: "host:float-hub", since: iso(180), title: "the outline host on float-hub doesn't answer the backup job", detail: `nothing has been copied since 06:00Z: ${host.error}`, fix }]);
+    const lines = statusLines(late, NOW);
+    expect(lines.filter(l => l.includes("doesn't answer at"))).toHaveLength(1);
+    expect(lines).toContain(`  run: ${fix}`);
+  });
+
   test("stale with no change for a long time is fine", () => {
     const c = world({ lastRun: { at: iso(5), ok: true, detail: "nothing changed" }, outlines: { archive: { seq: 7, at: iso(60 * 24 * 20) } } });
     const lines = statusLines(c, NOW);
