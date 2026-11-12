@@ -44,6 +44,10 @@ function writeRecord(path: string, record: InstanceRecord): void {
   renameSync(temporary, path);
 }
 
+function isFollower(database: Database): boolean {
+  try { return (database.query("SELECT role FROM log_state WHERE id = 1").get() as { role: string } | null)?.role === "follower"; } catch { return false; }
+}
+
 export type OutlineInstance = {
   readonly id: string;
   /** At a clean close: records that this open ended, at `sequence`. */
@@ -56,7 +60,8 @@ export type OutlineInstance = {
  * A memory database has no file to be replaced: its id is its metadata's.
  */
 export function openOutlineInstance(path: string, database: Database, sequence: () => number, created: boolean): OutlineInstance {
-  if (isPrivateDatabase(path)) {
+  // A follower's copy is its home's instance (ADR 0009): the id is the home's, replicated with the rest.
+  if (isPrivateDatabase(path) || isFollower(database)) {
     const id = readOutlineInstanceId(database, path);
     return { id, close() {} };
   }

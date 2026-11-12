@@ -21,6 +21,7 @@ import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
+import { applyRange, cursorOf, endLogTransaction, logState, readRange, type Cursor, type LogRange } from "./change-log";
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
@@ -64,7 +65,7 @@ import {
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { doneDay, roadmapStageOf, stageMoveText, ticketOf, ticketStageText } from "./work-stage-follows";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { openSchema } from "./schema";
+import { openSchema, SCHEMA_VERSION } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import { notEmptyWhy } from "./note-move";
@@ -705,7 +706,7 @@ export class OutlinerStore {
     try {
       this.database = database = new Database(path, { create: true });
       this.configureTransactions();
-      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+      this.database.exec("PRAGMA foreign_keys = ON;");
       const created = this.prepareDatabase(path) === "created";
       noteGraphWrites(this.database);
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
@@ -4997,21 +4998,58 @@ export class OutlinerStore {
    * may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then, if it wrote: a read
    * of a gone note undoes nothing, and a whole read again holds pie's host 760 ms on float-2 (PIE-1610).
    */
+  private totalChanges(): number {
+    return (this.database.query("SELECT total_changes() AS n").get() as { n: number }).n;
+  }
+
+  /** The change log after `after` (ADR 0009, `log.range`): whole transactions, with the log's id and head. */
+  logRange(after: number, limit?: number): LogRange {
+    return readRange(this.database, after, limit, SCHEMA_VERSION);
+  }
+
+  /** This file's place in its log: the log's id, schema, newest lsn and the digest of the entry there. */
+  logCursor(): Cursor {
+    return this.database.transaction(() => cursorOf(this.database, SCHEMA_VERSION)).deferred();
+  }
+
+  /**
+   * Applies a range of the home's log to this follower's file (outline-follower.ts): refused unless it follows this
+   * file's cursor. What the store keeps of the graph is dropped, since rows changed under it.
+   */
+  applyLogRange(range: LogRange): number {
+    if (logState(this.database).role !== "follower") throw new Error("only a follower's copy takes another outline's log");
+    try { return applyRange(this.database, range, SCHEMA_VERSION); }
+    finally { this.graph = undefined; }
+  }
+
   private configureTransactions(): void {
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
     type Run = (...args: unknown[]) => unknown;
+    let depth = 0;
     const guarded = (run: Run): Run => function (this: unknown, ...args: unknown[]) {
       const before = store.changeKey();
+      depth += 1;
       try {
         return run.apply(this, args);
       } catch (error) {
         if (store.changeKey() !== before) store.graph = undefined;
         throw error;
+      } finally {
+        depth -= 1;
       }
     };
+    // The change log's transactions are the store's (ADR 0009): the outermost write transaction that logged anything
+    // ends its log transaction before it commits, so a range never ends inside one.
+    const counted = (work: Run): Run => function (this: unknown, ...args: unknown[]) {
+      if (depth !== 1) return work.apply(this, args);
+      const before = store.totalChanges();
+      const result = work.apply(this, args);
+      if (store.totalChanges() !== before) endLogTransaction(store.database);
+      return result;
+    };
     this.database.transaction = ((work: Run) => {
-      const run = transaction(work) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
+      const run = transaction(counted(work)) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
       return Object.assign(guarded(run.immediate), {
         deferred: guarded(run.deferred), immediate: guarded(run.immediate), exclusive: guarded(run.exclusive),
       });
