@@ -336,7 +336,9 @@ export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; na
  */
 export class ActionSet<M extends { [K in keyof M]: object }, H> {
   constructor(readonly scope: string, private readonly defs: { [K in keyof M]: ActionDef<M[K], H> }) {
-    everySet.add(new WeakRef(this as ActionSet<any, any>));
+    const ref = new WeakRef(this as ActionSet<any, any>);
+    everySet.add(ref);
+    if (testMade && madeInATest()) testMade.add(ref);
   }
 
   has(name: string): name is Extract<keyof M, string> { return Object.hasOwn(this.defs, name); }
@@ -416,6 +418,23 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
 // Every set made in this process (held weakly): the table test checks every action's declarations (PIE-514).
 const everySet = new Set<WeakRef<ActionSet<any, any>>>();
+// The test run's teardown between files, when there is one (test/preload.ts; nothing outside tests sets it): a set a test
+// file made itself (a fake screen's, a probe's) is that file's, so it is dropped when the file ends and the next file's
+// allActionSets() is the door's own. Held weakly was not enough: dispatch.test's fakes stayed listed into action-pages'
+// examples check until garbage collection ran (PIE-1774). A built-in set is made by its own module, never a test file, so
+// one a test file happened to import first stays.
+const testPutBack = (globalThis as { [k: symbol]: Set<() => Promise<void>> | undefined })[Symbol.for("ep0ch.test.putBack")];
+const testMade = testPutBack ? new Set<WeakRef<ActionSet<any, any>>>() : null;
+const testDir = new URL("../../test/", import.meta.url).pathname;
+testPutBack?.add(async () => { for (const ref of testMade!) everySet.delete(ref); testMade!.clear(); });
+/** Whether the code making a set is a test file's: the first frame outside this module is under the door's test/. */
+function madeInATest(): boolean {
+  for (const line of (new Error().stack ?? "").split("\n").slice(1)) {
+    const file = /(\/[^\s()]+?):\d+:\d+\)?\s*$/.exec(line)?.[1];
+    if (file && file !== import.meta.path) return file.startsWith(testDir);
+  }
+  return false;
+}
 /**
  * Whether a press of `action` with `args` runs as given (PIE-1293): some set has the action, and every argument it
  * requires (not optional, not the host's context) is there. A hint row's segment is a click only when this holds, so
