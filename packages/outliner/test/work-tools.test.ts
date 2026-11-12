@@ -131,7 +131,7 @@ test("a Work ID nobody has is refused with the words show says, and both exit 1"
     const staged = await h.run(["work", "stage", address, "doing"]);
     expect(staged.exitCode).toBe(1);
     // show's sentence is the one resolver's (`blocks.resolve`, the door's resolveNotes): the same words, said once.
-    expect(staged.error).toBe(`error: ${h.store.lookupBlockRef(address, "note").message}\nkind: not-found`);
+    expect(staged.error).toBe(`error: ${(h.store.lookupBlockRef(address, "note") as { message: string }).message}\nkind: not-found`);
   }
   expect((await h.run(["work", "stage", "OTHER-7", "doing"])).error).toContain("no Work ID starts OTHER- here (this outline has PIE)");
 }, 30_000);

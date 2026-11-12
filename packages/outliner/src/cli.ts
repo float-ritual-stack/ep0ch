@@ -1067,11 +1067,11 @@ switch (command) {
     // An agent's comment says which agent (--author agent --actor <id>); the person's stays the default.
     const author = writerAuthor(values.author, values.actor);
     if (author === "system") throw new Error("--author must be user or agent for a comment");
-    await gateCliWrite(author, values, "outline_comment", { ref: values.id, body }, "comment");
+    await gateCliWrite(author, values, "outline_comment", { ref: values.id!, body }, "comment");
     directResult = await createBlockComment(client, {
-      requestId: values["request-id"], author,
+      requestId: values["request-id"]!, author,
       ...(author === "agent" ? {provenance: writerProvenance(values)} : {}),
-      input: {blockId: values.id, expectedRevision: parseRevision(values.expected), body, source: author,
+      input: {blockId: values.id!, expectedRevision: parseRevision(values.expected), body, source: author,
         ...(values.whole ? {} : {passage: {quote: values.quote!, start, prefix: values.prefix, suffix: values.suffix, itemId: values.item}})},
     });
     break;

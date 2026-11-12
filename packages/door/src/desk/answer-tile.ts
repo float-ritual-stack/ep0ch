@@ -11,6 +11,8 @@ import type { LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { projectionsOf } from "../projection";
 import { tileRegistry } from "./tile-registry";
+import { unsent } from "../draft-session";
+import { UNSENT_BACK } from "../unsent";
 
 /** An agent's answer callout, as the service writes it under an ask line: `> [!note]+ @yo answered`. */
 const ANSWER_FOLD = /^>\s*\[!note\][+-]?\s+@[a-z][a-z0-9-]*\s+answered\s*$/;
@@ -95,7 +97,11 @@ export class AnswerTile implements Pane {
   live(desk: Pick<DeskApi, "paneNamed">): boolean {
     const reader = desk.paneNamed?.(this.source);
     if (reader instanceof ReaderPane && reading(reader)) return true;   // a door just restored: its note isn't read yet
-    return reader instanceof ReaderPane && this.shown(reader.surface.draft?.text ?? reader.msg?.text ?? "") !== undefined;
+    return reader instanceof ReaderPane && (this.shown(reader.surface.draft?.text ?? reader.msg?.text ?? "") !== undefined || this.keptAside(reader));
+  }
+  /** Its ask is in the edit put aside on its reader's note (esc twice on an unsaved ask): kept, not gone (PIE-1758). */
+  private keptAside(reader: ReaderPane): boolean {
+    return !reader.surface.draft && !!reader.msg && this.shown(unsent(`edit:${reader.msg.id}`)?.text ?? "") !== undefined;
   }
   /**
    * Its reader left this desk (closed, gathered into a group, put in the drawer, PIE-1716): it closes as an attached tile
@@ -126,6 +132,8 @@ export class AnswerTile implements Pane {
     this.shownLive = live;
     // Its ask is gone from the note (taken out, or the reader gone on to another note): no answer is coming, so it says so
     // and how to close it, never "Waiting for the answer…" (PIE-1731). The tile stays: closing it is the person's.
+    // An edit put aside with the ask still unsaved in it (esc twice, PIE-1758) keeps the ask: the tile says where it is.
+    if (!live && this.keptAside(reader)) return this.said(`Its ask is in the edit you put aside: ${UNSENT_BACK.edit} · x closes this tile`, w, h);
     if (!live) return this.said(`Its ask is gone from ${reader.msg ? "this note" : "the reader"}: nothing to wait for · x closes this tile`, w, h);
     this.links = [];
     const draft = reader.surface.draft;

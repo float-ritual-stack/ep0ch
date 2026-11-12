@@ -198,7 +198,10 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     expect(d.text).toContain("@ask whats up");
     await until(() => d.answerFolds().length === 2 && d.text.includes("I find earlier related notes"), "both prior-art answers", 15000).catch(error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify([...d.asks])}`); });
     const narrow = draftView(d).render(48, 60).map(plain);
-    expect(narrow.join("\n")).toContain("beside ▸");
+    // No answer tile is open beside the new note: its rows say a click shows the answer, never `beside ▸` (PIE-1758).
+    expect([...stage.panes.values()].some(p => p.kind === "answer")).toBe(false);
+    expect(narrow.join("\n")).toContain("· show ▸");
+    expect(narrow.join("\n")).not.toContain("beside ▸");
     expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
     expect(narrow.join("\n")).toContain("agents here:");
     const ask = "@ask whats up", askRow = d.lines.indexOf(ask);
