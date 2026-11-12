@@ -156,7 +156,8 @@
          },
          "do": {
           "open": "note-006"
-         }
+         },
+         "act": "open id=\"note-006\""
         },
         {
          "id": "note-007",
@@ -173,7 +174,8 @@
          },
          "do": {
           "open": "note-007"
-         }
+         },
+         "act": "open id=\"note-007\""
         }
        ],
        "arrange": "table",

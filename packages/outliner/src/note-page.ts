@@ -13,7 +13,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { ListGroup, ListRow } from "@ep0ch/outline-core/list-row";
 import { noteMediaLines, parsePictureFence } from "@ep0ch/outline-core/media-line";
-import { pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart, type PagePicture, type PagePrimitive } from "@ep0ch/outline-core/note-page";
+import { pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, withActs, type NotePage, type NoteRow, type PagePart, type PagePicture, type PagePrimitive } from "@ep0ch/outline-core/note-page";
 import type { Tone } from "@ep0ch/outline-core/primitive";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { USE_NAME, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -52,10 +52,13 @@ export async function servedPage(
   const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasChildren ? { hasChildren: true } : {}) });
   const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children)]);
   const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
+  const under = ordered(record.children, kids);
   return {
     blockId: block.id, revision: block.revision, title: self[0]?.title ?? "", chips: headerLine(block.text).chips.map(c => ({ key: c.key, value: c.value })),
     properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, ...body,
-    ancestors: ordered(context.ancestors.map(a => a.id), above), children: ordered(record.children, kids),
+    ancestors: ordered(context.ancestors.map(a => a.id), above), children: under,
+    // The notes under it as the one list every client draws: a row says what a pick runs, as a row of any list does.
+    ...(under.length ? { under: withActs({ type: "list", title: `Under this note · ${under.length}`, rows: under.map((r): ListRow => ({ id: r.id, label: r.title, ...(r.hasChildren ? { folds: true } : {}), do: { open: r.id } })), filter: false, enter: false }) } : {}),
     backlinks: back.sources.filter(s => s.blockId !== block.id).map(s => ({ id: s.blockId, title: s.title || "untitled", ...(s.parentContext ? { context: s.parentContext } : {}) })),
     updated: record.updated, author: record.actor ?? record.author,
   };
@@ -92,7 +95,12 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
   const lines = (from: number, to: number) => all.slice(from, to + 1).join("\n");
   /** A part written on lines `from` to `to` (inclusive). */
   const part = (kind: PagePart["kind"], from: number, to: number, view: PagePrimitive, frame: Partial<PagePart> = {}): PagePart =>
-    ({ type: "part", kind, block: note.id, span: { start: offsets[from]?.start ?? note.text.length, end: offsets[to]?.contentEnd ?? note.text.length }, line: from, ...frame, view });
+    ({ type: "part", kind, block: note.id, span: { start: offsets[from]?.start ?? note.text.length, end: offsets[to]?.contentEnd ?? note.text.length }, line: from, ...frame, view: withActs(view) });
+  /** A row's id among its list's: the note it opens, when that is its alone; else its place. (What a client keys and presses it by.) */
+  const keyed = <R extends { opens?: string | null }>(rows: readonly R[], place: (row: R, n: number) => string): string[] => {
+    const seen = new Set<string>();
+    return rows.map((r, n) => { const id = r.opens && !seen.has(r.opens) ? r.opens : place(r, n); seen.add(id); return id; });
+  };
   const asWritten = (from: number, to: number): PagePrimitive => ({ type: "source", text: lines(from, to) });
 
   /** The component `found` at line `i`, answered. */
@@ -110,7 +118,8 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
         const { spec } = found.site, title = spec.title ?? spec.key;
         if (spec.problem) return part("fields", i, end, asWritten(i, end), { name: "fields", title, error: spec.problem });
         const a = await produced(host, note.id, { kind: "fields", key: spec.key, ...(spec.of ? { of: spec.of } : {}) }) as Extract<SiteProduced, { kind: "fields" }>;
-        const rows: ListRow[] = a.rows.map((row, n) => row.link ? { id: `${n}`, label: row.link.title, do: { open: row.link.id } } : { id: `${n}`, label: row.value });
+        const ids = keyed(a.rows.map(row => ({ opens: row.link?.id })), (_, n) => `${n}`);
+        const rows: ListRow[] = a.rows.map((row, n) => row.link ? { id: ids[n]!, label: row.link.title, do: { open: row.link.id } } : { id: ids[n]!, label: row.value });
         return part("fields", i, end, { type: "list", rows, filter: false, enter: false }, { name: "fields", title, status: `live · ${rows.length} occurrence${rows.length === 1 ? "" : "s"}`, ...(a.problem ? { error: a.problem.message } : {}) });
       }
       case "links": {
@@ -118,7 +127,9 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
         const error = read.problem ?? read.unread ?? (read.hidden ? "a note not shown here" : undefined);
         // One list, a group a named run of rows: a row that opens a note says so (`do`), one that opens nothing is words;
         // a group with no rows says what it would hold (its `note`).
-        const rows: ListRow[] = read.groups.flatMap((g, at) => g.rows.map((r, n): ListRow => ({ id: `${at}.${n}`, label: r.text, group: g.name, ...(r.note ? { detail: r.note } : {}), ...(r.id ? { do: { open: r.id } } : {}) })));
+        const flat = read.groups.flatMap((g, at) => g.rows.map((r, n) => ({ ...r, opens: r.id, group: g.name, place: `${at}.${n}` })));
+        const ids = keyed(flat, r => r.place);
+        const rows: ListRow[] = flat.map((r, n): ListRow => ({ id: ids[n]!, label: r.text, group: r.group, ...(r.note ? { detail: r.note } : {}), ...(r.id ? { do: { open: r.id } } : {}) }));
         const groups: ListGroup[] = read.groups.map(g => ({ name: g.name, label: g.name, count: g.rows.length, ...(g.note && !g.rows.length ? { note: g.note } : {}) }));
         return part("links", i, end, { type: "list", rows, groups, filter: false, enter: false }, { name: spec.kind, title: read.title, ...(spec.query ? { query: spec.query } : {}), ...(read.status ? { status: read.status } : {}), ...(error ? { error } : {}) });
       }

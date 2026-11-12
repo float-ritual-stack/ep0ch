@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ListAnswer } from "@ep0ch/outline-core/list-row";
-import { readSpec, savedNodes, targetFilled } from "@ep0ch/outline-core/screen-spec";
+import { newNoteRule, readSpec, savedNodes, targetFilled } from "@ep0ch/outline-core/screen-spec";
 import { OutlinerClient } from "../src/client";
 import { defaultOnBuiltIns } from "../src/extension-install";
 import type { ScreensList } from "../src/screens";
@@ -98,7 +98,7 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   // What the service answers here is written down for a client's own tests to stand a host in with (the native
   // window's): EP0CH_WRITE_FIXTURES=1 writes it, and it is never edited by hand.
   const fixture = join(import.meta.dir, "..", "..", "outline-core", "fixtures", "served-screens.json");
-  const answered = JSON.stringify({ screens: all.screens, kinds: all.kinds, sources: (await list("sources")).list.rows }, null, 2) + "\n";
+  const answered = JSON.stringify({ screens: all.screens, kinds: all.kinds, sources: (await list("sources")).sources }, null, 2) + "\n";
   if (process.env.EP0CH_WRITE_FIXTURES === "1") writeFileSync(fixture, answered);
   expect(existsSync(fixture) ? readFileSync(fixture, "utf8") : "", "outline-core/fixtures/served-screens.json is stale: EP0CH_WRITE_FIXTURES=1 bun test test/screens-extension.test.ts").toBe(answered);
   // A screen opened on a target carries it in the tile its spec says.
@@ -123,6 +123,17 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   expect((await client.request<{ text: string }[]>({ action: "children", parentId: potting.id } as never)).map(b => b.text)).toEqual(["tile screens.reader [name::bench]"]);
   expect(savedNodes((await screens()).screens.find(s => s.name === "potting-bench")!.spec!.layout.root)[0]).toMatchObject({ kind: "screens.reader", role: "reader", name: "bench" });
   await client.request({ action: "delete", blockId: potting.id, mutation: { author: "user" } } as never);
+
+  // A new-note rule names kinds as its screen wrote them (`reader`): served, each is the kind its tiles are served as,
+  // so a client asks the one rule (outline-core's newNoteRule) with the kind a tile carries, and keeps no map of names.
+  const seedbed = await client.request<{ id: string }>({ action: "screens.save", spec: { name: "Seed bed", newNote: [{ opens: "tab", only: ["reader"] }, { opens: "float", unless: ["tree", "wheelbarrow"] }, { opens: "lands" }], layout: { root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [{ t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "reader", name: "bench" }] } } } } as never);
+  const rules = (await screens()).screens.find(s => s.name === "seed-bed")!.spec!;
+  expect(rules.newNote).toEqual([{ opens: "tab", only: ["screens.reader"] }, { opens: "float", unless: ["screens.tree", "wheelbarrow"] }, { opens: "lands" }]);
+  const tileKind = (name: string) => String(savedNodes(rules.layout.root).find(n => n.t === "leaf" && n.name === name)!.kind);
+  expect([newNoteRule(rules, tileKind("bench"))?.opens, newNoteRule(rules, tileKind("tree"))?.opens]).toEqual(["tab", "lands"]);
+  await client.request({ action: "delete", blockId: seedbed.id, mutation: { author: "user" } } as never);
+  // A kind's row says which of the names it replaces it serves now: the name a tile made by a door carries is that kind's.
+  expect(all.kinds.map(k => [k.kind, k.serves])).toEqual(MANIFEST.tiles.map(t => [`screens.${t.kind}`, t.replaces]));
 
   // Uninstalled the same way: its screens and kinds are gone, and a screen a person saved stays.
   await client.request({ action: "screens.save", spec: { name: "Seed swap", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } } } as never);

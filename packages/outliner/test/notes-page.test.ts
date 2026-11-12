@@ -5,6 +5,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { actOf } from "@ep0ch/outline-core/list-row";
 import type { NotePage, PagePart, PagePrimitive } from "@ep0ch/outline-core/note-page";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -121,6 +122,10 @@ test("a page is the title, the chips and the body in order: prose as Markdown, e
   expect(list0.groups).toEqual([{ name: "Matches", label: "Matches", count: 2 }]);
   expect(list0.rows.map(r => [r.group, r.label]).sort()).toEqual([["Matches", "Lift the onions"], ["Matches", "Water the beans"]]);
   expect(list0.rows.find(r => r.label === "Lift the onions")!.do).toEqual({ open: onions.id });
+  // Every row says the act line a pick runs, by the one rule (outline-core's actOf), and is keyed by the note it opens:
+  // a client that parses no activation reads `act` and nothing else.
+  expect(list0.rows.find(r => r.label === "Lift the onions")).toMatchObject({ id: onions.id, act: `open id="${onions.id}"` });
+  expect(list0.rows.every(r => !r.do || r.act === actOf(r.do))).toBe(true);
   expect(written(p, plot)).toBe("::links{query=\"type=chore area=plot\" title=\"On the plot\"}\n::");
 
   // A figure: the primitives it draws as, from the props the outline answered.
@@ -193,6 +198,9 @@ test("the page is whole: the notes above, under and linking to it, each as every
   expect(p.ancestors).toEqual([{ id: plot.id, title: "Plot", hasChildren: true }]);
   expect(p.children).toEqual([{ id: onions.id, title: "Lift the onions", hasChildren: true }, { id: expect.any(String), title: "Water the beans" }]);
   expect(p.backlinks).toEqual([{ id: plan.id, title: "Plan", context: "Top level" }]);
+  // The notes under it are the one list too: a row says what it shows and the act line a pick runs. A note with none has no list.
+  expect(p.under).toMatchObject({ type: "list", title: "Under this note · 2", rows: [{ id: onions.id, label: "Lift the onions", folds: true, act: `open id="${onions.id}"` }, { label: "Water the beans", act: expect.stringMatching(/^open id="/) }] });
+  expect((await page(plan.id)).under).toBeUndefined();
   // The body's properties too, as the service read them.
   expect(p.properties).toEqual([{ key: "type", value: "place" }, { key: "room", value: "north" }]);
 });

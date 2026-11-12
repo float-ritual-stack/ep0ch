@@ -15,7 +15,7 @@ import { askProps, asksPerItem, CHILDREN_QUERY, figureQuestion, keepGroups, live
 import type { SiteAnswer, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 import { figureChildRows, figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
-import { blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
+import { blockGroups, LINK_GROUP_LABELS, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { hostBusy } from "./client";
@@ -336,8 +336,6 @@ async function withoutUnknowable<T extends { id: string }>(host: LiveHost, note:
 
 // ── `::links` and its kin ──────────────────────────────────────────────────────────────────────────────
 
-const GROUP_NAMES: Record<LinkGroupName, string> = { outlinks: "Outlinks", resources: "Resources", backlinks: "Backlinks", children: "Children", matches: "Matches" };
-
 /** One row of a links component as read: what it says, the note it stands for (null: none this page shows), where in that note (a backlink's line), and a quiet word after it. */
 export interface LinkRowRead { text: string; id: string | null; at?: number; note?: string }
 
@@ -413,7 +411,7 @@ export async function readLinks(host: LiveHost, spec: LinkBlockSpec, note: strin
   rows.children = listed(children);
   rows.matches = listed(matches instanceof Error ? null : matches);
   const read = groups.map(group => ({
-    name: GROUP_NAMES[group], glyph: LINK_GROUPS.find(g => g.group === group)?.glyph ?? "·", rows: keep(rows[group]),
+    name: LINK_GROUP_LABELS[group], glyph: LINK_GROUPS.find(g => g.group === group)?.glyph ?? "·", rows: keep(rows[group]),
     note: notes[group] ?? (spec.filter ? `nothing matches ${spec.filter}` : "nothing here yet"),
   }));
   const counted = read.reduce((n, g) => n + g.rows.length, 0);

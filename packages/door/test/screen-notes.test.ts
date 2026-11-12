@@ -205,7 +205,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("a screen saved as blocks under its note (screens.save, the native window's save) opens here as it was arranged", async () => {
-    const spec = { name: "Seed bench", title: "Seed bench", layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
+    const spec = { name: "Seed bench", title: "Seed bench", newNote: [{ opens: "tab", only: ["reader"] }, { opens: "lands" }], layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
       { t: "leaf", kind: "tree", name: "tree", wires: [{ verb: "select", to: "reader" }] },
       { t: "split", dir: "col", weights: [0.6, 0.4], kids: [{ t: "leaf", kind: "reader", name: "reader" }, { t: "leaf", kind: "backlinks", name: "roots", source: "tile:reader", subject: "follows" }] }] } } };
     const saved = await board.request("screens.save", { spec, mutation: { author: "agent", actorId: "seedling-agent" } });
@@ -219,6 +219,12 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     await until(() => top().name === "seed-bench", "seed-bench opened");
     expect(get().tiles.map(t => t.name)).toEqual(["tree", "reader", "roots"]);
     expect(get().tiles.find(t => t.name === "roots").kind).toBe("backlinks");
+    // Its rule for new notes names kinds as the service resolved them (`screens.reader`, as it serves the tiles'): the
+    // door's own kind answers to that name, so the one rule (outline-core's newNoteRule) picks as it does in a window.
+    await mine("tile.focus", {}, "reader");
+    expect(top().newNoteRule()).toMatchObject({ opens: "tab" });
+    await mine("tile.focus", {}, "tree");
+    expect(top().newNoteRule()).toMatchObject({ opens: "lands" });
   });
 
   test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {

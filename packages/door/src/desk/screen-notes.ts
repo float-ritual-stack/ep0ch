@@ -23,6 +23,7 @@ import { readScreenNote as readNote } from "@ep0ch/outline-core/screen-note";
 import type { Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
+import { resolveKind } from "./tile-kinds";
 import { builtinScreen, extensionScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
 
 /** The property value that makes a block a screen note, and the one of the note they're kept under. */
@@ -80,7 +81,16 @@ export function register(n: ScreenNote) {
   writes++;
   forgetScreen(n.name);
   notes.set(n.name, n);
-  registerScreen(n.name, () => readSpec(specData(n.spec)), { made: { id: n.id, revision: n.revision, title: n.title } });
+  registerScreen(n.name, () => ownKinds(readSpec(specData(n.spec))), { made: { id: n.id, revision: n.revision, title: n.title } });
+}
+/**
+ * A served spec's new-note rules name kinds as the service resolved them (`screens.reader`, as it serves a tile's):
+ * each as the door's own kind, by the registry's one lookup (`resolveKind`, as `canonSpec` reads a tile's), so the
+ * rule is asked with the kind a tile here carries.
+ */
+function ownKinds(spec: ScreenSpec): ScreenSpec {
+  if (!spec.newNote?.some(rule => rule.only || rule.unless)) return spec;
+  return { ...spec, newNote: spec.newNote.map(rule => ({ ...rule, ...(rule.only ? { only: rule.only.map(resolveKind) } : {}), ...(rule.unless ? { unless: rule.unless.map(resolveKind) } : {}) })) };
 }
 /** One screen note taken out. */
 function unregister(name: string) { writes++; forgetScreen(name); notes.delete(name); }

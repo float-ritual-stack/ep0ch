@@ -309,6 +309,9 @@
       },
       "replaces": [
         "tree"
+      ],
+      "serves": [
+        "tree"
       ]
     },
     {
@@ -318,6 +321,9 @@
       "about": "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
       "drawer": "page",
       "replaces": [
+        "reader"
+      ],
+      "serves": [
         "reader"
       ]
     },
@@ -332,6 +338,9 @@
       },
       "replaces": [
         "query"
+      ],
+      "serves": [
+        "query"
       ]
     },
     {
@@ -344,6 +353,9 @@
         "from": "links"
       },
       "replaces": [
+        "backlinks"
+      ],
+      "serves": [
         "backlinks"
       ]
     },
@@ -359,6 +371,9 @@
       },
       "replaces": [
         "props"
+      ],
+      "serves": [
+        "props"
       ]
     },
     {
@@ -371,6 +386,9 @@
         "from": "facets"
       },
       "replaces": [
+        "facets"
+      ],
+      "serves": [
         "facets"
       ]
     },
@@ -386,6 +404,9 @@
       },
       "replaces": [
         "matches"
+      ],
+      "serves": [
+        "matches"
       ]
     },
     {
@@ -398,6 +419,9 @@
         "from": "activity"
       },
       "replaces": [
+        "activity"
+      ],
+      "serves": [
         "activity"
       ]
     },
@@ -412,207 +436,177 @@
       },
       "replaces": [
         "who"
+      ],
+      "serves": [
+        "who"
       ]
     }
   ],
   "sources": [
     {
-      "id": "children",
-      "label": "The outline",
-      "cells": [
-        "children",
-        "of? open? limit?"
-      ],
-      "chips": [
+      "from": "children",
+      "about": "The outline",
+      "params": [
         {
-          "key": "of",
-          "value": "the note at its top (left out: the outline's top level)"
+          "name": "of",
+          "about": "the note at its top (left out: the outline's top level)"
         },
         {
-          "key": "open",
-          "value": "the folders whose notes are listed under them"
+          "name": "open",
+          "about": "the folders whose notes are listed under them"
         },
         {
-          "key": "limit",
-          "value": "the most rows"
+          "name": "limit",
+          "about": "the most rows"
         }
       ]
     },
     {
-      "id": "search",
-      "label": "Notes",
-      "detail": "Words in a title or a note",
-      "cells": [
-        "search",
-        "query limit?"
-      ],
-      "chips": [
+      "from": "search",
+      "about": "Notes",
+      "placeholder": "Words in a title or a note",
+      "params": [
         {
-          "key": "query",
-          "value": "words in a title or a note"
+          "name": "query",
+          "about": "words in a title or a note",
+          "required": true
         },
         {
-          "key": "limit",
-          "value": "the most rows"
+          "name": "limit",
+          "about": "the most rows"
         }
       ],
-      "group": "bar",
-      "mark": "main"
+      "bar": {
+        "main": true
+      }
     },
     {
-      "id": "query",
-      "label": "Query",
-      "detail": "type=letter mail=waiting · any property, as views read it",
-      "cells": [
-        "query",
-        "query? sort? group? columns? arrange? limit?"
-      ],
-      "chips": [
+      "from": "query",
+      "about": "Query",
+      "placeholder": "type=letter mail=waiting · any property, as views read it",
+      "params": [
         {
-          "key": "query",
-          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
         },
         {
-          "key": "sort",
-          "value": "a property name, or created, updated, title; then asc or desc"
+          "name": "sort",
+          "about": "a property name, or created, updated, title; then asc or desc"
         },
         {
-          "key": "group",
-          "value": "a property name: its values are the list's sections"
+          "name": "group",
+          "about": "a property name: its values are the list's sections"
         },
         {
-          "key": "columns",
-          "value": "the property names a table shows"
+          "name": "columns",
+          "about": "the property names a table shows"
         },
         {
-          "key": "arrange",
-          "value": "rows, table, lanes or grid"
+          "name": "arrange",
+          "about": "rows, table, lanes, grid"
         },
         {
-          "key": "limit",
-          "value": "the most rows"
+          "name": "limit",
+          "about": "the most rows"
         }
       ],
-      "group": "bar"
+      "bar": {
+        "facets": true
+      }
     },
     {
-      "id": "lanes",
-      "label": "Lanes",
-      "cells": [
-        "lanes",
-        "query? group sort? limit?"
-      ],
-      "chips": [
+      "from": "lanes",
+      "about": "Lanes",
+      "params": [
         {
-          "key": "query",
-          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
         },
         {
-          "key": "group",
-          "value": "the property name whose values are the lanes"
+          "name": "group",
+          "about": "the property name whose values are the lanes",
+          "required": true
         },
         {
-          "key": "sort",
-          "value": "the order in each lane"
+          "name": "sort",
+          "about": "the order in each lane"
         },
         {
-          "key": "limit",
-          "value": "the most rows"
+          "name": "limit",
+          "about": "the most rows"
         }
       ]
     },
     {
-      "id": "facets",
-      "label": "Facets",
-      "cells": [
-        "facets",
-        "query?"
-      ],
-      "chips": [
+      "from": "facets",
+      "about": "Facets",
+      "params": [
         {
-          "key": "query",
-          "value": "a question in the views' grammar (type=bed NOT stage=done): any property"
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
         }
       ]
     },
     {
-      "id": "links",
-      "label": "Links",
-      "cells": [
-        "links",
-        "of linkGroups?"
-      ],
-      "chips": [
+      "from": "links",
+      "about": "Links",
+      "params": [
         {
-          "key": "of",
-          "value": "the note"
+          "name": "of",
+          "about": "the note",
+          "required": true
         },
         {
-          "key": "linkGroups",
-          "value": "which relations: outlinks, backlinks, children or all (left out: backlinks)"
+          "name": "linkGroups",
+          "about": "which relations: outlinks, resources, backlinks, children or all (left out: all)"
         }
       ]
     },
     {
-      "id": "properties",
-      "label": "Properties",
-      "cells": [
-        "properties",
-        "of"
-      ],
-      "chips": [
+      "from": "properties",
+      "about": "Properties",
+      "params": [
         {
-          "key": "of",
-          "value": "the note"
+          "name": "of",
+          "about": "the note",
+          "required": true
         }
       ]
     },
     {
-      "id": "activity",
-      "label": "Last callers",
-      "cells": [
-        "activity",
-        "limit?"
-      ],
-      "chips": [
+      "from": "activity",
+      "about": "Last callers",
+      "params": [
         {
-          "key": "limit",
-          "value": "the most rows"
+          "name": "limit",
+          "about": "the most rows"
         }
       ]
     },
     {
-      "id": "clients",
-      "label": "Who's here",
-      "cells": [
-        "clients",
-        ""
-      ],
-      "chips": []
+      "from": "clients",
+      "about": "Who's here",
+      "params": []
     },
     {
-      "id": "screens",
-      "label": "Screens",
-      "detail": "A screen's name",
-      "cells": [
-        "screens",
-        "query? kinds? drawers?"
-      ],
-      "chips": [
+      "from": "screens",
+      "about": "Screens",
+      "placeholder": "A screen's name",
+      "params": [
         {
-          "key": "query",
-          "value": "words of its name"
+          "name": "query",
+          "about": "words of its name"
         },
         {
-          "key": "kinds",
-          "value": "the tile kinds the asker draws"
+          "name": "kinds",
+          "about": "the tile kinds the asker draws"
         },
         {
-          "key": "drawers",
-          "value": "the drawers the asker has"
+          "name": "drawers",
+          "about": "the drawers the asker has"
         }
       ],
-      "group": "bar"
+      "bar": {}
     }
   ]
 }

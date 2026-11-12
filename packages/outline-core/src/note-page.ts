@@ -7,6 +7,7 @@ import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
 import type { SourceRange } from "./code-ranges";
 import type { ComponentKind } from "./component-at";
+import { actOf, type ListPrimitive } from "./list-row";
 import type { Primitive } from "./primitive";
 import { readContentSize, type Align, type ContentWidth, type Focus, type MediaSpec } from "./media-line";
 
@@ -105,6 +106,34 @@ export interface PagePart {
   view: PagePrimitive;
 }
 
+/**
+ * `prim` with every press in it said as the act line it runs (`act`, by the one rule, list-row's `actOf`): a list's
+ * row (`do`), a text, a card or a table cell that opens a note (`link`), a table's row (`links[n]`, said in `acts[n]`).
+ * A client that parses no activation reads `act` and nothing else; `do` and `link` stay for the clients that read them.
+ * A row that copies or inserts has no act line.
+ */
+export function withActs<P extends PagePrimitive>(prim: P): P {
+  const opens = (link: unknown) => (typeof link === "string" && link ? actOf({ open: link }) : undefined);
+  const said = <T extends object>(v: T): T => { const { act, link } = v as { act?: string; link?: string }; return act || !opens(link) ? v : { ...v, act: opens(link)! }; };
+  const cell = <C,>(c: C): C => (c && typeof c === "object" ? said(c) : c);
+  const kids = <T extends object>(v: T): T => { const { children } = v as { children?: readonly PagePrimitive[] }; return children ? { ...v, children: children.map(child => withActs(child)) } : v; };
+  const walked = (p: PagePrimitive): PagePrimitive => {
+    switch (p.type) {
+      case "part": return { ...p, view: withActs(p.view) };
+      case "list": return { ...p, rows: p.rows.map(row => { const act = row.act ?? actOf(row.do); return { ...row, ...(act ? { act } : {}), ...(row.cells ? { cells: row.cells.map(cell) } : {}) }; }) };
+      case "table": {
+        const acts = p.rows.map((_, n) => p.acts?.[n] ?? opens(p.links?.[n]) ?? null);
+        return { ...p, rows: p.rows.map(row => row.map(cell)), ...(acts.some(Boolean) ? { acts } : {}) };
+      }
+      case "text": return said(p);
+      case "card": return kids(said(p));
+      case "box": case "stack": case "row": return kids(p);
+      default: return p;
+    }
+  };
+  return walked(prim) as P;
+}
+
 /** A note in a list, as every list of a page names one: its id, its title as lists show it, and where it sits. */
 export interface NoteRow { id: string; title: string; hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
 
@@ -127,6 +156,8 @@ export interface NotePage {
   ancestors: NoteRow[];
   /** The notes under it, in order. */
   children: NoteRow[];
+  /** The same notes as the one list (rows that say what a pick runs), when there are any: what a client draws under the body. */
+  under?: ListPrimitive;
   /** The notes that link to it. */
   backlinks: NoteRow[];
   updated: string;
