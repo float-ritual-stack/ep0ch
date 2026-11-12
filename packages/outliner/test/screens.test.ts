@@ -123,6 +123,39 @@ test("screens.save writes the block form under the Screens note, and saves over 
   expect((await list()).screens[0]!.spec).toEqual(again as never);
 });
 
+test("a screen saved over keeps the blocks it has: only what changed is written, and only a tile that is gone goes to the Trash", async () => {
+  const { client, list } = await setup();
+  const leaf = (kind: string, name: string) => ({ t: "leaf", kind, name });
+  const beds = (weights: number[], kids: unknown[]) => ({ name: "seed-list", title: "Seed list", toolbar: ["bar.open", "note.new"], layout: { focus: "reader", root: { t: "split", dir: "row", weights, kids } } });
+  const save = (spec: unknown, base: { id: string; revision: number }) => client.request<ScreenSaved>({ action: "screens.save", spec, base, mutation: { author: "user" } } as never);
+  const made = await client.request<ScreenSaved>({ action: "screens.save", spec: beds([0.2, 0.5, 0.3], [leaf("tree", "tree"), leaf("reader", "reader"), leaf("backlinks", "roots")]), mutation: { author: "user" } } as never);
+  /** Every block under a note, top down, as [id, revision, text]. */
+  const under = async (id: string): Promise<[string, number, string][]> => (await Promise.all((await client.request<Block[]>({ action: "children", parentId: id } as never)).map(async b => [[b.id, b.revision, b.text] as [string, number, string], ...(await under(b.id))]))).flat();
+  const first = await under(made.id);
+  expect(first.map(b => b[2])).toEqual(["split row [weights::0.2 0.5 0.3]", "tile tree [name::tree]", "tile reader [name::reader]", "tile backlinks [name::roots]", "toolbar", "bar.open", "note.new"]);
+
+  // A border dragged, then saved: the split's block alone is written again. Every block is the one it was.
+  const dragged = await save(beds([0.3, 0.4, 0.3], [leaf("tree", "tree"), leaf("reader", "reader"), leaf("backlinks", "roots")]), { id: made.id, revision: made.revision });
+  const second = await under(made.id);
+  expect(second.map(b => b[0])).toEqual(first.map(b => b[0]));
+  expect(second.filter((b, i) => b[1] !== first[i]![1]).map(b => b[2])).toEqual(["split row [weights::0.3 0.4 0.3]"]);
+
+  // A tile closed, then saved: its block goes to the Trash, and nothing else does.
+  const closed = await save(beds([0.4, 0.6], [leaf("tree", "tree"), leaf("reader", "reader")]), { id: made.id, revision: dragged.revision });
+  const third = await under(made.id);
+  expect(third.map(b => b[2])).toEqual(["split row [ratio::0.4]", "tile tree [name::tree]", "tile reader [name::reader]", "toolbar", "bar.open", "note.new"]);
+  expect(third.map(b => b[0])).toEqual(second.filter(b => b[2] !== "tile backlinks [name::roots]").map(b => b[0]));
+  const trashed = await Promise.all(first.map(async b => [b[2], !!(await client.request<Block>({ action: "get", blockId: b[0] } as never)).deletedAt]));
+  expect(trashed.filter(t => t[1]).map(t => t[0])).toEqual(["tile backlinks [name::roots]"]);
+
+  // A tile split off, then saved: one block is made, last under its split.
+  await save(beds([0.4, 0.3, 0.3], [leaf("tree", "tree"), leaf("reader", "reader"), leaf("reader", "reader2")]), { id: made.id, revision: closed.revision });
+  const fourth = await under(made.id);
+  expect(fourth.map(b => b[2])).toEqual(["split row [weights::0.4 0.3 0.3]", "tile tree [name::tree]", "tile reader [name::reader]", "tile reader [name::reader2]", "toolbar", "bar.open", "note.new"]);
+  expect(fourth.filter(b => !third.some(t => t[0] === b[0])).map(b => b[2])).toEqual(["tile reader [name::reader2]"]);
+  expect((await list()).screens[0]!.spec?.layout.root).toEqual({ t: "split", dir: "row", weights: [0.4, 0.3, 0.3], kids: [leaf("tree", "tree"), leaf("reader", "reader"), leaf("reader", "reader2")] } as never);
+});
+
 test("a watched screens.list says when a block under a screen note changed", async () => {
   const { client, create, socket } = await setup();
   const { beds } = await garden(create);

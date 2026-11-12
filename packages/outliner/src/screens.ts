@@ -8,7 +8,8 @@
  *   built-ins) opens nothing, and says so. A tile kind is settled here too: the kinds the asker draws (`kinds`), the
  *   kinds extensions serve, and each kind a served one replaces.
  * - `screens.save`: a spec written as a screen note in the block form, under the Screens note: the note it already
- *   has (checked against the revision the asker read), else a new one.
+ *   has (checked against the revision the asker read), else a new one. Saved over, the note keeps its blocks: only a
+ *   block that reads differently is written, so a save trashes nothing but a tile that is gone.
  *
  * The service asks itself (`own`) for every read and write, so a screen note is written, attributed and broadcast
  * like any other note. One reader, one writer: no client reads a screen note's text.
@@ -164,8 +165,19 @@ export async function saveScreen(own: Own, request: Extract<ScreensRequest, { ac
   const expectedRevision = request.base && request.base.id === had.id ? request.base.revision : had.revision;
   const title = screenSlug(spec.title) === spec.name ? spec.title : spec.name;
   const updated = await own.request<{ id: string; revision: number }>({ action: "update", blockId: had.id, text: written.text, expectedRevision, mutation });
-  const old = await own.request<{ id: string }[]>({ action: "children", parentId: had.id });
-  for (const child of old) await own.request({ action: "delete", blockId: child.id, mutation });
-  await under(had.id, written.children);
+  // The blocks it has are kept, each where it is: one that reads as it should is left alone, one that doesn't is
+  // written again, a block the layout no longer has goes to the Trash and one it gained is made. A save after a
+  // border moved writes one block, and nothing a save didn't change is trashed and made again.
+  const settle = async (parentId: string, blocks: readonly WrittenBlock[]): Promise<void> => {
+    const old = await own.request<Read[]>({ action: "children", parentId });
+    for (const [i, block] of blocks.entries()) {
+      const was = old[i];
+      if (!was) { const at = await create(parentId, block.text); await under(at.id, block.children); continue; }
+      if (was.text !== block.text) await own.request({ action: "update", blockId: was.id, text: block.text, expectedRevision: was.revision, mutation });
+      await settle(was.id, block.children);
+    }
+    for (const gone of old.slice(blocks.length)) await own.request({ action: "delete", blockId: gone.id, mutation });
+  };
+  await settle(had.id, written.children);
   return { name: spec.name, title, id: had.id, revision: updated.revision, created: false };
 }
