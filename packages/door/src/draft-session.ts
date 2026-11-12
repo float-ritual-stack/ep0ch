@@ -25,6 +25,7 @@ import { completerOf, defaultCompleter, completionKey, type Completer } from "./
 import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
+import { patchDid } from "@ep0ch/outline-core/draft-patch-place";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
 import { heldBack, MARK_THEM } from "./whereabouts";
 import { textAt } from "./desk/what-changed";
@@ -652,8 +653,7 @@ export class DraftSession {
     if (a.applied && r.standsOn) { d.standOn(r.patchId, r.standsOn); this.hold?.revise(r.standsOn.revision); }
     if (a.applied) {
       if (r.replyTo) this.env.answered?.(r.replyTo, by);
-      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft"
-        : r.standsOn ? "set a property: saved, and in your draft beside your words" : "edited text above your cursor");
+      this.env.agentDid?.(by, patchDid(r));
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }
