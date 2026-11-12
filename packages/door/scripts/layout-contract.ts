@@ -14,7 +14,8 @@
 //   screens.json           the door's built-in screens, each as its spec                                  (screenSpec, specData)
 //
 // test/layout-contract.test.ts makes them again and fails when a checked-in table is stale, so a change to a layout rule
-// shows as a changed row in the same PR. A layout here is the door's saved form (LayoutSpec); a tile is named, and its
+// shows as a changed row in the same PR. It runs this script as a process of its own: the tables name every tile kind and
+// action set the door has, and in a test run other files have registered theirs. A layout here is the door's saved form (LayoutSpec); a tile is named, and its
 // name is its id (a renamed tile's leaf says both).
 import "./layout-contract/env";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,6 +28,7 @@ import type { Actor } from "../src/socket";
 import { actionRow, actRequestOf, allActionSets, coerceActionArgs, lineWords, type ActionRow, type ArgSpec } from "../src/surface/actions";
 import { isAgentLevel, type AgentLevel } from "../src/surface/agent-level";
 import { layoutStanding } from "../src/surface/dispatch";
+import { visible } from "../src/style";
 import {
   apply, init, leaves, node, placement, policyOf, reviveTree, serialize,
   type AcrossWire, type Ctx, type Float, type Fold, type LayoutState, type Op, type Person, type Policy, type TileFacts, type Wire,
@@ -260,17 +262,22 @@ export function contractTables(): Record<string, string> {
   const rows = actionRows();
   const specs = new Map(rows.map(r => [r.id, r.args] as const));
   const screens = screenNames().filter(builtinScreen).map(name => {
-    const spec = specData(screenSpec(name)!);
+    const made = specData(screenSpec(name)!) as { hint?: string | Record<string, string> };
     // What the door ships reads back through the one validator, its tiles' kinds among those the door has.
-    readSpec(spec, true);
-    return { name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), spec };
+    readSpec(made, true);
+    // A hint a screen drew as it made its spec (EchoNet's: a strip in the theme's colours, each segment a click by a
+    // number the process hands out) isn't data: the table holds its words, and says which field was drawn.
+    const drawn = JSON.stringify(made.hint ?? "").includes("\\u001b");
+    const words = (h: string) => visible(h);
+    const spec = !drawn ? made : { ...made, hint: typeof made.hint === "string" ? words(made.hint) : Object.fromEntries(Object.entries(made.hint!).map(([k, v]) => [k, words(v)])) };
+    return { name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(drawn ? { drawn: ["hint"] } : {}), spec };
   });
   return {
     "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal. Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA }, { cases: layout }),
     "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA }, { cases: place }),
     "act-lines.json": table({ about: "An act line: its words, the request it is, and (typed) its arguments as the action's row types them. A tile= is one of five kinds of address. Made by lineWords(), actRequestOf(), the door's coerceActionArgs() and parseTileAddress(); never edited by hand.", by: BY }, { lines: ACT_LINES.map(c => actLine(c, specs)), addresses: TILE_ADDRESSES.map(tile => ({ tile, address: parseTileAddress(tile) })) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
-    "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
+    "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. drawn names a field the screen drew as it made its spec (a hint row's strip): the table holds its words, without the colours and click marks. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
   };
 }
 
@@ -290,15 +297,25 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
   return `{\n${[...lines, ...rows].join(",\n")}\n}\n`;
 }
 
-/** The tables whose checked-in text isn't what the door answers now. */
-export function staleTables(dir = FIXTURES): string[] {
-  return Object.entries(contractTables()).filter(([file, text]) => !existsSync(join(dir, file)) || readFileSync(join(dir, file), "utf8") !== text).map(([file]) => file);
+/**
+ * The tables whose checked-in text isn't what the door answers now, each with the first row that differs (the rule
+ * that moved); the whole table is never printed.
+ */
+export function staleTables(dir = FIXTURES): { file: string; at: string }[] {
+  return Object.entries(contractTables()).flatMap(([file, text]) => {
+    const kept = existsSync(join(dir, file)) ? readFileSync(join(dir, file), "utf8") : null;
+    if (kept === text) return [];
+    if (kept === null) return [{ file, at: "it isn't checked in" }];
+    const a = kept.split("\n"), b = text.split("\n"), i = b.findIndex((line, n) => line !== a[n]);
+    return [{ file, at: i < 0 ? `it has ${a.length - b.length} rows the door no longer answers` : `line ${i + 1}, as the door answers now: ${(b[i] ?? "").trim().slice(0, 240)}` }];
+  });
 }
 
 if (import.meta.main) {
   if (process.argv.includes("--check")) {
     const stale = staleTables();
-    if (stale.length) { console.error(`stale: ${stale.join(", ")} · bun packages/door/scripts/layout-contract.ts writes them again`); process.exit(1); }
+    for (const t of stale) console.error(`${t.file} is stale (${t.at})`);
+    if (stale.length) { console.error(`if the door's answer is the one meant, write the tables again: scripts/agent-env <your name> -- bun ${BY}`); process.exit(1); }
     console.log("the contract tables are what the door answers");
   } else {
     mkdirSync(FIXTURES, { recursive: true });

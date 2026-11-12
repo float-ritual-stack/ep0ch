@@ -4,17 +4,13 @@
 // makes them again and fails when a checked-in table is stale, and counts what they ask against the door's source, so a
 // new operation, container, policy field or open rule can't arrive without a row.
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { contractTables, FIXTURES } from "../scripts/layout-contract";
-import { ALT_RULES, OPEN_RULES, POLICY_KEYS } from "../src/desk/layout";
-import { WIRE_VERBS } from "../src/desk/screen-layout";
-import { screenNames, builtinScreen } from "../src/desk/screen-spec";
-import { AGENT_LEVELS } from "../src/surface/agent-level";
-import { allActionSets } from "../src/surface/actions";
+import { ALT_RULES, OPEN_RULES, POLICY_KEYS, WIRE_VERBS, AGENT_LEVELS } from "@ep0ch/outline-core/screen-spec";
 
-const made = contractTables();
-const HOW = "scripts/agent-env <your name> -- bun packages/door/scripts/layout-contract.ts";
+const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
+const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "action-rows.json", "screens.json"];
+const made = Object.fromEntries(FILES.map(file => [file, readFileSync(join(FIXTURES, file), "utf8")]));
 const parsed = <T>(file: string): T => JSON.parse(made[file]!) as T;
 
 interface Row {
@@ -34,17 +30,15 @@ function nodes(n: any): any[] {
 const policiesOf = (r: Row) => [r.layout.policy, ...nodes(r.layout.root).map(n => n.policy)].filter(Boolean) as Record<string, unknown>[];
 
 describe("the contract tables are what the door answers", () => {
-  for (const [file, text] of Object.entries(made)) {
-    test(`${file} is not stale`, () => {
-      const path = join(FIXTURES, file);
-      const kept = existsSync(path) ? readFileSync(path, "utf8") : "";
-      if (kept === text) return;
-      // The first row that differs says which rule moved; the whole table is never printed.
-      const a = kept.split("\n"), b = text.split("\n"), i = b.findIndex((line, n) => line !== a[n]);
-      const at = i < 0 ? `it has ${a.length - b.length} rows the door no longer answers` : `line ${i + 1}: ${(b[i] ?? "").trim().slice(0, 200)}`;
-      throw new Error(`${file} is stale (${at}) · if the door's answer is the one meant, write the tables again: ${HOW}`);
-    });
-  }
+  test("made again by the door, in a process of its own, no table is stale", () => {
+    // Its own process: the tables name every tile kind and action set the door has, and this run's other files have
+    // registered theirs (a test's fixture set, a showcase's kinds). The environment is this run's (test/preload.ts: no
+    // settings of the person's, a state folder of its own), passed on as it is.
+    const r = Bun.spawnSync([process.execPath, join(import.meta.dir, "../scripts/layout-contract.ts"), "--check"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe" });
+    // A stale table says its first row that differs and the command that writes them again.
+    expect(r.stderr.toString().trim()).toBe("");
+    expect(r.exitCode).toBe(0);
+  }, 120_000);
 });
 
 describe("the tables ask everything the door's layout decides", () => {
@@ -140,20 +134,21 @@ describe("the tables ask everything the door's layout decides", () => {
   });
 });
 
-describe("the action rows and the screens are the door's own", () => {
-  test("every built-in action has its row, under its set's scope", () => {
+describe("the action rows, the screens and the act lines", () => {
+  test("an action has one row under its set's scope, and the rows hold the layout's own actions", () => {
     const rows = parsed<{ rows: { scope: string; id: string; summary: string; touches: string; args: object }[] }>("action-rows.json").rows;
-    const have = new Set(rows.map(r => `${r.scope}:${r.id}`));
-    const want = new Set(allActionSets().flatMap(s => s.names().filter(n => !n.startsWith("ext.")).map(n => `${s.scope}:${n}`)));
-    expect(have).toEqual(want);
-    expect(rows.length).toBe(have.size);
+    expect(new Set(rows.map(r => `${r.scope}:${r.id}`)).size).toBe(rows.length);
     for (const r of rows) { expect(r.summary.length).toBeGreaterThan(0); expect(["nothing", "tile", "shape", "draft", "screen"]).toContain(r.touches); }
+    // What `act` reaches a layout by: each a row, none an extension's (they come and go with it).
+    for (const id of ["tile.open", "tile.close", "tile.collapse", "tile.dock", "tile.slide", "tile.zoom", "tile.link", "tile.agent", "layout.move", "layout.swap", "layout.resize", "layout.even", "layout.lock", "layout.policy", "layout.load", "screen.open", "open"]) expect(rows.some(r => r.id === id)).toBe(true);
+    expect(rows.filter(r => r.id.startsWith("ext.")).length).toBe(0);
   });
 
-  test("every built-in screen has its spec", () => {
-    const screens = parsed<{ screens: { name: string; spec: { name: string } }[] }>("screens.json").screens;
-    expect(screens.map(s => s.name)).toEqual(screenNames().filter(builtinScreen));
-    for (const s of screens) expect(s.spec.name).toBe(s.name);
+  test("the door's screens are there as specs, the desk and the board among them", () => {
+    const screens = parsed<{ screens: { name: string; target?: string; spec: { name: string; layout: { root: unknown } } }[] }>("screens.json").screens;
+    for (const name of ["desk", "welcome", "brief", "pinned", "board", "river", "blank", "library", "keys", "settings", "detail", "home", "navigator", "who", "lastcall"]) expect(screens.some(s => s.name === name)).toBe(true);
+    for (const s of screens) { expect(s.spec.name).toBe(s.name); expect(nodes(s.spec.layout.root).some(n => n.t === "leaf")).toBe(true); }
+    expect(screens.find(s => s.name === "board")!.target).toBe("hub");
   });
 
   test("every act line reads as a request or is refused with why; a typed one by a real action", () => {
