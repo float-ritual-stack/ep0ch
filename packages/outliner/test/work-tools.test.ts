@@ -7,6 +7,7 @@ import { scratchOutline } from "./scratch-outline";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { entriesFor, followedSince } from "./log-follows";
 
 const REPO = "example-org/example-app";
 const cleanups: Array<() => Promise<void>> = [];
@@ -95,12 +96,17 @@ test("work create on a fresh outline names everything it's missing in one answer
   expect(bare.exitCode).toBe(1);
   for (const missing of ["no title (--title)", "no project (--project)", "no priority", "--arc", "--track", "no work queue yet", "no Work-ID prefix"]) expect(bare.error).toContain(missing);
   // Set up as the answer says, then it files, --json and all.
+  const unprefixed = h.store.log.cursor().lsn;
   const prefixed = await h.run(["work", "prefix", "GATE"]);
   expect(prefixed.json).toMatchObject({ prefix: "GATE" });
   h.store.create("Garden work [type::work-queue] [project::garden]");
   const filed = await h.run(["work", "create", "--title", "Mend the gate", "--project", "garden", "--arc", "floor", "--track", "garden", "--priority", "medium", "--json"]);
   expect(filed.exitCode).toBe(0);
   expect(filed.json.workId).toMatch(/^GATE-/);
+  // The prefix, the number it gave out and the ticket reached the change log: a machine following it files GATE-002 next (PIE-1751).
+  const logged = followedSince(h.store, unprefixed);
+  expect(logged.some(e => e.tbl === "work_id_allocator" && e.row!.includes('"GATE"'))).toBe(true);
+  expect(entriesFor(logged, "blocks", filed.json.blockId).map(e => e.op)).toContain("i");
 });
 
 // PIE-1767 (the verifier on #1463): `work create "Mend the gate"` answered "takes no positional arguments" and never
