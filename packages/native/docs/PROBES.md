@@ -373,10 +373,19 @@ row serves and the service drops a role the row gives anyway. A tile made in the
 saved screens use (`KindRow::saved`), so the layout's own rules (a tile named after its kind, `role:reader`) read
 as they do in the door.
 
+**As built (sweep 2):** which kind a name means is the service's word in the kind rows too: a row says the names it
+serves now (`serves`: one kind a name, the last extension to take it, as a screen's tiles are resolved), so a window
+that meets a bare name (a tile it made, `tile.split kind=reader`) finds its row through that, and picks among no rows
+itself (`KindRow::is` and `saved` are gone). A tile made in the window is still written by the name screens write
+(`KindRow::written`): the layout's rules, the door's by port, know a kind by that name, and `App::known_as` hands them
+a served tile's kind the same way. A new-note rule's kinds are served resolved, and the door's own kinds answer to the
+served names there as they do for a tile (`resolveKind`). Left: the door registers its aliases from the extension's
+manifest file, not from the served rows.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
-(DESIGN.md §5, §6.1). Six tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
+(DESIGN.md §5, §6.1). Seven tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
 own functions on made-up garden layouts and never edited by hand.
 
 | Table | Asks | Holds the answer of |
@@ -387,6 +396,7 @@ own functions on made-up garden layouts and never edited by hand.
 | `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
+| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups` | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows
@@ -397,7 +407,7 @@ scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check
   what they ask against the door's source: every operation, node kind, place, policy field, open rule, alt rule and
   wire verb, and every agent-gated operation asked by an agent.
 - **Read without the door:** outline-core's `test/screen-spec.test.ts` reads every table through `screen-spec.ts`,
-  `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place and address tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
+  `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place, address and core tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
 - **Where the door decides today:** `LAYOUT_FAMILIES` in the door's `test/one-owner.test.ts`.
 
 Three things the tables record as the door does them, for W2 to match or to raise:

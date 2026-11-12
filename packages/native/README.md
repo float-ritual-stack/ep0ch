@@ -18,6 +18,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A header image, pictures, an svg fence and a mermaid fence, light](docs/pictures-light.png)
 ![The command bar with an action typed, its keycap from the key table, dark](docs/bar-dark.png)
 ![A note's figures, a box and two buttons, one pressed and saying what it ran, dark](docs/parts-dark.png)
+![A note's links on its page and in the links tile beside it: one list, drawn once, dark](docs/links-dark.png)
 
 ## Run it
 
@@ -48,7 +49,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Arrange the window | `tile.split` (a second reader on the same note, or `kind=`), a tile's title dragged onto another tile (`tile.move to= side=`: a side of it, or its middle for a tab), a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`; `layout.undo` takes each back |
 | Keep an arrangement | `screen.save name="Garden work"` writes it as a `[type::screen]` note; `screen.open name=` lays the window out as any screen the outline has; `screen.reset` puts it back as its screen has it. The window opens as it was left |
 | Read what is wrong | A tile whose kind nobody draws, or that names a tile its screen hasn't, says so on the tile, in the service's words, and draws its spec as data |
-| Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and query-backed `::graph-table` as rows that open; figures as the primitives the service lowers them to (tiles, bars, a checklist, a table, a sparkline); a `::box` with its parts inside it. [How each component fares](docs/prim-coverage.md) |
+| Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and the notes under it as the same list a list tile draws (rows under their groups, a table's columns, lanes; a long one builds only the rows in view), query-backed `::graph-table` as rows that open; figures as the primitives the service lowers them to (tiles, bars, a checklist, a table, a sparkline); a `::box` with its parts inside it. [How each component fares](docs/prim-coverage.md) |
 | Press a button | A `::button` in a note is a button: an act line this window has runs here; one with steps or a script is run by the service, and what its script does in a window happens in this one. What it did is said under the button |
 | See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
 | Follow anything | A link, a child, a backlink, a row in a component; `back` goes back |
@@ -125,12 +126,17 @@ src/ (Rust, Rune)                                      the outline host
   page.rs           the wire's shapes
   parts.rs          a page as primitives: its head and foot, the walk, the button a press names
   list.rs           the one virtualised list
-  actline.rs        the act-line grammar
+  actline.rs        the act-line grammar, read and written
+  query.rs          a question narrowed by picked values
 ```
 
 - **Every change is an act line through one dispatcher** (`App::act`, `actions/mod.rs`). A key, a press and an
   agent say the same thing (`note.trash`, `open id=…`); the dispatcher reads the line, types its arguments by the
-  action's row, checks the actor against what the row touches, runs it and records the step. `App`'s state is
+  action's row, finds the tile the act is about (`App::target`, by the sort of tile the action says it acts in:
+  the one named, else the one with the keys when it is of that sort, else the nearest; a tile named that is not
+  of the sort is refused), checks the actor against what the row touches there, runs it and records the step. A
+  request that was never a line (a script's call, a row's pick) goes in as it is (`act_request`); a line is
+  written by one writer (`actline::word`). `App`'s state is
   private to `actions/`: a view reads everything and changes nothing except by a line.
 - **An action describes itself** (`actions/row.rs`, outline-core's `ActionRow`): its name, summary, arguments,
   what it touches, its keys and its menu labels. Nothing restates them: a button names its act line and is
@@ -144,8 +150,9 @@ src/ (Rust, Rune)                                      the outline host
 - **A tile is a kind and a drawer** (`tiles/`). A kind's row is the service's (`screens.list`'s `kinds`, an
   extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are two
   drawers, `page` and `list`; a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
-  state) and speaks only by act lines (`cx.act`, `cx.emit`). The window keeps no catalogue of kinds and names
-  none: a kind is found by any name its row answers to, and one with no drawer here is drawn as its spec. The
+  state) and speaks only by act lines (`cx.act`). The window keeps no catalogue of kinds and names
+  none: a kind is found by the name a tile carries, or the name the service says its row serves (`serves`), and
+  one with no drawer here is drawn as its spec. The
   shell (`shell.rs`) draws whatever tree the layout holds from the boxes the layout answers, so a split, a tab
   set, a dock, a flow and a float are one loop.
 - **One list, whatever it is of** (`tiles/list.rs` over `list.rs`). A list tile asks `lists.read` for what its
@@ -153,13 +160,18 @@ src/ (Rust, Rune)                                      the outline host
   chose here, the tile's spec, then the row. The answer is rows that say what they show and the act line a pick
   runs, how they are arranged (`tree`, rows under their groups, `table`, `lanes`), a table's columns and the
   facets the listed notes carry. The window draws that, builds only the rows in view, and maps nothing: a tree,
-  a board, a question's matches, a note's links and its properties are the same drawer. What a list is sorted or
+  a board, a question's matches, a note's links and its properties are the same drawer, and so is a list in a
+  note (`list::on_page`: a view, its `::links`, the notes under it). A pick is one action, `list.pick` (the door's
+  `tree.pick` is the same run): it runs the row's own act line as a request, and folds a folder's row. What a list is sorted or
   grouped by is a property's name, handed to the service as written.
 - **A screen is data** (`screen.rs`): a row of `screens.list` (a `[type::screen]` note in either body, or an
   extension's), validated by the service. The window ships none: it opens on the one whose spec says `start`,
   else what its file kept. `screen.save` is the service's write (`screens.save`), so the note's form has one
   writer. The arrangement as it stands is kept in a file beside the control socket
-  (`native-<outline>.layout.json`), written on each change.
+  (`native-<outline>.layout.json`), written on each change: the layout, each tile's own state, the screen's name
+  and a mark of the spec it was laid out from, never the spec. What an open screen says of itself (where opens
+  land, its toolbar, its rule for new notes) is the service's row, read each time, and a screen changed in the
+  outline under the arrangement is said, with the act that lays it out again.
 - **Every read is an ask in the store** (`store.rs`): an outline, a wire action, its parameters, watched or not.
   Equal asks share a slot; a tile is a slot's user; a slot nobody shows keeps its answer and gives its watch to
   the next ask. `peek` lists the slots, who shows each and how much of the budget is held.
@@ -189,8 +201,10 @@ src/ (Rust, Rune)                                      the outline host
   listed, and only the rows in view are built, so a large outline costs what's on screen.
 - **The bar's sources are the service's too** (`bar.rs`). What a bar can list is what the list producers say of
   themselves (`lists.read from=sources`): the notes by the service's search, a question's matches, the screens.
-  Their rows, facets and hint are one list answer each; the window's own source is its actions, read from their
-  rows.
+  Their rows, facets and hint are one list answer each, asked as a tile's list is (`App::ask_of`); the window's
+  own source is its actions, read from their rows. The source a question is typed on is the one the service
+  says carries facets, and a facet picked is a term written by one writer (`query.rs`, outline-core's
+  `selectionQuery`).
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
   lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
   the UI thread, and keeps only those of the pages its readers show. One the host can't read says so, in the host's words, where it
@@ -253,7 +267,12 @@ opened from the bar's own row), the parts (every primitive type has a builder, a
 a script's act is run and answered, and every component's own example is drawn: the test writes
 [docs/prim-coverage.md](docs/prim-coverage.md)), and `one_owner.rs`, which scans the source for a second place that
 binds a key, writes to the wire, lists rows, labels a button, issues an `Op`, places an open, draws a part, keeps a
-kind or a screen, or maps an answer to rows. The stand-in host answers the screens and kinds from
+kind or a screen, maps an answer to rows, writes a line's word, chooses the tile an act is about or names Rune
+outside the renderer seam (`shell.rs`, `tiles/`, `bar.rs`, `list.rs`, `keys.rs`, `control.rs`, `main.rs`: the
+model names no Rune type). `owners.rs` and `sweep2.rs` hold the same deciders by what the window does, and
+`contract.rs` also asks every row of `outline-core/fixtures/core-contract.json` (outline-core's own rules, as the
+window ports them: a list's sections, the new-note rule that applies, a screen filled with its target, a question
+narrowed by picks). The stand-in host answers the screens and kinds from
 `outline-core/fixtures/served-screens.json`, which the outliner's own test writes from a real service with the screens
 extension installed.
 
@@ -281,11 +300,12 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
 `navigator`, `lastcall`, `table`, and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
-title), and `parts` (a note `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a box, a
-live list, two buttons, the first pressed). `--act <file>` runs any file of them before the
+title), and `parts` and `links` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
+box, a live list, two buttons, the first pressed; and a note whose `::links` and the links tile beside it list the
+same groups). `--act <file>` runs any file of them before the
 first frame. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
-`tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row, by the note it opens),
+`tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
 `tile/reader/part/<n>/said`, `tile/reader/chip/<key>/<value>`, `tile/<name>/bar` its title, `tile/<name>/close`; in
 a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<group>`,
 `tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), a
@@ -317,7 +337,8 @@ toolbar button is
   `::use` shows its line (a template's body isn't walked yet); an extension's component shows its source; a
   property written in prose stays as written. A button with an empty slot (the part's `needs`) says what to write and doesn't ask for
   it; one whose look word isn't read says so and still runs; a button inside a list item draws as a part between the items. `docs/prim-coverage.md` has each.
-- A list in a note has no filter, selection or preview pane; a row that copies or inserts is words. A heading
+- A list in a note has no filter, selection or preview pane, and its lanes show eight rows each and scroll the
+  rest; a row that copies or inserts is words, in a note and in a list tile alike. A heading
   style's glyph tracks aren't drawn.
 - Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle
   (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
