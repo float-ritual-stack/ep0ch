@@ -259,13 +259,15 @@ export const snapshotNewer = (snap: { seq: number | null; time: string }, m: { s
  * The outlines' changes on another machine, as its host says them (`ep0ch outline list --json` there, over ssh, which asks
  * that machine's host: PIE-1750, nothing opens its files), or null when it doesn't answer.
  */
-async function remoteSeqs(ssh: string, names: string[], c: BackupConfig): Promise<Record<string, number> | null> {
-  const p = Bun.spawn([c.env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", ssh, REMOTE_LIST], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
+export async function remoteSeqs(ssh: string, names: string[], c: Pick<BackupConfig, "env">): Promise<Record<string, number> | null> {
+  const p = Bun.spawn([c.env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "--", ssh, REMOTE_LIST], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
   const timer = setTimeout(() => p.kill(), 30_000);
   const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]).finally(() => clearTimeout(timer));
   if (code !== 0) return null;
   try {
     const listed = (JSON.parse(out) as { outlines?: { name: string; changeSeq?: number }[] }).outlines ?? [];
+    // A host there on older code lists no changes: that's no answer, said as one, never "nothing pending".
+    if (listed.length && listed.every(o => o.changeSeq === undefined)) return null;
     const seqs: Record<string, number> = {};
     for (const o of listed) if (names.includes(o.name) && typeof o.changeSeq === "number") seqs[o.name] = o.changeSeq;
     return seqs;

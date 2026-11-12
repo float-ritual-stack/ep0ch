@@ -236,8 +236,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       try { prepareInstallBackups(backupRoot, join(f.home, "wt"), total, keep, say); }
       catch (e) { throw new StepFailed((e as Error).message, "remove stale worktrees with git worktree remove <path>, or move old install backups off this volume, then rerun ep0ch install --apply"); }
       let copied = 0;
-      const live = f.host.running && await hostLive(f.host.socket) !== null;
-      const { hostCopy } = await import("../backup/jobs");
+      const live = f.host.running;
       // The folders once; then a short line per outline, in columns.
       if (backups.length) show(`    ${f.host.folder}/*.sqlite → ${dirname(backups[0]!.dest)}/ (VACUUM INTO, integrity-checked)`);
       const nameWidth = Math.max(...backups.map(b => b.name.length)), sizeWidth = Math.max(...sizes.map(n => size(n).length));
@@ -247,8 +246,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         task.flush();
         try {
           mkdirSync(dirname(b.dest), { recursive: true, mode: 0o700 });
-          // A served outline is copied by its host (PIE-1750); with no host answering, the file is stopped and copied here.
-          const integrity = live ? (await hostCopy({ host: f.host.socket }, b.name, b.dest), "ok") : backupDatabase(b.path, b.dest).integrity;
+          const integrity = await installCopy(f.host, b);
           record(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity}${live ? ", by the host" : ""})`);
           show(`    ✓ ${b.name.padEnd(nameWidth)}  ${size(sizes[i]!).padStart(sizeWidth)}  integrity ${integrity}`);
           copied += sizes[i]!;
@@ -508,6 +506,17 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
   }
+}
+
+/**
+ * Install's copy of one outline before anything changes (PIE-1750): a running host copies its own outlines (a copy it
+ * can't make fails the step, never a fallback to the live file); with no host running, the file is stopped and copied here.
+ */
+export async function installCopy(host: Pick<Facts["host"], "running" | "socket">, b: { name: string; path: string; dest: string }): Promise<string> {
+  if (!host.running) return backupDatabase(b.path, b.dest).integrity;
+  const { hostCopy } = await import("../backup/jobs");
+  await hostCopy({ host: host.socket }, b.name, b.dest);
+  return "ok";
 }
 
 /**

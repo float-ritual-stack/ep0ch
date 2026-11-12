@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
 import { statusLines } from "../src/backup/cli";
-import { changeSeq, runAll, schemaVersion, snapshot } from "../src/backup/jobs";
+import { changeSeq, remoteSeqs, runAll, schemaVersion, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
 import { snapshots } from "../src/backup/restic";
 import { outliner, scratchDir } from "./scratch";
@@ -250,4 +250,16 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect((await snapshot(laptop, s, { say, probe: REACHABLE })).uploaded).toContain("cellar");
     expect(s.outlines.cellar!.relayed).toBeUndefined();
   }, 120_000);
+
+  test("another machine's changes come from its host over ssh (`ep0ch outline list --json` there), never its files (PIE-1750)", async () => {
+    const theirs = new OutlineHost({ outlinesFolder: hubEnv.EP0CH_OUTLINES!, log: () => {} });
+    await theirs.start();
+    try {
+      outline(join(hubEnv.EP0CH_OUTLINES!, "orchard.sqlite"), ["Prune the pears", "Net the cherries"]);
+      expect(await remoteSeqs("hub-box", ["orchard", "meadow"], laptop)).toEqual({ orchard: 2 });
+      // A machine that doesn't answer is no answer.
+      expect(await remoteSeqs("hub-box", ["orchard"], laptopWith({ FAKE_SSH_DOWN: "1" }))).toBeNull();
+    } finally { await theirs.close(); }
+  }, 60_000);
+
 });

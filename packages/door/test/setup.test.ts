@@ -10,12 +10,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, installCopy, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { doorExtState, extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { ownScratch, stopUnder, wholeEnv } from "./scratch";
+import { ownScratch, scratchDir, stopUnder, wholeEnv } from "./scratch";
 import { builtinChecks, doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, publisherFacts, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, codeKey, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type PublisherFacts, type SessionFact, staleness } from "../src/setup/model";
@@ -1345,6 +1345,36 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     const older = { ...served, outlines: [{ name: "not-a-db", database: "", folder: "", open: true }] };
     expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") }, older)).toMatchObject({ version: null, error: expect.stringContaining("runs older code") });
   });
+});
+
+test("install's copy before it changes anything: the running host makes it; with none running, the stopped file is copied (PIE-1750)", async () => {
+  // A socket goes under scratchDir, short whatever TMPDIR is (PIE-1654).
+  const folder = scratchDir("install-copy-");
+  const outlines = join(folder, "outlines");
+  mkdirSync(outlines, { recursive: true });
+  const path = join(outlines, "seed-library.sqlite");
+  const db = new Database(path);
+  db.exec("CREATE TABLE blocks (id TEXT PRIMARY KEY, text TEXT); CREATE TABLE change_feed (change_id INTEGER PRIMARY KEY AUTOINCREMENT, sequence INTEGER); INSERT INTO blocks VALUES ('a', 'Runner beans'); INSERT INTO change_feed (sequence) VALUES (1); PRAGMA user_version = 4");
+  db.close();
+  const { OutlineHost } = await import("@ep0ch/outliner/outline-host");
+  const host = new OutlineHost({ outlinesFolder: outlines, log: () => {} });
+  await host.start();
+  const served = { running: true, socket: host.socketPath };
+  try {
+    const dest = join(folder, "backups", "seed-library.sqlite");
+    mkdirSync(join(folder, "backups"), { recursive: true });
+    expect(await installCopy(served, { name: "seed-library", path, dest })).toBe("ok");
+    const copy = new Database(dest, { readonly: true });
+    expect((copy.query("SELECT text FROM blocks").get() as { text: string }).text).toBe("Runner beans");
+    copy.close();
+    // Never over a file, and never a fallback to the live file when the host can't make it.
+    await expect(installCopy(served, { name: "seed-library", path, dest })).rejects.toThrow(/already exists/);
+    await expect(installCopy({ running: true, socket: join(folder, "gone.sock") }, { name: "seed-library", path, dest: join(folder, "backups", "other.sqlite") })).rejects.toThrow();
+    expect(existsSync(join(folder, "backups", "other.sqlite"))).toBe(false);
+  } finally { await host.close(); }
+  // No host running: the file is stopped, and copied from it.
+  expect(await installCopy({ running: false, socket: "" }, { name: "seed-library", path, dest: join(folder, "backups", "stopped.sqlite") })).toBe("ok");
+  rmSync(folder, { recursive: true, force: true });
 });
 
 test("doctor repairs a scratch binding but moves legacy scripts only on explicit request", async () => {
