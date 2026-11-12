@@ -237,7 +237,7 @@ fn live_a_button_runs_here_and_one_with_steps_is_run_by_the_service_and_answered
 
         // The person presses the second: the service runs its step, which is an act for this window. It comes back
         // as a call, the dispatcher runs it (the reader opens the shed) and answers, and the run says it is done.
-        let outcome = act(&mut app, "button.press line=3");
+        let outcome = act(&mut app, "button.press line=4");
         assert!(outcome.ok && outcome.answer["ran"] == "service", "{} {}", outcome.said, outcome.answer);
         for _ in 0..200 { std::thread::sleep(Duration::from_millis(50)); app.take(); if said(&app).is_some_and(|(words, _)| !words.ends_with("running…")) && app.subject().as_deref() == Some(shed.as_str()) { break } }
         assert_eq!(app.subject().as_deref(), Some(shed.as_str()), "the run's open ran here: {:?}", said(&app));

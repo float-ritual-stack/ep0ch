@@ -60,7 +60,7 @@ fn a_button_whose_act_line_this_window_has_runs_here_as_whoever_pressed_and_says
     let from = rt.state.steps.len();
     press(&mut rt, "tile/reader/part/4/view");
     let steps: Vec<String> = rt.state.steps[from..].iter().map(|step| step.line()).collect();
-    assert_eq!(steps, ["note.new tile=reader", "button.press line=12 note=plot tile=reader"], "the press is button.press, and its act line ran through the dispatcher as its own step");
+    assert_eq!(steps, ["note.new tile=reader", "button.press line=13 note=plot tile=reader"], "the press is button.press, by the line it is written on as the door counts lines (from 1), and its act line ran through the dispatcher as its own step");
     assert!(rt.state.steps[from..].iter().all(|step| step.ok && step.by == Actor::Person));
     assert!(actions(&asked).contains(&"create".to_string()) && !actions(&asked).contains(&"scripts.sequence".to_string()), "it ran here: the service was asked for the note, not to run the button");
     let reader = rt.state.reader().unwrap();
@@ -125,18 +125,27 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
 fn a_press_names_one_button_and_a_button_that_can_t_run_says_why() {
     let Garden { mut app, .. } = garden(ok());
     for (line, why) in [
-        ("button.press", "2 buttons here: name one by line= (12, 13)"),
-        ("button.press line=3", "no button on line 4 in this note · peek lists its parts"),
+        ("button.press", "2 buttons here: name one by line= (13, 14)"),
+        ("button.press line=4", "no button on line 4 in this note · peek lists its parts"),
+        ("button.press line=0", "line= counts from 1, as the door's button.press does: the note's first line is line=1"),
         ("button.press label=Prune", "no button labelled Prune in this note · peek lists its parts"),
-        ("button.press line=12 note=shed", "reader shows another note (plot), not shed: open it there first"),
+        ("button.press line=13 note=shed", "reader shows another note (plot), not shed: open it there first"),
     ] {
         let outcome = act(&mut app, line);
         assert_eq!((outcome.ok, outcome.said.as_str()), (false, why), "{line}");
     }
-    // peek lists a note's parts: what an agent names a button by.
+    // A press names a line as the door's `button.press` does, from 1: the same act line means the same button in both.
+    let door: Value = fixture("action-rows.json");
+    let theirs = door["rows"].as_array().unwrap().iter().find(|row| row["id"] == "button.press").expect("the door has button.press");
+    assert!(theirs["args"]["line"]["about"].as_str().unwrap().contains("from 1"), "the door counts a button's line from 1: {}", theirs["args"]["line"]["about"]);
+    let Garden { mut app, asked, .. } = garden(ok());
+    assert!(act(&mut app, "button.press line=14").ok, "line 14 is the fourteenth line: the part the service says starts on line 13, from 0");
+    let run = asked.borrow().iter().rev().find(|a| a["action"] == "scripts.sequence").cloned().expect("the service is asked to run it");
+    assert_eq!(run["line"].as_u64(), Some(13), "and the service is told the line as the wire counts it");
+    // peek lists a note's parts, each with the line a press names it by: what an agent names a button by.
     let reader = app.reader().unwrap();
     let facts = (crate::tiles::page::DRAWER.facts)(&app.cx(&reader).unwrap());
-    assert_eq!(facts["parts"][4], json!({ "kind": "button", "line": 12, "name": "button", "title": null, "error": null, "draws": "button", "label": "Sow the peas" }));
+    assert_eq!(facts["parts"][4], json!({ "kind": "button", "line": 13, "name": "button", "title": null, "error": null, "draws": "button", "label": "Sow the peas" }));
 }
 
 // ── the coverage table ──────────────────────────────────────────────────────────────────────────────────────
@@ -223,7 +232,7 @@ fn a_button_with_a_look_it_does_not_read_still_runs_and_one_with_an_empty_slot_r
     assert!(rt.find("tile/reader/part/0/error").is_some(), "and what the service says of its look is still over it");
 
     let from = rt.state.steps.len();
-    let outcome = act(&mut rt.state, "button.press line=3");
+    let outcome = act(&mut rt.state, "button.press line=4");
     assert_eq!((outcome.ok, outcome.said.as_str()), (false, "Open a bed can't run as written: no bed yet: write bed= on its line"));
     assert_eq!(said(&rt.state), Some(("Open a bed: no bed yet: write bed= on its line".to_string(), false)));
     assert!(rt.state.steps[from..].iter().all(|step| step.action != "open"), "nothing of its line ran");
