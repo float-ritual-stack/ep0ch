@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { DOUBLE_MS } from "../src/scroll";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -95,9 +96,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a × click repaints the room a
       p.keys("Enter");
       await until(() => asked().length > before, "the ask sent", 10_000);
       const late: string[] = [];
+      let shown = 0;
       for (let i = 0; i < 10; i++) {
         let x: { col: number; row: number } | null = null;
-        await until(() => !!(x = closeAt(p.capture())) && p.capture().includes(`counted: the stakes ${cols}`), "the answer tile and its ×", 15_000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+        await until(() => !!(x = closeAt(p.capture())) && p.capture().includes(`counted: the stakes ${cols}`), "the answer tile and its ×", 15_000).catch(e => { throw new Error(`close ${i + 1}: ${e.message}\n${p.capture()}`); });
         const at = x!;
         // The pointer comes to the × as a real terminal reports it (hover: the door asks for any-event tracking), then
         // presses and lets go. The release lands while the close is still drawing its way (the motion, as Evan has it).
@@ -108,10 +110,12 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a × click repaints the room a
         await until(() => fills(frame = p.capture(), cols, rows), "the room filled", PAINTED_MS).catch(() => { late.push(`close ${i + 1}: not painted within ${PAINTED_MS} ms\n${frame}`); });
         // Late, the room waits for the next input to be drawn (as it did for Evan): a wheel at the edit's top brings it.
         if (!fills(frame, cols, rows)) { p.type(`\x1b[<64;4;6M`); await until(() => fills(p.capture(), cols, rows), "the room filled at last", 5000); }
-        // The answer back beside or below, by its row's `show ▸`.
+        // The answer back beside or below, by its row's `show ▸`: a click of its own, not the second of a double click
+        // on that row (the last was moments ago).
         let s: { col: number; row: number } | null = null;
         await until(() => !!(s = showAt(p.capture())), "the row's show ▸");
-        click(s!);
+        await Bun.sleep(Math.max(0, shown + DOUBLE_MS + 50 - Date.now()));
+        click(s!); shown = Date.now();
       }
       expect(late).toEqual([]);
     } finally { p.close(); }
