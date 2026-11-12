@@ -36,7 +36,7 @@ import { ActionRefused, shownLine } from "./actions";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
-import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { completionSaid, insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import type { CompletionPickedRequest, CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
@@ -338,13 +338,8 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   const all: (SourceAnswer<DoorRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers];
   const merged = mergeSourceAnswers(all, target.query, { picks: service.picks });
   const items = merged.map(row => itemOf(row, src, schemas));
-  const truncated = all.find(a => a.truncated)?.truncated ?? null;
-  const partial = all.map(a => a.partial).find(Boolean) ?? "";
-  const problems = [service.failed, ...all.map(a => a.problem)].filter(Boolean).join(" · ");
-  const empty = all.map(a => a.empty).filter(Boolean).join(" · ");
-  const message = items.length ? [partial || (truncated ? `showing the first ${truncated} matches` : ""), problems].filter(Boolean).join(" · ")
-    : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
-  const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
+  // What the list says of itself is its sources' words, put together once for every client (outline-core).
+  const { heading, message, truncated } = completionSaid(all, items.length, service.failed);
   return {
     items, truncated, message, queryWords: all.some(a => a.queryWords), ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
     ...(all.find(a => a.sure)?.sure ? { sure: all.find(a => a.sure)!.sure! } : {}),

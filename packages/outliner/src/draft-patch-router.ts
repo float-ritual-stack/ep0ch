@@ -62,6 +62,7 @@ import {
   type DraftStandsOn,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
+import type { PlacedSpan } from "@ep0ch/outline-core/draft-patch-place";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
@@ -74,7 +75,8 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 export type DraftHolderAsk =
   | { kind: "read" }
   | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal; standsOn?: DraftStandsOn }
-  | { kind: "revert"; patchId: string };
+  | { kind: "revert"; patchId: string }
+  | { kind: "place"; patchId: string; version: string; spans: PlacedSpan[]; mutation?: MutationProvenance; did?: string; revert?: boolean; standsOn?: DraftStandsOn };
 
 export interface DraftPatchRouterDeps {
   store: OutlinerStore;
