@@ -1559,8 +1559,18 @@ export class Draft {
    * Where an ask's answer is, as its row says it: the side its tile is on (beside ▸, below ▾, in a tab), or, with none
    * open, what a click on the row does (PIE-1758: `beside ▸` once its tile had gone, with nothing beside).
    */
-  private answerSaid(ask: { beside?: boolean }): string { const words = ask.beside ? this.answerWords() : ""; return words ? ` · ${words}` : ""; }
-  private answerWords(): string { const side = this.answerSide?.(); return side ? ANSWER_WORDS[side] : side === null ? ANSWER_HIDDEN : ""; }
+  private answerSaid(ask: { line: string; beside?: boolean }): string { const words = this.answerWords(ask); return words ? ` · ${words}` : ""; }
+  /**
+   * The one answer tile shows one ask (PIE-1768): that ask's row names the tile's side, a saved answer's too (a draft
+   * brought back beside its tile); another ask whose answer goes beside says `show ▸`, which the cursor or a click does.
+   */
+  private answerWords(ask: { line: string; beside?: boolean }): string {
+    const side = this.answerSide?.(), shows = side ? this.answerShown?.() === ask.line : false;
+    if (side && shows) return ANSWER_WORDS[side];
+    return ask.beside && side !== undefined ? ANSWER_HIDDEN : "";
+  }
+  /** The ask the answer tile beside this draft's reader shows (its host's desk says), if one is there. */
+  answerShown: (() => string | undefined) | null = null;
 
   /** The asks (`askKey`) the text this draft opened on (or reloaded) already had an answer under. */
   private answeredAtOpen(): Set<string> {

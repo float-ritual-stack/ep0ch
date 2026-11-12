@@ -2980,7 +2980,7 @@ export class NoteSurface {
       },
       closed: how => this.draftClosed(s, how, now()),
     });
-    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); }; s.draft.following((host.current?.() ?? host).shownAsk?.()); s.draft.answerSide = () => (host.current?.() ?? host).answerSide?.(); // beside an answer tile already there, typing on its ask follows it; its row says where it is
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); }; s.draft.following((host.current?.() ?? host).shownAsk?.()); s.draft.answerSide = () => (host.current?.() ?? host).answerSide?.(); s.draft.answerShown = () => (host.current?.() ?? host).shownAsk?.(); // beside an answer tile already there, typing on its ask follows it; its row says where it is
     if (this.drawn && s.draft.restored === null) { const rows = this.readingRows(); s.draft.landInView = !rows || rows[0] < this.scroll || rows[0] >= this.scroll + this.drawn.room; } // The wheel left the reading line's first row behind: the words go where the person is looking (PIE-1579).
     this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));
