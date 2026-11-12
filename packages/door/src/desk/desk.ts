@@ -13,7 +13,7 @@ import { stripHint, stripSegments, stripsRecorded, withStripOwner } from "../sur
 import { ZOOM_WHEEL } from "./wkeys";
 import { droppedForInput, keptDropped } from "./lift-drops";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
-import { Draft, keepCopy } from "../edit";
+import { Draft, keepCopy, type AnswerPlace } from "../edit";
 import { errorDetails } from "../status-log";
 import { probe } from "../surface/probe";
 import { HomeSurface } from "../surface/home";
@@ -82,10 +82,10 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
-  agentLevel, allTiles, answerLands, pairSide, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, answerLands, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
+  foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -114,7 +114,7 @@ import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { kept } from "./kept-desk";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -545,8 +545,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const side = id === undefined ? null : pairSide(this.root, id);
     return side === "tab" ? null : side;
   }
-  /** Where the answer tile beside `reader` is, of the pair they make (below, a tab behind it…): its edit's ask row says so (PIE-1757). */
-  answerSide(reader: ReaderPane): Dir | "tab" | null { const at = this.idOf(reader), id = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at))?.[0]; return id === undefined ? null : pairSide(this.root, id); }
+  /** Where the answer tile beside `reader` is, the ask it shows and that ask's line (PIE-1757, PIE-1768); side null with none, undefined for a float (PIE-1758). */
+  answerAt(reader: ReaderPane): AnswerPlace | undefined { const at = this.idOf(reader), found = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at)) as [number, AnswerTile] | undefined; return found ? { side: sideOf(this.root, this.rectsNow(), at!, found[0]) ?? "apart", n: this.numberOf(found[0]), ask: found[1].ask, row: found[1].shownRow(reader.surface.draft?.text ?? reader.msg?.text ?? "") } : at === undefined || this.isFloat(at) ? undefined : { side: null }; }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
@@ -1008,8 +1008,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Whether a change is drawing its way (a test and the status line ask). */
   get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
-  /** Snap to the settled layout: the first key or click, a peek, a snapshot. True when something was in flight. */
-  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; return was; }
+  /** Snap to the settled layout (the first key or click, a peek, a snapshot) and draw it: no tick asks for that frame now (PIE-1769). True when something was in flight. */
+  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; if (was) this.redraw(); return was; }
   /**
    * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
    * entry, for the person; an agent takes back its own (or what a script it asked for did) only. With a transaction, all of
@@ -4774,7 +4774,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || !!rd.surface.draft?.views.raw.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));
+        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
@@ -4783,7 +4783,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ` + partsHint(tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, action: "tile.open", args: this.openKindArgs(x.key, this.prefix === "addtab")! }))))
-        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -5317,7 +5317,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
       const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
       const re = wKey(RESIZE_ALIAS[rc] ?? rc);
-      if (re?.sticky && re.how.k === "run") { this.armResize(); return this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
+      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
       this.leaveResize();
       this.redraw();
       return this.key(k, this.ctx);
@@ -5344,10 +5344,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
-      case "run": { const up = holdingDesk(e, this.holder); if (up) return up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile));
-        const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
+      case "run": { const up = holdingDesk(e, this.holder);   // a key about the group or mount holding this desk is that desk's (a group's resize keys size the group, PIE-1771)
+        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
-        if (e.sticky) { this.armResize(); this.ctx.flash("resize · - + < > · h j k l · = evens · esc done", RESIZE_IDLE_MS); }
+        if (e.sticky) { this.armResize(); this.ctx.flash(`resize${up && e.holder ? " the group" : ""} · - + < > · h j k l · = evens · esc done`, RESIZE_IDLE_MS); }
         return done;
       }
       case "special": return this.wSpecial[e.key as WSpecialKey](me, flash);
@@ -5751,7 +5751,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into: [number, WireVerb, string, AltRule | undefined][] = [];
     for (const { from: z, to, verb, rule } of this.layout.wires) if (inside.has(to) && !inside.has(z)) into.push([z, verb, this.tileId(to), rule]);
     const gid = this.nextId;
-    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group") }, actor);
+    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group"), ...("t" in sub && sub.t === "split" ? { room: sub.dir } : {}) }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     const given = new Map(ids.map(id => [this.nameOf(id), this.beneath.restore(id) ?? this.panes.get(id)!] as const));   // a reader in place goes in as its list (PIE-1516)
     const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
@@ -5781,7 +5781,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (n.t === "dock") return this.prune(n.kid, keep);
     const kids: LNode[] = [], weights: number[] = [];
-    n.kids.forEach((k, i) => { const x = this.prune(k, keep); if (x) { kids.push(x); weights.push(n.weights[i] ?? 1); } });
+    n.kids.forEach((k, i) => { const x = this.prune(k, keep); if (x) { kids.push(x); weights.push((n.weights[i] ?? 1) * (n.t === "split" ? keptShare(k, id => keep.has(id), n.dir) : 1)); } });   // each kid the room its kept tiles had (PIE-1771)
     if (!kids.length) return null;
     if (kids.length === 1) return kids[0]!;
     return { t: "split", dir: n.t === "split" ? n.dir : "row", kids, weights };
@@ -5892,14 +5892,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile in a container that shuts its dock instead (the board's outline and backlinks, `shuts`): it does.
     if (chainOf(this.root, t.id).some(c => c.policy?.shuts)) return this.shutDockOf(t, actor);
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
-    const r = this.ask({ op: "close", tile: t.id }, actor);
+    const r = this.ask({ op: "close", tile: t.id, heir: true }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    if (nn?.clearsOnClose?.()) {
-      nn.clearContent!();
-      this.doorKeys.stopTyping(this, nn);
-      this.redraw();
-      return { ...this.tileAnswer(t.id), state: "empty" };
-    }
+    if (nn?.clearsOnClose?.()) { nn.clearContent!(); this.doorKeys.stopTyping(this, nn); this.redraw(); return { ...this.tileAnswer(t.id), state: "empty" }; }
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {
@@ -5909,8 +5904,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = this.panes.get(t.id)!.kind;
     const n = String(this.numberOf(t.id));
     // Retiring the source's peeks belongs to the same undo as closing the source.
-    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
-    TXN.run({ ...scope, txn }, () => { this.commit(r); this.tileLeaves(t.id, "end", actor); });
+    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`, closing = this.panes.get(t.id), shown = this.showing(closing);
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.handNote(r.answer, closing, shown, actor); this.tileLeaves(t.id, "end", actor); });
     if (!scope?.txn) this.history.close(txn);
     // Where the person's keys went (the top float or the container's tile, home, or back to the tile it was opened from)
     // is the close's answer, applied as it was committed (`commit`).
@@ -5918,6 +5913,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...answer, pane: n, kind };
   }
 
+  /** The close's heir (landing.ts's closeHeir, PIE-1772: here, or across an edge as an open finds it) shows the closed reader's note `m`, placed as any open into it is, and takes its trail. */
+  private handNote(a: Record<string, unknown>, from: Pane | undefined, m: Msg | null, by: Actor) {
+    const across = typeof a.heirAcross === "string" ? this.resolveTile(a.heirAcross, { shown: true }) : null, d = across?.desk ?? this, id = across ? d.idNamed(across.tile.id!) : typeof a.heir === "string" ? this.idNamed(a.heir) : undefined, to = id === undefined ? undefined : d.panes.get(id);
+    try { if (m && to instanceof ReaderPane && (!across || heirTakes(id!, d.layoutCtx(by))) && d.placeNote(m, { from: id!, to: id!, note: m.id, keys: false }, by) && from instanceof ReaderPane) to.surface.takeHistory(from.surface); } catch (e) { this.ctx.flash(`${d.nameOf(id!)} couldn't take ${subject(m!)}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
   private async closeNewNote(id: number, rd: ReaderPane) {
     if (this.entered.in(rd)) this.entered.clear();
@@ -7090,7 +7090,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
-    if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
+    if (actor.kind === "agent" || !this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
     this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);
@@ -8325,9 +8325,9 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
     args: { text: { type: "string", optional: true, about: "words to show; absent lists the tile's controls" }, for: { type: "string", optional: true, kind: "tile", about: "the tile to anchor beside" } },
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
-  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
+  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", reads: true, touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.never": def({ summary: "show this hint on the status line from now on", keys: "alt+N, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintNever(h.reader) }),
-  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
+  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", reads: true, touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
   "hints.set": def({ summary: "keep a hint as a card, a status line or off across restarts", keys: [{ keys: "c s o", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on a hint's setting" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: { id: { type: "string", about: "hint id from hints.list" }, to: { type: "string", about: "card, status or off" } }, examples: [{ act: "hints.set id=tile.collapse to=status", does: "keeps folding hints on the status line" }], run: (a, h) => h.d.hintsSet(a.id, a.to as HintSetting) }),
   "hints.reset": def({ summary: "reset all personal hint settings to their defaults", keys: [{ keys: "R", does: "in the tune inspector's Hints section", on: "tune" }, { keys: "click", does: "on reset" }], touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintsReset() }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
@@ -8361,7 +8361,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "screen.spec": def({
     summary: "the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind), key map, hint, band and where opens land: the data a screen note holds. Nothing on screen moves; layout.get says how it's laid out now",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return { spec: specData(d.spec) }; },
   }),

@@ -447,6 +447,53 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   return { ...n, kids, weights };
 }
 
+/** A container that shares its room along `dir` by its kids' weights: a split along it, or columns (a row). A flow squeezes its own way. */
+const weighsAlong = <I>(n: LNode<I>, dir: Axis): n is Split<I> | Columns<I> => (n.t === "split" || n.t === "columns") && n.dir === dir;
+
+/**
+ * The share of `n`'s room along `dir` that the tiles `keep` take (PIE-1771): a kept tile all of it, a split (or
+ * columns) along `dir` its kids' shares by their weights. Anything else (a split across `dir`, tabs, a dock, a flow)
+ * holds its tiles across the whole of that room: all of it when it keeps one (`across` 1), or, asked what taking the
+ * tiles out frees (`across` 0), none, since its other tiles keep that room.
+ */
+export function keptShare<I>(n: LNode<I>, keep: (id: I) => boolean, dir: Axis, across: 0 | 1 = 1): number {
+  if (n.t === "leaf") return keep(n.id) ? 1 : 0;
+  if (weighsAlong(n, dir)) {
+    const total = n.weights.reduce((a, w) => a + w, 0) || 1;
+    return n.kids.reduce((a, k, i) => a + (n.weights[i] ?? 0) * keptShare(k, keep, dir, across), 0) / total;
+  }
+  return across && leaves(n).some(keep) ? 1 : 0;
+}
+
+/**
+ * Tile `from`'s room along `dir` goes to tile `to`, from the split along `dir` that holds them both (PIE-1771: a group
+ * takes the room of the tiles it gathers, where before the room went to every tile left). It reaches `to`'s own slot:
+ * where `to` sits in a split along `dir` inside that kid (a pair beside it), the tiles beside it keep their room.
+ * `from` is still in the tree: taking it out after this leaves its kid exactly the room its other tiles had.
+ */
+export function giveRoom<I>(n: LNode<I>, from: I, to: I, dir: Axis): LNode<I> {
+  if (n.t === "leaf" || n.t === "tabs") return n;
+  if (n.t === "dock") return { ...n, kid: giveRoom(n.kid, from, to, dir) };
+  const f = n.kids.findIndex(k => leaves(k).includes(from)), t = n.kids.findIndex(k => leaves(k).includes(to));
+  if (f < 0 || t < 0) return n;
+  if (f === t) return { ...n, kids: n.kids.map((k, i) => (i === f ? giveRoom(k, from, to, dir) : k)) } as LNode<I>;
+  if (!weighsAlong(n, dir)) return n;
+  const room = n.weights[f]! * keptShare(n.kids[f]!, id => id === from, dir, 0);
+  return { ...n, kids: n.kids.map((k, i) => (i === t ? widen(k, to, dir, room / n.weights[t]!) : k)), weights: n.weights.map((w, i) => (i === f ? w - room : i === t ? w + room : w)) };
+}
+
+/**
+ * Kid `n` grows by `by` of its own room along `dir` (0.5: half as wide again), all of it to tile `to`'s slot: through
+ * each split along `dir` on the way down, that kid's weight grows so the others keep the room they have.
+ */
+function widen<I>(n: LNode<I>, to: I, dir: Axis, by: number): LNode<I> {
+  if (!weighsAlong(n, dir) || !by) return n;
+  const i = n.kids.findIndex(k => leaves(k).includes(to)), total = n.weights.reduce((a, w) => a + w, 0);
+  if (i < 0 || !total) return n;
+  const more = by * total, w = n.weights[i]!;
+  return { ...n, kids: n.kids.map((k, j) => (j === i ? widen(k, to, dir, w ? more / w : 0) : k)), weights: n.weights.map((x, j) => (j === i ? x + more : x)) };
+}
+
 /**
  * Node `target` (by identity) gives its place to `by`: its parent's kid (a split's, columns', a flow's, a dock's) or the
  * root, its weight kept (PIE-651: a container gathered into a group tile, a group tile spilled back as its tree). Changes
@@ -643,6 +690,17 @@ export function pairSide<I>(root: LNode<I>, id: I): Dir | "tab" | null {
   const p = parentOf(root, id);
   if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
   return p.parent.dir === "row" ? (p.i === 0 ? "left" : "right") : (p.i === 0 ? "up" : "down");
+}
+/**
+ * Where tile `to` is from tile `from` as the person sees them (PIE-1768): a tab (behind `from`, or not the one its set
+ * shows), else the side of `from` its rect is on, from their rects (`rects`, as the desk drew them), however deep the
+ * splits between them nest. Null when neither is clearly so (overlapping, or a rect missing).
+ */
+export function sideOf<I>(root: LNode<I>, rects: ReadonlyMap<I, { col: number; row: number; cols: number; rows: number }>, from: I, to: I): Dir | "tab" | null {
+  const tabs = tabsOf(root, to), a = rects.get(from), b = rects.get(to);
+  if (tabs && (tabs.ids.includes(from) || tabs.ids[tabs.active] !== to)) return "tab";
+  if (!a || !b) return tabs ? "tab" : null;
+  return b.col >= a.col + a.cols ? "right" : b.col + b.cols <= a.col ? "left" : b.row >= a.row + a.rows ? "down" : b.row + b.rows <= a.row ? "up" : null;
 }
 export function tabsOf<I>(n: LNode<I>, id: I): Tabs<I> | null {
   if (n.t === "leaf") return null;

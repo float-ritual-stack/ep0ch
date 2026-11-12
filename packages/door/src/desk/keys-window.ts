@@ -446,7 +446,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
   "keys.find": def({
     words: "list the bindings matching some words, as the keys window does",
     summary: "the bindings matching text= (words in their keys, action, scope or what they do), as the window lists them, each with where it works and whether it can move; moves nothing",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the words; left out, the window's own filter" }, limit: { type: "number", optional: true, about: "at most this many (default 40)" } },
     examples: [{ act: "keys.find text=\"tile.close\" tile=keys", does: "lists every key that closes a tile, and where" }],
     run({ text, limit }, { pane }) {

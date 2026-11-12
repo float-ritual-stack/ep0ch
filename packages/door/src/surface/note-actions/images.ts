@@ -9,7 +9,7 @@ import { readerKeys } from "../reader-keys";
 export const IMAGE_DEFS = {
   "images": def({
     summary: "list the note's pictures (PIE-532, PIE-1594: a media line, a picture fence, a script's drawing) in reading order: n, line, picture (who it is), path, the layout written on the line (size, height, align, layout, fit, dim, alt) and what's wrong with it, and how it's drawn here (cells, or the header's rows)",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       const m = await surface.whole(), d = surface.drawnImages();

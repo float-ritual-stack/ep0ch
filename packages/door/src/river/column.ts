@@ -938,7 +938,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   "column.complete": def({
     summary: "what a filter's word offers in a river column's `/`: text=<the filter as typed, ending in the word> (`ty`, `type:`, `-status:do`) answers the keys, or the values of the key before its colon, each with the insertion a choice writes, from the outline's property index (`properties.catalog`, most used first) and the component schemas. Nothing on screen moves and nothing is typed: an agent's filter is `column.filter query=`",
     keys: [{ keys: "↑ ↓", does: "choose, while typing in /" }, { keys: "⏎ tab", does: "insert the candidate" }, { keys: "esc", does: "dismiss", says: "dismiss the filter's suggestions" }, { keys: "click", does: "on a candidate" }, { keys: "ctrl+space", does: "asks again", says: "ask for the filter's suggestions again" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
     examples: [
       { act: "column.complete text=ty tile=library", does: "lists the property keys that start with ty, most used first" },

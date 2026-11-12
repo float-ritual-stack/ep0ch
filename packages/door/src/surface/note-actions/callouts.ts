@@ -9,7 +9,7 @@ import { type ActionDef, ActionRefused, def } from "../actions";
 export const CALLOUT_DEFS = {
   "callout.list": def({
     summary: "list the note's callouts (PIE-538), outermost first in reading order: line, type, title, whether it starts folded and whether it's folded here; and the outline's callout types (the built-ins and those its notes declare with [callout-type::name])",
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { surface }) {
       const m = await surface.whole(), types = calloutsOf(surface.src);

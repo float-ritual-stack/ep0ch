@@ -14,7 +14,8 @@ it read, reads the result back and prints JSON with the Work ID, `((block ref))`
 and new revision. Refusals print one `error: …` line and exit 1.
 
 ```sh
-bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f] [--new]
+bun src/cli.ts work create "<title>" --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f] [--new]
+# the title as typed first, or as --title …; a second one is refused naming --title
 bun src/cli.ts work create --title … --attach PIE-12 [--source <uuid>] [--stdin|--body-file f]   # the ask under an open item
 bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]

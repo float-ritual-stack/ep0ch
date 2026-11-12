@@ -35,7 +35,8 @@ export interface UnsentEntry { kind: UnsentKind; place: string; u: Unsent; stale
 const WHAT: Record<UnsentKind, string> = { edit: "edit", comment: "comment", child: "note under this", card: "new card", "note-reply": "reply" };
 /** A kind as a control or a flash names it: "the kept note", "let go of the reply". */
 export const keptName = (kind: UnsentKind): string => kind === "child" ? "note" : kind === "note-reply" ? "reply" : kind;
-const BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C brings it back, on selected words or the whole note", child: "N on the card brings it back", card: "n in this lane brings it back", get "note-reply"() { return `${replyKey()} brings it back`; } };
+/** How each kind put aside comes back, as its line and a tile waiting on it say it ("e brings it back"). */
+export const UNSENT_BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C brings it back, on selected words or the whole note", child: "N on the card brings it back", card: "n in this lane brings it back", get "note-reply"() { return `${replyKey()} brings it back`; } };
 
 /** What the lines of a note are drawn against: its text now, how to read an edit's starting text, or a verdict a view carries. */
 export interface UnsentContext {
@@ -73,14 +74,14 @@ export function unsentEntries(id: string, revision: number | undefined, ctx: Uns
     const stale = kind === "edit" && revision !== undefined && u.base !== revision;
     const old = stale && now - u.at > OLD_UNSENT_DAYS * 86_400_000;
     if (kind !== "edit") {
-      out.push({ kind, place, u, stale, old, text: `■ your ${WHAT[kind]} from ${day(u.at)} is kept here · ${BACK[kind]}`, ops: ["copy", "dismiss"], verdict: null, pending: false });
+      out.push({ kind, place, u, stale, old, text: `■ your ${WHAT[kind]} from ${day(u.at)} is kept here · ${UNSENT_BACK[kind]}`, ops: ["copy", "dismiss"], verdict: null, pending: false });
       continue;
     }
     // The text it started from: its own, else the note now (it was written on this revision), else the note's history.
     const base = u.from !== undefined ? u.from : !stale && ctx.text !== undefined ? ctx.text : ctx.baseOf?.(u);
     const pending = ctx.verdict === undefined && ctx.text !== undefined && base === undefined;
     const verdict = ctx.verdict !== undefined ? ctx.verdict : ctx.text !== undefined && base !== undefined ? compareDraft(base, u.text, ctx.text) : null;
-    const text = pending ? `■ your edit ${onDay(day(u.at))} is kept here · comparing it with the note's history…` : verdict ? `■ ${verdictWords(verdict, day(u.at))}` : `■ your edit ${onDay(day(u.at))} is kept here · ${BACK[kind]}`;
+    const text = pending ? `■ your edit ${onDay(day(u.at))} is kept here · comparing it with the note's history…` : verdict ? `■ ${verdictWords(verdict, day(u.at))}` : `■ your edit ${onDay(day(u.at))} is kept here · ${UNSENT_BACK[kind]}`;
     out.push({ kind, place, u, stale, old, text, ops: editOps(verdict, pending), verdict, pending });
   }
   return out;

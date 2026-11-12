@@ -139,7 +139,11 @@ export async function resolveBlock(client: WorkToolsClient, address: string): Pr
     const workId = parseWorkId(trimmed)!.workId;
     const resolved = await client.request<PageAddressResolution>({ action: "pages.resolve", address: workId });
     if (resolved.status === "deleted") throw new WorkToolRefusal(`${workId} is in Trash`);
-    if (resolved.status !== "resolved" || !resolved.block) throw new WorkToolRefusal(`No block has Work ID ${workId}`);
+    if (resolved.status !== "resolved" || !resolved.block) {
+      // Said as `show` says it (PIE-1767): the one resolver's words, with the numbers or prefixes this outline has.
+      const [answer] = (await client.request<{ resolved: { error?: string }[] }>({ action: "blocks.resolve", refs: [trimmed] })).resolved;
+      throw new WorkToolRefusal(answer?.error ?? `No block has Work ID ${workId}`, "not-found");
+    }
     block = resolved.block;
   } else {
     throw new WorkToolRefusal(

@@ -45,9 +45,12 @@ try {
   const herdrRunner = herdrRegistry && herdrSocketPath ? new HerdrRegistryRunner(herdrRegistry, herdrSocketPath) : null;
   let stopping = false;
   const defaultOutline = process.env.EP0CH_DEFAULT_WS?.trim() || undefined;
+  // A test's host asks `@name` lines after a shorter quiet (OUTLINER_AGENT_QUIET_MS, as OUTLINER_EXTENSION_POLL_MS).
+  const quiet = Number(process.env.OUTLINER_AGENT_QUIET_MS);
   const host = new OutlineHost({
     outlinesFolder,
     defaultOutline,
+    ...(process.env.OUTLINER_AGENT_QUIET_MS && Number.isFinite(quiet) && quiet >= 0 ? { agentRequestQuietMs: quiet } : {}),
     warmRecent: true,
     herdrRegistry,
     promptDirectory: process.env.OUTLINER_PROMPT_DIR,

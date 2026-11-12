@@ -88,7 +88,7 @@ import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
+import { checkPropertyPatch, formatProperty, getProperty, matchingPropertyRecords, matchesFilters, keyedPropertyOps, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
@@ -489,12 +489,14 @@ import type { AgentRequestStatus } from "./schema";
 import {
   ROADMAP_CREATE_STAGES,
   ROADMAP_PRIORITIES,
+  RoadmapProblems, workQueueFor,
   assertNoReservedRoadmapProperties,
   normalizeRoadmapRelationshipId,
   normalizeRoadmapRelationshipIds,
   normalizeRoadmapText,
   normalizeRoadmapValues,
 } from "./roadmap-input";
+import { workIdOwner } from "./work-id-owner";
 import { boundedTreeLabel, compactTreeBlock, treeIndexMembers, treeIndexOf, type TreeLabels } from "./tree-index-labels";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
@@ -1228,7 +1230,8 @@ export class OutlinerStore {
     if (!input || typeof input !== "object") {
       throw new Error("Roadmap item input must be an object");
     }
-    const title = normalizeRoadmapText(input.title, "Roadmap title");
+    const problems = new RoadmapProblems();
+    const title = problems.take(input.title, v => normalizeRoadmapText(v, "Roadmap title"), "no title (--title)")!;
     let body = "";
     if (input.body !== undefined) {
       if (typeof input.body !== "string") {
@@ -1237,9 +1240,7 @@ export class OutlinerStore {
       body = input.body.trim();
     }
     const priority = input.priority;
-    if (ROADMAP_PRIORITIES[priority] !== true) {
-      throw new Error(`Invalid roadmap priority: ${String(priority)}`);
-    }
+    if (ROADMAP_PRIORITIES[priority] !== true) problems.add(priority === undefined ? "no priority (--priority high|medium|low)" : `Invalid roadmap priority: ${String(priority)}`);
     const workBatchId = input.workBatchId === undefined
       ? undefined
       : normalizeRoadmapRelationshipId(input.workBatchId, "workBatchId");
@@ -1247,30 +1248,21 @@ export class OutlinerStore {
     if (ROADMAP_CREATE_STAGES[workStage] !== true) {
       throw new Error(`Invalid roadmap work stage: ${String(workStage)}`);
     }
-    const project = normalizeRoadmapText(input.project, "Roadmap project");
-    const arc = normalizeRoadmapText(input.arc, "Roadmap arc");
-    const tracks = normalizeRoadmapValues(input.tracks, "Roadmap tracks");
+    const project = problems.take(input.project, v => normalizeRoadmapText(v, "Roadmap project"), "no project (--project)")!;
+    const arc = problems.take(input.arc, v => normalizeRoadmapText(v, "Roadmap arc"), "no arc (--arc)")!;
+    const tracks = problems.take(input.tracks, v => normalizeRoadmapValues(v, "Roadmap tracks"), "no track (--track, one or more)")!;
     const dependsOn = normalizeRoadmapRelationshipIds(input.dependsOn, "dependsOn");
     const relatedTo = normalizeRoadmapRelationshipIds(input.relatedTo, "relatedTo");
     const sourceBlockId = input.sourceBlockId === undefined
       ? undefined
       : normalizeRoadmapRelationshipId(input.sourceBlockId, "sourceBlockId");
     const wave = input.wave === undefined ? undefined : normalizeRoadmapText(input.wave, "Roadmap wave");
-    assertNoReservedRoadmapProperties(title, body);
+    if (title !== undefined) assertNoReservedRoadmapProperties(title, body);
 
-    const workQueues = this.database.query(
-      "SELECT DISTINCT block.id FROM blocks block JOIN block_properties type_property ON type_property.block_id = block.id AND type_property.scope = 'block' AND type_property.key = 'type' AND type_property.value = 'work-queue' JOIN block_properties project_property ON project_property.block_id = block.id AND project_property.scope = 'block' AND project_property.key = 'project' AND project_property.value = ? WHERE block.effective_deleted_root_id IS NULL ORDER BY block.id",
-    ).all(project) as Array<{ id: string }>;
-    if (workQueues.length !== 1) {
-      throw new Error(
-        `Expected exactly one active work queue for project ${project}; found ${workQueues.length}`,
-      );
-    }
-    const workQueueId = workQueues[0]!.id;
+    const workQueueId = workQueueFor(this.database, project, problems);
     const allocator = this.workIdAllocatorFromCurrentRead();
-    if (!allocator) {
-      throw new Error("Configure the project Work-ID prefix before creating roadmap items");
-    }
+    if (!allocator) problems.add("no Work-ID prefix: ep0ch work prefix <PREFIX> sets one (GATE makes GATE-001, GATE-002…)");
+    problems.throwIfAny();
     for (const blockId of [...dependsOn, ...relatedTo, ...(sourceBlockId ? [sourceBlockId] : [])]) {
       const target = this.getFromCurrentRead(blockId);
       if (!target) throw new Error(`Relationship target not found: ${blockId}`);
@@ -1279,7 +1271,7 @@ export class OutlinerStore {
       }
     }
 
-    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator};
+    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId:workQueueId!,allocator:allocator!};
   }
 
   createRoadmapItem(
@@ -1917,7 +1909,7 @@ export class OutlinerStore {
       const stage = roadmapStageOf(text);
       if (stage !== null) return stage;
     }
-    return null;
+    const owner = row.length ? null : this.numberedOwnerFromCurrentRead(workId); return owner && !owner.effectiveDeletedRootId ? roadmapStageOf(owner.text) : null; // a chip written unpadded (PIE-1761)
   }
 
   /**
@@ -2355,6 +2347,7 @@ export class OutlinerStore {
     return pages;
   }
 
+  private numberedOwnerFromCurrentRead(workId: string): Block | null { const wanted = parseWorkId(workId), id = wanted && this.workIdAllocatorFromCurrentRead()?.prefix === wanted.prefix ? workIdOwner(this.database, wanted.workId) : null, reserved = id ? this.reservedWorkIdOwnerFromCurrentRead(wanted!.workId) : undefined; return id && (reserved === undefined || reserved === id) ? this.getFromCurrentRead(id) : null; } // `workId`'s note by its number, however its chip writes it, own prefix, a number no other note's reservation holds (PIE-1761): the resolver's and the stage follow's one answer
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
     if (!TICKET_KEY.test(normalized)) return null;
@@ -2652,10 +2645,9 @@ export class OutlinerStore {
   ): Block {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
-    if (expectedRevision === undefined && operations.some(op => op.op !== "set" && op.op !== "add")) throw new Refusal("invalid", "Property patch needs expectedRevision unless every operation is set or add");
-    if (expectedRevision !== undefined && existing.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
+    checkPropertyPatch(existing, expectedRevision, operations);
     const text = patchPropertyText(existing.text, keyedPropertyOps(existing.text, operations));
-    return this.update(id, text, existing.revision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
+    return this.update(id, text, existing.revision, mutation, operations.some(op => op.op === "line") ? "text" : "properties", [], keepUpdated ? existing.updatedAt : undefined);
   }
 
   /**
@@ -3342,7 +3334,7 @@ export class OutlinerStore {
       WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL
     `).all() as Array<{ value: string }>;
     const parsed = rows.map(row => parseWorkId(row.value)).filter((id): id is NonNullable<typeof id> => id !== null);
-    const same = parsed.filter(id => id.prefix === wanted.prefix)
+    const same = parsed.filter(id => id.prefix === wanted.prefix && id.number !== wanted.number)
       .sort((a, b) => Math.abs(a.number - wanted.number) - Math.abs(b.number - wanted.number) || a.number - b.number).slice(0, 3);
     if (same.length) return `${wanted.workId} isn't in this outline; did you mean ${same.map(id => id.workId).join(", ")}?`;
     const prefixes = [...new Set(parsed.map(id => id.prefix))].sort();
@@ -5689,6 +5681,7 @@ export class OutlinerStore {
   ): PageAddressResolution {
     const exact = this.resolvePageAddressFromCurrentRead(normalized);
     if (exact.status !== "missing") return exact;
+    const numbered = parseWorkId(normalized.displayAddress), owner = numbered ? this.numberedOwnerFromCurrentRead(numbered.workId) : null; if (owner) return { address: normalized.displayAddress, normalizedAddress: normalized.normalizedAddress, status: owner.effectiveDeletedRootId ? "deleted" : "resolved", registeredAddress: numbered!.workId, kind: "work-id", block: owner, ...(owner.effectiveDeletedRootId ? { deletionRootId: owner.effectiveDeletedRootId } : {}) };
     const allocator = this.workIdAllocatorFromCurrentRead();
     if (!allocator) return exact;
     const embeddedWorkIds = workIdReferences(normalized.displayAddress, allocator.prefix);

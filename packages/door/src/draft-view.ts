@@ -250,7 +250,9 @@ export class RawRows {
   }
 
   /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
-  render(w: number, h: number): string[] {
+  /** One frame of the draft: the desk is asked where its answer tile is once for every ask's row in it (Codex on #1466). */
+  render(w: number, h: number): string[] { return this.d.drawing(() => this.frameOf(w, h)); }
+  private frameOf(w: number, h: number): string[] {
     const d = this.d, w1 = Math.max(4, w);
     const rows = this.layout(w1), pr = this.at;
     pr.source = rows.map(r => r.line);

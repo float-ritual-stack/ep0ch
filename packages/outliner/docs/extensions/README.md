@@ -2255,6 +2255,18 @@ A block's whole new text, checked against the revision you read. The service app
 
 Answers `Block \| DraftPatchResult`.
 
+#### `properties.patch`
+
+A block's properties changed by key, with no revision to read first: `set` a key's value, `add` a number to it (`{ op: "add", key: "visits", by: 1 }`), each the first such chip or a new one on the property line (PIE-1752). `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. `{ op: "line", text }` adds one line at the note's end, a paragraph of its own (a dated "why" beside a stage change, PIE-1760). On a note a door holds a live draft of, the saved note and the draft take it together, whoever writes it (`draft` is the draft as it is now, typing and all; a line comes in below the cursor); an agent's on the very line the person is typing on, or one while their save is under way, is refused and nothing is written (PIE-1756).
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `expectedRevision?` | `number` | Left out only when every operation is `set` or `add`. |
+| `operations` | `PropertyPatchOperation[]` |  |
+
+Answers `PropertiesPatched`.
+
 #### `move`
 
 A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one under it), and on a record an extension keeps.

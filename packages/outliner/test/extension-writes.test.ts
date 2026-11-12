@@ -45,7 +45,13 @@ else if (operation === "respond") say({ reply: "noted ${"\\x1b"}[2J" });
 else if (input.action === "rewrite") say({ message: "rewrote ${"\\x1b"}]0;title${"\\x07"}it", writes: [{ op: "update", blockId: input.target.blockId, expectedRevision: input.target.revision, text: input.args.text }] });
 else if (input.action === "child") say({ writes: [{ op: "create", parentId: input.target.blockId, text: input.args.text }] });
 else if (input.action === "both") say({ message: "did both", writes: [{ op: "update", blockId: input.target.blockId, expectedRevision: input.target.revision, text: input.args.text }, { op: "create", parentId: input.target.blockId, text: "a note on it" }] });
-else if (input.action === "slow") { await Bun.sleep(900); say({ writes: [{ op: "create", parentId: input.target.blockId, text: "late answer" }] }); }
+// slow says it is running (args.started), then answers only once the test says the change is made (args.go): its answer
+// always comes after the change, however long bun took to load it (PIE-1764).
+else if (input.action === "slow") {
+  await Bun.write(input.args.started, "");
+  while (!(await Bun.file(input.args.go).exists())) await Bun.sleep(10);
+  say({ writes: [{ op: "create", parentId: input.target.blockId, text: "late answer" }] });
+}
 else say({});`;
 
 async function setup() {
@@ -324,13 +330,20 @@ test("wholeTextSpan: the changed lines as one span, widened to a neighbour when 
 
 for (const how of ["disabled", "removed"] as const) {
   test(`an extension ${how} while its action runs: the answer is discarded, nothing is written`, async () => {
-    const { store, client, extensions, scribe, act } = await setup();
+    const { root, store, client, extensions, scribe, act } = await setup();
     await scribe();
     const note = await client.request<Block>({ action: "create", text: "Slow note", author: "user" });
-    const running = act("slow", note.id).then(() => null, (error: Error) => error);
-    await Bun.sleep(300);
-    if (how === "disabled") writeFileSync(join(extensions, "scribe", "config.json"), JSON.stringify({ enabled: false }));
-    else rmSync(join(extensions, "scribe"), { recursive: true, force: true });
+    // Outside the extension's folder: a file written in it is a change of its own.
+    const started = join(root, "slow-started"), go = join(root, "slow-go");
+    const running = act("slow", note.id, { started, go }).then(() => null, (error: Error) => error);
+    // The extension's own word that it runs, not a fixed wait: on a loaded box bun can take longer than any wait to load it.
+    try {
+      await until("the slow action running", () => existsSync(started));
+      if (how === "disabled") writeFileSync(join(extensions, "scribe", "config.json"), JSON.stringify({ enabled: false }));
+      else rmSync(join(extensions, "scribe"), { recursive: true, force: true });
+    } finally {
+      writeFileSync(go, "");
+    }
     const error = await running;
     expect(error?.message).toContain("while it ran; its answer was discarded");
     expect(store.children(note.id)).toEqual([]);

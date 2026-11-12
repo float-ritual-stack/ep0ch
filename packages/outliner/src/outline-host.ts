@@ -114,6 +114,8 @@ export interface OutlineHostOptions {
   copy?: { machine: string; state: string };
   /** Which absolute paths are on this machine's disk: all, unless a test's two machines share one disk (PIE-1644). */
   filesHere?: (path: string) => boolean;
+  /** How long an `@name` line waits for quiet before it's asked (the service's 1.5 s when left out; a test's host, shorter). */
+  agentRequestQuietMs?: number;
 }
 
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
@@ -848,7 +850,7 @@ export class OutlineHost {
       await this.giveWay();
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: { address: `${name}@${this.options.copy.machine}`, state: join(this.options.copy.state, name) } } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}) });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: { address: `${name}@${this.options.copy.machine}`, state: join(this.options.copy.state, name) } } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}), ...(this.options.agentRequestQuietMs !== undefined ? { agentRequestQuietMs: this.options.agentRequestQuietMs } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.extensionPages.giveWay = this.giveWay;

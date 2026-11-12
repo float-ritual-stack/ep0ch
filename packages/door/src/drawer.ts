@@ -1718,7 +1718,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "mcp.access.matrix": def({
     summary: "who can reach what, read: each MCP caller (a named path such as /gpty/mcp, or a client such as claude-code@float-2) against each outline of this door's machine, the effective level (the lower of the outline's grant and the caller's cap) with why, and the caller's calls in the last 7 days and last call per outline. Reads the grants (ep0ch mcp access), the caps (EP0CH_MCP_PATH_ACCESS) and the usage records (ep0ch mcp usage); changing access is the person's (access.apply on the tile)",
     keys: [{ via: "ep0ch mcp access --matrix --json prints the same" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { drawer }) {
       const door = drawer.ctxOfDoor();
@@ -1738,14 +1738,14 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "changes.list": def({
     summary: "what changed since the person last looked, read: each note others changed (id, title, who, kind, when, seen, revision), newest first, from the service's change feed. Changes nothing, and never marks anything seen",
     keys: [{ via: "the status bar's +N new" }, { via: "the drawer's what-changed tab" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer }) { return drawer.changesRead(); },
   }),
   "status.list": def({
     summary: "what waits on the person, read: each terminal tile's program status rows that ask something of them (blocked, failed, done unseen), most urgent first, with the tile, the record (state, kind, progress, app, title, msg) and since when. `peek` gives every terminal's records too (terminal.status)",
     keys: [{ via: "the status bar's waiting count" }, { via: "the drawer's waiting-on-you tab" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
@@ -1753,7 +1753,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     words: "find the terminal tile a process is drawn in",
     summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: mark=<token> finds the tile whose program wrote the marker OSC 7501 ; ?mark=<token> to its terminal (over ssh, or through tmux's passthrough: a program that can't read its own input, PIE-1306; waited for up to 400ms); pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
     keys: [{ via: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {
       mark: { type: "string", optional: true, about: "the token a program wrote to its terminal as OSC 7501 ; ?mark=<token>" },
       pid: { type: "number", optional: true, about: "a process on this machine" },
@@ -1803,7 +1803,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "agents.list": def({
     summary: "every agent session this door holds, read: id (<program>:<folder>), program, folder, persona, config, how it became one (started, found running in a terminal tile, the drawer's own), state (working, waiting, idle, done, failed) and where it's shown. Changes nothing",
     keys: [{ keys: "alt+g", does: "opens the agent panel" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer }) { return { sessions: drawer.sessions().map((s, i) => sessionFacts(s, i + 1)) }; },
   }),
@@ -1972,7 +1972,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "agent.knows": def({
     summary: "what the agent tab used last (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started before the mod manifest changed, or by an older door without its variables), no-door (no EP0CH_CONTROL) or unknown",
     keys: [{ via: "the ▲ claude chip says it: · door tools, · started before update ⟳" }],
-    touches: "nothing", replay: "safe",
+    reads: true, touches: "nothing", replay: "safe",
     args: {},
     async run(_, { drawer }) { return { knows: await drawer.readKnows(), pid: drawer.knowsPid }; },
   }),

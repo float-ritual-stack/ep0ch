@@ -9,7 +9,7 @@ const queryArgs = {
   q: { type: "string", optional: true, about: "search the visits" },
 } as const;
 const queries = Object.fromEntries(["recent", "children", "visits", "branch", "closed", "held", "from"].map(kind => [
-  `trail.${kind}`, def({ summary: `Read the trail's ${kind} visits without moving the person's view`, touches: "nothing", replay: "safe", args: queryArgs,
+  `trail.${kind}`, def({ summary: `Read the trail's ${kind} visits without moving the person's view`, reads: true, touches: "nothing", replay: "safe", args: queryArgs,
     examples: [{ act: `trail.${kind}${kind === "children" || kind === "branch" ? " visit=visit-garden" : kind === "visits" ? " note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : kind === "from" ? " from=t-garden" : " q=garden"}`, does: `reads ${kind} visits; visit and tile ids come from trail.recent`, safe: true }],
     run(args, app: App) { return app.trail.query(kind, args).map(v => ({ ...v, dwell: app.trail.dwell(v), seconds: app.trail.seconds(v), skimmed: app.trail.skim(v), place: app.trail.places[v.open.target.tile] })); },
   }),
@@ -22,7 +22,7 @@ export const TRAIL_QUERIES = actionSet<App>()("trail", {
     examples: [{ act: "facets.trail", does: "opens facets over the trail" }],
     run(_, app, actor) { return app.dispatch.act({ action: "tile.open", args: { kind: "facets", source: "trail", name: "trail-facets", where: "right" } }, actor); },
   }),
-  "door.opens": def({ summary: "Read recent door.open envelopes, since a timestamp in milliseconds", touches: "nothing", replay: "safe",
+  "door.opens": def({ summary: "Read recent door.open envelopes, since a timestamp in milliseconds", reads: true, touches: "nothing", replay: "safe",
     examples: [{ act: "door.opens since=0", does: "lists the recent open envelopes with their causes", safe: true }],
     args: { since: { type: "number", optional: true, about: "milliseconds since the epoch" } }, run({ since }, app) { return app.doorOpens(since); } }),
   "trail.settings": def({ summary: "Set retention days and dwell thresholds in seconds, or read them with no arguments", touches: "nothing", replay: "safe",
