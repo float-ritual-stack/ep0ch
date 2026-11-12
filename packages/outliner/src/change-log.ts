@@ -162,6 +162,24 @@ export function writeGenesis(database: Database, schema: number): number {
   }).immediate();
 }
 
+/**
+ * Keeps the log's size in proportion (ADR 0009): when what was logged since the newest genesis outgrows `factor` times
+ * that genesis, a new genesis is written and the entries before the previous one are deleted, so the file holds one
+ * generation back for a follower or an archive that is behind. The archive keeps the history. Returns whether it ran.
+ */
+export function compactLog(database: Database, schema: number, factor = 4): boolean {
+  if (logState(database).role !== "home") return false;
+  const genesis = latestGenesis(database);
+  if (!genesis) return false;
+  // The genesis is one transaction: its rows are the outline's size; what came after it is the log's growth since.
+  const txn = (database.query("SELECT txn FROM change_log WHERE lsn = ?").get(genesis) as { txn: number }).txn;
+  const size = (where: string) => (database.query(`SELECT COALESCE(SUM(LENGTH(row)), 0) AS n FROM change_log WHERE lsn >= ? AND ${where}`).get(genesis, txn) as { n: number }).n;
+  if (size("txn <> ?") <= factor * Math.max(size("txn = ?"), 64 * 1024)) return false;
+  writeGenesis(database, schema);
+  database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn < ?").run(genesis); }).immediate();
+  return true;
+}
+
 /** One log entry, as a range carries it. `key` and `row` stay the JSON text the log holds. */
 export interface LogEntry { lsn: number; txn: number; tbl: string; op: "g" | "i" | "u" | "d"; key: string | null; row: string | null; origin: string | null; at: string }
 /** A range of an outline's log: what follows `after`, through whole transactions. */
@@ -186,9 +204,11 @@ export function readRange(database: Database, after: number, limit = LOG_RANGE_D
   return database.transaction((): LogRange => {
     const { logId } = logState(database);
     const head = logHead(database);
-    const from = after === 0 ? Math.max(0, latestGenesis(database) - 1) : after;
+    // A cursor the log no longer holds (compacted away, `compactLog`) is answered from the newest genesis: the follower
+    // sees the range doesn't follow it and rebuilds.
+    const held = after > 0 && after <= head && !entryAt(database, after);
+    const from = after === 0 || held ? Math.max(0, latestGenesis(database) - 1) : after;
     const prevEntry = from > 0 ? entryAt(database, from) : null;
-    if (from > 0 && !prevEntry && from <= head) throw new Error(`this log holds no entry at ${from}`);
     const entries = database.query("SELECT lsn, txn, tbl, op, key, row, origin, at FROM change_log WHERE lsn > ? ORDER BY lsn LIMIT ?").all(from, limit) as LogEntry[];
     const last = entries.at(-1);
     if (last && entries.length === limit) {
@@ -222,7 +242,8 @@ export function checkFollows(cursor: Cursor, range: LogRange): void {
   if (range.logId !== cursor.logId) throw new RangeRefused(`the range is of log ${range.logId}, and this copy follows ${cursor.logId} (the home was restored or made again)`, true);
   if (range.schema !== cursor.schema) throw new RangeRefused(`the home is schema ${range.schema} and this copy ${cursor.schema}; ${range.schema < cursor.schema ? "update the home machine" : "update this machine"} (ep0ch install --apply)`, false);
   if (range.head < cursor.lsn) throw new RangeRefused(`the home's log ends at ${range.head}, behind this copy's ${cursor.lsn} (its file was put back to an earlier copy)`, true);
-  if (range.after !== cursor.lsn) throw new RangeRefused(`the range follows ${range.after}, and this copy is at ${cursor.lsn}`, false);
+  // The home answered from a later genesis: what follows this copy's cursor was compacted away.
+  if (range.after !== cursor.lsn) throw new RangeRefused(`the range follows ${range.after}, and this copy is at ${cursor.lsn}${range.after > cursor.lsn ? " (the home's log no longer holds what follows it)" : ""}`, range.after > cursor.lsn);
   if (range.prev !== cursor.digest) throw new RangeRefused(`the home's entry at ${cursor.lsn} isn't this copy's (the two logs differ from there)`, true);
 }
 

@@ -174,8 +174,7 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden", "pantry"], failed: [], relayed: [] });
     const first = s.outlines.garden!.seq!;
     expect(first).toBeGreaterThan(0);
-    expect(s.outlines.garden).toMatchObject({ logId: expect.any(String), schema: expect.any(Number) });
-    console.error("DBG", JSON.stringify(s.outlines.garden), archiveRoot(laptop, "laptop"));
+    expect([typeof s.outlines.garden!.logId, typeof s.outlines.garden!.schema]).toEqual(["string", "number"]);
     // The archive is the log, as segments of whole ranges, in the job's state.
     expect(existsSync(join(archiveRoot(laptop, "laptop"), "garden", s.outlines.garden!.logId!))).toBe(true);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [], relayed: [] });

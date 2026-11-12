@@ -13,7 +13,7 @@
 // Another machine's outlines are followed, not copied (outliner outline-follower.ts): the gateway's and the web
 // client's copies apply that machine's log as it changes.
 import { Database } from "bun:sqlite";
-import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
@@ -95,9 +95,17 @@ const RANGE_LIMIT = 5_000;
  */
 export async function newRanges(c: Pick<BackupConfig, "host" | "state" | "machine">, name: string): Promise<{ logId: string; schema: number; ranges: LogRange[]; head: number; held: number }> {
   const ask = (after: number) => hostSend(c.host, "log.range", { outline: name, after, limit: RANGE_LIMIT }, 120_000) as Promise<LogRange>;
-  let range = await ask(0);
-  const have = archivedCursor(archiveRoot(c, c.machine), name, range.logId);
-  if (have) range = await ask(have.lsn);
+  // Past its head: no entries, just which log it is.
+  const { logId } = await ask(Number.MAX_SAFE_INTEGER);
+  const root = archiveRoot(c, c.machine);
+  let have = archivedCursor(root, name, logId);
+  let range = await ask(have?.lsn ?? 0);
+  // The host compacted away what follows the archive (it ran long ago): that chain is kept aside, and a new one starts
+  // at the host's newest genesis.
+  if (have && range.after !== have.lsn) {
+    renameSync(join(root, name, range.logId), join(root, name, `${range.logId}~${have.lsn}`));
+    have = null;
+  }
   const ranges = [range];
   while (!range.complete) { range = await ask(range.entries.at(-1)!.lsn); ranges.push(range); }
   return { logId: range.logId, schema: range.schema, ranges, head: range.head, held: have?.lsn ?? 0 };

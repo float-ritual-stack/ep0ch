@@ -1,10 +1,9 @@
 // Another machine's outline in the web client (publish-remote.ts, publish-outlines.ts): `/pub/o/<name>@<machine>/`,
 // read live through the machine's ssh forward, its writes following the outline's own MCP access there, and read from
 // its copy here while the machine doesn't answer. "The other machine" is an outline host in a scratch folder of its own,
-// reached through the fake ssh (test/fake-ssh.ts); its copy is a VACUUM INTO of its database, as Litestream's follow
-// leaves one. Fictional notes throughout.
+// reached through the fake ssh (test/fake-ssh.ts); its copy here follows its change log (outline-follower.ts) through
+// the same forward. Fictional notes throughout.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,10 +121,8 @@ test("its MCP access governs writes: read shows the threads with no write contro
 }, 30_000);
 
 test("the machine asleep: its copy here, said with its time, no write controls, and the forward isn't retried on every page", async () => {
-  // Litestream's follow leaves the copy.
-  mkdirSync(join(root, "mirrors", FAR), { recursive: true });
-  const source = new Database(outlineLayout(join(root, "far", "outlines")).database("attic-notes"), { readonly: true });
-  try { source.run("VACUUM INTO ?", [join(root, "mirrors", FAR, "attic-notes.sqlite")]); } finally { source.close(); }
+  // While the machine answers, the copy here follows its log (the comment made live above is in it).
+  expect("error" in await remote.copyPublisher()).toBe(false);
   // The machine goes to sleep: its forward drops, and ssh can't reach it.
   env.FAKE_SSH_DOWN = "1";
   process.kill(Number(readFileSync(join(root, "outlines", ".remote", `${FAR}.ctl`), "utf8")));

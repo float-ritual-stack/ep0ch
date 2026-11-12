@@ -89,6 +89,7 @@ async function lockFor(c: BackupConfig, waitMs: number): Promise<(() => void) | 
  */
 export async function receive(c: BackupConfig, o: { machine: string; outline: string; sha256?: string; part: string; lockWaitMs?: number }): Promise<Received> {
   if (!MACHINE_NAME.test(o.machine) || o.machine === c.machine) return { ok: false, error: `${o.machine} isn't another machine's name` };
+  if (!c.mirrors.some(m => m.machine === o.machine)) return { ok: false, error: `${c.machine} doesn't take ${o.machine}'s relays: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` };
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
   const text = readFileSync(o.part, "utf8");
   if (o.sha256 && sha256(text) !== o.sha256) return { ok: false, error: "the log arrived damaged (sha256 differs); the next run sends it again" };

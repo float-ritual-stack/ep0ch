@@ -290,6 +290,7 @@ export class OutlineHost {
       listener.on("error", error => (this.options.onListenerError ?? (fault => this.log(`Outline host listener failed: ${fault.message}`)))(error));
       this.listener = listener;
       if (this.options.warmRecent) this.warmRecent();
+      if (!this.options.readOnly) { this.compactSweep = setInterval(() => { for (const o of this.opened.values()) this.compact(o); }, 3_600_000); this.compactSweep.unref?.(); }
     } catch (error) {
       await this.close().catch(() => undefined);
       throw error;
@@ -315,6 +316,13 @@ export class OutlineHost {
    * after that. An extension's own process goes straight through. One outline's failure is that outline's: its first
    * request says why, as ever.
    */
+  private compactSweep: ReturnType<typeof setInterval> | undefined;
+  private compact(outline: HostedOutline): void {
+    if (this.options.readOnly) return;
+    try { if (outline.store.compactLog()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
+    catch (error) { this.log(`Outline "${outline.name}": compacting its change log failed: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
   private warmRecent(): void {
     const queue = this.recentNames();
     for (const name of queue) this.warming.set(name, Promise.withResolvers<void>());
@@ -385,6 +393,7 @@ export class OutlineHost {
 
   async close(): Promise<void> {
     this.closing = true;
+    if (this.compactSweep) clearInterval(this.compactSweep);
     const listener = this.listener;
     this.listener = null;
     const listenerClosed = Promise.withResolvers<void>();
@@ -841,6 +850,8 @@ export class OutlineHost {
       if (this.closing) throw new Error("The outline host is stopping");
       const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server, settled };
       this.opened.set(name, outline);
+      // The change log kept in proportion (ADR 0009): on open, then hourly (start's sweep).
+      this.compact(outline);
       try { await this.options.onOpen?.(outline); }
       catch (error) { this.log(`Outline "${name}": ${error instanceof Error ? error.message : String(error)}`); }
       return outline;

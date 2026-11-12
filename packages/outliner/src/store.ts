@@ -21,7 +21,7 @@ import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
-import { applyRange, cursorOf, endLogTransaction, logState, readRange, type Cursor, type LogRange } from "./change-log";
+import { applyRange, compactLog, cursorOf, endLogTransaction, logState, readRange, type Cursor, type LogRange } from "./change-log";
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
@@ -5005,6 +5005,11 @@ export class OutlinerStore {
   /** The change log after `after` (ADR 0009, `log.range`): whole transactions, with the log's id and head. */
   logRange(after: number, limit?: number): LogRange {
     return readRange(this.database, after, limit, SCHEMA_VERSION);
+  }
+
+  /** Keeps the log's size in proportion (change-log.ts `compactLog`); the host asks on open and every hour. */
+  compactLog(factor?: number): boolean {
+    return compactLog(this.database, SCHEMA_VERSION, factor);
   }
 
   /** This file's place in its log: the log's id, schema, newest lsn and the digest of the entry there. */

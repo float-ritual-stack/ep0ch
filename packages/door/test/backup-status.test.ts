@@ -1,17 +1,17 @@
 // `ep0ch backup status` and the run's progress lines in plain words (PIE-702): golden outputs for a person to read.
 // Pure: a described history in a scratch state folder, a fixed clock, fictional machines.
 import { afterAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type Alert, type BackupState, writeAlert, writeBackupState } from "../src/backup/alert";
 import { BACKUP_FLAGS, backupCommand, statusLines } from "../src/backup/cli";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
-import { changeSeq, snapshot } from "../src/backup/jobs";
+import { newRanges, snapshot } from "../src/backup/jobs";
 import { plainFailure, plainReason } from "../src/backup/plain";
 import { resticChecks } from "../src/backup/setup";
 import { failedLine, relayedLine, verdict } from "../src/backup/verdict";
 import { scratchDir } from "./scratch";
+import { hostRequest } from "../src/socket";
 import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-backup-status-");
@@ -29,7 +29,7 @@ function config(): BackupConfig {
 }
 function world(s: Partial<BackupState>, incidents: Alert["incidents"] = [], checkedMinAgo = 5): BackupConfig {
   const c = config();
-  writeBackupState(c.state, { outlines: {}, mirrors: {}, ...s });
+  writeBackupState(c.state, { outlines: {}, ...s });
   writeAlert(c.state, { machine: "float-hub", checkedAt: iso(checkedMinAgo), incidents, announced: [] });
   return c;
 }
@@ -144,7 +144,7 @@ describe("the run says the same thing", () => {
   });
 
   test("doctor's backup line is the same verdict", () => {
-    const state: BackupState = { outlines: { pie: { seq: 1, at: iso(5), error: RAW_FETCH } }, mirrors: {}, lastRun: { at: iso(2), ok: false, detail: "failed: pie" } };
+    const state: BackupState = { outlines: { pie: { seq: 1, at: iso(5), error: RAW_FETCH } }, lastRun: { at: iso(2), ok: false, detail: "failed: pie" } };
     const v = verdict(state, null, NOW, { machine: "float-hub", repo: REPO });
     expect(v.headline).toBe("✗ failing");
     expect(v.fix).toBe("ep0ch backup run");
@@ -184,15 +184,17 @@ describe("flags are never ignored", () => {
     const host = new OutlineHost({ outlinesFolder: c.outlines, log: () => {} });
     await host.start();
     afterAll(() => host.close());
-    const path = join(c.outlines, "pie.sqlite");
-    const db = new Database(path);
-    db.run("CREATE TABLE change_feed (change_id INTEGER PRIMARY KEY AUTOINCREMENT, sequence INTEGER)");
-    db.run("INSERT INTO change_feed (sequence) VALUES (1)"); db.run("PRAGMA user_version = 3"); db.close();
-    const s: BackupState = { repo: c.repoOf("float-hub"), outlines: { pie: { seq: changeSeq(path), schema: 3, at: "2026-10-08T23:33:00Z" } }, mirrors: {} };
+    // A made-up outline the host serves; its archive is already uploaded up to its newest entry.
+    await hostRequest(c.host, "outlines.create", { name: "pie" });
+    // What the host writes as it opens an outline settles first: the log stops moving.
+    const head = async () => { const l = await newRanges(c, "pie"); return { log: l, lsn: l.ranges.flatMap(r => r.entries).at(-1)!.lsn }; };
+    let { log, lsn } = await head();
+    for (let i = 0; i < 50; i++) { await Bun.sleep(100); const next = await head(); if (next.lsn === lsn) break; ({ log, lsn } = next); }
+    const s: BackupState = { repo: c.repoOf("float-hub"), outlines: { pie: { seq: lsn, logId: log.logId, schema: log.schema, at: "2026-10-08T23:33:00Z" } } };
     const quiet: string[] = [], loud: string[] = [];
     await snapshot(c, s, { say: l => quiet.push(l) });
     await snapshot(c, s, { say: l => loud.push(l), verbose: true });
     expect(quiet.join("\n")).not.toContain("unchanged since");
-    expect(loud).toContain("pie: unchanged since change 1 (Oct 8 23:33Z), nothing to send");
+    expect(loud).toContain(`pie: unchanged since entry ${lsn} (Oct 8 23:33Z), nothing to send`);
   });
 });

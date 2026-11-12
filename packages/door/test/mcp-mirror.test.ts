@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     await expect(target.board.request("create", { parentId: null, text: "Should not land", author: "agent" })).rejects.toThrow("read-only copy");
     await expect(target.board.request("mcp.access.configure", { level: "full" })).rejects.toThrow("read-only copy");
     await expect(hostRequest(target.board.path, "outlines.create", { name: "sneaky" })).rejects.toThrow("read-only copies");
-    expect(readdirSync(join(mirrorsFolder, FAR)).filter(f => f.endsWith(".sqlite")).sort()).toEqual(["attic-notes.sqlite", "garden-notes.sqlite"]);
+    expect(readdirSync(join(mirrorsFolder, FAR)).filter(f => f.endsWith(".sqlite") && !f.endsWith(".owner.sqlite")).sort()).toEqual(["attic-notes.sqlite", "garden-notes.sqlite"]);
   });
 
   test("a change on the home is in the copy within moments, woken by the home's events", async () => {
@@ -146,8 +146,9 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     await Bun.sleep(20);
     const later = await garden.request("create", { parentId: null, text: "Frost dates\nLast frost due mid-April.", author: "agent" });
     const laterUri = formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: later.id });
-    const read = await until(async () => JSON.parse((await tool("outline_read", { uri: laterUri })).text) as { record?: { body: string }; reachability: { asOf: string } }, r => !!r.record, 5_000);
-    expect(read.record!.body).toContain("mid-April");
+    const readLater = async () => { const t = await tool("outline_read", { uri: laterUri }); return t.isError ? null : JSON.parse(t.text) as { record: { body: string }; reachability: { asOf: string } }; };
+    const read = (await until(readLater, r => !!r, 5_000))!;
+    expect(read.record.body).toContain("mid-April");
     expect(Date.parse(read.reachability.asOf)).toBeGreaterThan(Date.parse(before));
   }, 30_000);
 

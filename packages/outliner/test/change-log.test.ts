@@ -165,3 +165,39 @@ test("a replay of the archived log gives the same outline, as an outline of its 
   restored.create("Written after the restore");
   restored.close();
 });
+
+test("a log kept in proportion: a follower within a generation catches up, one further behind rebuilds", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const near = follow(home, join(dir, "near.sqlite"));
+  near.catchUp();
+  const far = follow(home, join(dir, "far.sqlite"));
+  far.catchUp();
+  const farAt = (far.db.query("SELECT MAX(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
+  // A busy day: the log outgrows the outline, so the next compaction writes a genesis.
+  const crate = home.create("Crate of apples", shelf.id);
+  for (let i = 0; i < 600 && !home.compactLog(1); i++) {
+    const now = home.get(crate.id)!;
+    home.update(crate.id, `Crate of apples [count::${i}]\nCounted again.`, now.revision, { author: "user" });
+    if (i % 50 === 0) near.catchUp();
+  }
+  near.catchUp();
+  expect(canonicalDump(near.db)).toBe(dumpOf(join(dir, "home.sqlite")));
+  // Another generation: what followed the far copy's cursor is gone from the home's log.
+  for (let i = 0; i < 600 && !home.compactLog(1); i++) {
+    const now = home.get(crate.id)!;
+    home.update(crate.id, `Crate of apples [count::again-${i}]\nCounted again.`, now.revision, { author: "user" });
+    if (i % 50 === 0) near.catchUp();
+  }
+  near.catchUp();
+  expect(canonicalDump(near.db)).toBe(dumpOf(join(dir, "home.sqlite")));
+  const range = home.logRange(farAt);
+  let refused: unknown = null;
+  try { applyRange(far.db, range, SCHEMA_VERSION); } catch (e) { refused = e; }
+  expect(refused).toBeInstanceOf(RangeRefused);
+  expect((refused as RangeRefused).rebuild).toBe(true);
+  // The log holds one generation back, not the whole history.
+  const oldest = (home.database.query("SELECT MIN(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
+  expect(oldest).toBeGreaterThan(farAt);
+  home.close();
+});

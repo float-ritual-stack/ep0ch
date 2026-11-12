@@ -52,8 +52,11 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   its first rows.
 - **A schema step writes a new genesis.** A migration script runs with the log triggers dropped, then makes them again
   for the new columns and writes a genesis at N. Old entries before it are history, kept in the archive.
-- **No compaction now:** pie held about 2,000 blocks at the Oct 3 drill and float-hub 364, so replay from the latest
-  genesis is fast. A compact command (a new genesis at schema N) is the step when it isn't.
+- **Compaction keeps the file in proportion:** an edit logs about 12 rows and 3 KB (measured: 600 writes on a scratch
+  outline, 0.79 ms a write without the log and 0.94 ms with it). When what was logged since the newest genesis outgrows
+  4 times that genesis, the host writes a new genesis and deletes the entries before the previous one (on open and
+  hourly), so the file holds one generation back. A follower or an archive further behind than that rebuilds from the
+  newest genesis; the archive keeps the history.
 
 ### 3. A range, and how a follower applies it
 
@@ -80,8 +83,11 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 ### 4. One follower per machine folder, in a read-only host
 
 - **The follower's file** is `<mirrors>/<machine>/<outline>.sqlite`, served by one read-only outline host for that
-  folder (`OutlineHost`, `readOnly`, `copy`). The first process that needs it (the gateway, the web client) starts it
-  and takes its lock; the others attach to its socket. When the owner stops, the next read takes over.
+  folder (`OutlineHost`, `readOnly`, `copy`). The first process that needs it (the gateway, the web client, `ep0ch
+  backup follow`) starts it and takes its lock; the others attach to its socket. When the owner stops, the next read
+  takes over.
+- **`ep0ch backup follow`** runs the followers on their own (the `ep0ch-follow` unit, written by install when
+  `EP0CH_MCP_MIRRORS` is in `backup.env`): on a machine with no gateway, it is the off-machine copy of an outline.
 - **The owner follows each outline** it serves: it asks the home's host for `log.range` through the shared forward
   (`<outlines>/.remote/<machine>.sock`), applies through the hosted store (the same connection that answers reads, so
   nothing waits on a lock), and asks again when the home's `events.subscribe` stream says something changed, and
@@ -96,14 +102,19 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 - **The archive:** each run of `ep0ch backup run` asks the host for each outline's entries after its archive cursor and
   appends them as segment files, `<state>/backup/log/<machine>/<outline>/<logId>/<first lsn>-<last lsn>.jsonl`,
   immutable once written. Then `restic backup` takes the archive folder (only new segments upload), with the same
-  retention as before. A follower's outlines are archived by the machine that follows them too, under the home's name,
-  so the laptop's log leaves through float-2 while the work VPN blocks the bucket (this replaces the relay).
-- **The file keeps its whole log** for now (no trimming, as no compaction): the archive is the copy off the machine.
-- **Recovery point, before and after:**
-  - pie: Litestream to the bucket within about a second, plus restic every 15 minutes, becomes the archive every
-    15 minutes (the backup timer). A follower on another machine is the seconds-fresh copy wherever one runs.
+  retention as before.
+- **The relay carries the log:** while the work VPN blocks the bucket, the laptop sends each outline's archived log to
+  the hub over ssh (as it sent sqlite copies), and the hub adds what its archive lacks and uploads it under the
+  laptop's name. A log that differs from the hub's archive is refused.
+- **The file keeps one generation of its log** (§2's compaction); the archive is the history, off the machine. An
+  archive whose cursor was compacted away keeps that chain aside and starts a new one at the newest genesis.
+- **Recovery point, before and after** (loki, Nov 11: pie stays in seconds):
+  - pie: Litestream to the bucket within about a second becomes float-box's follower of pie (`ep0ch backup follow`,
+    `EP0CH_MCP_MIRRORS=pie@float-2`), woken by pie's events: seconds, on another machine. The archive every 15 minutes
+    is the history to restore from, as restic was.
   - float-hub: restic every 15 minutes (relayed through float-2 when the VPN blocks the bucket) becomes float-2's
-    follower within seconds of each change while the link is up, archived by both machines.
+    follower within seconds of each change while the link is up, plus the laptop's archive every 15 minutes.
+  - The bucket's Litestream data is kept until float-box's follower and a drill on each machine have passed.
 - **What stays:** the host's `outlines.backup` (a `VACUUM INTO` copy in the host's worker), for the pre-install backup,
   `ep0ch backup copy` and the snapshot download; float-2's nightly whole-machine restic snapshot (`ep0ch-snapshot`),
   which takes those copies and is the independent second copy. Files beside the database (`<name>/`: media,
@@ -132,11 +143,12 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 - **Deleted:** `litestream-guard.ts`, `litestream-units.ts` and their tests; the five `withLitestreamPaused` sites
   (host create, delete, archive and unarchive, CLI import); `host-main.ts`'s pause recovery; the Litestream checks,
   units and replica lag in `setup/backups.ts` and doctor; the alert's `guard:` incidents; the mirror step, the
-  `.restic` mirror folder, the relay and its `backup receive` in `backup/jobs.ts`; the store's `busy_timeout` and the
-  dispatcher's `retriesBusy`.
+  `.restic` mirror folder and the sqlite copies the relay carried in `backup/`; the store's `busy_timeout` and the
+  dispatcher's `retriesBusy` (with the action table's `once`).
 - **Schema 12** (`change_log`, `log_state`, the generated triggers; `scripts/migrations/0012-change-log.ts` writes the
   genesis). **Wire:** `log.range`; the mirror answer's `copy` gains `cursor`. PROTOCOL is set at the final rebase.
-- **The one-way door:** once Litestream is stopped, the bucket's Litestream data is kept until the first archive has
-  been restored and compared by a drill on each machine; then it is deleted by hand.
-- **Write cost:** every row change writes a log row in the same transaction; an edit that rewrites a note's
-  properties writes one entry per property. Measured on the test outlines in the PR.
+- **The one-way door:** once Litestream is stopped, the bucket's Litestream data is kept until float-box's follower of
+  pie and a drill on each machine have passed; then it is deleted by hand. Restic snapshots from before (one `.sqlite`
+  each) are not read by this build's restore; `restic dump` still gives one by hand.
+- **Write cost:** every row change writes a log row in the same transaction: about 12 rows and 3 KB an edit (a note's
+  properties are rewritten whole), and about a fifth more time a write (§2).
