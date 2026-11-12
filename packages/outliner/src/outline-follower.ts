@@ -27,7 +27,7 @@ import { applyRange, RangeRefused, type LogRange } from "./change-log";
 type Env = Record<string, string | undefined>;
 
 /** The outliner's OutlineHost, as much of it as a follower uses. Loaded when the first copy is served. */
-interface FolderHost { readonly socketPath: string; start(): Promise<void>; close(): Promise<void>; applyLog(name: string, range: LogRange): Promise<number>; closeOutline(name: string): Promise<unknown>; open(name: string): Promise<{ store: { logCursor(): { lsn: number; logId: string }; outlineInstanceId: string } }> }
+interface FolderHost { readonly socketPath: string; start(): Promise<void>; close(): Promise<void>; applyLog(name: string, range: LogRange): Promise<number>; closeOutline(name: string): Promise<unknown>; open(name: string): Promise<{ store: { log: { cursor(): { lsn: number; logId: string } }; outlineInstanceId: string } }> }
 type FolderHostClass = new (o: { outlinesFolder: string; readOnly: boolean; log: (line: string) => void; copy?: { machine: string; state: string } }) => FolderHost;
 /** Loaded by a name the type checker doesn't follow: a client package checks this file by its own settings, not the host's. */
 const OUTLINE_HOST_MODULE = "./outline-host";
@@ -257,7 +257,7 @@ class FollowLoop {
       }
       if (!this.status.copiedAt) {
         const at = new Date(statSync(this.file).mtimeMs).toISOString();
-        this.status = { ...this.status, cursor: opened.store.logCursor().lsn, asOf: at, copiedAt: at, homeInstanceId: opened.store.outlineInstanceId };
+        this.status = { ...this.status, cursor: opened.store.log.cursor().lsn, asOf: at, copiedAt: at, homeInstanceId: opened.store.outlineInstanceId };
         writeStatus(this.folder.dir, this.outline, this.status);
       }
     }
@@ -267,7 +267,7 @@ class FollowLoop {
     try {
       if (!opened) { await this.rebuild(ask, "a first copy"); return; }
       for (;;) {
-        const at = opened.store.logCursor();
+        const at = opened.store.log.cursor();
         const range = await ask(at.lsn);
         try { await host.applyLog(this.outline, range); }
         catch (e) {

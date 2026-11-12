@@ -34,12 +34,12 @@ const dumpOf = (path: string) => { const db = new Database(path, { readonly: tru
 /** A new follower's file for the home's log, filled by applying ranges of at most `limit` entries until it is current. */
 function follow(home: OutlinerStore, path: string, limit = 50) {
   const db = new Database(path, { create: true });
-  openFollowerSchema(db, home.logCursor().logId);
+  openFollowerSchema(db, home.log.cursor().logId);
   const catchUp = () => {
     let ranges = 0;
     for (;;) {
       const at = (db.query("SELECT COALESCE(MAX(lsn), 0) AS lsn FROM change_log").get() as { lsn: number }).lsn;
-      const range = home.logRange(at, limit);
+      const range = home.log.range(at, limit);
       applyRange(db, range, SCHEMA_VERSION);
       ranges++;
       if (range.complete) return ranges;
@@ -75,7 +75,7 @@ test("a follower built only from the log equals its home, and catches up after a
   expect(copy.mcpAccessStatus().level).toBe("propose");
   // And it keeps following once the store has it open: the next range goes through the store.
   home.create("Bag of rice");
-  copy.applyLogRange(home.logRange(copy.logCursor().lsn));
+  copy.log.apply(home.log.range(copy.log.cursor().lsn));
   copy.close();
   home.close();
   expect(dumpOf(join(dir, "follower.sqlite"))).toBe(dumpOf(join(dir, "home.sqlite")));
@@ -84,11 +84,11 @@ test("a follower built only from the log equals its home, and catches up after a
 test("a range ends at the end of a store transaction, never inside one", () => {
   const dir = root();
   const { home, jar } = busyHome(dir);
-  const all = home.logRange(0, 20_000).entries;
+  const all = home.log.range(0, 20_000).entries;
   // The edit with properties wrote several rows in one transaction.
   const editTxn = all.find(e => e.tbl === "blocks" && e.op === "u" && e.row?.includes("stock::low"))!.txn;
   const first = all.findIndex(e => e.txn === editTxn);
-  const page = home.logRange(all[first]!.lsn, 1);
+  const page = home.log.range(all[first]!.lsn, 1);
   expect(page.entries.length).toBeGreaterThan(1);
   expect(new Set(page.entries.map(e => e.txn))).toEqual(new Set([editTxn]));
   expect(page.complete).toBe(false);
@@ -105,11 +105,11 @@ test("a follower refuses a range that doesn't follow its cursor, and keeps what 
   const at = (follower.db.query("SELECT MAX(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
   home.create("Sack of flour", shelf.id);
   home.create("Box of salt", shelf.id);
-  const next = home.logRange(at);
+  const next = home.log.range(at);
   const refused = (range: LogRange) => { try { applyRange(follower.db, range, SCHEMA_VERSION); return null; } catch (e) { return e as RangeRefused; } };
 
   // A range that starts past the cursor (one in between was missed).
-  const skipped = home.logRange(next.entries[0]!.lsn);
+  const skipped = home.log.range(next.entries[0]!.lsn);
   expect(refused(skipped)?.message).toContain(`this copy is at ${at}`);
   // Another log (the home was restored or made again): only a rebuild follows it.
   const other = refused({ ...next, logId: "00000000-0000-4000-8000-000000000000" });
@@ -133,9 +133,9 @@ test("a replay of the archived log gives the same outline, as an outline of its 
   // The archive, as the backup job writes it: a segment per run, each the ranges since the last one.
   const run = () => {
     const ranges: LogRange[] = [];
-    let at = archivedCursor(archive, "home", home.logCursor().logId)?.lsn ?? 0;
+    let at = archivedCursor(archive, "home", home.log.cursor().logId)?.lsn ?? 0;
     for (;;) {
-      const range = home.logRange(at, 7);
+      const range = home.log.range(at, 7);
       ranges.push(range);
       at = range.entries.at(-1)?.lsn ?? at;
       if (range.complete) break;
@@ -149,8 +149,8 @@ test("a replay of the archived log gives the same outline, as an outline of its 
   home.update(jar.id, `${now.text}\n- [ ] label the jar`, now.revision, { author: "user" });
   run();
   // A segment that doesn't follow the archive is refused, never written.
-  expect(() => writeSegment(archive, "home", [home.logRange(1)])).toThrow("don't follow");
-  const logId = home.logCursor().logId;
+  expect(() => writeSegment(archive, "home", [home.log.range(1)])).toThrow("don't follow");
+  const logId = home.log.cursor().logId;
   home.close();
   const replayed = replayArchive(archive, "home", join(dir, "restored.sqlite"));
   expect(replayed.logId).toBe(logId);
@@ -161,7 +161,7 @@ test("a replay of the archived log gives the same outline, as an outline of its 
   const restored = new OutlinerStore(join(dir, "earlier.sqlite"));
   expect(restored.get(jar.id)?.text).not.toContain("label the jar");
   // Its own outline now: a new log, so followers of the old one rebuild rather than take its writes.
-  expect(restored.logCursor().logId).not.toBe(logId);
+  expect(restored.log.cursor().logId).not.toBe(logId);
   restored.create("Written after the restore");
   restored.close();
 });
@@ -176,7 +176,7 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   const farAt = (far.db.query("SELECT MAX(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
   // A busy day: the log outgrows the outline, so the next compaction writes a genesis.
   const crate = home.create("Crate of apples", shelf.id);
-  for (let i = 0; i < 600 && !home.compactLog(1); i++) {
+  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of apples [count::${i}]\nCounted again.`, now.revision, { author: "user" });
     if (i % 50 === 0) near.catchUp();
@@ -184,14 +184,14 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   near.catchUp();
   expect(canonicalDump(near.db)).toBe(dumpOf(join(dir, "home.sqlite")));
   // Another generation: what followed the far copy's cursor is gone from the home's log.
-  for (let i = 0; i < 600 && !home.compactLog(1); i++) {
+  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of apples [count::again-${i}]\nCounted again.`, now.revision, { author: "user" });
     if (i % 50 === 0) near.catchUp();
   }
   near.catchUp();
   expect(canonicalDump(near.db)).toBe(dumpOf(join(dir, "home.sqlite")));
-  const range = home.logRange(farAt);
+  const range = home.log.range(farAt);
   let refused: unknown = null;
   try { applyRange(far.db, range, SCHEMA_VERSION); } catch (e) { refused = e; }
   expect(refused).toBeInstanceOf(RangeRefused);

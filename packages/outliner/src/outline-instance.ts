@@ -86,19 +86,3 @@ export function openOutlineInstance(path: string, database: Database, sequence: 
     },
   };
 }
-
-/**
- * Makes the database at `path` keep the instance id it carries when it is next opened, as a clean close of that very
- * database would. For a private copy of an outline (the MCP gateway's mirror, served read-only from a snapshot of the
- * home machine's file): a copy is the same instance as its source, so it must say the source's id, not a fresh one.
- * Nothing else may call this: a restore that kept its old id is exactly what the record exists to catch.
- */
-export function adoptOutlineInstance(path: string): void {
-  const database = new Database(path);
-  try {
-    const meta = (key: string) => (database.query("SELECT value FROM metadata WHERE key = ?").get(key) as { value: string } | null)?.value;
-    const id = meta("outline_instance_id"), token = meta(OUTLINE_OPEN_TOKEN_KEY);
-    if (!id || !token) return;
-    writeRecord(ownerLockOf(path).instance, { instanceId: id, openToken: token, open: false, sequence: Number(meta("sequence") ?? 0) });
-  } finally { database.close(); }
-}

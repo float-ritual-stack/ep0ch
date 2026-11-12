@@ -319,7 +319,7 @@ export class OutlineHost {
   private compactSweep: ReturnType<typeof setInterval> | undefined;
   private compact(outline: HostedOutline): void {
     if (this.options.readOnly) return;
-    try { if (outline.store.compactLog()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
+    try { if (outline.store.log.compact()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
     catch (error) { this.log(`Outline "${outline.name}": compacting its change log failed: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
@@ -656,7 +656,7 @@ export class OutlineHost {
    * answers its reads: nothing else opens the file. Refused (RangeRefused) unless the range follows the copy's cursor.
    */
   async applyLog(name: string, range: LogRange): Promise<number> {
-    return (await this.open(name)).store.applyLogRange(range);
+    return (await this.open(name)).store.log.apply(range);
   }
 
   async closeOutline(nameInput: unknown): Promise<HostedOutlineSummary> {

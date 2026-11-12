@@ -94,10 +94,15 @@ const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 /** The local metadata keys left out of the log, as a trigger's condition on `ref`. */
 const notLocal = (t: TableShape, ref: string) => t.name === "metadata" ? ` AND ${ref}"key" NOT IN (${LOCAL_METADATA_KEYS.map(lit).join(", ")})` : "";
 
-/** Drops and makes again the log's triggers for every replicated table, for the columns they have now. */
-export function installLogTriggers(database: Database): void {
+/** The log's triggers dropped: a migration's first step, before it changes a table they name (`installLogTriggers` drops them too). */
+function dropLogTriggers(database: Database): void {
   const existing = database.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'log\\_%' ESCAPE '\\'").all() as { name: string }[];
   for (const { name } of existing) database.exec(`DROP TRIGGER ${q(name)}`);
+}
+
+/** Drops and makes again the log's triggers for every replicated table, for the columns they have now. */
+export function installLogTriggers(database: Database): void {
+  dropLogTriggers(database);
   const logging = "(SELECT applying = 0 AND role = 'home' FROM log_state WHERE id = 1)";
   for (const t of replicatedTables(database)) {
     const write = (op: string, key: string, row: string) => `INSERT INTO change_log (txn, tbl, op, key, row, at) SELECT txn, ${lit(t.name)}, '${op}', ${key}, ${row}, ${NOW} FROM log_state WHERE id = 1;`;
@@ -107,12 +112,6 @@ export function installLogTriggers(database: Database): void {
       CREATE TRIGGER ${q(`log_${t.name}_d`)} AFTER DELETE ON ${q(t.name)} WHEN ${logging}${notLocal(t, "OLD.")} BEGIN ${write("d", keyJson(t, "OLD."), "NULL")} END;
     `);
   }
-}
-
-/** Drops the log's triggers (a migration's first step; it makes them again for the new columns). */
-export function dropLogTriggers(database: Database): void {
-  const existing = database.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'log\\_%' ESCAPE '\\'").all() as { name: string }[];
-  for (const { name } of existing) database.exec(`DROP TRIGGER ${q(name)}`);
 }
 
 /** A new outline's log: its identity, as this machine's own (`home`). */
@@ -339,4 +338,46 @@ export function rowCounts(database: Database): Record<string, number> {
   const out: Record<string, number> = {};
   for (const t of replicatedTables(database)) out[t.name] = (database.query(`SELECT COUNT(*) AS n FROM ${q(t.name)}`).get() as { n: number }).n;
   return out;
+}
+
+/**
+ * The store's change-log transactions (ADR 0009): wraps `database.transaction` so the outermost write transaction that
+ * logged anything ends its log transaction before it commits, and a range never ends inside one. The store calls it
+ * before its own wrapper (store.ts `configureTransactions`), so every write passes through it.
+ */
+export function endLogTransactionsOn(database: Database): void {
+  const transaction = database.transaction.bind(database);
+  const total = () => (database.query("SELECT total_changes() AS n").get() as { n: number }).n;
+  type Run = (...args: unknown[]) => unknown;
+  database.transaction = ((work: Run) => {
+    let outermost = false;
+    const run = transaction(function (this: unknown, ...args: unknown[]) {
+      if (!outermost) return work.apply(this, args);
+      const before = total(), result = work.apply(this, args);
+      if (total() !== before) endLogTransaction(database);
+      return result;
+    }) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
+    const wrap = (f: Run): Run => function (this: unknown, ...args: unknown[]) {
+      const was = outermost;
+      outermost = !database.inTransaction;
+      try { return f.apply(this, args); } finally { outermost = was; }
+    };
+    return Object.assign(wrap(run), { deferred: wrap(run.deferred), immediate: wrap(run.immediate), exclusive: wrap(run.exclusive) });
+  }) as Database["transaction"];
+}
+
+/** An outline's change log as its store offers it (store.ts `log`): ranges, the cursor, a follower's apply, compaction. */
+export class OutlineLog {
+  constructor(private readonly db: () => Database, private readonly schema: number, private readonly applied: () => void) {}
+  /** The log after `after` (`log.range`): whole transactions, with the log's id and head. */
+  range(after: number, limit?: number): LogRange { return readRange(this.db(), after, limit, this.schema); }
+  /** This file's place in its log: the log's id, schema, newest lsn and the digest of the entry there. */
+  cursor(): Cursor { return this.db().transaction(() => cursorOf(this.db(), this.schema)).deferred(); }
+  /** A range of the home's log applied to this follower's file (outline-follower.ts); refused unless it follows the cursor. */
+  apply(range: LogRange): number {
+    if (logState(this.db()).role !== "follower") throw new Error("only a follower's copy takes another outline's log");
+    try { return applyRange(this.db(), range, this.schema); } finally { this.applied(); }
+  }
+  /** Keeps the log in proportion (`compactLog`); the host asks on open and every hour. */
+  compact(factor?: number): boolean { return compactLog(this.db(), this.schema, factor); }
 }

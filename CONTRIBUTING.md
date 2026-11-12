@@ -303,7 +303,7 @@ it. The runtime never inspects an old shape and never migrates. To change it:
    (PIE-617) as `bun <script> <database>` on every outline at the previous version, with the host stopped, and
    reads `user_version` after, so the script: runs in one transaction, refuses a served file
    (`acquireWorkspaceOwnership`), and exits non-zero leaving the file as it was when it can't. The log (ADR 0009):
-   it drops the change log's triggers first (`dropLogTriggers`), and after its change makes them again
+   it drops the change log's triggers first (the `log_*` triggers), and after its change makes them again
    (`installLogTriggers`) and writes a genesis at the new version (`writeGenesis`), so followers and restores rebuild
    from it. The last one, `0012-change-log.ts`, is the model. `openSchema`'s refusal finds it by its number and prints the exact
    commands for the machine (`schemaRefusal`).

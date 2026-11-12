@@ -114,9 +114,9 @@ test("schema 11 takes 0012: the change log and its genesis, the notes stay, a se
   try {
     expect(store.require(child)).toMatchObject({ text: "Water the seed trays", parentId: note });
     // What the store writes from now on is logged.
-    const head = store.logCursor().lsn;
+    const head = store.log.cursor().lsn;
     store.create("Label the trays", note);
-    expect(store.logRange(head).entries.some(e => e.tbl === "blocks" && e.op === "i" && e.row?.includes("Label the trays"))).toBe(true);
+    expect(store.log.range(head).entries.some(e => e.tbl === "blocks" && e.op === "i" && e.row?.includes("Label the trays"))).toBe(true);
   } finally { store.close(); }
 
   const at12 = readFileSync(path);

@@ -536,8 +536,7 @@ export class ResourceCatalog {
         invocationId,
         input.expectedVersion,
       );
-      // `changes` counts the change log's trigger rows too (ADR 0009): a keyed update changed its row or nothing.
-      if (update.changes === 0) {
+      if (update.changes === 0) { // `changes` counts the change log's trigger rows too (ADR 0009)
         throw new ResourceCatalogError(
           "version-conflict",
           "Computed invocation changed during revision",

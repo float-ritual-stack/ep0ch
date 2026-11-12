@@ -867,9 +867,8 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   (a note changed live since becomes a proposal), before that call's own write; a live read lays any still waiting over
   the note as `pending`. `list_outlines` gives each mirrored outline's `route` (`via`: `live` or `mirror`, when it was
   last `checkedAt`, `why`). `EP0CH_MCP_LIVE=0` turns the live route off.
-  **One identity per outline.** A mirrored copy is its source's instance: the private host that serves it keeps the
-  instance id the copy carries (`adoptOutlineInstance`, outliner `src/outline-instance.ts`), where it used to mint a fresh
-  one, so `outlineInstanceId` is the same whether the answer is live, from the mirror or from the laptop's own stdio
+  **One identity per outline.** A mirrored copy is its source's instance: the instance id is replicated with the log, and
+  a follower's copy keeps it (`openOutlineInstance`, outliner `src/outline-instance.ts`) where an open would mint one, so `outlineInstanceId` is the same whether the answer is live, from the mirror or from the laptop's own stdio
   server. The outline's name in answers is the machine's own name for itself, as its host reports it (`laptop`'s is
   `Evans-MacBook-Pro.local`), learned the first time it answers live and kept in `<EP0CH_MCP_MIRROR_DIR>/.home/`; until
   then, and as an accepted alias always, the ssh name. A URI with either name reaches the same outline (`list_outlines`

@@ -10,7 +10,6 @@ import { runbookText } from "./runbook";
 import { isRunbook } from "@ep0ch/outline-core/runbook";
 import { subtitleOf, valueOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
-import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import { likeEscaped, resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
@@ -21,7 +20,7 @@ import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
-import { applyRange, compactLog, cursorOf, endLogTransaction, logState, readRange, type Cursor, type LogRange } from "./change-log";
+import { endLogTransactionsOn, OutlineLog } from "./change-log";
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
@@ -698,6 +697,7 @@ export class OutlinerStore {
   /** The last graph `loadGraph` read or patched, and the other connections' commits (`data_version`) it is current for. */
   private graph: { version: number; graph: LoadedGraph } | undefined;
 
+  readonly log = new OutlineLog(() => this.database, SCHEMA_VERSION, () => { this.graph = undefined; }); // ADR 0009: ranges, cursor, apply, compaction
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
     mkdirSync(dirname(path), { recursive: true });
@@ -3160,7 +3160,6 @@ export class OutlinerStore {
         try {
           return this.resolveBlockRef(target).id;
         } catch (error) {
-          if (isSqliteBusy(error)) throw error;
           throw new BlockQueryError(`${atom}:${target} names no block (${error instanceof Error ? error.message : String(error)}). Name a page, a block id or a Work ID that exists, like ${atom}:[[projects]]`);
         }
       },
@@ -4286,7 +4285,6 @@ export class OutlinerStore {
         selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
         if (matches.machineryHidden) Object.assign(result, { machineryHidden: matches.machineryHidden });
       } catch (error) {
-        if (isSqliteBusy(error)) throw error;
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
       const blocks = format === "tree"
@@ -4992,69 +4990,28 @@ export class OutlinerStore {
   }
 
   /**
-   * Reserve the writer before reading: a deferred read-to-write upgrade can fail without waiting for busy_timeout.
-   * Read-only snapshots explicitly use deferred; repositories sharing this connection inherit immediate writes.
+   * Writes take the writer before they read (immediate); read-only snapshots say deferred. The outermost one that logged
+   * ends its change-log transaction (change-log.ts `endLogTransactionsOn`, ADR 0009).
    * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the graph
    * may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then, if it wrote: a read
    * of a gone note undoes nothing, and a whole read again holds pie's host 760 ms on float-2 (PIE-1610).
    */
-  private totalChanges(): number {
-    return (this.database.query("SELECT total_changes() AS n").get() as { n: number }).n;
-  }
-
-  /** The change log after `after` (ADR 0009, `log.range`): whole transactions, with the log's id and head. */
-  logRange(after: number, limit?: number): LogRange {
-    return readRange(this.database, after, limit, SCHEMA_VERSION);
-  }
-
-  /** Keeps the log's size in proportion (change-log.ts `compactLog`); the host asks on open and every hour. */
-  compactLog(factor?: number): boolean {
-    return compactLog(this.database, SCHEMA_VERSION, factor);
-  }
-
-  /** This file's place in its log: the log's id, schema, newest lsn and the digest of the entry there. */
-  logCursor(): Cursor {
-    return this.database.transaction(() => cursorOf(this.database, SCHEMA_VERSION)).deferred();
-  }
-
-  /**
-   * Applies a range of the home's log to this follower's file (outline-follower.ts): refused unless it follows this
-   * file's cursor. What the store keeps of the graph is dropped, since rows changed under it.
-   */
-  applyLogRange(range: LogRange): number {
-    if (logState(this.database).role !== "follower") throw new Error("only a follower's copy takes another outline's log");
-    try { return applyRange(this.database, range, SCHEMA_VERSION); }
-    finally { this.graph = undefined; }
-  }
-
   private configureTransactions(): void {
+    endLogTransactionsOn(this.database);
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
     type Run = (...args: unknown[]) => unknown;
-    let depth = 0;
     const guarded = (run: Run): Run => function (this: unknown, ...args: unknown[]) {
       const before = store.changeKey();
-      depth += 1;
       try {
         return run.apply(this, args);
       } catch (error) {
         if (store.changeKey() !== before) store.graph = undefined;
         throw error;
-      } finally {
-        depth -= 1;
       }
     };
-    // The change log's transactions are the store's (ADR 0009): the outermost write transaction that logged anything
-    // ends its log transaction before it commits, so a range never ends inside one.
-    const counted = (work: Run): Run => function (this: unknown, ...args: unknown[]) {
-      if (depth !== 1) return work.apply(this, args);
-      const before = store.totalChanges();
-      const result = work.apply(this, args);
-      if (store.totalChanges() !== before) endLogTransaction(store.database);
-      return result;
-    };
     this.database.transaction = ((work: Run) => {
-      const run = transaction(counted(work)) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
+      const run = transaction(work) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
       return Object.assign(guarded(run.immediate), {
         deferred: guarded(run.deferred), immediate: guarded(run.immediate), exclusive: guarded(run.exclusive),
       });

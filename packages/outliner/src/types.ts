@@ -1683,7 +1683,7 @@ export type OutlinerRequestAction =
   | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest | import("./marks").MarkRequest))
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
-  | { id: string; action: "ping" }
+  | { id: string; action: "ping" } | { id: string; action: "log.range"; after: number; limit?: number } // log.range: ADR 0009, change-log.ts
   /** Answered by the outline host itself (capabilities `outlines.*`); a single-outline service refuses them. */
   | { id: string; action: "outlines.list" }
   | { id: string; action: "outlines.create"; name: string; about?: OutlineAbout }
@@ -2435,13 +2435,6 @@ export type OutlinerRequestAction =
       expectedRevision: number;
       /** Who stamped it: an agent's allocation is attributed. */
       mutation?: MutationProvenance;
-    }
-  | {
-      id: string; action: "log.range";
-      /** The cursor (ADR 0009): the log's entries after this lsn are answered; 0 starts at the newest genesis. */
-      after: number;
-      /** At most about this many entries (default 2,000, at most 20,000); a range never ends inside a transaction. */
-      limit?: number;
     }
   | {
       id: string; action: "changes.since";
