@@ -1,4 +1,5 @@
-import { viewSpec, type ViewSpec } from "@ep0ch/outline-core/view-spec";
+import type { ViewSpec } from "@ep0ch/outline-core/view-spec";
+import { componentAt, componentStarts } from "@ep0ch/outline-core/component-at";
 import { renderComponent } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 // What a published page asks the service for its built-in components (src/publish-figures.ts draws them): a
@@ -9,12 +10,12 @@ import { isVirtualBranchDefinition } from "./virtual-branches";
 // not show (locked, outside a share, not public on a public page) is left out, never named.
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
-import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
+import type { SiteBlock } from "@ep0ch/outline-core/site-blocks";
 import { askProps, asksPerItem, CHILDREN_QUERY, figureQuestion, keepGroups, liveAsk, liveMark, liveProps, liveStatus, NONE, type FigureAnswer, type FigureItem } from "@ep0ch/outline-core/figure-live";
 import type { SiteAnswer, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 import { figureChildRows, figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
-import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
+import { blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { hostBusy } from "./client";
@@ -64,30 +65,28 @@ export async function drawNoteComponents(
     const lines = note.text.split("\n");
     if (!lines.some(line => /^ {0,3}::[a-z]/.test(line))) continue;
     const structure = noteStructure(lines);
-    const byStart = new Map(componentBlocks(lines).map(block => [block.start, block]));
+    const byStart = componentStarts(lines);
     const drawn = new Map<number, DrawnComponent>();
     for (let i = 0; i < lines.length && components.length < MAX_PUBLISHED_COMPONENTS; i++) {
       if (structure[i] !== -1 && structure[i] !== i) continue;
-      const links = linkBlockAt(lines, i, byStart);
-      const block = byStart.get(i), kind = block && graphKind(block);
-      const collection = block && viewSpec(block, lines);
-      const site = !collection && !links && !kind ? siteBlockAt(lines, i, byStart) : null;
+      // Which component the line starts is one question for every reader (outline-core's componentAt); a page draws these.
+      const found = componentAt(lines, i, byStart);
       // `::if`: its body stays in the page's Markdown when `this` matches (only its two lines go), else it all goes.
-      if (site?.kind === "if") {
-        const held = await holds(host, note.id, site.spec.where, site.spec.problem);
-        if (held) { drawn.set(i, { end: i + 1, markdown: "" }); drawn.set(site.end, { end: site.end + 1, markdown: "" }); }
-        else drawn.set(i, { end: site.end + 1, markdown: "" });
-        i = site.end;
+      if (found?.kind === "if") {
+        const held = await holds(host, note.id, found.site.spec.where, found.site.spec.problem);
+        if (held) { drawn.set(i, { end: i + 1, markdown: "" }); drawn.set(found.end, { end: found.end + 1, markdown: "" }); }
+        else drawn.set(i, { end: found.end + 1, markdown: "" });
+        i = found.end;
         continue;
       }
-      if (!collection && !links && !kind && !site) continue;
-      const end = links ? links.end : site ? site.end : block!.end;
+      if (!found || (found.kind !== "view" && found.kind !== "links" && found.kind !== "fields" && found.kind !== "figure")) continue;
+      const end = found.end;
       let html: string;
       try {
-        html = collection ? await drawCollection(host, note.id, collection)
-          : site ? await drawFields(host, site as Extract<SiteBlock, { kind: "fields" }>, note.id)
-          : links ? await drawLinks(host, links.spec, note.id)
-          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), block!.attrs);
+        html = found.kind === "view" ? await drawCollection(host, note.id, found.spec)
+          : found.kind === "fields" ? await drawFields(host, found.site, note.id)
+          : found.kind === "links" ? await drawLinks(host, found.spec, note.id)
+          : await drawFigure(host, found.figure, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), found.block.attrs);
       } catch (error) {
         html = componentSourceHtml(lines.slice(i, end + 1), `couldn't ask the outline: ${(error as Error).message}`);
       }
