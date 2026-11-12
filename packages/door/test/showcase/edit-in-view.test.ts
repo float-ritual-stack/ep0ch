@@ -102,8 +102,10 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
     const answered = Array.from({ length: 12 }, (_, i) => `Cane ${i + 1}\n@yo how do I tie cane ${i + 1}\n> [!note]- @yo answered\n> one\n> two\n> three\n> four`).join("\n\n");
     const title = `Answered beans ${cols}`, r = await reading(title, answered);
     const d = await opened(r);
+    // ctrl+End under the shut answer that ends the note goes to a line of its own after it (PIE-1741); one ⏎ more is
+    // the blank line between it and the paragraph typed.
     h.press({ kind: "end", ctrl: true });
-    h.press({ kind: "enter" }); h.press({ kind: "enter" });
+    h.press({ kind: "enter" });
     for (const c of "the last line x") h.press({ kind: "char", ch: c });
     screen();
     expect(d.text.endsWith("> four\n\nthe last line x")).toBe(true);
