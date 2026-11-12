@@ -11,6 +11,10 @@ publish = false
 rune = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0" }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0", features = ["markdown", "mermaid"] }
 serde_json = "1"
+# The terminal probe: cell widths, and a CPU glyph rasteriser for the one-image variant. Both are already in Rune's
+# own dependency tree at these versions.
+unicode-width = "0.2"
+swash = "0.2.10"
 
 # Its own workspace, as the app's is: nothing here is a dependency of the app.
 [workspace]

@@ -787,6 +787,8 @@ dependencies = [
  "rune",
  "rune-kit",
  "serde_json",
+ "swash",
+ "unicode-width",
 ]
 
 [[package]]
