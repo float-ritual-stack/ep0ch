@@ -96,7 +96,7 @@ Writing
   delete --id <id> [--expected <revision>] [--if-empty] | restore --id <id>
   purge --id <id> --confirm <work id or the id's first 8>
                                        delete a Trash root and what is under it for good
-  comment --id <id> --expected <revision> --text <text> | --stdin [--quote <text> …]
+  comment --id <id> --expected <revision> --request-id <id> --quote <text> | --whole --text <text> | --stdin
   agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
   work …, note …                       roadmap items and notes ("outliner work" lists them)
   work-id-status | work-id-configure --prefix <P> | work-id-allocate
@@ -608,7 +608,7 @@ function workActor(values: Record<string, unknown>): WorkActor {
 
 /** The `work` / `note` synopsis, printed by `work help` and after an unknown operation. */
 const WORK_USAGE = [
-  "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F] [--new | --attach PIE-n]",
+  "  work create <title>|--title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F] [--new | --attach PIE-n]",
   "      an agent's create that looks like open work is refused with the twins: --attach PIE-n adds it under that item (its words, dated); --new files it anyway, beside them",
   "  work prefix [<PREFIX>]   (the Work-ID prefix new tickets take: shown, or set once; GATE makes GATE-001)",
   "  work stage <item> <stage> [--expected N]",
@@ -659,7 +659,15 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           "related-to": { type: "string", multiple: true }, source: { type: "string" }, wave: { type: "string" },
           "body-file": { type: "string" }, stdin: { type: "boolean" }, new: { type: "boolean" }, attach: { type: "string" },
         });
-        if (positionals.length) throw new Error("work create takes no positional arguments");
+        // The title as typed first (`work create "Mend the gate"`) is the title (PIE-1767); a second one names --title.
+        if (positionals.length && values.title !== undefined) {
+          throw new Error(`work create takes the title once: "${positionals.join(" ")}" and --title "${values.title as string}" are two; give one`);
+        }
+        if (positionals.length > 1) {
+          const title = positionals.join(" ");
+          throw new Error(`work create takes one title: quote it, work create "${title}", or give it as --title "${title}"`);
+        }
+        if (positionals.length) values.title = positionals[0]!;
         if (values.attach !== undefined) {
           if (values.new) throw new Error("work create: --attach adds it to an open item, --new files it anyway; give one");
           if (values.title === undefined) throw new Error("work create --attach PIE-n requires --title (the ask, as written)");
@@ -899,6 +907,10 @@ let directResult: unknown;
 /** A refusal's runnable fix, said under the service's reason (`new --near` on a note that's gone). */
 let refusalFix: { kind: RefusalKind; command: string } | null = null;
 
+// A command's own refusal (a flag missing, an argument that isn't one, the service's answer to a direct call) is one
+// `error:` line, never a stack (PIE-1767); a bug in this file still throws with its stack. Not indented: the switch is
+// the whole CLI, and its blame stays its own.
+try {
 switch (command) {
   case "patch-demo": {
     // A CLI demo of draft.patch's prose policy (PIE-501), not the @tidy agent (extensions/tidy): tidy the paragraph above a mark line.
@@ -1035,14 +1047,20 @@ switch (command) {
       prefix: {type: "string"}, suffix: {type: "string"}, item: {type: "string"}, whole: {type: "boolean"},
       author: {type: "string"}, actor: {type: "string"}, session: {type: "string"},
     }});
-    if (!values.id || !values["request-id"]) throw new Error("comment requires --id and a stable --request-id");
-    if (values.whole === (values.quote !== undefined) || (!values.whole && values.quote === undefined)) {
-      throw new Error("Choose either --quote with exact source text or --whole for a whole-block comment");
-    }
+    // Everything missing in one answer (PIE-1767): an agent's first guess gets the whole form, not one flag a round.
+    const needs = [
+      ...(values.id ? [] : ["--id <block>"]),
+      ...(values.expected === undefined ? ["--expected <revision> (the one you read)"] : []),
+      ...(values["request-id"] ? [] : ["--request-id <stable id> (a retry with the same id isn't written twice)"]),
+      ...(values.whole || values.quote !== undefined ? [] : ["--quote <exact source text> or --whole (the whole note)"]),
+      ...(values.text !== undefined || values.stdin ? [] : ["--text <text> or --stdin"]),
+    ];
+    if (needs.length) throw new Error(`comment needs ${needs.join("; ")}`);
+    if (values.whole && values.quote !== undefined) throw new Error("comment takes --quote <exact source text> or --whole, not both");
     if (values.whole && [values.start, values.prefix, values.suffix, values.item].some(value => value !== undefined)) {
       throw new Error("Passage context cannot be used with --whole");
     }
-    if ((values.text !== undefined) === Boolean(values.stdin)) throw new Error("comment requires either --text or --stdin");
+    if (values.text !== undefined && values.stdin) throw new Error("comment takes --text or --stdin, not both");
     const body = values.stdin ? await Bun.stdin.text() : values.text!;
     const start = values.start === undefined ? undefined : Number(values.start);
     if (start !== undefined && (!Number.isSafeInteger(start) || start < 0)) throw new Error("--start must be a non-negative UTF-16 source offset");
@@ -1480,6 +1498,13 @@ switch (command) {
   default:
     console.error(`error: unknown command: ${command}; outliner --help lists them`);
     process.exit(2);
+}
+} catch (error) {
+  const bug = error instanceof ReferenceError || error instanceof SyntaxError
+    || (error instanceof TypeError && !String((error as { code?: unknown }).code ?? "").startsWith("ERR_PARSE_ARGS"));
+  if (bug || !(error instanceof Error)) throw error;
+  console.error(errorLines(error));
+  process.exit(1);
 }
 
 let result: unknown;

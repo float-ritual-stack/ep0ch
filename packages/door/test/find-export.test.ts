@@ -370,6 +370,11 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(plain(nosplit.err)).toContain(" --children");
     const missing = await run(["export", "beans"], env);
     expect([missing.code, plain(missing.err)]).toEqual([1, expect.stringContaining("No note beans")]);
+    // PIE-1767: show of a note that isn't there exits 1, as work stage does, in every form.
+    for (const form of [[], ["--json"], ["--source"]]) {
+      const shown = await run(["show", "beans", ...form], env);
+      expect([shown.code, plain(shown.err)]).toEqual([1, expect.stringContaining("No note beans")]);
+    }
     const under = await run(["find", "--under", "00000000-0000-4000-8000-000000000000", "--ids"], env);
     expect([under.code, plain(under.err)]).toEqual([1, expect.stringContaining("no note 00000000-0000-4000-8000-000000000000 in this outline")]);
     expect((await run(["find", "--ids", "--json", "--query", "type=errand"], env)).code).toBe(2);

@@ -26,6 +26,26 @@ for (const args of [["--help"], ["-h"], ["help"], []]) {
   });
 }
 
+// PIE-1767: `comment` refused in rounds (--request-id, then --quote or --whole), each with a stack line.
+test("comment names everything it needs in one answer, without a stack trace", async () => {
+  const r = await runCli(["comment", "--id", "00000000-0000-4000-8000-000000000000", "--text", "Still want this"]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stderr).not.toContain("    at ");
+  for (const needed of ["--expected", "--request-id", "--quote", "--whole"]) expect(r.stderr).toContain(needed);
+  expect(r.stderr).not.toContain("--stdin");
+  const bare = await runCli(["comment"]);
+  for (const needed of ["--id", "--expected", "--request-id", "--quote", "--whole", "--text", "--stdin"]) expect(bare.stderr).toContain(needed);
+});
+
+test("a command's argument refusal is one error line, never a stack trace", async () => {
+  for (const args of [["read"], ["update", "--id", "x"], ["move", "--bogus"]]) {
+    const r = await runCli(args);
+    expect(r.exitCode, args.join(" ")).toBe(1);
+    expect(r.stderr).toStartWith("error: ");
+    expect(r.stderr).not.toContain("    at ");
+  }
+});
+
 test("an unknown command says so and names --help, without a stack trace", async () => {
   const r = await runCli(["frobnicate"]);
   expect(r.exitCode).toBe(2);

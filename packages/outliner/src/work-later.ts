@@ -212,7 +212,8 @@ export async function restore(client: WorkJevClient, id: string, why: string, so
   const item = await client.request<Block>({ action: "get", blockId: id });
   const marks = parsePropertyRecords(item.text).filter(p => p.scope === "block" && (p.key === "wreckage" || p.key === "parked-at"));
   // A labelled link to the note that asked: its words are in `why` already, so the reference doesn't draw them again (PIE-1765).
-  const line = `**Back from later, ${day}:** ${why.replace(/\s*\n\s*/g, " ")}${source ? ` ((${source}|${kind === "nudged" ? "the comment" : "the note"}))` : ""}`;
+  // A `·` before it, so drawn flat (a capture, a phone) the label doesn't run on from the words (PIE-1767).
+  const line = `**Back from later, ${day}:** ${why.replace(/\s*\n\s*/g, " ")}${source ? ` · ((${source}|${kind === "nudged" ? "the comment" : "the note"}))` : ""}`;
   return client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
     operations: [propertyTransition(item, "work-stage", "queued"), ...marks.map(p => ({ op: "remove" as const, ordinal: p.ordinal })), { op: "append" as const, key: "restored", value: `${day}: ${kind}, ${o.actor ?? LOOP}` }, { op: "line" as const, text: line }] });
 }

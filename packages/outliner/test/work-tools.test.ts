@@ -103,6 +103,39 @@ test("work create on a fresh outline names everything it's missing in one answer
   expect(filed.json.workId).toMatch(/^GATE-/);
 });
 
+// PIE-1767 (the verifier on #1463): `work create "Mend the gate"` answered "takes no positional arguments" and never
+// named --title, so the first thing typed had no next step.
+test("a title typed as a positional files the ticket; a second title names --title", async () => {
+  const h = await setup();
+  const filed = await h.run(["work", "create", "Mend the gate", "--project", "demo", "--arc", "floor", "--track", "garden", "--priority", "low"]);
+  expect({ code: filed.exitCode, error: filed.error }).toEqual({ code: 0, error: "" });
+  expect(h.store.require(filed.json.blockId).text).toStartWith("PIE-001 — Mend the gate [type::roadmap-item]");
+  // Bare, the one answer names everything else it needs and never asks for the title it was given.
+  const bare = await h.run(["work", "create", "Oil the hinge"]);
+  expect(bare.exitCode).toBe(1);
+  for (const missing of ["--project", "--priority", "--arc", "--track"]) expect(bare.error).toContain(missing);
+  expect(bare.error).not.toContain("no title");
+  for (const args of [["Oil the hinge", "--title", "Oil the hinge"], ["Oil", "the hinge"]]) {
+    const twice = await h.run(["work", "create", ...args, "--project", "demo", "--arc", "floor", "--track", "garden", "--priority", "low"]);
+    expect(twice.exitCode).toBe(1);
+    expect(twice.error).toContain("--title");
+    expect(twice.error).toContain('"Oil the hinge"');
+  }
+}, 30_000);
+
+// PIE-1767: `work stage OTHER-7` said "No block has Work ID OTHER-007" where `show` names the prefixes the outline has.
+test("a Work ID nobody has is refused with the words show says, and both exit 1", async () => {
+  const h = await setup();
+  await h.create();
+  for (const address of ["OTHER-7", "PIE-9"]) {
+    const staged = await h.run(["work", "stage", address, "doing"]);
+    expect(staged.exitCode).toBe(1);
+    // show's sentence is the one resolver's (`blocks.resolve`, the door's resolveNotes): the same words, said once.
+    expect(staged.error).toBe(`error: ${h.store.lookupBlockRef(address, "note").message}\nkind: not-found`);
+  }
+  expect((await h.run(["work", "stage", "OTHER-7", "doing"])).error).toContain("no Work ID starts OTHER- here (this outline has PIE)");
+}, 30_000);
+
 // PIE-1761: a Work ID typed without its padding finds the ticket, whichever way its chip writes it.
 test("PIE-7 and PIE-007 find a ticket whose chip says PIE-7, and the one whose chip says PIE-008", async () => {
   const h = await setup();
@@ -156,7 +189,7 @@ test("unclear or unsafe property writes are refused before anything changes", as
     [["work", "set", "PIE-001", "track", "other"], "[track::…] is a list"],
     [["work", "set", "PIE-001", "depends-on", "other"], "[depends-on::…] is a list"],
     [["work", "stage", "Example outcome", "doing"], "not \"Example outcome\""],
-    [["work", "stage", "PIE-042", "doing"], "No block has Work ID PIE-042"],
+    [["work", "stage", "PIE-042", "doing"], "PIE-042 isn't in this outline; did you mean PIE-001?"],
     [["work", "stage", "PIE-001", "superseded"], "exactly one superseded-by"],
   ];
   for (const [args, message] of refusals) {
@@ -418,7 +451,7 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   // A second request, ticketed later by hand, and an unknown ticket refused before anything changes.
   const second = h.store.create("The same table, asked again [type::request] [status::new]");
   const unknown = await h.run(["work", "link", second.id, "PIE-042"]);
-  expect(unknown.error).toContain("No block has Work ID PIE-042");
+  expect(unknown.error).toContain("PIE-042 isn't in this outline");
   const linked = await h.run(["work", "link", second.id, "PIE-1", "--expected", "1"]);
   expect(linked.json).toMatchObject({ blockId: second.id, workId: "PIE-001", previous: null, ticketStage: "queued", changed: true });
   const again = await h.run(["work", "link", early.id, "PIE-001"]);
