@@ -163,6 +163,45 @@ fn peek_lists_the_parts_written_inside_a_box_with_the_line_a_press_names_each_by
     assert_eq!(listed, [("box", 2, ""), ("prose", 3, ""), ("button", 4, "Mend the net")], "the box, then what is written inside it");
 }
 
+/// One list, drawn once: a `list` on a page (a view, a note's links) is drawn by the list drawer, as a list tile
+/// draws the same rows. Groups that list their rows by id hold them, a row that names no group sits beside the
+/// declared groups, a long list builds only the rows in view, and a pick runs the act line the service wrote,
+/// whatever it holds.
+#[test]
+fn a_list_on_a_page_is_the_list_a_tile_draws_and_a_pick_runs_the_row_s_own_act_line() {
+    let row = |id: &str, more: Value| { let mut row = json!({ "id": id, "label": format!("Bed {id}"), "do": { "open": id }, "act": format!("open id=\"{id}\"") }); for (k, v) in more.as_object().unwrap() { row[k] = v.clone() } row };
+    let mut rt = example_window(&json!({ "page": { "title": "Beds", "text": "Beds", "chips": [], "hero": null, "parts": [
+        // Groups that list their rows by id (a view grouped by a property): a row may be in two.
+        part("example", "view", 1, json!({ "name": "view", "title": "By season" }), json!({ "type": "list", "rows": [row("peas", json!({})), row("leeks", json!({})), row("garlic", json!({}))],
+            "groups": [{ "name": "spring", "label": "Spring", "count": 2, "ids": ["leeks", "peas"] }, { "name": "autumn", "label": "Autumn", "count": 1, "ids": ["garlic"] }] })),
+        // A row that names no group, beside declared groups; a group only a row names; a row that runs an action.
+        part("example", "links", 4, json!({ "name": "links" }), json!({ "type": "list", "rows": [
+            row("shed", json!({})), row("beans", json!({ "group": "sown" })), row("thyme", json!({ "group": "herbs" })),
+            { "id": "ask", "label": "Beds by path", "group": "sown", "do": { "run": { "action": "bar.open", "args": { "scope": "query", "query": "path=beds\\north" } } }, "act": "bar.open scope=\"query\" query=\"path=beds\\\\north\"" },
+            { "id": "copy", "label": "Copy the seed order", "group": "sown", "do": { "copy": "12 packets" } },
+        ], "groups": [{ "name": "sown", "label": "Sown", "count": 3 }, { "name": "planned", "label": "Planned", "count": 0, "note": "Nothing planned yet." }] })),
+        // A long list: only the rows in view are built.
+        part("example", "view", 9, json!({ "name": "view", "title": "Every packet" }), json!({ "type": "list", "rows": (0..800).map(|i| row(&format!("seed{i}"), json!({}))).collect::<Vec<_>>() })),
+    ] } }));
+    let has = |rt: &rune::Runtime<crate::actions::App>, key: &str| rt.find(key).is_some();
+    for key in ["tile/reader/part/0/group/spring", "tile/reader/part/0/leeks", "tile/reader/part/0/peas", "tile/reader/part/0/group/autumn", "tile/reader/part/0/garlic"] { assert!(has(&rt, key), "{key}: groups that list their rows by id hold them on a page") }
+    for key in ["tile/reader/part/1/shed", "tile/reader/part/1/group/sown", "tile/reader/part/1/beans", "tile/reader/part/1/group/planned", "tile/reader/part/1/group/herbs", "tile/reader/part/1/thyme", "tile/reader/part/1/copy"] { assert!(has(&rt, key), "{key}: every row and every header a list tile draws is on the page") }
+    let built = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("tile/reader/part/2/seed"))).count();
+    assert!(built > 0 && built < 200, "a long list on a page builds the rows in view, not all 800: {built}");
+    // A pick runs the row's own act line, from the page's tile: a backslash in its argument is the one the service wrote.
+    press(&mut rt, "tile/reader/part/1/ask");
+    assert_eq!((rt.state.bar.open, rt.state.bar.edit.words()), (true, "path=beds\\north"));
+    let step = rt.state.steps.last().unwrap();
+    assert_eq!((step.action.as_str(), step.tile.as_deref(), step.args["query"].as_str()), ("bar.open", Some("reader"), Some("path=beds\\north")));
+    // A row that only copies has no act line: it is words here, as it is in a list tile, and a press runs nothing.
+    let before = rt.state.steps.len();
+    rt.update(|s, _| { s.act("bar.close", crate::actions::Actor::Person); });
+    rest(&mut rt);
+    press(&mut rt, "tile/reader/part/1/copy");
+    let ran: Vec<&str> = rt.state.steps[before..].iter().map(|step| step.action.as_str()).filter(|action| *action != "tile.focus").collect();
+    assert_eq!(ran, ["bar.close"], "the press ran no act of the row's (the tile it is in may take the keys)");
+}
+
 // ── the coverage table ──────────────────────────────────────────────────────────────────────────────────────
 
 /// A window on one note: the page the service answered of a component's own example.
@@ -173,7 +212,7 @@ fn example_window(component: &Value) -> rune::Runtime<crate::actions::App> {
         "ping" => Ok(json!({ "status": "ready", "protocolVersion": crate::client::PROTOCOL, "location": { "machine": "box" }, "outline": { "name": "garden" } })),
         // The outline is the one note, as its tree lists it; the lists about it are empty.
         "lists.read" => Ok(match ask["from"].as_str().unwrap_or("") {
-            "sources" => json!({ "from": "sources", "list": { "type": "list", "rows": served()["sources"] }, "anyChange": true }),
+            "sources" => json!({ "from": "sources", "list": { "type": "list", "rows": [] }, "sources": served()["sources"], "anyChange": true }),
             "children" => json!({ "from": "children", "list": { "type": "list", "arrange": "tree", "rows": [{ "id": "example", "label": page["title"], "act": "open id=\"example\"" }] }, "open": [], "anyChange": true }),
             from => json!({ "from": from, "list": { "type": "list", "rows": [] }, "anyChange": true }),
         }),

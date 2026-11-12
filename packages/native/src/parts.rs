@@ -7,7 +7,9 @@
 //! - **The page's own head and foot are primitives too**, made here from the page's fields: its header image, the
 //!   notes above it, its title beside the act line that edits it, its chips as presses, the notes under it. So a
 //!   drawer has one thing to do with a page: build each primitive by its type.
-//! - **A press is an act line** the primitive carries (`act`), or the note it opens (`link`, a row's `do.open`).
+//! - **A press is the act line the primitive carries** (`act`), and nothing else: the service says what a pick of a
+//!   row, a card, a cell or a text runs, by the one rule (outline-core's `actOf`, stamped by `withActs`). Nothing
+//!   here reads an activation (`do`, `link`) or writes a line for one.
 use serde_json::{Value, json};
 
 use crate::actions::{self, word};
@@ -35,23 +37,13 @@ pub fn walk<'a>(prim: &'a Value, f: &mut dyn FnMut(&'a Value)) {
     for child in list(prim, "children") { walk(child, f) }
 }
 
-/// A row's or a primitive's press: the note it opens.
-pub fn opens(v: &Value) -> Option<&str> {
-    let open = &v["do"]["open"];
-    open.as_str().or_else(|| open["ref"].as_str()).or_else(|| v["link"].as_str())
-}
-
-/// A row's or a primitive's press: the act line it runs (`act`, or a row's `do.run` written as its line).
-pub fn runs(v: &Value) -> Option<String> {
-    if let Some(act) = text(v, "act") { return Some(act.to_string()) }
-    let run = &v["do"]["run"];
-    let action = run["action"].as_str()?;
-    Some(crate::actline::line_of(action, &run["args"].as_object().cloned().unwrap_or_default()))
-}
+/// What a press on a row or a primitive runs: the act line it carries, as the service wrote it.
+pub fn act(v: &Value) -> Option<&str> { text(v, "act") }
 
 /// What the page draws above its parts and under them, as primitives: the header image, the notes above, the title
-/// beside its edit, the chips (each a query for the notes that carry it); then the notes under it, each a row that
-/// opens. `key` is the element key each is found under.
+/// beside its edit, the chips (each a query for the notes that carry it); then the notes under it, the list the
+/// service answered them as (`under`: its rows are the service's, as any list's). `key` is the element key each is
+/// found under.
 pub fn around(page: &Page) -> (Vec<Value>, Vec<Value>) {
     let mut head = Vec::new();
     if let Some(hero) = &page.hero {
@@ -73,10 +65,10 @@ pub fn around(page: &Page) -> (Vec<Value>, Vec<Value>) {
         })).collect::<Vec<_>>() }));
     }
     let mut foot = Vec::new();
-    if !page.children.is_empty() {
-        foot.push(json!({ "type": "list", "key": "child", "title": format!("Under this note · {}", page.children.len()), "rows": page.children.iter().map(|r| json!({
-            "id": r.id, "label": if r.title.is_empty() { "untitled" } else { r.title.as_str() }, "detail": r.context, "do": { "open": r.id },
-        })).collect::<Vec<_>>() }));
+    if let Some(under) = page.under.as_ref().filter(|under| under.is_object()) {
+        let mut list = under.clone();
+        list["key"] = json!("child");
+        foot.push(list);
     }
     (head, foot)
 }

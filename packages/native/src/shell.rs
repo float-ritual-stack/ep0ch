@@ -158,7 +158,8 @@ fn toolbar(s: &App, k: &Kit) -> El {
     // What an agent last did here, said where the person sees it.
     if let Some(said) = &s.agent_said { bar = bar.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate()) }
     bar = bar.child(el().grow(1.0));
-    for line in s.screen.toolbar() { bar = bar.child(button(&line, ButtonVariant::Ghost).build(k).key(format!("tool/{line}"))) }
+    // The screen's own toolbar, as the service lists it now: a screen note changed since the window opened is followed.
+    for line in s.spec_now().map(|spec| spec.toolbar()).unwrap_or_default() { bar = bar.child(button(&line, ButtonVariant::Ghost).build(k).key(format!("tool/{line}"))) }
     bar
 }
 

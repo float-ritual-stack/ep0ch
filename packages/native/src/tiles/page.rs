@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 
 use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
-use crate::actions::{self, Field, Shown};
+use super::picture::Shown;
+use crate::actions::{self, Field};
 use crate::keys::{self, Layer};
 use crate::page::Page;
 use crate::parts;

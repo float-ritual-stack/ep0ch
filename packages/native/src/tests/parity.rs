@@ -24,6 +24,8 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
         ("dock.toggle", "dock.toggle side=left") => vec!["tile.dock edge=left tile=tree"],
         ("layout.undo", _) => vec!["tile.split"],
+        // A pick names a row the tree lists: the folder the example's note is under is open.
+        ("tree.pick", _) => vec!["tree.fold id=plot open=true"],
         // An extension's screen is saved under a name of the person's own first.
         ("screen.save", _) => vec!["screen.save name=Beds"],
         // A list's own actions run on a list tile: the garden's own screen has one, named as the examples name it.

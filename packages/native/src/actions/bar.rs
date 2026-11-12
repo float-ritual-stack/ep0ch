@@ -3,7 +3,7 @@
 use serde_json::json;
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Outcome, draft, word};
+use super::{Action, Actor, App, Outcome, About, draft};
 use crate::actline::Args;
 use crate::bar;
 
@@ -53,7 +53,7 @@ static NARROW: ActionRow = ActionRow::new("bar.narrow", Touches::Nothing, "narro
     .keys(&[KeyRow::via("a press on a facet of the bar's query")])
     .examples(&[Example { act: "bar.narrow key=stage value=sown", does: "keeps the matches whose stage is sown", safe: Some(true) }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &CLOSE, run: close }, Action { row: &PICK, run: pick }, Action { row: &MOVE, run: step }, Action { row: &NARROW, run: narrow }];
+pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open, about: About::Nothing }, Action { row: &CLOSE, run: close, about: About::Nothing }, Action { row: &PICK, run: pick, about: About::Nothing }, Action { row: &MOVE, run: step, about: About::Nothing }, Action { row: &NARROW, run: narrow, about: About::Nothing }];
 
 fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let scope = args.text("scope").unwrap_or(bar::ALL);
@@ -66,7 +66,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         // answered with the ask that lists them, so the agent asks the service the same thing and maps nothing.
         let words = args.text("query").unwrap_or("");
         if source.served {
-            let ask = bar::ask(app, &source, words);
+            let Some(ask) = bar::ask(app, &source, words) else { return Outcome::refused("the list sources haven't come yet: ask again") };
             let held = app.store.read::<crate::page::ListAnswer>(&ask).is_some();
             let rows = bar::rows_for(app, &source, words);
             let mut request = ask.params.clone();
@@ -77,7 +77,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         return Outcome::answer(json!({ "scope": here.id, "rows": bar::described(&bar::rows_for(app, &here, words)), "answered": true }));
     }
     // Opened again on the same source with nothing said, the words typed stay.
-    let text = args.text("query").map(str::to_string).unwrap_or_else(|| if app.bar.open && app.bar.scope == source.id { app.bar.edit.text.clone() } else { String::new() });
+    let text = args.text("query").map(str::to_string).unwrap_or_else(|| if app.bar.open && app.bar.scope == source.id { app.bar.edit.words().to_string() } else { String::new() });
     app.st.bar.open = true;
     app.st.bar.scope = source.id.clone();
     app.st.bar.edit = draft::focused(&text);
@@ -131,20 +131,20 @@ fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     Outcome::done()
 }
 
-/// The source a question in the views' grammar is typed on: the one the bar is on when its list carries facets,
-/// else the one named `query` among those the service lists.
-const QUESTIONS: &str = "query";
-
-/// A facet value picked: the query gains `key=value`, in the views' grammar.
+/// A facet value picked: the bar's question is narrowed by it, written by the one writer of a picked value as a
+/// term (`query::narrowed`). The question is the bar's own when its list carries facets; else it is opened on the
+/// source the service says takes one (`bar::questions`).
 fn narrow(app: &mut App, args: &Args, _: &Actor) -> Outcome {
-    let (key, value) = (args.text("key").unwrap_or(""), args.text("value").unwrap_or(""));
-    let term = format!("{key}={}", word(value));
-    let on = if app.bar.open && !bar::facets(app).is_empty() { app.bar.scope.clone() } else { QUESTIONS.to_string() };
-    let now = if app.bar.open && app.bar.scope == on { app.bar.edit.text.trim().to_string() } else { String::new() };
+    let pick = (args.text("key").unwrap_or("").to_string(), args.text("value").unwrap_or("").to_string());
+    let here = app.bar.open && !bar::facets(app).is_empty();
+    let on = if here { app.bar.scope.clone() } else { match bar::questions(app) { Some(source) => source.id, None => return Outcome::refused("nothing here takes a question: the service lists no source that carries facets") } };
+    let now = if app.bar.open && app.bar.scope == on { app.bar.edit.words().trim().to_string() } else { String::new() };
+    // Picked twice is still once.
+    let term = crate::query::term(&pick.0, &pick.1);
     if app.bar.open && now.split_whitespace().any(|w| w == term) { return Outcome::done() }
     app.st.bar.open = true;
     app.st.bar.scope = on;
-    app.st.bar.edit = draft::focused(&if now.is_empty() { term } else { format!("{now} {term}") });
+    app.st.bar.edit = draft::focused(&crate::query::narrowed(&now, &[pick]));
     app.st.bar.cursor = 0;
     Outcome::done()
 }

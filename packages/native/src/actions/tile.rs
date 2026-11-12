@@ -1,7 +1,7 @@
 //! A tile's own actions: split it, move it, close it, give it the keys, put it in a dock. Each is one operation
 //! handed to the layout (`reshape`), whose rules say yes or why not: nothing here decides.
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Outcome};
+use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::neighbour;
 use crate::layout::{At, Dir, Op, Place, TileSpec};
@@ -49,10 +49,10 @@ static DOCK: ActionRow = ActionRow::new("tile.dock", Touches::Shape, "put a tile
     .keys(&[KeyRow::via("its row in the bar")])
     .examples(&[Example { act: "tile.dock edge=left tile=tree", does: "the tree goes into a dock on the left edge", safe: None }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &SPLIT, run: split }, Action { row: &MOVE, run: move_ }, Action { row: &CLOSE, run: close }, Action { row: &FOCUS, run: focus }, Action { row: &DOCK, run: dock }];
+pub static ACTIONS: &[Action] = &[Action { row: &SPLIT, run: split, about: About::Any }, Action { row: &MOVE, run: move_, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Any }, Action { row: &FOCUS, run: focus, about: About::Any }, Action { row: &DOCK, run: dock, about: About::Any }];
 
-/// The tile an act is about: the one it is aimed at, else the one with the keys.
-fn target(app: &App) -> String { app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone()) }
+/// The tile an act is about: the one the dispatcher found for it (aimed at, else the one with the keys).
+fn target(app: &App) -> String { app.about().unwrap_or_else(|| app.layout.focus.clone()) }
 
 fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let from = target(app);
@@ -61,19 +61,18 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // the kind that does.
     let reads = |kind: &str| app.kind_row(kind).and_then(crate::tiles::drawer_of).is_some_and(|drawer| drawer.notes);
     let kind = match args.text("kind") {
-        Some(asked) => match app.kind_row(asked) { Some(row) => row.saved().to_string(), None => return Outcome::refused(format!("no tile kind {asked} here · the kinds: {}", app.kinds().iter().map(|row| row.saved()).collect::<Vec<_>>().join(", "))) },
-        None if reads(&own) => app.kind_row(&own).map_or(own.clone(), |row| row.saved().to_string()),
-        None => match app.note_kind() { Some(row) => row.saved().to_string(), None => return Outcome::refused("no tile kind here reads notes: name one with kind=") },
+        Some(asked) => match app.kind_row(asked) { Some(row) => row.written().to_string(), None => return Outcome::refused(format!("no tile kind {asked} here · the kinds: {}", app.kinds().iter().map(|row| row.written()).collect::<Vec<_>>().join(", "))) },
+        None if reads(&own) => app.kind_row(&own).map_or(own.clone(), |row| row.written().to_string()),
+        None => match app.note_kind() { Some(row) => row.written().to_string(), None => return Outcome::refused("no tile kind here reads notes: name one with kind=") },
     };
     // The same kind, by whichever of its names each tile carries.
     let same = app.kind_row(&own).map(|row| &row.kind) == app.kind_row(&kind).map(|row| &row.kind);
     let dir = args.text("dir").and_then(Dir::read).unwrap_or(Dir::Right);
     // A tile made here is named, and its name is its id.
-    let stem = app.kind_row(&kind).map_or(kind.clone(), |row| row.saved().to_string());
-    let name = args.text("name").map(str::to_string).unwrap_or_else(|| app.layout.auto_name(&stem, &[]));
+    let name = args.text("name").map(str::to_string).unwrap_or_else(|| app.layout.auto_name(&kind, &[]));
     let mut spec = TileSpec::new(name.clone(), kind.clone());
-    // A split of a follower follows what it followed.
-    if same && let Some(source) = app.spec(&from).and_then(|s| s.fields.get("source")).cloned() { spec.fields.insert("source".into(), source); spec.fields.insert("subject".into(), "follows".into()); }
+    // A split of a tile that is another's has the same home, and follows or holds its subject as that one does.
+    if same { for field in ["source", "subject"] { if let Some(value) = app.spec(&from).and_then(|s| s.fields.get(field)).cloned() { spec.fields.insert(field.into(), value); } } }
     let note = app.note_of(&from).filter(|_| reads(&kind) && same);
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }

@@ -5,11 +5,12 @@
 //!   and names none: a screen names kinds, a kind names a drawer.
 //! - **A drawer** draws one answer shape, and there are two: `page` (a note's page) and `list` (one list, whatever
 //!   it is of). It is given a `TileCx`: the store to read, its tile's spec, its kind's row and its own state, and
-//!   two ways out, both act lines: `cx.act(line)` and `cx.emit(verb, subject)`. It gets no layout to change and no
-//!   socket: a drawer can ask and can say, and nothing else.
+//!   one way out: `cx.act(line)`, an act line run in its tile (a row's own, a button's, one of this window's
+//!   actions). It gets no layout to change and no socket: a drawer can ask and can say, and nothing else.
 //! - **A kind this window has no drawer for** is drawn as its spec, as data, with what the service said is wrong.
 pub mod list;
 pub mod page;
+pub mod picture;
 pub mod prim;
 
 use rune::{El, col, text};
@@ -44,10 +45,6 @@ impl TileCx<'_> {
         let line = self.line(line);
         move |s: &mut App| { s.act(&line, Actor::Person); }
     }
-    /// A press that says something happened here to a note: `open` sends it where this tile's opens land.
-    pub fn emit(&self, verb: &str, subject: &str) -> impl Fn(&mut App) + Clone + 'static { self.act(TileCx::says(verb, subject)) }
-    /// The act line that says something happened to a note: what `emit` runs, for a press that is a line already.
-    pub fn says(verb: &str, subject: &str) -> String { match verb { "open" => format!("open id={}", word(subject)), other => format!("tile.emit verb={other} id={}", word(subject)) } }
 }
 
 /// One answer shape, drawn.

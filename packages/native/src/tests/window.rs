@@ -34,9 +34,9 @@ fn a_press_on_a_tree_row_opens_its_note_and_on_the_open_note_folds_it() {
 fn the_editor_s_buttons_say_what_leaving_would_do() {
     let mut rt = window(garden(ok()).app);
     press(&mut rt, "tile/reader/edit");
-    assert_eq!(rt.state.editor.text, "Plot [type::chore]\nBefore the rain.");
+    assert_eq!(rt.state.editor.words(), "Plot [type::chore]\nBefore the rain.");
     assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/done").is_some() && rt.find("tile/reader/discard").is_none() && rt.find("tile/reader/title").is_none());
-    rt.update(|s, _| s.field(Field::Draft).replace_text("Plot, changed"));
+    rt.update(|s, _| s.field(Field::Draft).replace("Plot, changed"));
     for _ in 0..30 { rt.frame(1.0 / 60.0); }
     assert!(rt.find("tile/reader/discard").is_some() && rt.find("tile/reader/done").is_none(), "with unsaved text the way out is Discard, by name");
     press(&mut rt, "tile/reader/save");
@@ -83,7 +83,7 @@ fn the_bar_opened_by_its_chord_finds_an_action_by_a_word_and_runs_it() {
     chord(&mut rt, Key::Command('k'), primary());
     assert!(rt.state.bar.open && rt.find("bar/field").is_some(), "the chord the bar.open row names opens the bar");
     typed(&mut rt, "trash");
-    assert_eq!(rt.state.bar.edit.text, "trash", "the bar's line has the keys as soon as it is there");
+    assert_eq!(rt.state.bar.edit.words(), "trash", "the bar's line has the keys as soon as it is there");
     let rows = crate::bar::rows(&rt.state);
     assert_eq!((rows[0].source.as_str(), rows[0].line.as_str(), rows[0].keycap.clone()), ("actions", "note.trash", keys::cap("note.trash")), "the first row is the action named, with its keycap from the table");
     assert!(rt.find("bar/row/actions/note.trash").is_some() && rt.find("bar/row/actions/note.untrash").is_some());
@@ -103,11 +103,11 @@ fn the_bar_s_keys_move_its_lit_row_and_a_line_typed_whole_runs_as_written() {
     chord(&mut rt, Key::Down, Mods::default());
     assert_eq!(rt.state.bar.cursor, 2);
     chord(&mut rt, Key::Up, Mods::default());
-    assert_eq!((rt.state.bar.cursor, rt.state.bar.edit.text.as_str()), (1, ""), "the arrows are the table's in the bar, not the field's");
+    assert_eq!((rt.state.bar.cursor, rt.state.bar.edit.words()), (1, ""), "the arrows are the table's in the bar, not the field's");
     // An action that can't run without arguments is put on the line to finish; finished, the line runs as written.
     rt.update(|s, _| { s.act("bar.pick source=actions key=open", Actor::Person); });
     rest(&mut rt);
-    assert_eq!((rt.state.bar.open, rt.state.bar.edit.text.as_str()), (true, "open "));
+    assert_eq!((rt.state.bar.open, rt.state.bar.edit.words()), (true, "open "));
     typed(&mut rt, "id=shed");
     assert_eq!(crate::bar::rows(&rt.state)[0].source, "line");
     chord(&mut rt, Key::Enter, Mods::default());
@@ -139,12 +139,12 @@ fn in_the_note_s_source_the_table_has_a_chord_first_and_return_types_a_line() {
     typed(&mut rt, " Now");
     chord(&mut rt, Key::Enter, Mods::default());
     typed(&mut rt, "then");
-    assert_eq!(rt.state.editor.text, "Plot [type::chore]\nBefore the rain. Now\nthen", "plain Return is a line in a note's source");
+    assert_eq!(rt.state.editor.words(), "Plot [type::chore]\nBefore the rain. Now\nthen", "plain Return is a line in a note's source");
     // The save chord is the table's, from inside the field: the editor never sees it, and it keeps the keys.
     chord(&mut rt, Key::Command('s'), primary());
     let saved = asked.borrow().iter().rev().find(|a| a["action"] == "update").cloned().expect("the save chord saved");
     assert_eq!(saved["text"], "Plot [type::chore]\nBefore the rain. Now\nthen");
-    assert!(rt.state.editing.is_some() && rt.state.editor.focused);
+    assert!(rt.state.editing.is_some() && rt.state.editor.takes_keys());
     // A chord that moves or bins a note on a tile is the editor's own while a note is being written: it edits the
     // text, and nothing is asked of the host.
     chord(&mut rt, Key::Up, Mods { alt: true, ..Mods::default() });

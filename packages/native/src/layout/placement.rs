@@ -211,9 +211,10 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     // An open from outside any tile lands where the screen says its opens land: the tile `lands` names, else the
     // container keyed so (the door's `Desk.landingRequest`). One that says a tile or a container itself is past this.
     if request.default && request.to.is_none() && request.container.is_none() && request.at.is_none() && request.new_note.is_none() && let Some(lands) = &ctx.lands {
-        return match s.named(lands) {
-            Some(tile) => placement(s, &Request { to: Some(tile), ..request.clone() }, ctx),
-            None => placement(s, &Request { container: Some(lands.clone()), default: false, ..request.clone() }, ctx),
+        return match s.lands(lands) {
+            Some(super::Lands::Tile(tile)) => placement(s, &Request { to: Some(tile), ..request.clone() }, ctx),
+            // (A key the layout no longer has is said as the container gone, where an open into it is refused.)
+            Some(super::Lands::Container(_)) | None => placement(s, &Request { container: Some(lands.clone()), default: false, ..request.clone() }, ctx),
         };
     }
     let (from, to, fresh, note) = (&request.from, &request.to, request.fresh, &request.note);
@@ -262,7 +263,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     if let Some(new_note) = &request.new_note {
         let f = facts(from);
         let policy = s.policy_at(from, Some(&f));
-        let tab = new_note == "tab" && !s.is_float(from) && s.tree().visible().contains(from) && (!policy.locked || ctx.yolo) && policy.droppable && policy.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == "reader")) && f.tabs.as_ref().is_none_or(|t| t.iter().any(|k| k == "reader"));
+        let tab = new_note == "tab" && !s.is_float(from) && s.tree().visible().contains(from) && (!policy.locked || ctx.yolo) && policy.droppable && policy.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == ctx.sprouts())) && f.tabs.as_ref().is_none_or(|t| t.iter().any(|k| k == ctx.sprouts()));
         result.destination = Destination::New { at: if tab { At::Tabs { target: from.clone(), index: None, behind: false } } else { At::Float { rect: None, near: None } } };
         result.give_new_keys = keys;
         if new_note == "tab" && !tab { result.why = Some("not a tab here: it floats instead".into()) }
@@ -382,7 +383,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
                 let mut layers = vec![Layer { by: "screen".into(), policy: Some(&s.policy), flow: false }];
                 layers.extend(chain.iter().filter_map(|p| s.tree().at(p)).map(|c| Layer { by: c.id_or_t(), policy: c.policy(), flow: false }));
                 let space = effective(&layers);
-                let keeps = request.keep != Some(false) && !in_place && !s.wires.iter().any(|w| w.from == *from && w.verb == verb && w.to == target) && (!space.locked || ctx.yolo) && space.droppable && space.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == "reader"))
+                let keeps = request.keep != Some(false) && !in_place && !s.wires.iter().any(|w| w.from == *from && w.verb == verb && w.to == target) && (!space.locked || ctx.yolo) && space.droppable && space.accepts.as_ref().is_none_or(|a| a.iter().any(|k| k == ctx.sprouts()))
                     && ((f.held && !request.default) || request.keep == Some(true)) && !s.collapsed.has(&target) && f.showing.as_ref().is_some_and(|showing| showing != note)
                     && !s.all().iter().any(|id| *id != target && { let o = facts(id); o.notes && !o.follower && !o.lists && o.showing == f.showing })
                     && s.tree().has(&target) && !chain.iter().filter_map(|p| s.tree().at(p)).any(|c| c.is_tabs() || c.is_dock());

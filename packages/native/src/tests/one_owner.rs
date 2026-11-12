@@ -55,7 +55,7 @@ fn state_changes_only_under_actions_and_the_store() {
         (".typed(", vec!["keys.rs"]),
         (".held()", vec!["keys.rs"]),
         (".resized(", vec!["shell.rs"]),
-        (".effects(", vec!["keys.rs", "control.rs", "main.rs"]),
+        (".revealed()", vec!["keys.rs"]),
         (".take()", vec!["main.rs", "store.rs", "client.rs"]),
         (".reconnect()", vec!["main.rs"]),
         (".start()", vec!["main.rs"]),
@@ -160,7 +160,10 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
     none("Rune's focus set outside keys.rs: `keys::follow` is the one reconciler", ["tx.focus(", ".return_focus(", "tx.blur("].iter().flat_map(|call| strays(call, |path| path == "keys.rs")).collect());
     none("the layout's focus written outside the layout", strays(".focus = ", |path| path.starts_with("layout")));
     // A field's own flag is set where a draft or the bar opens, and by the arrangement settling: nowhere else.
-    none("a field's focus flag set outside the draft's and the arrangement's own files", strays(".focused = ", |path| ["actions/draft.rs", "actions/layout.rs"].contains(&path)));
+    // A field's own flag is the field's (`keys::Text`): given where a draft or the bar opens, and by the arrangement settling.
+    none("a field's focus flag set outside the field's own type", strays(".focused = ", |path| path == "keys.rs"));
+    none("a field given or denied the keys outside the arrangement's own file", strays(".give_keys(", |path| ["actions/layout.rs", "keys.rs"].contains(&path)));
+    none("a field made with the keys outside the draft's own file", strays("Text::focused(", |path| ["actions/draft.rs", "keys.rs"].contains(&path)));
     let texts = sources();
     let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
     assert!(text("shell.rs").contains("keys::tile("), "each tile's root is made to hold the keys by keys::tile");
@@ -173,9 +176,12 @@ fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
 #[test]
 fn an_address_is_read_by_the_layout_s_resolver_alone() {
     none("an address read outside the grammar's file and the layout's resolver", strays("Address::", |path| path == "actline.rs" || path == "layout/address.rs"));
-    none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)", "lands().and_then(|name| app.layout.named"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
-    // Its callers: an act's tile (`App::tile_named`), and in app.rs a follower's source and the screen's `lands` as a name.
+    none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
+    // Its callers: an act's tile (`App::tile_named`), and in app.rs a follower's source.
     none("the resolver asked from somewhere new", calls("resolve", |path| path.starts_with("layout") || path == "client.rs" || path == "actions/mod.rs" || path == "actions/app.rs"));
+    let texts = sources();
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").unwrap().1;
+    assert_eq!(app.matches(".resolve(").count(), 1, "app.rs asks the resolver for a follower's source alone: where a screen's opens land is the layout's `lands`");
 }
 
 /// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
@@ -209,30 +215,102 @@ fn kinds_screens_and_a_list_s_rows_are_the_service_s_and_the_window_keeps_no_cop
     none("a screen or a kind catalogue compiled in", strays("include_str!(", |path| path == "main.rs"));
     // Rows come from one read. The reads the window mapped to rows itself are asked by nobody here.
     none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\"", "\"extensions.list\""].iter().flat_map(|read| strays(read, |_| false)).collect());
-    none("lists.read asked from somewhere new (a tile's is App::list_ask, the bar's bar::ask)", strays("\"lists.read\"", |path| path == "actions/app.rs" || path == "bar.rs"));
+    none("lists.read asked from somewhere new (`App::ask_of` makes every one: a tile's and the bar's)", strays("\"lists.read\"", |path| path == "actions/app.rs"));
     none("the screens asked from somewhere new", strays("\"screens.list\"", |path| path == "actions/app.rs"));
-    // A row's act line is the row's own: nothing under the list drawer or the bar writes an open for a row.
-    none("an act line written for a list's row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line("].iter().flat_map(|line| strays(line, |path| !["tiles/list.rs", "bar.rs", "list.rs"].contains(&path))).collect());
+    // A row's act line is the row's own: nothing anywhere writes an open for a row, a child or a link.
+    none("an act line written for a row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line(", "tile.emit"].iter().flat_map(|line| strays(line, |_| false)).collect());
     // A kind is found by the service's row (`App::kind_row`), never compared by name.
     none("a tile's kind compared with a name: ask its row (`App::kind_row`, `App::drawer_of`)", ["spec.kind == \"", "s.kind == \"", "kind: \""].iter().flat_map(|test| strays(test, |path| path.starts_with("layout"))).collect());
     none("a drawer looked up by a name written here: a kind's row names it", calls("drawer", |path| path == "tiles/mod.rs"));
     // What a list tile sends is what its source says it reads: no list of parameters, and no property key, lives here.
     let texts = sources();
     let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").unwrap().1;
-    assert!(app.contains("for name in self.source_params(from)?"), "a list's parameters are read from its source's own row");
+    assert!(app.contains("for name in self.source_params(from)?") && app.matches("source_params(from)?").count() == 1, "a list's parameters are read from its source's own row, in the one place a list is asked");
     none("a property a list is grouped, sorted or filtered by, named in the window", ["work-stage", "work-id", "\"outbox\"", "\"stage\""].iter().flat_map(|key| strays(key, |_| false)).collect());
 }
 
 /// The renderer seam: Rune is the shell's, the drawers', the bar's, the one list's, the key table's, the control
-/// socket's and main's. The model (the layout, the actions, the screens and kinds, the act-line grammar, the wire's
-/// shapes) names no Rune type, so another renderer could draw the same state. The four files left that do are
-/// named: each holds a kit editor's text or a waker, not a drawing.
+/// socket's and main's. Everything else is the model (the layout, the actions and the window's state, the store
+/// and the link, the screens and kinds, the act-line grammar, the wire's shapes, a page's walk, a question's
+/// terms) and names no Rune type, so another renderer could draw the same state. What the state holds of a
+/// renderer's (a field's text as its editor has it, a decoded picture) is a type of the seam's own (`keys::Text`,
+/// `tiles::picture::Pictures`), and a waker is the link's own word for one (`client::Waker`).
 #[test]
-fn rune_is_named_only_by_what_draws_and_the_four_files_left() {
-    let draws = |path: &str| ["shell.rs", "bar.rs", "list.rs", "keys.rs", "control.rs", "main.rs"].contains(&path) || path.starts_with("tiles/");
-    let left = ["actions/app.rs", "actions/draft.rs", "store.rs", "client.rs"];
-    none("Rune named in the model: draw it in a drawer, the shell or the bar", ["rune::", "rune_kit::", "use rune"].iter().flat_map(|word| strays(word, |path| draws(path) || left.contains(&path))).collect());
-    for path in left { assert!(sources().iter().any(|(p, text)| p == path && text.contains("rune::")), "{path} names Rune no more: take it off the list") }
+fn rune_is_named_only_behind_the_renderer_seam() {
+    let seam = |path: &str| ["shell.rs", "bar.rs", "list.rs", "keys.rs", "control.rs", "main.rs"].contains(&path) || path.starts_with("tiles/");
+    none("Rune named in the model: draw it in a drawer, the shell or the bar, or hold it behind a type of the seam's", ["rune::", "rune_kit", "use rune", "TextEdit", "ImageCache", "&mut Tx"].iter().flat_map(|word| strays(word, seam)).collect());
+    // The model, by name: each is there, and none of them is in the seam's list by another route.
+    let texts = sources();
+    for path in ["actions/app.rs", "actions/mod.rs", "actions/draft.rs", "actions/script.rs", "store.rs", "client.rs", "screen.rs", "actline.rs", "page.rs", "parts.rs", "query.rs", "layout.rs"] {
+        assert!(texts.iter().any(|(p, _)| p == path) && !seam(path), "{path} is the model's");
+    }
+    // What the state holds of a renderer's is made and reached only through the seam's own types.
+    none("a decoded picture named outside the tiles: the state holds `Pictures`, a builder draws a `Shown`", strays("Shown::", |path| path.starts_with("tiles/")));
+    none("the editor behind a field's text reached outside keys.rs", [".0.text", ".0.focused", "field(field).0"].iter().flat_map(|reach| strays(reach, |path| path == "keys.rs")).collect());
+}
+
+/// The second sweep's owners, each held by a scan of the source: the deciders that were folded can't come back
+/// without one of these naming the line. (`sweep2.rs` holds the same by what the window does.)
+#[test]
+fn the_second_sweep_s_deciders_each_have_one_place() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+
+    // How a request is written as an act line: `actline::word`, which every line written here goes through.
+    none("a second writer of an act line's word", strays("pub fn word(value", |path| path == "actline.rs"));
+    none("a value quoted for an act line by hand (JSON's quoting reads back as another value)", ["json!(value).to_string()", "json!(s).to_string()"].iter().flat_map(|quote| strays(quote, |_| false)).collect());
+    none("a request written as a line outside the grammar's own file (build a `Request` and call `act_request`)", calls("line_of", |path| path == "actline.rs" || path == "parts.rs" || path == "tiles/page.rs" || path == "tiles/prim.rs"));
+    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_request(").count() == 2, "a button's act and a script's call are requests handed to the dispatcher, never a line read again");
+
+    // What a list is, and how its rows sit under headers: one port of `listSections`, one drawer of a row.
+    none("a second copy of a list's sections", strays("fn sections(", |path| path == "page.rs"));
+    none("a list's sections asked outside the list drawer", strays(".sections()", |path| path == "tiles/list.rs"));
+    for gone in ["fn rows(", "fn line(", "[\"groups\"]", "\"headers\"", "[\"group\"]"] { assert!(!code("tiles/prim.rs").contains(gone), "tiles/prim.rs has `{gone}`: a list on a page is drawn by the list drawer (`list::on_page`)") }
+    assert!(code("tiles/prim.rs").contains("super::list::on_page("));
+    assert!(!code("parts.rs").contains("page.children"), "parts.rs makes no rows: the notes under a note are the list the service answered (`under`)");
+
+    // What a press runs: the act line the service wrote on the row or the primitive (`act`), and nothing else.
+    for path in ["parts.rs", "tiles/prim.rs", "tiles/list.rs", "tiles/page.rs", "tiles/mod.rs"] {
+        for read in ["[\"do\"]", "[\"link\"]", "[\"links\"]", "\"link\")", "\"do\")", "fn opens(", "fn runs(", "fn says(", "fn emit("] { assert!(!code(path).contains(read), "{path} has `{read}`: a press is the `act` the service wrote, by the one rule (outline-core's actOf)") }
+    }
+
+    // Which tile an act is about: `App::target`, asked by the dispatcher for every act; an action runs in `App::about`.
+    none("a tile chosen for an act outside `App::target`", ["aimed.clone().filter(", "aimed.clone().or_else("].iter().flat_map(|chain| strays(chain, |path| path == "actions/app.rs")).collect());
+    none("the aimed tile read by an action (ask `App::about`; an open reads where it comes from, a focus the tile it names)", strays("app.aimed", |path| ["actions/nav.rs", "actions/tile.rs"].contains(&path)));
+    for path in ["actions/list.rs", "actions/tree.rs", "actions/script.rs"] { assert!(!code(path).contains("layout.focus"), "{path} reads the keys' tile itself: `App::about` is the tile the dispatcher found") }
+    assert_eq!(code("actions/mod.rs").matches("self.target(action.about)").count(), 1, "the dispatcher asks the one rule, once an act");
+
+    // Which action picks a row: `list::pick`, under both names.
+    assert!(code("actions/tree.rs").contains("run: super::list::pick") && !code("actions/tree.rs").contains("fn pick("), "tree.pick is list.pick's run");
+    assert!(!code("tiles/list.rs").contains("tree.pick"), "the list drawer says one pick for every list");
+
+    // Where a screen's `lands` points: `Layout::lands`, read by placement and by `App::landing`.
+    none("a screen's `lands` read outside `App::landing` and the layout's context", strays(".lands()", |path| ["actions/app.rs", "actions/layout.rs", "screen.rs"].contains(&path)));
+    assert_eq!(code("actions/app.rs").matches(".lands()").count(), 1, "app.rs reads `lands` in `landing` alone");
+    none("`lands` looked up as a tile's name beside the layout's own reading", ["named(lands)", "named(&lands)"].iter().flat_map(|call| strays(call, |path| path == "layout.rs")).collect());
+    assert_eq!(code("layout.rs").matches("named(lands)").count(), 1, "layout.rs reads `lands` as a name in `Layout::lands` alone");
+
+    // Which new-note rule applies: `Spec::new_note`, asked once.
+    none("a screen's new-note rules read outside the one reader and its one asker", calls("new_note", |path| ["screen.rs", "actions/note.rs"].contains(&path)));
+    assert_eq!(code("actions/note.rs").matches(".new_note(").count(), 1, "the rule is asked once, with the kind the tile is");
+
+    // Which kind a name is: the service's rows, by the kind a tile carries or the name the row says it serves.
+    for gone in ["fn is(&self, kind", "fn saved(&self)", ".replaces.iter()"] { none(&format!("{gone}: which kind serves a name is the service's word (`serves`)"), strays(gone, |_| false)) }
+    none("the kind an open makes, named in the layout: `Ctx::sprouts` says it", strays("k == \"reader\"", |_| false));
+
+    // What a follower's subject is when unsaid: `follows` reads `subject` alone.
+    assert!(code("actions/app.rs").contains("pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, \"subject\").and_then(Value::as_str) == Some(\"follows\") }"), "a tile follows only when it says so");
+
+    // What the bar lists, and what a facet pick adds to a question.
+    none("a bar source found by how its row is drawn: a source says `bar` of itself", ["group.as_deref() == Some(\"bar\")", "mark.as_deref() == Some(\"main\")"].iter().flat_map(|mark| strays(mark, |_| false)).collect());
+    none("the source a question is asked of, named here: the service says which carries facets (`bar::questions`)", ["const QUESTIONS", "scope=query query="].iter().flat_map(|name| strays(name, |path| path == "actions/bar.rs")).collect());
+    assert!(!code("actions/bar.rs").contains("const QUESTIONS"));
+    none("a picked value written as a term outside `query.rs`", ["format!(\"{key}={}\"", "fn term("].iter().flat_map(|term| strays(term, |path| path == "query.rs")).collect());
+
+    // What a screen is while it is open: the service's row (`App::spec_now`); the file keeps no copy of its spec.
+    assert!(!code("actions/layout.rs").contains("\"spec\""), "the arrangement's file holds the screen's name and its note's revision, never its spec");
+    none("the open screen's own copy of its spec read where the service's row is the word (`App::spec_now`)", strays("screen.spec", |path| ["actions/app.rs", "actions/screen.rs", "screen.rs"].contains(&path)));
 }
 
 /// Which host and outline the window opens, and where its control socket is, is the door's rule (`resolveTarget`
@@ -272,7 +350,6 @@ fn a_primitive_is_built_by_the_registry_and_no_drawer_reads_what_a_part_was_writ
     }
     assert!(text("tiles/page.rs").contains("prim::build(part,") && text("tiles/page.rs").contains("parts::around(page)"), "the page drawer walks its parts through the registry");
     // No builder and no drawer matches a figure's kind or a component's name: what to draw is the primitive's type.
-    // (`tiles/tree.rs` and `tiles/about.rs` are the list wave's to rewrite; `tiles/about.rs` still switches on kind names.)
     let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
     for path in ["tiles/prim.rs", "tiles/page.rs", "parts.rs"] {
         for read in ["[\"figure\"]", "\"graph-", "\"figure\")"] { assert!(!code(path).contains(read), "{path} reads `{read}`: a figure is the primitives the service lowered it to") }
@@ -288,8 +365,5 @@ fn a_primitive_is_built_by_the_registry_and_no_drawer_reads_what_a_part_was_writ
     none("a button run asked outside its action", strays("\"scripts.sequence\"", |path| path == "actions/script.rs" || path.starts_with("tests/")));
     none("a script's act answered outside the store", strays("\"scripts.answer\"", |path| path == "store.rs" || path.starts_with("tests/")));
     none("the window registered outside the store", strays("\"events.subscribe\"", |path| path == "store.rs" || path.starts_with("tests/")));
-    // The renderer seam: the page's model and the script noun hold no Rune, so a second renderer draws the same walk.
-    for path in ["parts.rs", "page.rs", "actions/script.rs", "actline.rs", "screen.rs"] {
-        for word in ["rune::", "rune_kit", "use rune"] { assert!(!code(path).contains(word), "{path} names Rune (`{word}`): it is the model, drawn by tiles/") }
-    }
+    // (That the page's model and the script noun hold no Rune is `rune_is_named_only_behind_the_renderer_seam`.)
 }

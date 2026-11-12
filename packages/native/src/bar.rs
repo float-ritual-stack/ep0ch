@@ -33,6 +33,8 @@ pub struct Source {
     pub served: bool,
     /// Its rows are on the main list too, under the actions, once words are typed.
     pub main: bool,
+    /// Its answer carries the facets its matches have: a facet picked anywhere is a term of its question.
+    pub facets: bool,
 }
 
 /// The two sources this window lists itself.
@@ -41,18 +43,22 @@ pub const ACTIONS: &str = "actions";
 
 fn own() -> [Source; 2] {
     [
-        Source { id: ALL.into(), about: "Everything".into(), placeholder: "An action, or words in a note · > for actions alone".into(), prefix: None, served: false, main: false },
-        Source { id: ACTIONS.into(), about: "Actions".into(), placeholder: "An action's name or what it does; a whole act line runs as written".into(), prefix: Some('>'), served: false, main: false },
+        Source { id: ALL.into(), about: "Everything".into(), placeholder: "An action, or words in a note · > for actions alone".into(), prefix: None, served: false, main: false, facets: false },
+        Source { id: ACTIONS.into(), about: "Actions".into(), placeholder: "An action's name or what it does; a whole act line runs as written".into(), prefix: Some('>'), served: false, main: false, facets: false },
     ]
 }
 
 /// Every source the bar has: this window's two, then the ones the service says a bar lists, each as its own row says it.
 pub fn sources(app: &App) -> Vec<Source> {
-    let served = app.store().read::<ListAnswer>(&app.sources_ask()).map(|answer| answer.list.rows.iter().filter(|row| row.group.as_deref() == Some("bar")).map(|row| Source {
-        id: row.id.clone(), about: row.label.clone(), placeholder: row.detail.clone().unwrap_or_default(), prefix: None, served: true, main: row.mark.as_deref() == Some("main"),
-    }).collect::<Vec<_>>()).unwrap_or_default();
+    let served = app.sources().into_iter().flatten().filter_map(|source| source.bar.as_ref().map(|bar| Source {
+        id: source.from.clone(), about: source.about.clone(), placeholder: source.placeholder.clone().unwrap_or_default(), prefix: None, served: true, main: bar.main, facets: bar.facets,
+    }));
     own().into_iter().chain(served).collect()
 }
+
+/// The source a question in the views' grammar is asked of: the one the service says carries facets. None: it
+/// lists none, and nothing here opens a question.
+pub fn questions(app: &App) -> Option<Source> { sources(app).into_iter().find(|source| source.facets) }
 
 pub fn source(app: &App, id: &str) -> Option<Source> { sources(app).into_iter().find(|source| source.id == id) }
 
@@ -85,7 +91,7 @@ pub fn row_key(row: &BarRow) -> String { format!("bar/row/{}/{}", row.source, ro
 
 /// The source the open bar lists and the words for it: `all` with a source's prefix typed is that source alone.
 fn reading(app: &App) -> (Source, String) {
-    let (all, text) = (sources(app), app.bar.edit.text.clone());
+    let (all, text) = (sources(app), app.bar.edit.words().to_string());
     let scope = all.iter().find(|s| s.id == app.bar.scope).or_else(|| all.first()).cloned().unwrap_or_else(|| own()[0].clone());
     if scope.id == ALL && let Some(first) = text.chars().next() && let Some(prefixed) = all.iter().find(|s| s.prefix == Some(first)) {
         return (prefixed.clone(), text[first.len_utf8()..].trim_start().to_string());
@@ -93,19 +99,20 @@ fn reading(app: &App) -> (Source, String) {
     (scope, text)
 }
 
-/// What a served source is asked for some words: one list. A source on the main list is read as typed; one opened
-/// alone is watched, so its rows follow the outline while it is open.
-pub fn ask(app: &App, source: &Source, words: &str) -> Ask {
-    let params = json!({ "from": source.id, "query": words, "drawers": crate::tiles::drawers(), "kinds": [] });
-    if source.main { Ask::read(&app.at, "lists.read", params) } else { Ask::watched(&app.at, "lists.read", params) }
-}
+/// The parameter of a list's request the bar's words are (outline-core's `ListsRequest`).
+const WORDS: &str = "query";
+
+/// What a served source is asked for some words: one list, asked as a tile's is (`App::ask_of`: the parameters the
+/// source says it reads, the bar's words for its question). A source on the main list is read as typed; one opened
+/// alone is watched, so its rows follow the outline while it is open. None: the sources haven't come.
+pub fn ask(app: &App, source: &Source, words: &str) -> Option<Ask> { app.ask_of(&source.id, !source.main, |name| (name == WORDS).then(|| json!(words))) }
 
 /// What the bar asks of the service for a source and its words: the source's own list, or under `all` each main
 /// source's once there are words.
 fn asks_for(app: &App, scope: &Source, words: &str) -> Vec<Ask> {
-    if scope.served { return if scope.main && words.trim().is_empty() { Vec::new() } else { vec![ask(app, scope, words)] } }
+    if scope.served { return if scope.main && words.trim().is_empty() { Vec::new() } else { ask(app, scope, words).into_iter().collect() } }
     if scope.id != ALL || words.trim().is_empty() { return Vec::new() }
-    sources(app).iter().filter(|source| source.main).map(|source| ask(app, source, words)).collect()
+    sources(app).iter().filter(|source| source.main).filter_map(|source| ask(app, source, words)).collect()
 }
 
 /// What the open bar wants answered now. Words typed on before an answer came are another ask: the old one's
@@ -238,7 +245,7 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let rows = Rc::new(rows(s));
     if rows.is_empty() {
         if hint.is_none() {
-            let said = if asking(s) { "Asking…".to_string() } else { empty(s).unwrap_or_else(|| if s.bar.edit.text.trim().is_empty() { "Type to search.".to_string() } else { "Nothing matches.".to_string() }) };
+            let said = if asking(s) { "Asking…".to_string() } else { empty(s).unwrap_or_else(|| if s.bar.edit.words().trim().is_empty() { "Type to search.".to_string() } else { "Nothing matches.".to_string() }) };
             body = body.child(text(said).key("bar/empty").font(k.ty.small).color(c.text_faint).px(10.0).py(6.0));
         }
     } else {

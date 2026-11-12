@@ -43,12 +43,12 @@ fn a_step_undone_never_takes_away_a_tile_that_holds_an_edit() {
     assert!(act(&mut g.app, "tile.split").ok);
     assert_eq!(g.app.layout.name(&g.app.layout.focus), "reader2");
     assert!(act(&mut g.app, "edit").ok);
-    g.app.field(Field::Draft).replace_text("Plot, half written");
+    g.app.field(Field::Draft).replace("Plot, half written");
     let undone = act(&mut g.app, "layout.undo");
     assert!(!undone.ok && undone.said.contains("reader2") && undone.said.contains("holds an edit of"), "{}", undone.said);
     assert!(names(&g.app).contains(&"reader2".to_string()), "the tile that holds the edit is still here");
     assert_eq!(g.app.editing.as_ref().map(|e| g.app.layout.name(&e.tile)).as_deref(), Some("reader2"));
-    assert_eq!(g.app.editor.text, "Plot, half written");
+    assert_eq!(g.app.editor.words(), "Plot, half written");
     assert_eq!(g.app.journal.len(), 1, "the step is still there to undo once the edit is saved or dropped");
     // The same for a screen opened over it: the layout says no, in the same words.
     screens_are(&mut g, json!([screen_row("beds", json!({ "focus": "bed", "root": leaf("reader", "bed") }), json!([]))]));
@@ -179,12 +179,12 @@ fn the_person_s_layer_is_read_from_the_tile_with_the_keys() {
     assert!(ran(&mut rt, "tile.focus tile=beds", Actor::Person).ok);
     let at = rt.state.person();
     assert_eq!((at.layer.name(), at.focus.as_str(), at.typing_in.as_deref()), ("tile", "beds", None), "{at:?}");
-    assert!(!rt.state.editor.focused, "the text area no longer takes what is typed");
+    assert!(!rt.state.editor.takes_keys(), "the text area no longer takes what is typed");
     typed(&mut rt, "x");
-    assert!(!rt.state.editor.text.contains('x') || rt.state.editor.text == rt.state.editing.as_ref().unwrap().base, "a key typed with the tree focused is not text in the draft");
+    assert!(!rt.state.editor.words().contains('x') || rt.state.editor.words() == rt.state.editing.as_ref().unwrap().base, "a key typed with the tree focused is not text in the draft");
     assert!(rt.state.editing.is_some(), "the draft is still open on its tile");
     assert!(ran(&mut rt, "tile.focus tile=bed", Actor::Person).ok);
-    assert_eq!((rt.state.person().layer.name(), rt.state.editor.focused), ("draft", true));
+    assert_eq!((rt.state.person().layer.name(), rt.state.editor.takes_keys()), ("draft", true));
 }
 
 // ── who acts, and whether: the row says it, and `rule()` is the one check ─────────────────────────────────────
@@ -295,7 +295,8 @@ fn a_new_note_opens_where_the_screen_s_rule_says() {
     let made = g.app.editing.as_ref().map(|e| e.tile.clone()).expect("the new note is open to be written");
     assert!(g.app.layout.is_float(&made), "it floats over the screen: {:?}", names(&g.app));
     assert_eq!((g.app.note_of(&made).as_deref(), note_in(&g.app, "bed").as_deref(), g.app.layout.focus.as_str()), (Some("new"), Some("plot"), made.as_str()));
-    let mut g = three(json!({ "newNote": [{ "opens": "tab", "only": ["reader"] }, { "opens": "lands" }] }));
+    // (A rule's kinds come as the service resolved them, as a tile's do: `screens.list` serves both.)
+    let mut g = three(json!({ "newNote": [{ "opens": "tab", "only": ["screens.reader"] }, { "opens": "lands" }] }));
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "note.new").ok);
     let made = g.app.editing.as_ref().map(|e| e.tile.clone()).unwrap();
     assert!(crate::layout::tree::tabs_of(g.app.layout.tree(), &made).is_some_and(|set| crate::layout::tree::tabs_of(g.app.layout.tree(), "bed") == Some(set)), "a tab beside bed");

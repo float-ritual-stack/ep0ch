@@ -6,18 +6,18 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::ops::Deref;
-use std::sync::Arc;
 
 use base64::Engine;
-use rune::{Image, ImageCache, TextEdit, Tx};
 use serde_json::{Value, json};
 
-use super::{Actor, Step};
+use super::{Actor, Step, About};
 use crate::client::{Link, PROTOCOL};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
-use crate::page::{ListAnswer, ListRow, Page, Picture};
-use crate::screen::{KindRow, Screen, Served};
+use crate::page::{ListAnswer, ListRow, Page, Picture, SourceRow};
+use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
+use crate::keys::Text;
+use crate::tiles::picture::{Pictures, Shown};
 use crate::tiles::{self, TileCx};
 
 /// The note being typed in. `base` is the text the service holds at `revision`: a save names that revision, and the
@@ -45,6 +45,9 @@ pub struct TileUi {
     pub narrowed: Vec<(String, String)>,
     /// What the person chose for a list here, by the parameter's name (its sort, its group, how it is arranged): over its spec's.
     pub chosen: BTreeMap<String, String>,
+    /// The note a list about one note keeps as its subject, when it doesn't follow (`subject: follows`): the one its
+    /// home showed when it first listed, as the door's links tile holds one.
+    pub subject: Option<String>,
     /// What a press in this tile last did, said on the part that was pressed.
     pub said: Option<Said>,
 }
@@ -82,22 +85,11 @@ impl Notice {
     pub fn problem(said: impl Into<String>) -> Notice { Notice { tone: Tone::Problem, said: said.into(), undo: None } }
 }
 
-/// A picture as the window holds it: asked for, decoded (or decoding, on Rune's worker), or why there is none.
-pub enum Shown {
-    Asked,
-    /// `points`: how many of its pixels make a point (a vector picture is drawn at twice its size, for a dense screen).
-    Ready { image: Image, points: f32 },
-    Failed(String),
-}
-
-/// The widest a picture is drawn, in points: what a vector picture is drawn to fit.
-const PICTURE_POINTS: f32 = 760.0;
-
 /// The command bar as it stands: open or not, the source it lists, what is typed, the lit row.
 pub struct BarUi {
     pub open: bool,
     pub scope: String,
-    pub edit: TextEdit,
+    pub edit: Text,
     pub cursor: usize,
 }
 
@@ -133,13 +125,15 @@ pub struct State {
     pub journal: Vec<(Layout, Option<Screen>)>,
     /// The tile the act being run is aimed at (`tile=`).
     pub aimed: Option<Id>,
+    /// The tile the act being run is about, as the dispatcher found it (`App::target` with what the action wants).
+    pub about: Option<Id>,
     /// The border being dragged (its split and which border): its moves are one change to go back through.
     pub dragging: Option<(String, usize)>,
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
     pub pictured: HashMap<Id, (String, u64)>,
 
     /// The editor's text, there whether or not a note is being edited, so a key always has somewhere to land.
-    pub editor: TextEdit,
+    pub editor: Text,
     pub editing: Option<Editing>,
 
     pub bar: BarUi,
@@ -147,8 +141,6 @@ pub struct State {
     /// The last act an agent ran, as the status line says it.
     pub agent_said: Option<String>,
 
-    /// The pictures of the pages the readers show, by `Picture::key`: only what they show is kept.
-    pub pictures: HashMap<String, Shown>,
     /// Every act, as it was read and how it went.
     pub steps: Vec<Step>,
     /// The note each actor trashed last: what `note.untrash` brings back.
@@ -162,7 +154,8 @@ pub struct App {
     pub(in crate::actions) store: Store,
     /// Makes the link again after it is lost.
     connect: Option<Box<dyn Fn() -> Box<dyn Link>>>,
-    images: ImageCache,
+    /// The pictures of the pages the readers show, by `Picture::key`: only what they show is kept.
+    pictures: Pictures,
     /// The chords of a key sequence pressed so far: the key table's own.
     held: crate::keys::Held,
     /// Where the arrangement is kept between runs. None: nowhere (a test, a headless render).
@@ -180,6 +173,9 @@ impl Deref for App {
 const OPEN: &str = "open";
 const OF: &str = "of";
 const QUERY: &str = "query";
+/// What the asker draws: the drawers this window has, and the kinds it draws itself (none: every kind is a served row's).
+const DRAWERS: &str = "drawers";
+const KINDS: &str = "kinds";
 /// The list is of: the source it names (`from`), in a tile's fields.
 const FROM: &str = "from";
 
@@ -207,22 +203,21 @@ impl App {
                 area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
                 journal: Vec::new(),
                 aimed: None,
+                about: None,
                 dragging: None,
                 pictured: HashMap::new(),
-                editor: TextEdit::new(""),
+                editor: Text::new(""),
                 editing: None,
-                bar: BarUi { open: false, scope: "all".into(), edit: TextEdit::new(""), cursor: 0 },
+                bar: BarUi { open: false, scope: "all".into(), edit: Text::new(""), cursor: 0 },
                 notice: None,
                 agent_said: None,
-                pictures: HashMap::new(),
                 steps: Vec::new(),
                 trashed: HashMap::new(),
                 reveal: None,
             },
             store,
             connect: None,
-            // Until the window gives its waker, a decoded picture wakes nobody (a test's window is driven by hand).
-            images: ImageCache::new(Arc::new(|| {})),
+            pictures: Pictures::default(),
             held: crate::keys::Held::default(),
             kept_in: None,
         }
@@ -253,10 +248,9 @@ impl App {
         self
     }
 
-    pub fn set_waker(&mut self, waker: rune::Waker) {
+    pub fn set_waker(&mut self, waker: crate::client::Waker) {
         // A picture that finishes decoding wakes the window to draw it.
-        self.images = ImageCache::new(waker.clone());
-        self.st.pictures.clear();
+        self.pictures.woken_by(waker.clone());
         self.store.set_waker(waker);
     }
 
@@ -280,16 +274,25 @@ impl App {
 
     /// The tile kinds there are, as the service lists them.
     pub fn kinds(&self) -> &[KindRow] { self.served().map_or(&[], |served| &served.kinds) }
-    /// The row of the kind a tile names: by the row's own name first, then a name it serves in place of.
-    pub fn kind_row(&self, kind: &str) -> Option<&KindRow> { let kinds = self.kinds(); kinds.iter().find(|row| row.kind == kind).or_else(|| kinds.iter().find(|row| row.is(kind))) }
+    /// The row of the kind a tile names: the row by that name, else the one the service says serves the name now
+    /// (`serves`: one kind a name, whichever extension took it last, as `screens.list` resolves a screen's tiles).
+    /// Which kind a name means is the service's word either way: nothing here picks among rows that claim one.
+    pub fn kind_row(&self, kind: &str) -> Option<&KindRow> { let kinds = self.kinds(); kinds.iter().find(|row| row.kind == kind).or_else(|| kinds.iter().find(|row| row.serves.iter().any(|served| served == kind))) }
+    /// The name the layout's rules know a kind by: the one screens write it by (its row's `role`), else its own. A
+    /// policy that takes only `reader` tiles is written with that name in every door.
+    pub fn known_as(&self, kind: &str) -> String { self.kind_row(kind).and_then(KindRow::role).unwrap_or(kind).to_string() }
     /// A tile's kind's row.
     pub fn kind_of(&self, tile: &str) -> Option<&KindRow> { self.spec(tile).and_then(|spec| self.kind_row(&spec.kind)) }
     /// The drawer that draws a tile, when its kind names one this window has.
     pub fn drawer_of(&self, tile: &str) -> Option<&'static tiles::Drawer> { self.kind_of(tile).and_then(tiles::drawer_of) }
     /// A tile reads notes: an open can land in it.
     pub fn reads_notes(&self, tile: &str) -> bool { self.drawer_of(tile).is_some_and(|drawer| drawer.notes) }
-    /// The kind a tile made for a note is: the first the service lists whose drawer reads notes.
-    pub fn note_kind(&self) -> Option<&KindRow> { self.kinds().iter().find(|row| tiles::drawer_of(row).is_some_and(|drawer| drawer.notes)) }
+    /// The kind a tile made for a note is: the kind of the reader an open would have taken (a screen's readers are
+    /// its own choice of kind), else the first the service lists that reads notes and serves a name, else any that reads notes.
+    pub fn note_kind(&self) -> Option<&KindRow> {
+        let reads = |row: &&KindRow| tiles::drawer_of(row).is_some_and(|drawer| drawer.notes);
+        self.reader().and_then(|reader| self.kind_of(&reader)).or_else(|| self.kinds().iter().filter(reads).find(|row| !row.serves.is_empty())).or_else(|| self.kinds().iter().find(reads))
+    }
     /// A field of a tile: its own spec's, else what its kind's row says a tile of it starts with.
     pub fn field_of(&self, tile: &str, name: &str) -> Option<&Value> { self.spec(tile).and_then(|spec| spec.fields.get(name)).or_else(|| self.kind_of(tile).and_then(|row| row.fields.get(name))) }
 
@@ -306,26 +309,54 @@ impl App {
     /// The tiles on screen, in the order the layout lists them: the tree's shown ones, then the floats.
     pub fn shown_tiles(&self) -> Vec<Id> { self.layout.tree().visible().into_iter().chain(self.layout.floats.iter().map(|f| f.spec.id.clone())).collect() }
 
-    /// The reader an act about "the open note" means: the tile it is aimed at or the one with the keys, when that
-    /// reads notes; else where the screen says opens land; else the first tile that reads notes.
-    pub fn reader(&self) -> Option<Id> {
-        let reads = |tile: &Id| self.reads_notes(tile);
-        self.aimed.clone().filter(reads).or_else(|| Some(self.layout.focus.clone()).filter(reads))
-            .or_else(|| self.screen.lands().and_then(|address| self.layout.resolve(address, None, &self.screen.name).ok()).filter(reads))
-            .or_else(|| self.layout.all().into_iter().find(reads))
+    /// The tile an act is about when it names none, by what the act wants (`About`): the tile it is aimed at when
+    /// that is one of the sort, else the one with the keys when that is, else (for a reader) where the screen says
+    /// opens land, else the first of the sort the layout lists. The one place this is decided: the dispatcher asks
+    /// it for every act (`App::about` is its answer while the act runs), and what is drawn asks it with no act running.
+    pub fn target(&self, want: About) -> Option<Id> {
+        let fits = |tile: &Id| self.is_a(tile, want);
+        match want {
+            About::Nothing | About::Placed => self.aimed.clone(),
+            About::Any => self.aimed.clone().or_else(|| Some(self.layout.focus.clone()).filter(|tile| self.spec(tile).is_some())),
+            _ => self.aimed.clone().filter(fits).or_else(|| Some(self.layout.focus.clone()).filter(fits))
+                .or_else(|| self.landing().filter(|_| want == About::Notes))
+                .or_else(|| self.layout.all().into_iter().find(fits)),
+        }
     }
+    /// A tile is of the sort an act wants: it reads notes, it lists, its list is a tree.
+    pub fn is_a(&self, tile: &str, want: About) -> bool {
+        match want {
+            About::Notes => self.reads_notes(tile),
+            About::Lists => self.drawer_of(tile).is_some_and(|drawer| drawer.lists),
+            About::Tree => self.is_tree(tile),
+            About::Nothing | About::Any | About::Placed => self.spec(tile).is_some(),
+        }
+    }
+    /// The tile the act being run is about: what the dispatcher found for it, and checked the actor against.
+    pub fn about(&self) -> Option<Id> { self.about.clone() }
+
+    /// The reader an act about "the open note" means, and what is drawn about it reads.
+    pub fn reader(&self) -> Option<Id> { self.target(About::Notes) }
+    /// A list's folders unfold: its source says it reads which are open.
+    pub fn unfolds(&self, tile: &str) -> bool { self.field_of(tile, FROM).and_then(Value::as_str).and_then(|from| self.source_params(from)).is_some_and(|params| params.contains(&OPEN)) }
     /// A tile's list is a tree: its answer says so (a list's arrangement is the list's own word).
     pub fn is_tree(&self, tile: &str) -> bool { self.list_of(tile).is_some_and(|answer| answer.list.arrange == "tree") }
-    /// The tree an act about "the tree" means: the one aimed at, else the first.
-    pub fn tree_tile(&self) -> Option<Id> {
-        let tree = |tile: &Id| self.is_tree(tile);
-        self.aimed.clone().filter(tree).or_else(|| self.layout.all().into_iter().find(tree))
+    /// The tree an act about "the tree" means.
+    pub fn tree_tile(&self) -> Option<Id> { self.target(About::Tree) }
+
+    /// Where the screen says opens land, as a tile that reads notes: the tile `lands` names, or the last reader in
+    /// the container it names (the layout's `lands` is the one reading of the word: a tile's name, else a container's key).
+    pub fn landing(&self) -> Option<Id> {
+        match self.layout.lands(self.spec_now().and_then(|spec| spec.lands())?)? {
+            layout::Lands::Tile(tile) => Some(tile).filter(|tile| self.reads_notes(tile)),
+            layout::Lands::Container(key) => self.layout.within(&key).into_iter().rev().find(|tile| self.reads_notes(tile)),
+        }
     }
 
     /// The note a reader shows: the one it was told, else the outline's first, as the first tree lists it.
     pub fn note_of(&self, tile: &str) -> Option<String> {
         // (A list that follows a note asks for that note first: it is never where the first note comes from.)
-        self.ui(tile).note.clone().or_else(|| self.layout.all().into_iter().filter(|tile| !self.follows(tile)).find(|tile| self.is_tree(tile)).and_then(|tree| self.rows_of(&tree).first().map(|row| row.id.clone())))
+        self.ui(tile).note.clone().or_else(|| self.layout.all().into_iter().filter(|tile| !self.attached(tile) && !self.waits_for_a_note(tile)).find(|tile| self.is_tree(tile)).and_then(|tree| self.rows_of(&tree).first().map(|row| row.id.clone())))
     }
     /// The note a follower is about: its source tile's (`source: tile:<name>`), else the reader's.
     pub fn followed_by(&self, tile: &str) -> Option<String> { self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| self.reader()).and_then(|reader| self.note_of(&reader)) }
@@ -350,11 +381,26 @@ impl App {
 
     // ── lists: one list a tile, whatever it is of ───────────────────────────────────────────────────────────
 
-    /// The parameters a list source reads, as its own row says them (a chip a parameter). None: the sources haven't come.
+    /// The list sources there are, each as it says of itself (`lists.read from=sources`). None: they haven't come.
+    pub fn sources(&self) -> Option<&[SourceRow]> { self.store.read::<ListAnswer>(&self.sources_ask()).map(|answer| answer.sources.as_slice()) }
+
+    /// The parameters a list source reads, as its own row says them. None: the sources haven't come.
     fn source_params(&self, from: &str) -> Option<Vec<&str>> {
-        let sources = self.store.read::<ListAnswer>(&self.sources_ask())?;
         // A source nobody lists has no parameters this window knows: its name alone is asked, and the service says why not.
-        Some(sources.list.rows.iter().find(|row| row.id == from).map(|row| row.chips.iter().map(|chip| chip.key.as_str()).collect()).unwrap_or_default())
+        Some(self.sources()?.iter().find(|source| source.from == from).map(|source| source.params.iter().map(|param| param.name.as_str()).collect()).unwrap_or_default())
+    }
+
+    /// A list asked of the service: `from`, and each parameter that source says it reads, as `fill` answers it by
+    /// name (a tile's fields, the bar's words), else what this window says of itself (the drawers it has). The one
+    /// place a `lists.read` is made: a tile's and the bar's are both it. None: the sources haven't come yet.
+    pub fn ask_of(&self, from: &str, watched: bool, fill: impl Fn(&str) -> Option<Value>) -> Option<Ask> {
+        let mut params = serde_json::Map::new();
+        params.insert(FROM.into(), json!(from));
+        for name in self.source_params(from)? {
+            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), _ => None };
+            if let Some(value) = fill(name).or_else(own) { params.insert(name.to_string(), value); }
+        }
+        Some(if watched { Ask::watched(&self.at, "lists.read", Value::Object(params)) } else { Ask::read(&self.at, "lists.read", Value::Object(params)) })
     }
 
     /// The question a list tile asks, in the views' grammar: its own (`query`), else the one of the list it follows
@@ -369,42 +415,51 @@ impl App {
     /// A list tile's own question, narrowed by what was picked in it: what a list that follows it asks too.
     fn asked_of(&self, tile: &str) -> String { self.narrowed_in(tile, self.field_of(tile, QUERY).and_then(Value::as_str).unwrap_or_default().to_string()) }
 
-    /// A question with what was picked in a tile said after it: a term a pick, the one place a pick becomes words.
-    fn narrowed_in(&self, tile: &str, mut words: String) -> String {
-        for (key, value) in &self.ui(tile).narrowed {
-            if !words.is_empty() { words.push(' ') }
-            words.push_str(&format!("{key}={}", super::word(value)));
-        }
-        words
-    }
+    /// A question narrowed by what was picked in a tile: written by the one writer of a picked value as a term
+    /// (`query::narrowed`, outline-core's `selectionQuery`).
+    fn narrowed_in(&self, tile: &str, words: String) -> String { crate::query::narrowed(&words, &self.ui(tile).narrowed) }
 
     /// The tile another follows (`source: tile:<name>`), by the layout's resolver.
     pub fn source_of(&self, tile: &str) -> Option<Id> {
         self.field_of(tile, "source").and_then(Value::as_str).and_then(|s| s.strip_prefix("tile:")).and_then(|address| self.layout.resolve(address, Some(tile), &self.screen.name).ok())
     }
 
-    /// A tile follows another's note: it names its source, or its fields say its subject follows.
-    pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, "source").is_some() || self.field_of(tile, "subject").and_then(Value::as_str) == Some("follows") }
+    /// A tile's subject follows the note its home shows: its fields say so (`subject: follows`, its own or its
+    /// kind's row's). Left unsaid, it keeps the subject it has, as it does in the door.
+    pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, "subject").and_then(Value::as_str) == Some("follows") }
+    /// A tile is another's: it names its home (`source`), or follows.
+    pub fn attached(&self, tile: &str) -> bool { self.field_of(tile, "source").is_some() || self.follows(tile) }
+    /// A tile's list is about one note: its source says it can't list without one (`of`, required).
+    pub fn about_a_note(&self, tile: &str) -> bool {
+        let from = self.field_of(tile, FROM).and_then(Value::as_str);
+        from.zip(self.sources()).and_then(|(from, sources)| sources.iter().find(|source| source.from == from)).is_some_and(|source| source.params.iter().any(|param| param.name == OF && param.required))
+    }
+    /// A tile's list waits for a note another tile shows: it follows, or is about one note and names none itself.
+    pub fn waits_for_a_note(&self, tile: &str) -> bool { (self.follows(tile) || self.about_a_note(tile)) && self.field_of(tile, OF).is_none() }
+    /// The note a list is about: the one its spec names (`of`); else, following, the one its home shows now; else,
+    /// about one note, the one it holds (the one its home showed when it first listed). A list about no note: none.
+    pub fn subject_of(&self, tile: &str) -> Option<String> {
+        if let Some(of) = self.field_of(tile, OF).and_then(Value::as_str) { return Some(of.to_string()) }
+        if self.follows(tile) { return self.followed_by(tile) }
+        if self.about_a_note(tile) { return self.ui(tile).subject.clone().or_else(|| self.followed_by(tile)) }
+        None
+    }
 
     /// What a list tile asks of the service: its source (`from`, a field of the tile or of its kind's row) and the
     /// parameters that source says it reads, each from what the person chose here, the tile's spec, then its kind's
-    /// row. None: the tile names no source, or the sources haven't come yet.
+    /// row. None: the tile names no source, the sources haven't come yet, or it is about a note and none is open.
     pub fn list_ask(&self, tile: &str) -> Option<Ask> {
         let from = self.field_of(tile, FROM)?.as_str()?;
         let ui = self.ui(tile);
-        let mut params = serde_json::Map::new();
-        params.insert(FROM.into(), json!(from));
-        for name in self.source_params(from)? {
-            let value = match name {
-                OPEN => Some(json!(ui.unfolded)),
-                // A list about the note another tile shows waits for that note: it asks nothing about no note.
-                OF => match (self.field_of(tile, OF).cloned(), self.follows(tile)) { (Some(of), _) => Some(of), (None, true) => Some(Value::String(self.followed_by(tile)?)), (None, false) => None },
-                QUERY => Some(self.question_of(tile)).filter(|words| !words.is_empty()).map(Value::String),
-                other => ui.chosen.get(other).map(|chosen| json!(chosen)).or_else(|| self.field_of(tile, other).cloned()),
-            };
-            if let Some(value) = value { params.insert(name.to_string(), value); }
-        }
-        Some(Ask::watched(&self.at, "lists.read", Value::Object(params)))
+        // A list about the note another tile shows waits for that note: it asks nothing about no note.
+        let subject = self.subject_of(tile);
+        if subject.is_none() && self.waits_for_a_note(tile) { return None }
+        self.ask_of(from, true, |name| match name {
+            OPEN => Some(json!(ui.unfolded)),
+            OF => subject.clone().map(Value::String),
+            QUERY => Some(self.question_of(tile)).filter(|words| !words.is_empty()).map(Value::String),
+            other => ui.chosen.get(other).map(|chosen| json!(chosen)).or_else(|| self.field_of(tile, other).cloned()),
+        })
     }
 
     /// A list tile's answer: the one for what it asks now, else the last it showed while that is on its way.
@@ -426,7 +481,7 @@ impl App {
     pub fn picture(&self, picture: &Picture) -> Option<&Shown> { self.pictures.get(&picture.key()) }
 
     /// The editor holds text the service doesn't.
-    pub fn unsaved(&self) -> bool { self.editing.as_ref().is_some_and(|e| self.editor.text != e.base) }
+    pub fn unsaved(&self) -> bool { self.editing.as_ref().is_some_and(|e| self.editor.words() != e.base) }
 
     /// A save is out for the note being edited.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
@@ -439,16 +494,22 @@ impl App {
     pub fn screen_problems(&self) -> &[String] { self.served().map_or(&[], |served| &served.problems) }
     /// The screens have been listed (there may be none).
     pub fn screens_listed(&self) -> bool { self.served().is_some() }
+    /// The row the service lists for the screen that is open, when it lists one by that name.
+    fn served_row(&self) -> Option<&Value> { self.served()?.screens.iter().find(|row| row["name"].as_str() == Some(self.screen.name.as_str())) }
+    /// What the open screen says of itself now (where opens land, its toolbar, its rule for new notes): the spec the
+    /// service lists for it, read each time, so a screen note changed since the window opened is followed; the
+    /// spec it was opened as only while the service lists none by its name (a save on its way, a note trashed).
+    pub fn spec_now(&self) -> Option<Spec<'_>> { self.served_row().and_then(|row| row.get("spec")).filter(|spec| spec.is_object()).or(self.screen.spec.as_ref()).map(Spec) }
     /// What the service says is wrong with a tile of the screen shown, in its words.
     pub fn problems_of(&self, tile: &str) -> Vec<String> {
         let name = self.layout.name(tile);
-        self.screens().iter().find(|s| s.name == self.screen.name).map(|s| s.problems_of(&name).map(|p| p.said.clone()).collect()).unwrap_or_default()
+        self.served_row().map(|row| Screen::row(row).problems_of(&name).map(|p| p.said.clone()).collect()).unwrap_or_default()
     }
 
     /// What the layout's rules read of a tile: its kind's facts, then what its own state says.
     pub fn facts(&self, tile: &str) -> layout::Facts {
         let spec = self.spec(tile);
-        let kind = spec.map_or("tile", |spec| spec.kind.as_str()).to_string();
+        let kind = spec.map_or("tile".to_string(), |spec| self.known_as(&spec.kind));
         let drawer = self.drawer_of(tile);
         // A reader that holds unsaved text holds an edit: an open lands beside it, and it isn't closed.
         let editing = self.editing.as_ref().filter(|e| e.tile == tile && self.unsaved()).map(|e| format!("an edit of {}", self.page_of(tile).map_or(e.note.as_str(), |p| p.title.as_str())));
@@ -456,8 +517,8 @@ impl App {
         // it follows (`source: tile:`), else where the screen says opens land.
         let notes = drawer.is_some_and(|d| d.notes);
         let follows = self.source_of(tile);
-        let home = if notes { None } else { follows.or_else(|| self.screen.lands().and_then(|name| self.layout.named(name))).map(|id| self.layout.name(&id)) };
-        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.follows(tile), showing: drawer.filter(|d| d.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
+        let home = if notes { None } else { follows.or_else(|| self.landing()).map(|id| self.layout.name(&id)) };
+        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing: drawer.filter(|d| d.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: it holds unsaved text. The fact is the one the layout's rules read
@@ -503,6 +564,12 @@ impl App {
     /// unfolds in the tree that marks it, and its pictures are among the ones held.
     fn follow(&mut self) {
         self.open_first();
+        self.screen_moved();
+        // A list about a note that doesn't follow takes the note its home shows now as its subject, once, and keeps it.
+        for tile in self.shown_tiles() {
+            if !self.about_a_note(&tile) || !self.waits_for_a_note(&tile) || self.follows(&tile) || self.ui(&tile).subject.is_some() { continue }
+            if let Some(note) = self.followed_by(&tile) { self.ui_mut(&tile).subject = Some(note) }
+        }
         let readers: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.reads_notes(tile)).collect();
         let trees: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.is_tree(tile)).collect();
         for tree in trees {
@@ -545,6 +612,19 @@ impl App {
             None if self.notice.is_none() => self.st.notice = Some(Notice::problem(NO_SCREENS)),
             None => {}
         }
+    }
+
+    /// The note the open screen is saved as changed since this arrangement was laid out from it (another door saved
+    /// it, someone edited its blocks): said once, with the act that lays the window out as it is now. What the
+    /// screen says of itself (`spec_now`) is followed at once; the arrangement is the person's until they reset it.
+    fn screen_moved(&mut self) {
+        let Some((id, revision)) = self.screen.note().map(|(id, revision)| (id.to_string(), revision)) else { return };
+        let Some(now) = self.served_row().filter(|row| row["note"]["id"].as_str() == Some(id.as_str())).and_then(|row| row["note"]["revision"].as_u64()) else { return };
+        if now == revision { return }
+        self.st.screen.from = crate::screen::From::Note { id, revision: now };
+        self.keep();
+        // (A save of this window's own lands the revision it wrote before the list says so: that is no news.)
+        if now > revision && revision > 0 { self.st.notice = Some(Notice::info(format!("The screen {} changed in the outline since this arrangement was laid out. {} lays it out as it is now.", self.screen.name, super::label("screen.reset")))) }
     }
 
     /// Lands everything asked so far, and what that asked in turn: for a blocking link, whose answers are already here.
@@ -598,18 +678,13 @@ impl App {
         true
     }
 
-    /// What an act asked of the next frame: an element brought into view.
-    pub fn effects(&mut self, tx: &mut Tx) -> bool {
-        match self.st.reveal.take() {
-            Some(key) => { tx.scroll_into_view(key); true }
-            None => false,
-        }
-    }
+    /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).
+    pub fn revealed(&mut self) -> Option<String> { self.st.reveal.take() }
 
     // ── the kit's own hands: text typed into a field, a pane dragged by its edge ─────────────────────────────
 
     /// The text of a field, for the kit's editor to type into (`keys::field` is the one caller).
-    pub fn field(&mut self, field: Field) -> &mut TextEdit { match field { Field::Bar => &mut self.st.bar.edit, Field::Draft => &mut self.st.editor } }
+    pub fn field(&mut self, field: Field) -> &mut Text { match field { Field::Bar => &mut self.st.bar.edit, Field::Draft => &mut self.st.editor } }
 
     /// A field's text changed under the kit's editor: what it asks is wanted now, and the bar's lit row is the first.
     pub fn typed(&mut self, field: Field) {
@@ -674,30 +749,20 @@ impl App {
     /// fence's text is the picture already, and what no page shows any more is let go.
     fn want_pictures(&mut self, pages: &[Page]) {
         let shown: HashSet<String> = pages.iter().flat_map(Page::pictures).map(Picture::key).collect();
-        self.st.pictures.retain(|key, _| shown.contains(key));
+        self.pictures.keep(&shown);
         for picture in pages.iter().flat_map(Page::pictures) {
             let key = picture.key();
-            if self.pictures.contains_key(&key) { continue }
+            if self.pictures.holds(&key) { continue }
             match (&picture.svg, &picture.path) {
-                (Some(svg), _) => { let drawn = self.decoded(svg.clone().into_bytes(), "image/svg+xml"); self.st.pictures.insert(key, drawn); }
+                (Some(svg), _) => self.pictures.decode(key, svg.clone().into_bytes(), "image/svg+xml", self.blocking),
                 (None, Some(path)) => {
-                    self.st.pictures.insert(key.clone(), Shown::Asked);
+                    self.pictures.asked(key.clone());
                     let at = self.at.clone();
                     self.store.request(&at, "media.read", json!({ "path": path }), &Actor::Person, picture_read, json!({ "key": key }));
                 }
                 (None, None) => {}
             }
         }
-    }
-
-    /// Bytes handed to Rune's image cache, which decodes them on its worker and wakes the window when they're ready.
-    fn decoded(&self, bytes: Vec<u8>, mime: &str) -> Shown {
-        let vector = mime.contains("svg");
-        let points = if vector { 2.0 } else { 1.0 };
-        let image = self.images.load_mime(bytes, mime, PICTURE_POINTS, points);
-        // A headless render has one frame: the picture is waited for, so that frame shows it.
-        if self.blocking && let Err(e) = image.wait() { return Shown::Failed(format!("{e:?}")) }
-        Shown::Ready { image, points }
     }
 }
 
@@ -724,13 +789,12 @@ fn hello(app: &mut App, reply: Reply) {
 fn picture_read(app: &mut App, reply: Reply) {
     let Some(key) = reply.ctx["key"].as_str().map(str::to_string) else { return };
     // The page moved on while the bytes were on their way: nothing shows them.
-    if !app.pictures.contains_key(&key) { return }
-    let shown = match reply.result {
+    if !app.pictures.holds(&key) { return }
+    match reply.result {
         Ok(result) => match base64::engine::general_purpose::STANDARD.decode(result["base64"].as_str().unwrap_or("")) {
-            Ok(bytes) => app.decoded(bytes, result["mime"].as_str().unwrap_or("")),
-            Err(e) => Shown::Failed(format!("its bytes didn't arrive whole: {e}")),
+            Ok(bytes) => app.pictures.decode(key, bytes, result["mime"].as_str().unwrap_or(""), app.blocking),
+            Err(e) => app.pictures.failed(key, format!("its bytes didn't arrive whole: {e}")),
         },
-        Err(refusal) => Shown::Failed(refusal.error),
-    };
-    app.st.pictures.insert(key, shown);
+        Err(refusal) => app.pictures.failed(key, refusal.error),
+    }
 }

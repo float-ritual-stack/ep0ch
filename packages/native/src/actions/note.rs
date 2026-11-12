@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Notice, Outcome, nav, word};
+use super::{Action, Actor, App, Notice, Outcome, About, nav, word};
 use crate::actline::Args;
 use crate::layout::Request;
 use crate::store::Reply;
@@ -43,7 +43,7 @@ static MOVE: ActionRow = ActionRow::new("note.move", Touches::Nothing, "move the
     ])
     .examples(&[Example { act: "note.move step=up", does: "moves the open note one place up among its siblings", safe: None }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &NEW, run: new }, Action { row: &TRASH, run: trash }, Action { row: &UNTRASH, run: untrash }, Action { row: &MOVE, run: step }];
+pub static ACTIONS: &[Action] = &[Action { row: &NEW, run: new, about: About::Any }, Action { row: &TRASH, run: trash, about: About::Notes }, Action { row: &UNTRASH, run: untrash, about: About::Nothing }, Action { row: &MOVE, run: step, about: About::Notes }];
 
 fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // The person's new note opens in the editor: text the editor holds unsaved stays where it is.
@@ -53,16 +53,18 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     // The tile it is made from: the one aimed at, else the one with the keys. The screen's rule for a new note
     // made there may be another action altogether (a board's lane makes a card).
-    let from = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
-    // A rule names kinds as screens save them: the tile's kind by any name its row answers to.
-    let named: Vec<String> = app.spec(&from).map(|spec| spec.kind.clone()).into_iter().chain(app.kind_of(&from).into_iter().flat_map(|row| std::iter::once(row.kind.clone()).chain(row.replaces.iter().cloned()))).collect();
-    let rule = named.iter().find_map(|kind| app.screen.new_note(kind).cloned()).or_else(|| app.screen.new_note("").cloned());
+    let from = app.about().unwrap_or_else(|| app.layout.focus.clone());
+    // The screen's rule is asked once, with the kind the tile is (its row's: the service wrote the rule's kinds as it
+    // serves a tile's, so no name is tried twice and none is mapped here).
+    let kind = app.kind_of(&from).map(|row| row.kind.clone()).or_else(|| app.spec(&from).map(|spec| spec.kind.clone()));
+    let rule = app.spec_now().and_then(|spec| spec.new_note(kind.as_deref())).cloned();
     if by.is_person() && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
+        // The rule's action is a request as it stands (its arguments are data): run as one, from the tile it was made in.
         let given = rule.as_ref().and_then(|rule| rule["args"].as_object()).cloned().unwrap_or_default();
-        return app.act(&crate::actline::line_of(action, &given), by.clone());
+        return app.act_request(crate::actline::Request { action: action.to_string(), tile: Some(app.layout.name(&from)), by: None, args: given }, by.clone());
     }
     let parent = args.text("near").map(str::to_string).or_else(|| app.subject());
-    if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.tree_tile()) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
+    if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.target(About::Tree)) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
     let opens = rule.as_ref().and_then(|rule| rule["opens"].as_str()).unwrap_or("float");
     let at = app.at.clone();
     app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent, "from": from, "opens": opens }));
