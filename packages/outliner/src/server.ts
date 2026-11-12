@@ -3358,8 +3358,7 @@ export class OutlinerServer {
           break;
         }
         case "drafts.touch": {
-          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet and the
-          // cursor is off it (the door's read names the cursor's line, PIE-1743).
+          // The person typed in the draft this hold keeps: a request line they wrote there runs once quiet and off the cursor's line.
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
           const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
           if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");

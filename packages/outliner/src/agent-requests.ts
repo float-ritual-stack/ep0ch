@@ -551,6 +551,8 @@ export class AgentRequests {
   /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now, and an orphan its save left goes. */
   released(holdId: string, blockId?: string): void {
     this.draftKeys.delete(holdId);
+    // What it held unsent was never sent: a draft let go unsaved leaves the note's asks as they were (PIE-1743).
+    if (blockId) for (const key of this.unsent) if (key.startsWith(`${blockId}\0`)) this.unsent.delete(key);
     if (!blockId || !this.orphansAfterRelease.delete(blockId)) return;
     const block = this.store.get(blockId);
     if (block) void this.dropOrphans(blockId, this.lines(block, null).map(l => l.requestKey)).catch(() => {});
@@ -571,19 +573,29 @@ export class AgentRequests {
     const kept = this.removed.get(key);
     if (!kept) return null;
     this.removed.delete(key);
-    return this.now - kept.at <= REMOVED_KEPT_MS && this.answerUnder(blockId, line, text) ? kept.row : null;
+    // A request whose answer was never in the note (an applied edit, nothing to change) leaves nothing to tell an undo
+    // from a retype by: it keeps its row, as before.
+    const back = !this.hadAnswer(blockId, line.agent, line.requestKey) || this.answerUnder(line, text);
+    return this.now - kept.at <= REMOVED_KEPT_MS && back ? kept.row : null;
   }
 
-  /** Whether the answer this service wrote for `line`'s agent is right under it in `text`, as it was written. */
-  private answerUnder(blockId: string, line: RequestLine, text: string): boolean {
-    return this.ownAnswer(blockId, line.agent, text.slice(line.end)) !== "";
+  /** Whether an answer of `line`'s agent is right under it in `text` (its fold's head; the person may have edited it). */
+  private answerUnder(line: RequestLine, text: string): boolean {
+    const next = text.slice(line.end + 1).split("\n", 1)[0]!.replace(/\r$/, "");
+    return text[line.end] === "\n" && ANSWER_HEAD.exec(next)?.[1] === line.agent;
+  }
+
+  /** Whether this service wrote an answer into the note for the request (a fold under its line), there now or not. */
+  private hadAnswer(blockId: string, agent: string, requestKey: string): boolean {
+    return this.answers.of(blockId)[agent]?.some(([, key]) => key === requestKey) ?? false;
   }
 
   /**
-   * Asks a draft has on the line its cursor is on, not asked yet (PIE-1743): the next read with the cursor elsewhere, or
-   * a save, asks them, though the saved note had the line (its row was dropped for a retype).
+   * Asks a draft holds that wait to be sent (PIE-1743): written on the line the cursor is on, or written again there by
+   * hand over an answered one. The next read with the cursor elsewhere, or a save, asks them (the old row going then);
+   * the draft let go unsaved forgets them.
    */
-  private readonly atCursor = new Set<string>();
+  private readonly unsent = new Set<string>();
 
   /**
    * The request lines a block already had, as its baseline keeps them. A baseline written before PIE-1722 keyed the same
@@ -680,7 +692,7 @@ export class AgentRequests {
 
   private schedule(blockId: string, requestKey: string): void {
     const key = this.key(blockId, requestKey);
-    this.atCursor.delete(key);
+    this.unsent.delete(key);
     const previous = this.timers.get(key);
     if (previous) clearTimeout(previous);
     const timer = setTimeout(() => {
@@ -899,8 +911,13 @@ export class AgentRequests {
         // The key includes the wording: typing elsewhere must not postpone this ask.
         continue;
       }
-      // An ask the draft held at the cursor is sent by the save, though the note had its words before (PIE-1743).
-      const pending = this.atCursor.has(key);
+      // An ask the draft held unsent is sent by the save, though the note had its words before (PIE-1743): a retype's old
+      // row goes now.
+      const pending = this.unsent.has(key);
+      if (pending && answered.has(line.requestKey) && !this.running.has(key)) {
+        answered.delete(line.requestKey);
+        this.store.pruneAgentRequests(blockId, rows.map(row => row.requestKey).filter(k => k !== line.requestKey));
+      }
       if (!pending && (before.has(line.requestKey) || answered.has(line.requestKey))) continue;
       // Taken out and put back with its answer (an undo): what it had is what it has, nothing is asked again.
       const kept = pending ? null : this.recall(blockId, line, block.text);
@@ -951,7 +968,7 @@ export class AgentRequests {
         this.timers.delete(key);
       }
     }
-    for (const key of this.atCursor) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.atCursor.delete(key);
+    for (const key of this.unsent) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.unsent.delete(key);
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
@@ -961,20 +978,22 @@ export class AgentRequests {
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
       // A line written again (gone from the draft when it was last read, back now) is a new ask, as the save path makes
-      // it: a no-answer's (PIE-1731), and an answer's whose answer didn't come back with it (PIE-1743: typed back by hand,
-      // not an undo). Its row goes, and it is asked.
+      // it: a no-answer's (PIE-1731), and one whose answer in the note didn't come back with it (PIE-1743: typed back by
+      // hand, not an undo). A request whose answer was never in the note (an applied edit) has nothing to tell an undo
+      // from a retype by, nor do lines whose keys moved (PIE-1722): those keep their rows. It is asked once it is sent (the cursor off it, or a save); until then its row stays, so a draft
+      // let go unsaved leaves the note as it was.
       const had = rows.get(line.requestKey);
       if (had && seen && !seen.has(line.requestKey) && !this.running.has(key) && (this.retried.take(blockId, line.requestKey)
-        || ((ANSWERED.has(had.status) || had.status === "failed") && !this.answerUnder(blockId, line, text)))) {
+        || (ANSWERED.has(had.status) && this.hadAnswer(blockId, line.agent, line.requestKey) && !this.answerUnder(line, text)))) this.unsent.add(key);
+      const pending = this.unsent.has(key);
+      if (pending && rows.has(line.requestKey) && cursorLine !== line.line && !this.running.has(key)) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
         this.store.pruneAgentRequests(blockId, [...rows.keys()]);
-        this.atCursor.add(key);
       }
       const row = rows.get(line.requestKey);
-      if (row) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
+      if (row && !pending) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
       if (this.timers.has(key)) continue;
-      const pending = this.atCursor.has(key);
       if (this.running.has(key) || (!pending && (before.has(line.requestKey) || answered.has(line.requestKey)))) continue;
       const kept = pending ? null : this.recall(blockId, line, text);
       if (kept) {
@@ -983,7 +1002,7 @@ export class AgentRequests {
       }
       // Being written: the cursor is on it. It waits for the person, saying how it goes (PIE-1743).
       if (cursorLine === line.line) {
-        this.atCursor.add(key);
+        this.unsent.add(key);
         this.deps.changed(blockId, { ...asked(line), state: "queued", warning: AT_CURSOR });
         continue;
       }
@@ -1041,7 +1060,7 @@ export class AgentRequests {
   private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain, onRunning?: () => void): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
-    this.atCursor.delete(key);
+    this.unsent.delete(key);
     if (this.running.has(key)) {
       if (askedBy) this.again.set(key, askedBy);
       return;
@@ -1563,8 +1582,8 @@ export class AgentRequests {
         if (row.status === "failed") return { ...base, status: "unavailable" as const, reason: row.message ?? "it failed", fetchError: row.message ?? "it failed" };
         // Its answer was in the note and is gone from under the line (taken out by hand): the line says so, never the
         // answer it no longer has (PIE-1743). A note held in a draft may have it there, not saved yet.
-        if (row.status === "replied" && !this.deps.heldDraft?.(blockId) && this.answers.of(blockId)[candidate.agent]?.some(([, k]) => k === candidate.requestKey)
-          && !this.answerUnder(blockId, candidate, block.text)) {
+        if (row.status === "replied" && !this.deps.heldDraft?.(blockId) && this.hadAnswer(blockId, candidate.agent, candidate.requestKey)
+          && !this.answerUnder(candidate, block.text)) {
           return { ...base, status: "not-run" as const, reason: `@${candidate.agent}'s answer was taken out · ask again for a new one` };
         }
         const at = row.answeredAt ?? row.requestedAt;

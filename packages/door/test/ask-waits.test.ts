@@ -78,6 +78,26 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     } finally { p.close(); }
   }, 45_000);
 
+  test("a click on another line leaves the ask's line: it is sent", async () => {
+    const title = "Cold frame";
+    const id = await create(`${title}\nprop the lid open`);
+    const p = await pane(id, title, 44, 16);
+    const before = asked().length;
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("editing"), "the edit");
+      p.keys("C-End", "Enter");
+      p.type("@tally the seed trays");
+      await until(() => p.flat().includes("asksonceyouleave"), "the ask waiting for the person", 8000);
+      expect(asked().length).toBe(before);
+      // A click on the line above (SGR, 1-based column and row).
+      const rows = p.capture().split("\n"), row = rows.findIndex(l => l.includes("prop the lid open")), col = rows[row]!.indexOf("prop") + 2;
+      p.type(`\x1b[<0;${col};${row + 1}M`); p.type(`\x1b[<0;${col};${row + 1}m`);
+      await until(() => asked().length > before, "the ask sent once the click left its line", 10_000);
+      expect(asked().slice(before)).toEqual(["the seed trays"]);
+    } finally { p.close(); }
+  }, 45_000);
+
   test("an ask backspaced away and saved, then typed back, is answered again; its line never says the old answer", async () => {
     const title = "Shed";
     const ask = "@tally the pots";

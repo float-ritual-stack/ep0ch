@@ -705,6 +705,62 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + reques
   expect(asked()).toEqual(["hub items", "hub items n"]);
 }, 20_000);
 
+// PIE-1743: a retype in a draft is asked only once it is sent; let go unsaved, the note keeps its ask and answer as they
+// were, and nothing is asked later.
+test("an answered ask retyped in a draft that is let go unsaved: nothing asked, its answer still its own (PIE-1743)", async () => {
+  const { store, client, create, counted, agentOf } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const door = await fakeDoor(client, "door-unsaved-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  await type("Beds\nend", 1);
+  await type("Beds\n@count tally the beds\nend", 1);
+  await Bun.sleep(300);
+  await client.request({ action: "drafts.release", holdId: door.holdId });
+  const now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${now.text}\nmore`, expectedRevision: now.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls()).toEqual(["run tally the beds"]);
+  expect((await agentOf(note.id, () => true)).status).toBe("ready");
+}, 20_000);
+
+// PIE-1743: an answer the person edited is still under its ask: its line says it was answered, not that it's gone.
+test("an answer edited under its ask is still its answer: the line reads answered, not taken out (PIE-1743)", async () => {
+  const { store, client, create, agentOf, counted } = await setup();
+  await counted("count");
+  const note = await create("Shelf\n@count tally\nlast");
+  await until("the answer under the line", () => store.get(note.id)!.text.includes("> noted"));
+  const block = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: block.text.replace("> noted", "> noted, and kept by me"), expectedRevision: block.revision, mutation: PERSON });
+  await Bun.sleep(300);
+  expect((await agentOf(note.id, () => true)).status).toBe("ready");
+});
+
+// PIE-1722 kept under PIE-1743: the same words typed again above two answered asks with nothing in the note (an applied
+// edit, nothing to change) shift their keys; only the new line is asked.
+test("the same ask typed above two asks whose answers left nothing in the note: only the new line is asked (PIE-1722, PIE-1743)", async () => {
+  const { store, client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "quiet-")), "quiet.log");
+  await writeAgent("quiet", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, "run\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { message: "nothing to change", patches: [] } }));`);
+  const runs = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0);
+  const note = await create("Plan\n@quiet\nsoil\n@quiet\nend");
+  await until("both answered", () => runs() === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
+  const door = await fakeDoor(client, "door-shift-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  // Read once as opened, then the same words typed again above both.
+  await type(door.text, 4);
+  await type("Plan\n@quiet\nfirst\n@quiet\nsoil\n@quiet\nend", 6);
+  await until("the new line asked", () => runs() === 3);
+  await Bun.sleep(400);
+  expect(runs()).toBe(3);
+}, 20_000);
+
 test("yolo: an agent's r releases a line an agent wrote, as a person's r would (PIE-973)", async () => {
   const { client, create, agentOf, counted } = await setup();
   const calls = await counted("count");

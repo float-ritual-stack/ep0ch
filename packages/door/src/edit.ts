@@ -174,10 +174,15 @@ export class Draft {
   set row(value: number) {
     this.position.cursor.row = value;
     // The cursor left the line the person last typed on: the service hears it, so an ask written there is sent (PIE-1743).
-    if (this.typedOn !== null && value !== this.typedOn) { this.typedOn = null; this.onPersonTyped?.(); }
+    // That line moved with the cursor on it (an answer landing above) is no leaving.
+    if (this.typedOn === null || value === this.typedOn) return;
+    if (this.lines[value] === this.typedLine) { this.typedOn = value; return; }
+    this.typedOn = null;
+    this.onPersonTyped?.();
   }
-  /** The line the person last typed on, until the cursor leaves it (PIE-1743). */
+  /** The line the person last typed on (its row and its text), until the cursor leaves it (PIE-1743). */
   private typedOn: number | null = null;
+  private typedLine = "";
   get col() { return this.position.cursor.col; }
   set col(value: number) { this.position.cursor.col = value; }
   usePosition(position: ReaderPosition) {
@@ -341,7 +346,7 @@ export class Draft {
   }
 
   private markWriter(who: Actor) {
-    if (who.kind === "user") { this.typedOn = this.row; this.onPersonTyped?.(); }
+    if (who.kind === "user") { this.typedOn = this.row; this.typedLine = this.lines[this.row] ?? ""; this.onPersonTyped?.(); }
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);

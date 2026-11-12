@@ -40,6 +40,23 @@ describe("an answer landing under the ask the cursor is on (PIE-1585)", () => {
     d.applyPatch({ patchId, revision: 1, replyTo: ASK, ...(extra.replyGroup ? { replyGroup: extra.replyGroup } : {}),
       patches: [span(d.text, extra.observed ?? ASK, extra.replacement ?? `${ASK}\n${answer}`)] }, YO);
 
+  // PIE-1743: an ask being typed is sent when the cursor leaves its line. An answer landing above it moves the line down
+  // with the cursor on it: that is not leaving, and the ↓ after it still tells the service.
+  test("an answer landing above the ask being typed doesn't count as leaving it; the ↓ after it does", () => {
+    const B = "@yo which notes are drafts";
+    const d = new Draft("note-2", 1, `Shed door\n${ASK}\n${B}\nend`);
+    let touches = 0;
+    d.onPersonTyped = () => touches++;
+    d.row = 2; d.col = B.length - 1;
+    d.key({ kind: "char", ch: "s" });
+    d.key({ kind: "backspace" });
+    const typed = touches;
+    expect(d.applyPatch({ patchId: "p2", revision: 1, replyTo: ASK, patches: [span(d.text, ASK, `${ASK}\n${answer}`)] }, YO)).toEqual({ applied: true });
+    expect([d.lines[d.row], touches]).toEqual([B, typed]);
+    d.key({ kind: "down" });
+    expect(touches).toBe(typed + 1);
+  });
+
   test("the cursor at the ask's end: it lands below and the cursor stays where it was, and typing goes on the ask", () => {
     const d = asking();
     expect(reply(d)).toEqual({ applied: true });
