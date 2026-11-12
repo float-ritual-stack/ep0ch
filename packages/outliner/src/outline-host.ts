@@ -53,7 +53,6 @@ import { answerWebSessions, WebSessions } from "./web-sessions";
 import { copyAnswers, isHostAction } from "./actions";
 import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
-import { metaDir, withLitestreamPaused } from "./litestream-guard";
 import { DEFAULT_WEB_ORIGIN } from "./artifact-grants";
 
 /*
@@ -535,24 +534,10 @@ export class OutlineHost {
     return database;
   }
 
-  /**
-   * Removes what a failed create or import made: the claimed file and its SQLite side files, with Litestream paused
-   * (litestream-guard.ts: its meta folder kept). Never the lock file.
-   */
+  /** Removes what a failed create or import made: the claimed file and its SQLite side files. Never the lock file. */
   private async unclaim(name: string): Promise<void> {
     const database = this.layout.database(name);
-    await withLitestreamPaused([database], `removing the half-made outline ${name}`, () => {
-      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
-    });
-  }
-
-  /**
-   * A change that makes `name`'s file again where one was before (Litestream's meta folder for it is still there, from
-   * an outline deleted under that name): made with Litestream paused. A name never used is made as it is.
-   */
-  private remade<T>(name: string, what: string, change: () => Promise<T>): Promise<T> {
-    const database = this.layout.database(name);
-    return existsSync(metaDir(database)) ? withLitestreamPaused([database], what, change) : change();
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
   }
 
   /**
@@ -563,17 +548,15 @@ export class OutlineHost {
     const name = requireName(nameInput);
     const about = aboutInput === undefined ? undefined : requireAbout(aboutInput);
     this.refuseTaken(name);
-    return this.remade(name, `creating the outline ${name}`, async () => {
-      this.claim(name);
-      try {
-        const opened = await this.open(name);
-        if (about) this.introduce(opened, about);
-      } catch (error) {
-        await this.unclaim(name);
-        throw error;
-      }
-      return this.summary(name);
-    });
+    this.claim(name);
+    try {
+      const opened = await this.open(name);
+      if (about) this.introduce(opened, about);
+    } catch (error) {
+      await this.unclaim(name);
+      throw error;
+    }
+    return this.summary(name);
   }
 
   /**
@@ -609,9 +592,7 @@ export class OutlineHost {
       if (refusalKindOf(error) !== "conflict") throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
-    let started = false;
-    try { return await this.remade(name, `importing ${real} as ${name}`, () => { started = true; return this.importAs(real, name, release); }); }
-    finally { if (!started) release(); }
+    return this.importAs(real, name, release);
   }
 
   private async importAs(real: string, name: string, release: () => void): Promise<HostedOutlineSummary & { imported: ImportReport }> {
@@ -702,9 +683,7 @@ export class OutlineHost {
       let release: () => void;
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
       catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then delete it again`, { cause: error }); }
-      // With Litestream paused (litestream-guard.ts): its meta folder stays, so an outline made again under this name
-      // continues the replica's history instead of colliding with it.
-      try { return await withLitestreamPaused([database], `deleting the outline ${name}`, () => {
+      try {
         const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
         mkdirSync(movedTo, { recursive: true });
         for (const suffix of ["", "-wal", "-shm"]) {
@@ -713,7 +692,7 @@ export class OutlineHost {
         if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
         for (const file of lock.files) rmSync(file, { force: true });
         return { name, movedTo };
-      }); } finally {
+      } finally {
         release();
       }
     } finally {
@@ -738,7 +717,7 @@ export class OutlineHost {
     return this.relocate(name, this.layout.archived(name), this.layout.root, false);
   }
 
-  /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed, owner-locked, Litestream paused. */
+  /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed and owner-locked. */
   private async relocate(name: string, from: string, to: string, archived: boolean): Promise<HostedOutlineArchival> {
     const database = join(from, `${name}.sqlite`);
     if (!lstatOrUndefined(database)) throw new Error(archived ? `No outline named "${name}" in ${this.outlinesFolder}` : `No archived outline named "${name}"; ep0ch outline list --archived shows them`);
@@ -754,7 +733,7 @@ export class OutlineHost {
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
       catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then try again`, { cause: error }); }
       try {
-        return await withLitestreamPaused([database, join(to, `${name}.sqlite`)], `${archived ? "archiving" : "restoring"} the outline ${name}`, () => {
+        {
           mkdirSync(to, { recursive: true });
           const moved: [string, string][] = [];
           try {
@@ -773,7 +752,7 @@ export class OutlineHost {
           for (const file of lock.files) rmSync(file, { force: true });
           if (!archived) rmSync(from, { recursive: true, force: true });
           return { name, archived, movedTo: archived ? to : join(to, `${name}.sqlite`) };
-        });
+        }
       } finally { release(); }
     } finally { this.busy.delete(name); }
   }

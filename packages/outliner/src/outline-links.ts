@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { OutlineMirror, mirrorsConfig } from "./outline-mirror";
+import { OutlineFollower, mirrorsConfig } from "./outline-follower";
 import { SCHEMA_VERSION } from "./schema";
 import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
 import { existsSync, readdirSync } from "node:fs";
@@ -24,7 +24,7 @@ const FAIR_CHANCE_MS = 1_000;
 export class OutlineLinks {
   constructor(private names: () => string[], private open: (name: string) => Promise<OutlinerStore>, private folder: string) {}
 
-  private mirrors = new Map<string, OutlineMirror<OutlinerClient>>();
+  private mirrors = new Map<string, OutlineFollower<OutlinerClient>>();
   /**
    * Machines whose host didn't answer, read from their copies until it does (PIE-1546): a sleeping laptop's link
    * accepts and never answers, and every link read waited out the whole deadline for it. Each is asked again in the
@@ -52,16 +52,16 @@ export class OutlineLinks {
     const answers = await Promise.all([...machines].sort().map(async machine => {
       const copies = "error" in config ? [] : [...new Set([
         ...config.mirrors.filter(m => m.machine === machine).map(m => m.outline),
-        ...[join(config.folder, machine), join(config.folder, ".restic", machine)].flatMap(folder => files(folder).filter(f => f.endsWith(".sqlite") && !f.endsWith(".owner.sqlite")).map(f => f.slice(0, -7))),
+        ...files(join(config.folder, machine)).filter(f => f.endsWith(".sqlite") && !f.endsWith(".owner.sqlite") && !f.startsWith(".")).map(f => f.slice(0, -7)),
       ])];
       const copy = async (outline: string): Promise<T | undefined> => {
         if ("error" in config) return;
         const key = `${machine}/${outline}`;
         let mirror = this.mirrors.get(key);
         if (!mirror) {
-          mirror = new OutlineMirror(outline, machine, config.folder, {
-            schema: () => SCHEMA_VERSION,
-            // The copy's own reads answer within the caller's deadline; the mirror reads its newest change itself.
+          mirror = new OutlineFollower(outline, machine, config.folder, {
+            schema: () => SCHEMA_VERSION, outlines: this.folder, label: "links follow",
+            // The copy's own reads answer within the caller's deadline; the follower says its newest change itself.
             attach: async (socket, name) => ({ board: new OutlinerClient(socket, 1000, name), close() {} }),
           });
           this.mirrors.set(key, mirror);

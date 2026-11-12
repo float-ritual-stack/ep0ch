@@ -441,7 +441,7 @@ export class OutlinerServer {
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
       resourceProviders?: readonly ResourceProviderEntry[];
       /**
-       * A read-only copy of another machine's outline (outline-mirror.ts, PIE-1091): its address on this machine's web
+       * A read-only copy of another machine's outline (outline-follower.ts, PIE-1091): its address on this machine's web
        * client (`float-hub@laptop`, the path a snapshot link names) and the folder beside the mirror its snapshot
        * sessions, files and readers are kept in, shared by every process that serves the copy and every generation.
        */

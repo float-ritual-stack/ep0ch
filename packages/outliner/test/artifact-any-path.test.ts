@@ -239,7 +239,7 @@ test("a file with no extension isn't taken for a folder, and another machine won
 });
 
 test("while the laptop sleeps, its read-only copy runs the same artifacts from the hub's own store", async () => {
-  // The hub follows a copy of the laptop's outline (outline-mirror.ts): the records it carries name the bucket copies.
+  // The hub follows the laptop's outline (outline-follower.ts): the records it carries name the bucket copies.
   const mirror = join(root, "m"), copyFile = join(mirror, "notes.sqlite");
   mkdirSync(join(mirror, ".host"), { recursive: true, mode: 0o700 });
   (await laptop.open("notes")).store.database.exec(`VACUUM INTO '${copyFile}'`);

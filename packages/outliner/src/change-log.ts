@@ -264,6 +264,16 @@ function clearReplicated(database: Database, tables: TableShape[]): void {
 export function applyRange(database: Database, range: LogRange, schema: number): number {
   checkFollows(cursorOf(database, schema), range);
   if (!range.entries.length) return range.after;
+  return applyEntries(database, range.entries, schema);
+}
+
+/**
+ * Applies entries in order to a follower's (or a restore's) database, in one transaction with the log's triggers and
+ * foreign keys off: each entry added to its log and its row put back. A replay of an archive calls it directly; a
+ * follower goes through `applyRange`, which first checks the range follows its cursor.
+ */
+export function applyEntries(database: Database, entries: readonly LogEntry[], schema: number): number {
+  if (!entries.length) return logHead(database);
   const tables = new Map(replicatedTables(database).map(t => [t.name, t]));
   const foreignKeys = (database.query("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys;
   if (foreignKeys) database.exec("PRAGMA foreign_keys = OFF");
@@ -271,7 +281,7 @@ export function applyRange(database: Database, range: LogRange, schema: number):
     database.transaction(() => {
       database.query("UPDATE log_state SET applying = 1 WHERE id = 1").run();
       const add = database.query("INSERT INTO change_log (lsn, txn, tbl, op, key, row, origin, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-      for (const e of range.entries) {
+      for (const e of entries) {
         add.run(e.lsn, e.txn, e.tbl, e.op, e.key, e.row, e.origin, e.at);
         if (e.op === "g") {
           const at = (JSON.parse(e.row ?? "{}") as { schema?: number }).schema;
@@ -284,12 +294,12 @@ export function applyRange(database: Database, range: LogRange, schema: number):
         const a = appliersFor(database, t);
         database.query(e.op === "i" ? a.insert : e.op === "u" ? a.update : a.delete).run(e.lsn);
       }
-      database.query("UPDATE log_state SET applying = 0, txn = ? WHERE id = 1").run(range.entries.at(-1)!.txn + 1);
+      database.query("UPDATE log_state SET applying = 0, txn = ? WHERE id = 1").run(entries.at(-1)!.txn + 1);
     }).immediate();
   } finally {
     if (foreignKeys) database.exec("PRAGMA foreign_keys = ON");
   }
-  return range.entries.at(-1)!.lsn;
+  return entries.at(-1)!.lsn;
 }
 
 /**

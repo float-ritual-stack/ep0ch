@@ -6,6 +6,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, type LogRange } from "../src/change-log";
+import { archivedCursor, replayArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 
@@ -125,22 +126,42 @@ test("a follower refuses a range that doesn't follow its cursor, and keeps what 
   home.close();
 });
 
-test("a replay of the archived log gives the same outline", () => {
+test("a replay of the archived log gives the same outline, as an outline of its own", () => {
   const dir = root();
-  const { home } = busyHome(dir);
-  // The archive: the log as segments, written out as the backup job writes them.
-  const segments: LogRange[] = [];
-  for (let at = 0; ;) {
-    const range = home.logRange(at, 7);
-    segments.push(range);
-    at = range.entries.at(-1)!.lsn;
-    if (range.complete) break;
-  }
-  const lines = segments.map(s => JSON.stringify(s));
+  const { home, jar } = busyHome(dir);
+  const archive = join(dir, "archive");
+  // The archive, as the backup job writes it: a segment per run, each the ranges since the last one.
+  const run = () => {
+    const ranges: LogRange[] = [];
+    let at = archivedCursor(archive, "home", home.logCursor().logId)?.lsn ?? 0;
+    for (;;) {
+      const range = home.logRange(at, 7);
+      ranges.push(range);
+      at = range.entries.at(-1)?.lsn ?? at;
+      if (range.complete) break;
+    }
+    writeSegment(archive, "home", ranges);
+  };
+  run();
+  const firstRunAt = Date.now();
+  Bun.sleepSync(20);
+  const now = home.get(jar.id)!;
+  home.update(jar.id, `${now.text}\n- [ ] label the jar`, now.revision, { author: "user" });
+  run();
+  // A segment that doesn't follow the archive is refused, never written.
+  expect(() => writeSegment(archive, "home", [home.logRange(1)])).toThrow("don't follow");
+  const logId = home.logCursor().logId;
   home.close();
-  const restored = new Database(join(dir, "restored.sqlite"), { create: true });
-  openFollowerSchema(restored, (JSON.parse(lines[0]!) as LogRange).logId);
-  for (const line of lines) applyRange(restored, JSON.parse(line) as LogRange, SCHEMA_VERSION);
-  expect(canonicalDump(restored)).toBe(dumpOf(join(dir, "home.sqlite")));
+  const replayed = replayArchive(archive, "home", join(dir, "restored.sqlite"));
+  expect(replayed.logId).toBe(logId);
+  expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+  // An earlier moment: the archive up to the first run, without the label.
+  const earlier = replayArchive(archive, "home", join(dir, "earlier.sqlite"), { until: firstRunAt });
+  expect(earlier.lsn).toBeLessThan(replayed.lsn);
+  const restored = new OutlinerStore(join(dir, "earlier.sqlite"));
+  expect(restored.get(jar.id)?.text).not.toContain("label the jar");
+  // Its own outline now: a new log, so followers of the old one rebuild rather than take its writes.
+  expect(restored.logCursor().logId).not.toBe(logId);
+  restored.create("Written after the restore");
   restored.close();
 });

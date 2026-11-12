@@ -8,7 +8,7 @@
 //   `float-hub · laptop · live`. Writes follow the outline's own `mcp access` there: `propose` and `full` take them,
 //   `read` and `none` show its pages with no write controls (the one rule the MCP gateway keeps too).
 // - its copy: when the machine doesn't answer within a few seconds (asleep, off the network), the read-only mirror on
-//   this machine (outline-mirror.ts, the gateway's copies), said as `… · as of <time> (laptop asleep)`, with no write
+//   this machine (outline-follower.ts: the home's change log, applied here), said as `… · as of <time> (laptop asleep)`, with no write
 //   controls.
 //
 // Light on the other machine: nothing is asked of it until a page is opened; while one is, its own long poll and a
@@ -16,7 +16,7 @@
 // at most every RETRY_MS. The forward is never ended here (other clients share it).
 import { OutlinerClient } from "./client";
 import { hostAnswers } from "./machine-forward";
-import { OutlineMirror } from "./outline-mirror";
+import { OutlineFollower } from "./outline-follower";
 import type { Publisher } from "./publish";
 import { SCHEMA_VERSION } from "./schema";
 import type { McpAccessStatus } from "@ep0ch/outline-core/protocol";
@@ -54,7 +54,7 @@ export interface RemoteOutlineOptions {
   retryMs?: number;
 }
 
-/** A copy's generation as the web client reads it: its host's socket. */
+/** The copies' host as the web client reads it: its socket. */
 interface CopySocket { socket: string }
 
 export class RemoteOutline {
@@ -63,7 +63,7 @@ export class RemoteOutline {
   private live: { publisher: Publisher; socket: string; checkedAt: number } | null = null;
   private going: { since: number; started: Promise<Publisher> } | null = null;
   private failed: { at: number; why: string } | null = null;
-  private readonly mirror: OutlineMirror<CopySocket>;
+  private readonly mirror: OutlineFollower<CopySocket>;
   private copy: { socket: string; publisher: Promise<Publisher>; asOf: string } | null = null;
   private access: { at: number; level: McpAccessStatus["level"] } | null = null;
   private stopped = false;
@@ -75,8 +75,8 @@ export class RemoteOutline {
     this.machine = options.machine;
     this.log = options.log ?? (() => {});
     this.now = options.now ?? Date.now;
-    this.mirror = new OutlineMirror<CopySocket>(this.outline, this.machine, options.mirrors, {
-      label: "web mirror", log: this.log, now: this.now, schema: () => SCHEMA_VERSION,
+    this.mirror = new OutlineFollower<CopySocket>(this.outline, this.machine, options.mirrors, {
+      label: "web follow", log: this.log, now: this.now, schema: () => SCHEMA_VERSION, reach: () => options.forward(),
       attach: async socket => ({ board: { socket }, close: () => {} }),
     });
   }
@@ -194,7 +194,7 @@ export class RemoteOutline {
       const publisher = this.options.publisher(new OutlinerClient(read.board.socket, 30_000, this.outline), {
         provenance: () => `${this.outline} · ${this.machine} · as of ${asOf.slice(0, 16).replace("T", " ")} UTC (${this.machine} asleep)`,
         writes: async () => `${this.machine} is asleep: this is its copy as of ${asOf.slice(0, 16).replace("T", " ")} UTC, read-only. Comments and marks are taken again when ${this.machine} answers.`,
-        // Kept beside the mirror (outline-mirror.ts), where the gateway's reader_view reads it.
+        // Kept beside the copy (outline-follower.ts), where the gateway's reader_view reads it.
         presence: true,
       });
       const started = publisher.start().then(() => publisher);

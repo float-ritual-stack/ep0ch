@@ -7,7 +7,6 @@ import { clauses } from "./progress";
 import { hyperOn } from "../hyper";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { CHANGE_AGENT } from "../desk/drawer-program";
-import { backupChecks } from "./backups";
 import { machineChecks } from "./machine-health";
 import { resticChecks } from "../backup/setup";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
@@ -166,8 +165,6 @@ export function doctorChecks(f: Facts): Check[] {
     else add("machines", m.machine, "info", `no forward running (${what}) · a door on it starts one (ep0ch --machine ${m.machine})`);
   }
 
-  // backups: each Litestream unit, its log, and how far each replica (or mirror) trails
-  if (f.backups) for (const c of backupChecks(f.backups, f.home)) add("backups", c.name, c.status, c.detail, c.fix);
   // and the restic job (PIE-607): its units, each outline's newest snapshot, the mirrors, the drill
   if (f.restic) for (const c of resticChecks(f.restic)) add("backups", c.name, c.status, c.detail, c.fix);
   // the machine itself (PIE-1535): failed user units, the nightly run on main, the test runs, the load
