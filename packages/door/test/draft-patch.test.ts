@@ -1,3 +1,4 @@
+import { ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { draftView } from "../src/draft-view";
 import { changesOf, proposed } from "./wire";
 // draft.patch (pi-herdr-outliner PIE-501): an agent's compare-and-swap on a span lands in the draft the person
@@ -55,6 +56,25 @@ describe("an answer landing under the ask the cursor is on (PIE-1585)", () => {
     expect([d.lines[d.row], touches]).toEqual([B, typed]);
     d.key({ kind: "down" });
     expect(touches).toBe(typed + 1);
+  });
+
+  // Codex on #1445: off the line and back before the service read it, the ask waits at the cursor; leaving it again,
+  // untyped, still tells the service, or it never goes until a save.
+  test("an ask waiting at the cursor: leaving its line again without typing tells the service again", () => {
+    const B = "@yo which notes are drafts";
+    const d = new Draft("note-3", 1, `Shed door\n${B}\nend`);
+    let touches = 0;
+    d.onPersonTyped = () => touches++;
+    d.row = 1; d.col = B.length;
+    d.key({ kind: "char", ch: "s" });
+    d.key({ kind: "backspace" });
+    d.key({ kind: "down" });
+    d.key({ kind: "up" });
+    // The read landed with the cursor back on it: the service says it waits.
+    d.progress({ line: B, state: "queued", warning: ASK_AT_CURSOR });
+    const before = touches;
+    d.key({ kind: "down" });
+    expect(touches).toBe(before + 1);
   });
 
   test("the cursor at the ask's end: it lands below and the cursor stays where it was, and typing goes on the ask", () => {

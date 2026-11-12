@@ -122,7 +122,8 @@ async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) 
   cleanups.push(() => watcher.stop());
   await connected.promise;
   door.holdId = (await client.request<{ holdId: string }>({ action: "drafts.hold", blockId: block.id, clientId, revision: block.revision })).holdId;
-  return door;
+  /** The door goes away without letting go of its draft (a dropped connection). */
+  return Object.assign(door, { stop: () => watcher.stop() });
 }
 
 test("request lines: an answered @name at a line's start, outside code; unknown names are prose", () => {
@@ -760,6 +761,65 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "nothing to ch
   await Bun.sleep(400);
   expect(runs()).toBe(3);
 }, 20_000);
+
+// Codex on #1445, finding 2: an ask retyped by hand waits at the cursor; an undo then puts its answer back under it. The
+// answer back is the undo's, so leaving the line asks nothing.
+test("a retype waiting at the cursor, then undone with its answer: leaving the line asks nothing (PIE-1743)", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const saved = store.get(note.id)!.text;
+  const door = await fakeDoor(client, "door-undo-1743", store.get(note.id)!);
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  await type(saved, 1);
+  await type("Beds\nend", 1);
+  await type("Beds\n@count tally the beds\nend", 1);
+  await Bun.sleep(200);
+  await type(saved, 1);
+  await type(saved, 0);
+  await Bun.sleep(400);
+  expect(calls()).toEqual(["run tally the beds"]);
+}, 20_000);
+
+// Codex on #1445, findings 3 and 4: what one door holds unsent is that door's. Another door letting go of its draft
+// leaves it; a door that drops without letting go takes it with it, so a later save asks nothing.
+test("an ask held unsent is its own door's: another door's release keeps it, its own dropped connection ends it (PIE-1743)", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Beds\n@count tally the beds\nend");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered") && calls().length === 1);
+  const typer = (door: Awaited<ReturnType<typeof fakeDoor>>) => {
+    const reads = () => door.requests.filter(r => r.kind === "read").length;
+    return async (text: string, cursor: number) => { const n = reads(); door.text = text; door.cursor = cursor; await client.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  };
+  const retype = async (type: ReturnType<typeof typer>) => {
+    await type(store.get(note.id)!.text, 1);
+    await type("Beds\nend", 1);
+    await type("Beds\n@count tally the beds\nend", 1);
+  };
+  const a = await fakeDoor(client, "door-a-1743", store.get(note.id)!), typeA = typer(a);
+  await retype(typeA);
+  // Door B opens the note and closes its draft unchanged.
+  const b = await fakeDoor(client, "door-b-1743", store.get(note.id)!);
+  await client.request({ action: "drafts.release", holdId: b.holdId });
+  // A's cursor leaves the line: its retype is asked.
+  await typeA("Beds\n@count tally the beds\nend", 0);
+  await until("A's retype asked", () => calls().length === 2);
+  await until("its answer in A's draft", () => a.text.includes("@count answered"));
+  await client.request({ action: "drafts.release", holdId: a.holdId });
+  // A door that retypes and then drops: a later save from elsewhere (a blank line put under the ask) asks nothing.
+  const c = await fakeDoor(client, "door-c-1743", store.get(note.id)!);
+  await retype(typer(c));
+  await Bun.sleep(200);                                                   // its last read answered
+  c.stop();
+  await Bun.sleep(300);
+  const now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: now.text.replace("@count tally the beds\n", "@count tally the beds\n\n"), expectedRevision: now.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls().length).toBe(2);
+}, 30_000);
 
 test("yolo: an agent's r releases a line an agent wrote, as a person's r would (PIE-973)", async () => {
   const { client, create, agentOf, counted } = await setup();

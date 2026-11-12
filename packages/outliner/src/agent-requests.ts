@@ -13,7 +13,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import type { HeldAsk } from "@ep0ch/outline-core/protocol";
-import { ANSWERED_ASK_STATES } from "@ep0ch/outline-core/ask-states";
+import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { decide, newChain, parseGrant, personAsk, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
@@ -93,8 +93,7 @@ const MAX_WROTE_LINKS = 20;
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
 const ANSWERED = ANSWERED_ASK_STATES;
-/** What an ask on the line the person's cursor is on says while it waits for them (PIE-1743). */
-export const AT_CURSOR = "asks once you leave the line or save";
+const AT_CURSOR = ASK_AT_CURSOR;
 /** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
 const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
 const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
@@ -552,7 +551,8 @@ export class AgentRequests {
   released(holdId: string, blockId?: string): void {
     this.draftKeys.delete(holdId);
     // What it held unsent was never sent: a draft let go unsaved leaves the note's asks as they were (PIE-1743).
-    if (blockId) for (const key of this.unsent) if (key.startsWith(`${blockId}\0`)) this.unsent.delete(key);
+    // Only that draft's: another door's ask on the same note waits on (Codex on #1445).
+    for (const [key, by] of this.unsent) if (by === holdId) this.unsent.delete(key);
     if (!blockId || !this.orphansAfterRelease.delete(blockId)) return;
     const block = this.store.get(blockId);
     if (block) void this.dropOrphans(blockId, this.lines(block, null).map(l => l.requestKey)).catch(() => {});
@@ -593,9 +593,9 @@ export class AgentRequests {
   /**
    * Asks a draft holds that wait to be sent (PIE-1743): written on the line the cursor is on, or written again there by
    * hand over an answered one. The next read with the cursor elsewhere, or a save, asks them (the old row going then);
-   * the draft let go unsaved forgets them.
+   * the draft let go unsaved (released, lapsed or its door gone) forgets them. Each is kept with the hold that holds it.
    */
-  private readonly unsent = new Set<string>();
+  private readonly unsent = new Map<string, string | undefined>();
 
   /**
    * The request lines a block already had, as its baseline keeps them. A baseline written before PIE-1722 keyed the same
@@ -913,6 +913,8 @@ export class AgentRequests {
       }
       // An ask the draft held unsent is sent by the save, though the note had its words before (PIE-1743): a retype's old
       // row goes now.
+      // Its answer back under it (the retype undone before the save) is what it had: nothing is asked.
+      if (answered.has(line.requestKey) && this.answerUnder(line, block.text)) this.unsent.delete(key);
       const pending = this.unsent.has(key);
       if (pending && answered.has(line.requestKey) && !this.running.has(key)) {
         answered.delete(line.requestKey);
@@ -968,7 +970,7 @@ export class AgentRequests {
         this.timers.delete(key);
       }
     }
-    for (const key of this.unsent) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.unsent.delete(key);
+    for (const key of this.unsent.keys()) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.unsent.delete(key);
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
@@ -984,7 +986,9 @@ export class AgentRequests {
       // let go unsaved leaves the note as it was.
       const had = rows.get(line.requestKey);
       if (had && seen && !seen.has(line.requestKey) && !this.running.has(key) && (this.retried.take(blockId, line.requestKey)
-        || (ANSWERED.has(had.status) && this.hadAnswer(blockId, line.agent, line.requestKey) && !this.answerUnder(line, text)))) this.unsent.add(key);
+        || (ANSWERED.has(had.status) && this.hadAnswer(blockId, line.agent, line.requestKey) && !this.answerUnder(line, text)))) this.unsent.set(key, holdId);
+      // Its answer back under it since (an undo of the retype): what it had is what it has (Codex on #1445).
+      else if (had && this.unsent.has(key) && this.answerUnder(line, text)) this.unsent.delete(key);
       const pending = this.unsent.has(key);
       if (pending && rows.has(line.requestKey) && cursorLine !== line.line && !this.running.has(key)) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
@@ -1002,7 +1006,7 @@ export class AgentRequests {
       }
       // Being written: the cursor is on it. It waits for the person, saying how it goes (PIE-1743).
       if (cursorLine === line.line) {
-        this.unsent.add(key);
+        this.unsent.set(key, holdId);
         this.deps.changed(blockId, { ...asked(line), state: "queued", warning: AT_CURSOR });
         continue;
       }

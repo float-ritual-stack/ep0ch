@@ -102,6 +102,31 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     } finally { p.close(); }
   }, 45_000);
 
+  // Codex on #1445: the edit closed and opened again beside the same answer tile; typed on, the tile still follows.
+  test("a reopened edit: one character typed on an answered ask, and the tile beside it still says what the line says", async () => {
+    const title = "Seed tin";
+    const id = await create(`${title}\n@tally the packets`);
+    await untilAsync(async () => (await board.get(id))!.text.includes("@tally answered"), "the first answer", 15_000);
+    const p = await pane(id, title, 44, 16);
+    const tile = () => p.capture().split("\n").map(l => l.split("│")[1] ?? "").join(" ").replace(/\s+/g, " ");
+    const edit = () => p.capture().split("\n").map(l => l.split("║")[1] ?? "").join(" ").replace(/\s+/g, " ");
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("editing"), "the edit");
+      p.keys("C-Home", "Down", "End");
+      await until(() => tile().includes("counted: the packets"), "the answer tile beside the ask", 10_000);
+      p.keys("Escape");
+      await until(() => !p.capture().includes("» editing"), "the edit closed", 5000);
+      p.keys("e");
+      await until(() => p.capture().includes("» editing"), "the edit again", 5000);
+      // It opens where the edit was left, on the ask: no move onto it selects it.
+      p.keys("End");
+      p.type(" n");
+      await until(() => edit().includes("asks once you leave the line or save"), "the line saying it waits", 8000);
+      await until(() => tile().includes("asks once you leave the line or save"), "the answer tile saying the same", 8000).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+    } finally { p.close(); }
+  }, 45_000);
+
   test("a click on another line leaves the ask's line: it is sent", async () => {
     const title = "Cold frame";
     const id = await create(`${title}\nprop the lid open`);
