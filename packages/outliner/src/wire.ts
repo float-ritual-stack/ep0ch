@@ -325,6 +325,8 @@ export interface WireAnswers {
   "shares.start": { said?: string | undefined; share: ShareSession; };
   "shares.tunnel": { share: ShareSession | null; };
   "lists.read": import("@ep0ch/outline-core/list-row").ListAnswer;
+  "tiles.view": import("./tile-view").TileView;
+  "outlines.known": import("./outline-links").KnownOutlines;
   "screens.list": import("./screens").ScreensList;
   "screens.save": import("./screens").ScreenSaved;
   "site.answer": SiteAnswer;

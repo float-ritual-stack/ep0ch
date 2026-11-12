@@ -607,6 +607,30 @@
         }
       ],
       "bar": {}
+    },
+    {
+      "from": "extensions",
+      "about": "Extensions",
+      "placeholder": "An extension's name · typed, it can be removed too",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or of what it does"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "outlines",
+      "about": "Outlines",
+      "placeholder": "An outline's name, or a machine's",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or its machine's"
+        }
+      ],
+      "bar": {}
     }
   ]
 }

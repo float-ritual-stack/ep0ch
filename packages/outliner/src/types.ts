@@ -2451,7 +2451,7 @@ export type OutlinerRequestAction =
    * each component's answer in it, ancestors, children, backlinks. For a client that can't run outline-core. Takes
    * `watch` (its answer is awaited: `QueryWatches.askLater`). A note in Trash is refused. Reads only.
    */
-  | ({ id: string; action: "notes.page"; blockId: string } & WatchFields) | import("./screens").ScreensRequest | import("./list-producers").ListsRequest
+  | ({ id: string; action: "notes.page"; blockId: string } & WatchFields) | import("./screens").ScreensRequest | import("./list-producers").ListsRequest | import("./tile-view").TileViewRequest | import("./outline-links").KnownOutlinesRequest
   /**
    * A share session (`ShareSession`): a short-lived public link to the whole outline, as the tailnet's web client shows
    * it, or with `scope` (a block id) to that note and below only. `open`: the note the link opens on (inside it). `ttl`: `30m`, `1h` (the default), up
