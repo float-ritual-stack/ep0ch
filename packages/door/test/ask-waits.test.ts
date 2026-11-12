@@ -183,6 +183,50 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
     } finally { p.close(); }
   }, 45_000);
 
+  // PIE-1758 (the verifier on #1456): the row said `beside ▸` once its answer tile had gone, and an unsaved ask put aside
+  // left its tile saying "Its ask is gone" while the drafts file kept it. At 44×30 the answer opens below (PIE-1757).
+  test("an answer no tile shows: its row says show ▸; put aside unsaved, its tile says the edit kept it", async () => {
+    const title = "Bean canes";
+    const id = await create(`${title}\ntie them in`);
+    const p = await pane(id, title, 44, 30);
+    const words = () => p.capture().split("\n").map(l => l.split(/[║│]/)[1] ?? "").join(" ").replace(/\s+/g, " ");
+    const fail = (e: Error) => { throw new Error(`${e.message}\n${p.capture()}`); };
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("editing"), "the edit");
+      p.keys("C-End", "Enter");
+      p.type("@tally the canes");
+      p.keys("Enter");
+      await until(() => words().includes("· below ▾") && p.capture().includes("counted: the canes"), "the answer below, its row saying so", 15_000).catch(fail);
+      // The answer tile closed (^W j onto it, ^W x): nothing is beside, so the row says what a click does.
+      p.keys("C-w"); p.keys("j"); p.keys("C-w"); p.keys("x");
+      await until(() => !p.capture().includes("counted: the canes"), "the answer tile closed", 5000).catch(fail);
+      await until(() => words().includes("· show ▸"), "the row saying show", 5000).catch(fail);
+      expect(words()).not.toContain("beside ▸");
+      // Back onto the ask: its answer shows again, below, and the row says so.
+      p.keys("Up");
+      await until(() => words().includes("· below ▾") && p.capture().includes("counted: the canes"), "the answer back below", 10_000).catch(fail);
+      // Put aside with the ask unsaved: the tile says where the ask is, never that it's gone.
+      p.keys("Escape"); p.keys("Escape");
+      await until(() => words().includes("Its ask is in the edit you put aside: e brings it back"), "the tile naming the kept edit", 5000).catch(fail);
+      expect(words()).not.toContain("Its ask is gone");
+    } finally { p.close(); }
+  }, 45_000);
+
+  // PIE-1758: at 44×9 the edit's three header rows and its rule left the text one row.
+  test("a 44×9 door's edit gives its text two rows", async () => {
+    const title = "Seed nine";
+    const id = await create(`${title}\nsow the chard`);
+    const p = await pane(id, title, 44, 9);
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("» editing"), "the edit");
+      const rows = p.capture().split("\n"), from = rows.findIndex(l => l.includes("» editing")), to = rows.findIndex((l, i) => i > from && /^╚/.test(l));
+      const text = rows.slice(from + 1, to).filter(l => /Seed nine|sow the chard/.test(l));
+      expect(text, p.capture()).toHaveLength(2);
+    } finally { p.close(); }
+  }, 30_000);
+
   test("an ask backspaced away and saved, then typed back, is answered again; its line never says the old answer", async () => {
     const title = "Shed";
     const ask = "@tally the pots";

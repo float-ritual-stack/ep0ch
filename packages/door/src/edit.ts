@@ -1542,18 +1542,25 @@ export class Draft {
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
-      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + (ask.beside ? ` · ${this.answerWords()}` : "");
+      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + this.answerSaid(ask);
       return width(whole) > room && width(said) <= room ? said : whole;
     }
-    const short = ` · ${ask.state}${ask.beside ? ` · ${this.answerWords()}` : ""}`;
-    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? ` · ${this.answerWords()}` : ""}`;
+    const short = ` · ${ask.state}${this.answerSaid(ask)}`;
+    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${this.answerSaid(ask)}`;
     return width(full) <= room ? full : short;
   }
 
-  /** Where the answer tile is beside this draft's reader (its host's desk says, PIE-1757): null before one opens. */
+  /**
+   * Where the answer tile is beside this draft's reader (its host's desk says, PIE-1757): null when none is open (before
+   * one opens, or once it's closed: a gather, the drawer, x), undefined where no desk holds answer tiles.
+   */
   answerSide: (() => "left" | "right" | "up" | "down" | "tab" | null | undefined) | null = null;
-  /** Where an ask's answer is, as its row says it: beside ▸ until a tile says otherwise (below ▾, in a tab). */
-  private answerWords(): string { return ANSWER_WORDS[this.answerSide?.() ?? "right"]; }
+  /**
+   * Where an ask's answer is, as its row says it: the side its tile is on (beside ▸, below ▾, in a tab), or, with none
+   * open, what a click on the row does (PIE-1758: `beside ▸` once its tile had gone, with nothing beside).
+   */
+  private answerSaid(ask: { beside?: boolean }): string { const words = ask.beside ? this.answerWords() : ""; return words ? ` · ${words}` : ""; }
+  private answerWords(): string { const side = this.answerSide?.(); return side ? ANSWER_WORDS[side] : side === null ? ANSWER_HIDDEN : ""; }
 
   /** The asks (`askKey`) the text this draft opened on (or reloaded) already had an answer under. */
   private answeredAtOpen(): Set<string> {
@@ -1626,6 +1633,8 @@ export class Draft {
 /** The keys that select with shift held (`Draft.key`). */
 /** An ask row's words for where its answer tile is, by its side of the pair with the reader (PIE-1757). */
 const ANSWER_WORDS = { right: "beside ▸", left: "◂ beside", down: "below ▾", up: "above ▴", tab: "in a tab" } as const;
+/** An answer no tile shows: a click on its row (or the cursor onto its ask) shows it. */
+const ANSWER_HIDDEN = "show ▸";
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
 
 export { hangOf, wrapRows, type VRow } from "./draft-view";

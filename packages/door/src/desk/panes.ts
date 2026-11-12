@@ -95,7 +95,7 @@ export interface DeskApi {
   /** The ask the answer tile beside reader `r` shows, if one is there. */
   shownAsk?(r: ReaderPane): string | undefined;
   /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
-  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null;
+  answerSide?(r: ReaderPane): "left" | "right" | "up" | "down" | "tab" | null | undefined;
   selectionSource?(p: ReaderPane): Pane | null;
   hasWiredPreview?(p: ReaderPane): boolean;
   /**
@@ -893,6 +893,10 @@ export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi,
 export function sessionName(p: ReaderPane): string {
   const s = p.surface;
   const what = s.sessionWord() ?? "property panel";
+  // Whose it is, as its session says (PIE-1758): the person's own edit stays theirs when an agent typed a row in it
+  // (an answer under their ask), and an agent's is theirs from its first key.
+  const opened = s.draftSession()?.openedBy;
+  if (opened) return opened.kind === "agent" ? `an agent's (${opened.id}) ${what}` : `the ${what}`;
   const typed = s.draft?.writers ?? s.session?.composer?.writers ?? [];
   const agents = [...new Set(typed.filter(w => w.kind === "agent").map(w => (w as { id: string }).id))];
   return agents.length ? `an agent's (${agents.join(", ")}) ${what}` : `the ${what}`;

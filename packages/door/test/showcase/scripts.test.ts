@@ -198,7 +198,12 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     expect(d.text).toContain("@ask whats up");
     await until(() => d.answerFolds().length === 2 && d.text.includes("I find earlier related notes"), "both prior-art answers", 15000).catch(error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify([...d.asks])}`); });
     const narrow = draftView(d).render(48, 60).map(plain);
-    expect(narrow.join("\n")).toContain("beside ▸");
+    // The rows say what the desk has beside this note (PIE-1758): its answer tile's side when one opened, else no side for
+    // a float, which takes none until ^W f puts it in the layout (answerTile refuses it).
+    const side = stage.answerSide(r) as "left" | "right" | "up" | "down" | "tab" | null | undefined, rows = narrow.join("\n");
+    expect(rows).toContain("· answer in the note · 1 block");
+    if (side === undefined) expect(rows).not.toMatch(/beside ▸|show ▸|below ▾|in a tab/);
+    else expect(rows).toContain(side === null ? "· show ▸" : ({ right: "beside ▸", left: "◂ beside", down: "below ▾", up: "above ▴", tab: "in a tab" } as const)[side]);
     expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
     expect(narrow.join("\n")).toContain("agents here:");
     const ask = "@ask whats up", askRow = d.lines.indexOf(ask);

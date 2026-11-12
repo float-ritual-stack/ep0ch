@@ -794,7 +794,7 @@ describe("draft.patch over the protocol", () => {
     expect(back.text).not.toContain("\n\n\n");
     expect(back.text).not.toContain("  ");
     expect(back.text.split("\n")[0]).toBe("Fix the roof [type::roadmap-item] [work-stage::queued] [work-id::GATE-2]");
-    expect(back.text).toContain(`**Back from later, 2026-11-12:** nudged: a comment 2026-11-12: Still want this before winter ((${comment.id}|the comment))`);
+    expect(back.text).toContain(`**Back from later, 2026-11-12:** nudged: a comment 2026-11-12: Still want this before winter · ((${comment.id}|the comment))`);
   });
 
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
