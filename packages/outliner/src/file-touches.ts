@@ -156,7 +156,6 @@ export async function touchFile(client: AgentToolsClient, input: TouchFileInput,
   const added = count(input.added, "added"), removed = count(input.removed, "removed");
   const root = input.projectRoot?.trim();
   const shown = root && path.startsWith(`${root.replace(/\/+$/, "")}/`) ? path.slice(root.replace(/\/+$/, "").length + 1) : path;
-  await client.requireCompatibleService();
 
   // The session's block for this file, wherever its day put it: one per file per session. Its counts are read again
   // and the write tried again when another write got there first (a revision conflict), so no touch is lost.

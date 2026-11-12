@@ -49,6 +49,14 @@ export function protocolMismatch(serviceProtocol: unknown, client = "this client
   return `${client} speaks protocol ${PROTOCOL} and the outline host ${theirs}: restart the outline host on current code (ep0ch install --apply updates and restarts it)`;
 }
 
+/** Why a host refuses a request from a client speaking `clientProtocol` (PIE-1747): both numbers, and which side to update. */
+export function clientProtocolMismatch(clientProtocol: unknown): string {
+  const theirs = typeof clientProtocol === "number" ? `protocol ${clientProtocol}` : "no protocol";
+  return typeof clientProtocol === "number" && clientProtocol < PROTOCOL
+    ? `this client speaks ${theirs} and the outline host protocol ${PROTOCOL}: update the client (ep0ch install --apply) and restart it`
+    : `this client speaks ${theirs} and the outline host protocol ${PROTOCOL}: restart the outline host on current code (ep0ch install --apply updates and restarts it)`;
+}
+
 /** An outline's name: a short slug of lowercase letters, digits and hyphens. The name is how an outline is found. */
 export const OUTLINE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 

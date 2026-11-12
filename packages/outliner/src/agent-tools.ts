@@ -559,7 +559,6 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     if (["text", "property", "hasKey", "query", "under", "propertyScope"].some(key => given(key as keyof FindInput))) {
       throw new WorkToolRefusal("A view is read on its own (its [property-scope::] says which chips it reads); drop text, property, hasKey, query, under and propertyScope");
     }
-    await client.requireCompatibleService();
     const view = await resolveRef(client, input.view!);
     const read = await readSavedView(client, view.id, { limit });
     if (read.errors.length) throw new WorkToolRefusal(`The view ${view.id} can't be read: ${read.errors.join("; ")}`);
@@ -608,8 +607,6 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     // A recent-activity read (`updated >= -1d`) says how many notes tools stamped it left out, by producer (PIE-1427).
     ...(readsRecentActivity(input.query) ? { countMachinery: true } : {}),
   };
-  // An older service ignores `where` and would return unfiltered results.
-  if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
   return { blocks: found.blocks.map(block => findRow(block, input.properties === true)), complete: found.completeness.kind === "complete", ...(found.machineryLeftOut ? { machineryOmitted: found.machineryLeftOut } : {}) };
 }
@@ -702,7 +699,7 @@ export async function scriptLoadProblems(client: AgentToolsClient, text: string,
   let listed: ExtensionsListResult;
   try {
     listed = await client.request<ExtensionsListResult>({ action: "extensions.list", blockId: self, draft: { text } });
-  } catch { return []; /* an older service, a host that is gone: nothing to say */ }
+  } catch { return []; /* a host that is gone: nothing to say */ }
   const out: string[] = [];
   const say = (line: string) => { if (!out.includes(line)) out.push(line); };
   const mine = listed.extensions.filter(e => e.script?.blockId === self);
@@ -885,7 +882,6 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
   const limit = input.limit === undefined ? 50 : boundedInteger(input.limit, "limit", 1, 1, 500);
   // Every note under it, newest first, as the views read a subtree, its comments left out (the root aside).
   const root = (await resolveRef(client, input.under)).id;
-  await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { subtreeRootId: root, where: "NOT type=annotation", sort: "updated desc", limit: limit + 1 } });
   const rows = found.blocks.filter(b => b.id !== root).slice(0, limit);
   const sweep: FigureSweep = { checked: rows.length, shaped: 0, told: 0, suggested: [] };
@@ -926,7 +922,7 @@ export async function useCallWarnings(client: AgentToolsClient, text: string, se
     try {
       const answer = await client.request<TemplateUseAnswer>({ action: "template.use", block: self, line: call.line, draft: { text } });
       for (const problem of answer.problems) out.push(`the ::use on line ${call.line + 1}: ${problem.message}${problem.example ? ` (for example ${problem.example})` : ""}`);
-    } catch { /* an older service, a host that is gone: nothing to say */ }
+    } catch { /* a host that is gone: nothing to say */ }
   }
   return out;
 }
@@ -1196,7 +1192,6 @@ export async function viewOrder(
   let order: VirtualBranchOrder;
   if (refs.length) {
     if (!actor || (!actor.actorId.trim() && actor.author !== "user")) throw new WorkToolRefusal("view order writes: pass --actor <agent id>");
-    await client.requireCompatibleService();
     order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.move", input: { view: input.view, blocks: refs }, mutation: mutationOf(actor) });
   } else {
     order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.order", viewId: input.view });
@@ -1474,7 +1469,6 @@ export async function changesSince(
   }
   const before = input.before === undefined ? undefined : boundedInteger(input.before, "before", 1, 1, Number.MAX_SAFE_INTEGER);
   const actor = typeof input.actor === "string" && input.actor.trim() ? input.actor.trim() : undefined;
-  await client.requireCompatibleService();
   const authors = (input.author ? [input.author] : actor ? ["agent", "system", "user"] : ["user", "agent", "system"]) as BlockAuthor[];
   // One more than asked (the service's cap is 100), to tell a full page from a cut one.
   const asked = Math.min(limit + 1, 100);
@@ -1559,7 +1553,6 @@ export async function patchDraft(
       throw new WorkToolRefusal("Each patch needs observed (the exact text you read, never empty) and replacement");
     }
   }
-  await client.requireCompatibleService();
   const block = await writableBlock(client, input.ref);
   // The note as its draft has it when a person has it open (drafts.read), else as saved: a patch into a live draft
   // leaves the saved note as it was, so what was written is read where it went.
@@ -1828,7 +1821,6 @@ export async function restoreBlock(client: AgentToolsClient, input: { ref: strin
 
 /** Proposal settlement uses the service's ownership, compare and attribution rules, with no reader involved. */
 export async function settleProposal(client: AgentToolsClient, input: { ref: string }, op: "apply" | "dismiss" | "resolve", actor: AgentActor): Promise<unknown> {
-  await client.requireCompatibleService();
   const { id } = await resolveRef(client, input.ref);
   return client.request({ action: `draft.proposal.${op}`, proposalId: id, mutation: mutationOf(actor) }, op === "resolve" ? 120_000 : undefined);
 }
@@ -1843,7 +1835,6 @@ export async function proposalOutcomesOf(client: AgentToolsClient, input: { sinc
   if (!whose) throw new WorkToolRefusal("agent proposals: give actor (an actor id, or a persona such as loki), or pass --actor <agent id>");
   // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
   const session = !input.actor?.trim() && actor?.sessionId && !parseActor(whose).persona ? actor.sessionId : undefined;
-  await client.requireCompatibleService();
   const ask = (scoped: boolean, limit = input.limit) => client.request<{ actor: string; outcomes: unknown[]; cursor: string; complete: boolean }>({ action: "proposals.outcomes", actor: whose, ...(scoped && session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(limit !== undefined ? { limit } : {}) });
   const page = await ask(true);
   if (page.outcomes.length) return page;
@@ -1862,7 +1853,6 @@ export async function proposalOutcomesOf(client: AgentToolsClient, input: { sinc
  * its props. The service caps its writes at the outline's MCP access, the same as the gateway's script_run.
  */
 export async function runScriptBlock(client: AgentToolsClient, input: { ref: string; this?: string; slots?: Record<string, string> }, actor: AgentActor): Promise<unknown> {
-  await client.requireCompatibleService();
   const { id } = await resolveRef(client, input.ref);
   const about = input.this ? (await resolveRef(client, input.this)).id : undefined;
   return client.request({ action: "scripts.run", blockId: id, ...(about ? { this: about } : {}), ...(input.slots ? { slots: input.slots } : {}), access: "full", mutation: mutationOf(actor) }, 120_000);

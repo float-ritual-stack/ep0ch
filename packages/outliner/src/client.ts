@@ -1,3 +1,4 @@
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import { meetRules } from "./client-code";
 import { createConnection, type Socket } from "node:net";
@@ -126,6 +127,7 @@ export class OutlinerWatcher {
       const request: OutlinerRequest = {
         id: subscriptionId,
         action: "events.subscribe",
+        protocol: PROTOCOL,
         // A pane registers the outline it is on, so Herdr actions invoked from it use that outline.
         client: this.outline ? { ...this.handlers.client, outline: this.outline } : this.handlers.client,
       };
@@ -229,7 +231,7 @@ export class OutlinerClient {
     private readonly ensure?: () => Promise<void>,
   ) {}
 
-  /** Rejects a service that speaks another protocol (outline-core's PROTOCOL). */
+  /** The service's status, refused when it speaks another protocol. A request needs no call first: it says its own (PIE-1747). */
   async requireCompatibleService(): Promise<OutlinerServiceStatus> {
     const service = await this.request<OutlinerServiceStatus>({ action: "ping" });
     requireCompatible(service);
@@ -258,7 +260,8 @@ export class OutlinerClient {
   }
 
   private send<T>(input: RequestInput, timeoutMs: number): Promise<T> {
-    const request = { ...input, id: crypto.randomUUID(), ...(this.outline ? { outline: this.outline } : {}) } as OutlinerRequest;
+    // Every request says its protocol (PIE-1747): a host on another one refuses it, so no caller asks the host first.
+    const request = { ...input, id: crypto.randomUUID(), protocol: PROTOCOL, ...(this.outline ? { outline: this.outline } : {}) } as OutlinerRequest;
     const responseReceived = Promise.withResolvers<T>();
     const socket = createConnection(this.socketPath);
     let buffer = "";

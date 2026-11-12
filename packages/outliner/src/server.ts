@@ -23,7 +23,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, SHARE_TTL, atLeast, lowerLevel, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, clientProtocolMismatch, SHARE_TTL, atLeast, lowerLevel, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
 import { gate } from "./write-gate";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -4128,6 +4128,9 @@ export class OutlinerServer {
       // Queued turns can outlive their mirror generation, but must never read its released store.
       if (this.stopping) throw new Error("The outline service is stopping");
       previousSequence = this.store.sequence;
+      // A client says its protocol on every request (PIE-1747): another one is refused before anything is read or written.
+      const spoken = (request as { protocol?: unknown }).protocol;
+      if (spoken !== undefined && spoken !== PROTOCOL) throw new Refusal("invalid", clientProtocolMismatch(spoken));
       // The host routed this connection by its first line; it stays with that outline.
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
