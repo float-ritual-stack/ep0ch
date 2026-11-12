@@ -403,6 +403,30 @@ export interface ScreenSpec {
    * are its action's row's, never written here.
    */
   toolbar?: string[];
+  /** The screen a window with no arrangement of its own opens on (the native window; the door opens on its desk). */
+  start?: true;
+  /**
+   * What the screen is opened on (`screen.open name=navigator target="type=bed"`, `ep0ch --screen <name> <target>`):
+   * the argument a target fills (`arg`) and the tile's field it becomes (`fills`: `<tile name>.<field>`), so a screen
+   * that starts on a query, a note or a hub is data. `targetFilled` is the one reader.
+   */
+  target?: ScreenTarget;
+}
+
+/** A screen's target (`ScreenSpec.target`). */
+export interface ScreenTarget { arg: string; fills: string }
+
+/**
+ * `spec` opened on `args`: the tile `target.fills` names carries the argument's words in that field. No argument (or
+ * blank), no target, or a tile the layout hasn't: the spec as it is.
+ */
+export function targetFilled(spec: ScreenSpec, args: Readonly<Record<string, unknown>> | undefined): ScreenSpec {
+  const value = spec.target ? args?.[spec.target.arg] : undefined;
+  if (!spec.target || typeof value !== "string" || !value.trim()) return spec;
+  const dot = spec.target.fills.indexOf("."), tile = spec.target.fills.slice(0, dot), field = spec.target.fills.slice(dot + 1);
+  const filled = structuredClone(spec);
+  for (const leaf of [...savedNodes(filled.layout.root), ...(filled.layout.floats ?? []).map(f => f.tile)]) if (leaf?.t === "leaf" && leaf.name === tile) (leaf as Record<string, unknown>)[field] = value.trim();
+  return filled;
 }
 
 /** A screen's row on the main menu (PIE-1525). */
@@ -485,6 +509,12 @@ export function readSpec(x: unknown, isKind?: (kind: string) => boolean): Screen
   }
   if (o.toolbar !== undefined && !(Array.isArray(o.toolbar) && o.toolbar.every(l => typeof l === "string" && l.trim()))) throw new Error(`screen ${name}: toolbar is a list of act lines, one a button`);
   const toolbar = (o.toolbar as string[] | undefined)?.map(l => l.trim());
+  let target: ScreenTarget | undefined;
+  if (o.target !== undefined) {
+    const t = (o.target && typeof o.target === "object" && !Array.isArray(o.target) ? o.target : {}) as Record<string, unknown>;
+    if (typeof t.arg !== "string" || !/^[a-z][a-z0-9_-]{0,31}$/i.test(t.arg) || typeof t.fills !== "string" || !/^[^.\s]+\.[A-Za-z][\w-]*$/.test(t.fills)) throw new Error(`screen ${name}: target is { arg, fills }: the argument a target fills and the tile's field it becomes (fills: "facets.query")`);
+    target = { arg: t.arg, fills: t.fills };
+  }
   const str = (k: string) => (typeof o[k] === "string" && o[k] ? { [k]: o[k] as string } : {});
   const spec: ScreenSpec = {
     name, title, layout,
@@ -497,6 +527,8 @@ export function readSpec(x: unknown, isKind?: (kind: string) => boolean): Screen
     ...(o.digits === false ? { digits: false as const } : {}),
     ...(o.layouts === true ? { layouts: true as const } : {}),
     ...(o.stays === true ? { stays: true as const } : {}),
+    ...(o.start === true ? { start: true as const } : {}),
+    ...(target ? { target } : {}),
   };
   if (isKind) for (const k of leafKinds(layout.root)) if (!isKind(canonKind(k))) throw new Error(`screen ${name}: no tile kind ${k} here`);
   // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
@@ -505,6 +537,7 @@ export function readSpec(x: unknown, isKind?: (kind: string) => boolean): Screen
   for (const b of spec.keys ?? []) if (b.tile !== undefined && b.tile !== "all" && !places.has(b.tile)) throw new Error(`screen ${name}: key ${b.key} runs in tile ${b.tile}, which its layout hasn't`);
   if (spec.band !== undefined && !tiles.has(spec.band)) throw new Error(`screen ${name}: its band is drawn by tile ${spec.band}, which its layout hasn't`);
   for (const k of ["lands", "home"] as const) if (spec[k] !== undefined && !places.has(spec[k]!)) throw new Error(`screen ${name}: ${k} names ${spec[k]}, neither a tile nor a container of its layout`);
+  if (target && !tiles.has(target.fills.slice(0, target.fills.indexOf(".")))) throw new Error(`screen ${name}: its target fills ${target.fills}, a tile its layout hasn't`);
   return spec;
 }
 

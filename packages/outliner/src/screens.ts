@@ -27,6 +27,8 @@ export type ScreensRequest =
     kinds?: string[];
     /** Screen names the asker keeps for itself (its built-ins): a note by one of them opens nothing. */
     reserved?: string[];
+    /** The drawers the asker has (`list`, `page`): a kind an extension serves for a drawer it hasn't is said on the tile. Left out: every served kind counts as drawn. */
+    drawers?: string[];
   }
   | { id: string; action: "screens.save"; spec: unknown; base?: { id: string; revision: number } | null; mutation?: MutationProvenance };
 
@@ -60,7 +62,7 @@ type Own = { request<T>(input: { action: string } & Record<string, unknown>): Pr
 type Read = { id: string; text: string; revision: number };
 type ExtensionsListed = {
   extensions?: readonly { id: string; screens?: readonly ({ name: string } & Record<string, unknown>)[] }[];
-  tileKinds?: readonly { kind: string; replaces?: readonly string[] }[];
+  tileKinds?: readonly { kind: string; replaces?: readonly string[]; drawer?: string }[];
 };
 
 const HOME_TYPE = "screens";
@@ -85,13 +87,16 @@ const near = (kind: string, among: readonly string[]): string | undefined => {
 };
 
 /** What is wrong with each tile's kind: one no door asked for and no extension serves. A replaced name is no problem. */
-function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: ReadonlyMap<string, string>): ScreenProblem[] {
+function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: ReadonlyMap<string, string>, undrawn: ReadonlyMap<string, string>): ScreenProblem[] {
   const leaves = [...savedNodes(spec.layout.root), ...(spec.layout.floats ?? []).map(f => f.tile)].filter(n => n?.t === "leaf");
   return leaves.flatMap(leaf => {
     const kind = canonKind(String(leaf.kind ?? ""));
+    const as = replaced.get(kind) ?? kind;
+    const tile = typeof leaf.name === "string" ? leaf.name : undefined;
+    // A kind an extension serves for a drawer this door hasn't: said as that, never as a typo.
+    if (undrawn.has(as)) return [{ ...(tile ? { tile } : {}), said: `this door has no ${undrawn.get(as)} drawer, which draws a ${as} tile` }];
     if (kinds.includes(kind) || replaced.has(kind)) return [];
     const guess = near(kind, kinds);
-    const tile = typeof leaf.name === "string" ? leaf.name : undefined;
     return [{ ...(tile ? { tile } : {}), said: `no tile kind ${kind || "(none)"} here${guess ? ` · did you mean ${guess}?` : ""}` }];
   });
 }
@@ -113,12 +118,13 @@ function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>):
 }
 
 /** `screens.list`: the outline's screen notes and its extensions' screens, each read, checked and named once. */
-export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest, { action: "screens.list" }>, "kinds" | "reserved">): Promise<ScreensList> {
+export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest, { action: "screens.list" }>, "kinds" | "reserved" | "drawers">): Promise<ScreensList> {
   const [notes, listed] = await Promise.all([byProp(own, "type", SCREEN_TYPE, 500), own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}))]);
   const served = listed.tileKinds ?? [];
   const replaced = new Map(served.flatMap(k => (k.replaces ?? []).map(old => [old, k.kind] as const)));
   const kinds = request.kinds ? [...new Set([...request.kinds.map(canonKind), ...served.map(k => k.kind)])] : null;
-  const checked = (spec: ScreenSpec): ScreenProblem[] => [...addressProblems(spec), ...(kinds ? kindProblems(spec, kinds, replaced) : [])];
+  const undrawn = new Map(request.drawers ? served.flatMap(k => k.drawer && !request.drawers!.includes(k.drawer) ? [[k.kind, k.drawer] as const] : []) : []);
+  const checked = (spec: ScreenSpec): ScreenProblem[] => [...addressProblems(spec), ...(kinds ? kindProblems(spec, kinds, replaced, undrawn) : [])];
   const problems: string[] = [];
   const rows: ScreenRow[] = [];
   const theirs = new Map<string, string>();

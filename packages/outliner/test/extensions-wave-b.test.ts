@@ -490,10 +490,10 @@ test("a tile that is drawn rows or a view (PIE-1506): render names a shipped ren
   const frame = await client.request<{ view?: { type: string; rows: { label: string }[] } }>({ action: "scripts.render", of: "rota-list", props: { where: ["type=chore"] }, deadlineMs: 5000 });
   expect(frame.view?.type).toBe("list");
   expect(frame.view?.rows.map((r) => r.label).sort()).toEqual(["Feed the hens", "Sweep the yard"]);
-  // Exactly one of run, render and view; render names a script the extension ships.
+  // Exactly one of run, render, view and drawer; render names a script the extension ships.
   writeExtension(extensionsFolder, "rota2", { tiles: [{ kind: "list", name: "Rota" }] });
   await until("rota2 to fail", async () => (await list(true)).extensions.find((entry) => entry.id === "rota2" && entry.state === "failed"));
-  expect((await list()).extensions.find((entry) => entry.id === "rota2")?.error).toMatch(/tiles\/0 needs one of run, render or view/);
+  expect((await list()).extensions.find((entry) => entry.id === "rota2")?.error).toMatch(/tiles\/0 needs one of run, render, view or drawer/);
   writeExtension(extensionsFolder, "rota3", { tiles: [{ kind: "list", name: "Rota", render: "nowhere" }] });
   await until("rota3 to fail", async () => (await list(true)).extensions.find((entry) => entry.id === "rota3" && entry.state === "failed"));
   expect((await list()).extensions.find((entry) => entry.id === "rota3")?.error).toMatch(/tiles\/0\/render names nowhere, which scripts\[\] doesn't declare/);

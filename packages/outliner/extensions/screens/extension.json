@@ -1,0 +1,171 @@
+{
+  "contract": 2,
+  "id": "screens",
+  "version": 1,
+  "name": "Screens",
+  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers and who's online, and the outline, reader, query, links and activity tiles they are made of. Fork it to change what a door opens on.",
+  "defaultOn": true,
+  "tiles": [
+    {
+      "kind": "tree",
+      "name": "Outline",
+      "description": "the outline tree; a pick opens a note where its opens land",
+      "drawer": "list",
+      "fields": { "from": "children" },
+      "replaces": ["tree"]
+    },
+    {
+      "kind": "reader",
+      "name": "Reader",
+      "description": "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "drawer": "page",
+      "replaces": ["reader"]
+    },
+    {
+      "kind": "query",
+      "name": "Query",
+      "description": "the notes a question lists (query=\"type=bed NOT stage=done\", the views' grammar), or the cards of a saved view (view=<its block id>); group=<a property name> with arrange=lanes makes a board's lanes, sort= and columns= name properties too",
+      "drawer": "list",
+      "fields": { "from": "query" },
+      "replaces": ["query"]
+    },
+    {
+      "kind": "backlinks",
+      "name": "Links",
+      "description": "the links of a note, its subject, beside its home reader (source=tile:<name>): the notes that link to it, the ones it links to and the ones under it (linkGroups= names some); subject=follows lists what its home shows as it changes",
+      "drawer": "list",
+      "fields": { "from": "links" },
+      "replaces": ["backlinks"]
+    },
+    {
+      "kind": "props",
+      "name": "Properties",
+      "description": "the properties and the record of the note another tile shows (source=tile:<name>); a pick opens the question for that value",
+      "drawer": "list",
+      "fields": { "from": "properties", "subject": "follows" },
+      "replaces": ["props"]
+    },
+    {
+      "kind": "facets",
+      "name": "Facets",
+      "description": "the properties the notes have, each opening to its values with how many notes carry them; a pick narrows the question, and the Matches tile beside it (source=tile:<this one>) lists what is left; query=<a starting query>",
+      "drawer": "list",
+      "fields": { "from": "facets" },
+      "replaces": ["facets"]
+    },
+    {
+      "kind": "matches",
+      "name": "Matches",
+      "description": "a facets tile's Matches: the notes its selection leaves, in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and opens",
+      "drawer": "list",
+      "fields": { "from": "query", "sort": "updated desc" },
+      "replaces": ["matches"]
+    },
+    {
+      "kind": "activity",
+      "name": "Activity",
+      "description": "recent edits by people and agents",
+      "drawer": "list",
+      "fields": { "from": "activity" },
+      "replaces": ["activity"]
+    },
+    {
+      "kind": "who",
+      "name": "Who",
+      "description": "who's attached to the outline",
+      "drawer": "list",
+      "fields": { "from": "clients" },
+      "replaces": ["who"]
+    }
+  ],
+  "screens": [
+    {
+      "name": "desk",
+      "title": "Desk",
+      "start": true,
+      "lands": "reader",
+      "newNote": [{ "opens": "lands" }],
+      "toolbar": ["back", "bar.open", "bar.open scope=query", "bar.open scope=screens", "note.new", "tile.split", "screen.save", "screen.reset", "dock.toggle side=right"],
+      "layout": {
+        "focus": "reader",
+        "root": {
+          "t": "split", "dir": "row", "weights": [0.22, 0.78],
+          "kids": [
+            { "t": "leaf", "kind": "tree", "name": "tree", "wires": [{ "verb": "select", "to": "reader" }] },
+            {
+              "t": "split", "dir": "row", "weights": [0.72, 0.28],
+              "kids": [
+                { "t": "leaf", "kind": "reader", "name": "reader" },
+                {
+                  "t": "dock", "edge": "right", "open": true, "policy": { "overlay": false },
+                  "kid": {
+                    "t": "split", "dir": "col", "weights": [0.5, 0.5],
+                    "kids": [
+                      { "t": "leaf", "kind": "props", "name": "props", "source": "tile:reader", "subject": "follows" },
+                      { "t": "leaf", "kind": "backlinks", "name": "backlinks", "source": "tile:reader", "subject": "follows" }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "navigator",
+      "title": "navigator",
+      "lands": "reader",
+      "target": { "arg": "query", "fills": "facets.query" },
+      "toolbar": ["back", "bar.open", "bar.open scope=screens", "screen.reset"],
+      "layout": {
+        "focus": "facets",
+        "root": {
+          "t": "flow", "key": "navigator", "anchor": 1, "held": [0, 1, 2],
+          "kids": [
+            { "t": "leaf", "kind": "facets", "name": "facets", "args": { "place": "tile", "open": ["views"] } },
+            { "t": "leaf", "kind": "matches", "name": "matches", "source": "tile:facets", "wires": [{ "verb": "select", "to": "reader" }, { "verb": "open", "to": "reader" }] },
+            { "t": "leaf", "kind": "reader", "name": "reader" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "board",
+      "title": "board",
+      "lands": "reader",
+      "toolbar": ["back", "bar.open", "bar.open scope=screens", "note.new", "screen.reset"],
+      "layout": {
+        "focus": "lanes",
+        "root": {
+          "t": "split", "dir": "col", "weights": [0.58, 0.42],
+          "kids": [
+            { "t": "leaf", "kind": "query", "name": "lanes", "query": "work-stage", "group": "work-stage", "sort": "updated desc", "arrange": "lanes", "wires": [{ "verb": "select", "to": "reader" }] },
+            { "t": "leaf", "kind": "reader", "name": "reader" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "lastcall",
+      "title": "last callers",
+      "toolbar": ["back", "bar.open", "bar.open scope=screens", "screen.reset"],
+      "layout": {
+        "focus": "activity",
+        "root": {
+          "t": "split", "dir": "row", "weights": [0.5, 0.5],
+          "kids": [
+            { "t": "leaf", "kind": "activity", "name": "activity" },
+            { "t": "leaf", "kind": "reader", "name": "reader" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "who",
+      "title": "who's online",
+      "toolbar": ["bar.open", "bar.open scope=screens"],
+      "layout": { "focus": "who", "root": { "t": "leaf", "kind": "who", "name": "who" } }
+    }
+  ]
+}
