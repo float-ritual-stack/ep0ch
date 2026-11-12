@@ -75,6 +75,19 @@ test("a kind nobody draws and a name the layout hasn't are said for their tile, 
   expect((await list()).screens[0]!.problems).toEqual([{ tile: "beds", said: "beds sends its select to raeder, a tile this screen hasn't" }]);
 });
 
+test("a kind is served as the kind it is: a retired name read as the kind that took its place", async () => {
+  const { create, list } = await setup();
+  const note = await create("Seed list [type::screen] [screen::seed-list] [lands::bed]");
+  const split = await create("split row [ratio::0.5]", note.id);
+  await create("tile detail [name::bed]", split.id);
+  await create("tile pinned [name::almanac]", split.id);
+  const { screens } = await list({ kinds: ["reader"] });
+  const kindsOf = (root: unknown): string[] => { const n = root as { t?: string; kind?: string; kids?: unknown[]; a?: unknown; b?: unknown }; return n.t === "leaf" ? [n.kind!] : [...(n.kids ?? []), n.a, n.b].filter(Boolean).flatMap(kindsOf); };
+  // Whoever reads the row finds the kind it draws by: no client keeps its own map from an old name.
+  expect(kindsOf(screens[0]!.spec!.layout.root)).toEqual(["reader", "reader"]);
+  expect(screens[0]!.problems).toEqual([]);
+});
+
 test("a note that doesn't read, two notes with one name and a name the asker keeps open nothing, and say why", async () => {
   const { create, list } = await setup();
   const stray = await create("Compost [type::screen]");

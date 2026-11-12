@@ -96,6 +96,21 @@ function kindProblems(spec: ScreenSpec, kinds: readonly string[], replaced: Read
   });
 }
 
+/**
+ * `spec` with each tile's kind as the kind it is: a retired name (`detail`, `pinned`) and a name an extension's kind
+ * replaces read as the kind that took their place. The one place a served screen's kinds are resolved: a client finds
+ * its drawer by the kind the row says, and keeps no map from old names of its own.
+ */
+function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>): ScreenSpec {
+  const served = structuredClone(spec);
+  for (const leaf of [...savedNodes(served.layout.root), ...(served.layout.floats ?? []).map(f => f.tile)]) {
+    if (leaf?.t !== "leaf" || typeof leaf.kind !== "string") continue;
+    const kind = canonKind(leaf.kind);
+    leaf.kind = replaced.get(kind) ?? kind;
+  }
+  return served;
+}
+
 /** `screens.list`: the outline's screen notes and its extensions' screens, each read, checked and named once. */
 export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest, { action: "screens.list" }>, "kinds" | "reserved">): Promise<ScreensList> {
   const [notes, listed] = await Promise.all([byProp(own, "type", SCREEN_TYPE, 500), own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}))]);
@@ -110,7 +125,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
     theirs.set(screen.name, extension.id);
     try {
       const spec = readSpec({ ...screen, title: typeof screen.title === "string" && screen.title ? screen.title : screen.name });
-      rows.push({ name: spec.name, title: spec.title, from: "extension", extension: extension.id, spec, problems: checked(spec) });
+      rows.push({ name: spec.name, title: spec.title, from: "extension", extension: extension.id, spec: kindsResolved(spec, replaced), problems: checked(spec) });
     } catch (e) { rows.push({ name: screen.name, title: screen.name, from: "extension", extension: extension.id, problems: [{ said: `the ${extension.id} extension's screen ${screen.name}: ${(e as Error).message}` }] }); }
   }
   const read = await Promise.all(notes.map(async note => readScreenNote(await subtree(own, note))));
@@ -125,7 +140,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
     if (clash) problems.push(clash);
     for (const r of same) {
       if ("problem" in r) rows.push({ name, title: name, from: "note", note: { id: r.id, revision: 0, form: "blocks" }, problems: [{ said: r.problem }, ...(clash ? [{ said: clash }] : [])] });
-      else rows.push({ name, title: r.title, from: "note", note: { id: r.id, revision: r.revision, form: r.form }, ...(clash ? {} : { spec: r.spec }), problems: [...(clash ? [{ said: clash }] : []), ...checked(r.spec)] });
+      else rows.push({ name, title: r.title, from: "note", note: { id: r.id, revision: r.revision, form: r.form }, ...(clash ? {} : { spec: kindsResolved(r.spec, replaced) }), problems: [...(clash ? [{ said: clash }] : []), ...checked(r.spec)] });
     }
   }
   rows.sort((a, b) => a.name.localeCompare(b.name) || (a.note?.id ?? "").localeCompare(b.note?.id ?? ""));
