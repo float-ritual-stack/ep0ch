@@ -7536,17 +7536,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** ^W G in a split: the person chooses this tile or the whole split (a list picker, the tile menu's own kind). */
   askGather(sel: string | undefined, offer: { node: string; names: string[] }): TileDone {
     const t = this.tile(sel);
-    const rows: { label: string; args: Record<string, unknown> }[] = [
-      { label: `this tile · ${t.name}`, args: {} },
-      { label: `the whole split · ${offer.names.join(", ")}`, args: { node: offer.node } },
+    // In a group (gone in), its whole desk gathered again would be the group: the question offers to spill it instead (PIE-1775).
+    const h = this.holder, whole = this.inGroup() && leaves(this.root).length === offer.names.length, up = h?.desk();
+    const rows: { label: string; run: () => unknown }[] = [
+      { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
+      whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
-    this.overlay(new ListPicker<{ label: string; args: Record<string, unknown> }, Desk>({
+    this.overlay(new ListPicker<{ label: string; run: () => unknown }, Desk>({
       name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
       row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-      choose: (it, _i, d) => void d.run("tile.group", it.args, t.name),
+      choose: it => void it.run(),
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
     }));
-    return { ...this.tileAnswer(t.id), asked: true };
+    return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }
 
   /** This screen is a group's: its tiles can go back out. */

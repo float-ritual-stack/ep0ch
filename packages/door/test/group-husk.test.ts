@@ -5,7 +5,7 @@
 // gone into the group or the drawer or closed. Real panes over a scratch service with a made-up agent; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { beanDesk, gather, TallyDoors, widths, type Pane } from "./tally-pane";
+import { beanDesk, cellOf, gather, TallyDoors, widths, type Pane } from "./tally-pane";
 
 describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (PIE-1775)", () => {
   const doors = new TallyDoors();
@@ -74,6 +74,21 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
       p.keys("C-w", "B");
       await until(() => widths(p)[0]?.startsWith("group ") ?? false, "the group back").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
       await until(() => inner() === stood, "its tiles as they last stood", 3000).catch(e => { throw new Error(`${e.message}: ${inner()}, was ${stood} (gathered ${gathered})`); });
+    } finally { p.close(); }
+  }, 40_000);
+
+  test("gone into a group, ^W G offers to spill the group, not to gather the whole group again", async () => {
+    const p = await beanDesk(doors);
+    try {
+      await gather(p);
+      p.keys("C-w", "e");
+      await until(() => p.capture().includes("· in"), "in the group");
+      p.keys("C-w", "G");
+      await until(() => p.capture().includes("spill the group"), "the question").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+      expect(p.capture()).not.toContain("the whole split");
+      p.click(cellOf(p.capture(), "spill the group")!);
+      await until(() => widths(p)[0]?.startsWith("detail ") ?? false, "spilled").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      expect(widths(p).map(w => w.split(" ")[0])).toEqual(["detail", "answer", "detail2", "detail3"]);
     } finally { p.close(); }
   }, 40_000);
 
