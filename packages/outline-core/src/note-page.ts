@@ -66,7 +66,7 @@ export const PAGE_PRIMITIVE_FIELDS = {
   markdown: ["text"],
   picture: ["path", "svg", "alt", "width", "height", "align", "fit", "focus", "dim", "problems"],
   source: ["text"],
-  part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "view"],
+  part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "needs", "view"],
 } as const satisfies { [T in Exclude<PagePrimitive["type"], Primitive["type"]>]: readonly string[] };
 
 /** What a part was written as: `componentAt`'s kinds (component-at.ts), prose, and a picture. Said for a reader of the data; nothing draws by it. */
@@ -100,6 +100,8 @@ export interface PagePart {
   truncated?: true;
   /** A button whose press is the service's to run (several steps, or a script): `scripts.sequence` with `block` and `line`. */
   sequence?: true;
+  /** The slots a button's line leaves empty (`{bed}` with `bed=` unwritten): a press has nothing to run until each is written or asked for. Any other `error` on a button is said and stops no press. */
+  needs?: string[];
   view: PagePrimitive;
 }
 

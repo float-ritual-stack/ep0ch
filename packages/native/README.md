@@ -270,8 +270,8 @@ first frame. A Rune `--script` taps by element key: a tile's parts are under `ti
 - Figures with no primitive form yet (`uptime`, `activity`, `calendar`, `quadrant`, `flow`) show their lines as
   written, and a live `tabs` with nothing in it the service's Markdown; a view draws as rows whatever its layout; a
   `::use` shows its line (a template's body isn't walked yet); an extension's component shows its source; a
-  property written in prose stays as written. A button with an empty slot says what to write and doesn't ask for
-  it; a button inside a list item draws as a part between the items. `docs/prim-coverage.md` has each.
+  property written in prose stays as written. A button with an empty slot (the part's `needs`) says what to write and doesn't ask for
+  it; one whose look word isn't read says so and still runs; a button inside a list item draws as a part between the items. `docs/prim-coverage.md` has each.
 - A list in a note has no filter, selection or preview pane; a row that copies or inserts is words. A heading
   style's glyph tracks aren't drawn.
 - Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle

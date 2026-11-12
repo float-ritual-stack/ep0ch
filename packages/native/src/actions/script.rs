@@ -37,8 +37,11 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let part = match parts::button(page, args.number("line").map(|n| n as u64), args.text("label")) { Ok(part) => part.clone(), Err(why) => return Outcome::refused(why) };
     let (view, block, line) = (&part["view"], parts::text(&part, "block").unwrap_or(&page.id).to_string(), part["line"].as_u64().unwrap_or(0));
     let (label, act) = (parts::words(&view["label"]), parts::text(view, "act").unwrap_or("").to_string());
-    // The service's word on a button that can't run as written: said, and nothing runs.
-    if let Some(wrong) = parts::text(&part, "error") {
+    // A button whose line leaves a slot empty has nothing to run yet (the part says what it `needs`): the service's
+    // word on it is said, and nothing runs. Its word on anything else (a look it doesn't read) stops no press.
+    let needs: Vec<&str> = parts::list(&part, "needs").iter().filter_map(Value::as_str).collect();
+    if !needs.is_empty() {
+        let wrong = parts::text(&part, "error").map(str::to_string).unwrap_or_else(|| format!("no {} yet", needs.join(" or ")));
         say(app, &tile, &block, line, format!("{label}: {wrong}"), false);
         return Outcome::refused(format!("{label} can't run as written: {wrong}"));
     }

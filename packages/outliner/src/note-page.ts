@@ -137,8 +137,10 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
         const { call } = found, tone = call.look.tone && BUTTON_TONE[call.look.tone];
         // A button that names nothing to run is its lines, with what to write: a press of it would run nothing.
         if (call.act === null) return part("button", i, end, asWritten(i, end), { name: BUTTON_NAME, error: call.problem ?? "this button names nothing to run: write act= on its line" });
-        const wrong = call.problem ?? call.lookProblem ?? (call.empty.length ? `no ${call.empty.join(" or ")} yet: write ${call.empty[0]}= on its line` : undefined);
-        return part("button", i, end, { type: "button", label: call.label, act: call.act, ...(tone ? { tone } : {}) }, { name: BUTTON_NAME, ...(call.sequence ? { sequence: true } : {}), ...(wrong ? { error: wrong } : {}) });
+        // What stops a press and what doesn't are said apart: an empty slot is what the button `needs` (a press has
+        // nothing to fill it with); a look word it doesn't read is only said, as the door draws the rest and runs it.
+        const wrong = [call.empty.length ? `no ${call.empty.join(" or ")} yet: write ${call.empty[0]}= on its line` : undefined, call.lookProblem].filter(Boolean).join(" · ");
+        return part("button", i, end, { type: "button", label: call.label, act: call.act, ...(tone ? { tone } : {}) }, { name: BUTTON_NAME, ...(call.sequence ? { sequence: true } : {}), ...(call.empty.length ? { needs: call.empty } : {}), ...(wrong ? { error: wrong } : {}) });
       }
       case "use": {
         // The template's own body is drawn through its Site chain, which a page doesn't walk yet: the call, as written, with what is wrong with it.
