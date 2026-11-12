@@ -249,26 +249,8 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
   return { tool, revision, input: rest };
 }
 
-/** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
-interface AgentTools {
-  settleProposal(c: unknown, input: { ref: string }, op: "apply" | "dismiss", actor: WriteActor): Promise<unknown>;
-  createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
-  commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
-  replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
-  editComment(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; mark: string; revision: number }>;
-  resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
-  patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
-  setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
-  assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
-  moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
-  trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
-  restoreBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied"; said: string } & Record<string, unknown>>;
-  resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
-  resourceRefOf(ref: string): unknown | null;
-  readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
-  proposalOutcomesOf(c: unknown, input: Record<string, unknown>, actor: WriteActor | undefined): Promise<Record<string, unknown>>;
-}
-type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; beside: string; deduped?: true };
+/** The outliner's agent operations, typed from the module itself (PIE-1748): no copy to keep in step. */
+type AgentTools = typeof import("@ep0ch/outliner/agent-tools");
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
 let agentTools: Promise<AgentTools> | null = null;
 const loadAgentTools = () => agentTools ??= import(AGENT_TOOLS_MODULE) as Promise<AgentTools>;
@@ -285,7 +267,7 @@ const clientOf = (board: WriteBoard) => ({
  * resolve is an error, never a new page. A title is refused, as there.
  */
 /** What became of an agent's proposals (PIE-1086), by the outliner's own reader, the one the Claude mod's outline_proposals runs. */
-export async function proposalOutcomesOn(board: WriteBoard, input: Record<string, unknown>, actor: WriteActor): Promise<Record<string, unknown>> {
+export async function proposalOutcomesOn(board: WriteBoard, input: Parameters<AgentTools["proposalOutcomesOf"]>[1], actor: WriteActor) {
   return (await loadAgentTools()).proposalOutcomesOf(clientOf(board), input, actor);
 }
 
@@ -298,7 +280,7 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
  * and the door's person all come here): under `parent` (a ref, or `root`) at `position`, `before` or `after` a sibling, or
  * one `step`; with `revision`, only the note as it was read. `actor.author` is who asked ("user" for the person).
  */
-export async function moveWithRules(board: WriteBoard, input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision: number; step?: string }, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string; parentId?: string | null; position: number; revision: number; previousParentId?: string | null; previousPosition: number } & Record<string, unknown>> {
+export async function moveWithRules(board: WriteBoard, input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision: number; step?: import("@ep0ch/outliner/agent-tools").MoveStep }, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string; parentId?: string | null; position: number; revision: number; previousParentId?: string | null; previousPosition: number } & Record<string, unknown>> {
   return (await loadAgentTools()).moveBlock(clientOf(board), input, actor) as never;
 }
 
@@ -311,9 +293,11 @@ export async function isResourceRef(ref: string): Promise<boolean> {
 }
 
 /** A Resource with its stored text and open comment threads (`outliner agent read`, as the Claude mod's outline_read gives it). */
-export async function readResourceOn(board: WriteBoard, ref: string): Promise<Record<string, unknown>> {
+export async function readResourceOn(board: WriteBoard, ref: string) {
   const tools = await loadAgentTools();
-  return tools.readResource(clientOf(board), tools.resourceRefOf(ref));
+  const resource = tools.resourceRefOf(ref);
+  if (!resource) throw new Error(`${ref} names no Resource: resource:<id> or a [file::path] token`);
+  return tools.readResource(clientOf(board), resource);
 }
 
 /** A comment on a Resource's text, as the agent (the same operation as a block's comment, kept for the note whose link names it with `from`). */

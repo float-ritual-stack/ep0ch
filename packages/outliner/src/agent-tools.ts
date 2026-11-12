@@ -1830,7 +1830,7 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
  * (proposal-outcomes.ts). Whose: `actor` when given, else the caller's own: a persona in it covers every client it writes
  * through; with none, only the caller's session (`--session`) is its own.
  */
-export async function proposalOutcomesOf(client: AgentToolsClient, input: { since?: string; actor?: string; limit?: number }, actor: AgentActor | undefined): Promise<unknown> {
+export async function proposalOutcomesOf(client: AgentToolsClient, input: { since?: string; actor?: string; limit?: number }, actor: AgentActor | undefined) {
   const whose = input.actor?.trim() || actor?.actorId.trim();
   if (!whose) throw new WorkToolRefusal("agent proposals: give actor (an actor id, or a persona such as loki), or pass --actor <agent id>");
   // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
