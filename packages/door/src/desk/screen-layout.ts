@@ -100,9 +100,9 @@ export interface LayoutState<I = number> {
 }
 
 export type AcrossWire<I = number> = { from: I; to: string; verb: WireVerb; rule?: AltRule };
-export type WireVerb = "select" | "open" | "alt" | "hover";
+export { WIRE_VERBS, type WireVerb } from "@ep0ch/outline-core/screen-spec";
 export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule };
-export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt", "hover"];
+import type { WireVerb } from "@ep0ch/outline-core/screen-spec";
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
 /** Only a float opened by the door is a peek; a person's select-wired reader stays theirs. */

@@ -2,15 +2,11 @@
 // exceptions. The words and the refusal live here, so the layout's rules (src/desk/screen-layout.ts) and the
 // dispatcher's actor rule (src/surface/dispatch.ts) say the same thing. The person's own keys are never limited.
 
-/**
- * `free` (the default): an agent may open notes in the tile, navigate it, split it, close it or retarget it.
- * `edit`: it may edit the note the tile shows (patch, comment, set properties), not navigate, close, retarget or move
- * the tile; its own new tiles go elsewhere. `off`: it may read the tile through `peek`, and takes no action on it or
- * its note.
- */
-export type AgentLevel = "free" | "edit" | "off";
-export const AGENT_LEVELS: readonly AgentLevel[] = ["free", "edit", "off"];
-export const isAgentLevel = (x: unknown): x is AgentLevel => typeof x === "string" && (AGENT_LEVELS as readonly string[]).includes(x);
+// The levels themselves are outline-core's (a saved layout's policy names them): `free`, an agent may open notes in the
+// tile, navigate it, split it, close it or retarget it; `edit`, it may edit the note the tile shows, not navigate, close,
+// retarget or move the tile; `off`, it may read the tile through `peek`, and takes no action on it or its note.
+export { AGENT_LEVELS, isAgentLevel, type AgentLevel } from "@ep0ch/outline-core/screen-spec";
+import { AGENT_LEVELS, type AgentLevel } from "@ep0ch/outline-core/screen-spec";
 
 /** The level in the words the tile's chip and the refusals use. */
 export const AGENT_WORDS: Record<AgentLevel, string> = { free: "agents: free", edit: "agents: edit only", off: "agents: hands off" };

@@ -27,8 +27,9 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { PtyPane, type PtySpec } from "./pty";
 import type { TileSpec } from "./tiles";
 
-/** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). */
-export type TileKindName = string;
+/** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). A saved tile names it (outline-core's TileSpec). */
+export type { TileKindName } from "@ep0ch/outline-core/screen-spec";
+import type { TileKindName } from "@ep0ch/outline-core/screen-spec";
 
 /** What a kind's actions run on: the tile (its pane and its name) and the desk it's on. */
 export interface KindHost { pane: any; desk: DeskApi; tile: string; standing: boolean }
