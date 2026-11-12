@@ -1124,7 +1124,9 @@ export class Draft {
         // PIE-1756) leaves the words being typed alone: only the cursor's own line holds it back.
         // Judged on the whole draft, so a chip inside a code fence is the fence's text, never a property (CodeRabbit on #1458).
         const stamp = (sp: LocatedSpan) => chipsOnly(text, text.slice(0, sp.start) + sp.replacement + text.slice(sp.end)) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
-        if (located.spans.some(sp => !stamp(sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
+        // A paragraph of its own added at the very end (a restore's dated line, PIE-1760) changes nothing typed: it
+        // opens below the cursor, which stays where it is.
+        if (located.spans.some(sp => !stamp(sp) && !belowAll(text, sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
           return no("it changes the block being typed in");
         }
       }
@@ -1149,7 +1151,9 @@ export class Draft {
       }
     }
     // A cursor at the ask's end stays there, on the line it was typing: the answer opens below it.
-    this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : undefined);
+    // A paragraph added at the end opens below the cursor: an offset at the end stays put (PIE-1760).
+    const above = located.spans.filter(sp => !belowAll(text, sp));
+    this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : above.length < located.spans.length ? o => mapOffset(o, above) : undefined);
     const latest = this.undos.at(-1);
     if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
@@ -1896,6 +1900,8 @@ const chipsMoved = (props: PropertyList, before: string, after: string): Propert
   for (const gone of less(was, now)) { const i = out.findIndex(p => `${p.key}\u0000${p.value}` === gone); if (i >= 0) out.splice(i, 1); }
   return [...out, ...less(now, was).map(c => { const [key, value] = c.split("\u0000") as [string, string]; return { key, value }; })];
 };
+/** A paragraph of its own added at the very end of `text`, in place of nothing or of its trailing blank lines. */
+const belowAll = (text: string, sp: LocatedSpan) => sp.end === text.length && !text.slice(sp.start).trim() && sp.replacement.startsWith("\n");
 /** Where the line holding `offset` starts and ends in `text`. */
 const lineStartAt = (text: string, offset: number) => text.lastIndexOf("\n", offset - 1) + 1;
 const lineEndAt = (text: string, offset: number) => { const end = text.indexOf("\n", offset); return end < 0 ? text.length : end; };

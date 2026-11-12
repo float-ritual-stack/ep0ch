@@ -82,10 +82,11 @@ export interface ExtensionCallReference {
   /**
    * A block's properties changed by key, with no revision to read first: `set` a key's value, `add` a number to it
    * (`{ op: "add", key: "visits", by: 1 }`), each the first such chip or a new one on the property line (PIE-1752).
-   * `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. On a note a door holds a
-   * live draft of, the saved note and the draft take it together (`draft` is the draft as it is now, typing and all);
-   * one on the very line the person is typing on, or while their save is under way, is refused and nothing is
-   * written (PIE-1756).
+   * `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. `{ op: "line", text }` adds
+   * one line at the note's end, a paragraph of its own (a dated "why" beside a stage change, PIE-1760). On a note a
+   * door holds a live draft of, the saved note and the draft take it together, whoever writes it (`draft` is the draft
+   * as it is now, typing and all; a line comes in below the cursor); an agent's on the very line the person is typing
+   * on, or one while their save is under way, is refused and nothing is written (PIE-1756).
    */
   "properties.patch": Call<Ask<"properties.patch", "keepUpdated">, PropertiesPatched>;
   /**

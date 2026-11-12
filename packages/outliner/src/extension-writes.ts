@@ -1,3 +1,4 @@
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { personRequestKeys } from "./agent-requests";
 import { personAsk } from "./invocation-grants";
@@ -641,23 +642,38 @@ export function wholeTextSpan(before: string, after: string): DraftPatchSpan | n
 }
 
 /**
- * The lines `after` changed, one span each (PIE-1756): a property set on the header and another lower down are two
- * small spans, so a passage between them being typed in is left out of the patch. A change that adds or removes lines,
- * or fills an empty one (nothing there to compare), is the one span wholeTextSpan makes.
+ * What `after` changed in `before`, as small spans (PIE-1756, PIE-1760): on each changed line, the chips it touched
+ * (a value replaced, a chip added after the one before it), else the whole line. A span that is only its chips leaves
+ * the words typed beside them on the same line alone, so the person's own command lands while they type on the title.
+ * A change that adds or removes lines is the one span wholeTextSpan makes.
  */
-export function changedLineSpans(before: string, after: string): DraftPatchSpan[] {
+export function chipSpans(before: string, after: string): DraftPatchSpan[] {
   if (before === after) return [];
   const was = before.split("\n"), now = after.split("\n");
   const whole = [wholeTextSpan(before, after)!];
   if (was.length !== now.length) return whole;
+  const records = parsePropertyRecords(before);
   const spans: DraftPatchSpan[] = [];
-  let start = 0;
+  let at = 0;
   for (const [row, line] of was.entries()) {
-    if (line !== now[row]) {
+    const next = now[row]!;
+    if (line !== next) {
       if (!line) return whole;
-      spans.push({ observed: line, replacement: now[row]!, range: { start, end: start + line.length } });
+      let p = 0;
+      while (p < line.length && p < next.length && line[p] === next[p]) p += 1;
+      let q = 0;
+      while (q < line.length - p && q < next.length - p && line[line.length - 1 - q] === next[next.length - 1 - q]) q += 1;
+      let start = p, end = line.length - q;
+      // The chips the change is in, or (an insertion) the chip just before it: whole chips, so the compare has text.
+      const own = records.filter(r => r.start >= at && r.end <= at + line.length).map(r => ({ start: r.start - at, end: r.end - at }));
+      const touched = own.filter(r => start === end ? r.start <= start && start <= r.end : r.start < end && start < r.end);
+      const near = touched.length ? touched : start === end ? own.filter(r => r.end <= start).slice(-1) : [];
+      if (near.length) { start = Math.min(start, ...near.map(r => r.start)); end = Math.max(end, ...near.map(r => r.end)); }
+      else { start = 0; end = line.length; }
+      const grown = next.length - line.length;
+      spans.push({ observed: line.slice(start, end), replacement: next.slice(start, end + grown), range: { start: at + start, end: at + end } });
     }
-    start += line.length + 1;
+    at += line.length + 1;
   }
   return spans;
 }
