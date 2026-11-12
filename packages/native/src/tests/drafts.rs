@@ -345,6 +345,33 @@ fn the_field_s_own_undo_takes_an_agent_s_patch_back_as_one_step() {
     assert_eq!(at(&rt), ("Plot [type::chore]\nBefore the frost. One".to_string(), 40), "and redo puts both back");
 }
 
+/// An agent's patch never changes what the person's keys do. A completion list they put away stays away when a
+/// patch lands above it: the keys are still the draft's, and Return is still a line, never a row that an agent's
+/// act brought back up under their hands.
+#[test]
+fn an_agent_s_patch_never_opens_the_list_the_person_put_away() {
+    let g = garden(ok());
+    let (asked, said) = (g.asked.clone(), g.said.clone());
+    let mut rt = window(g.app);
+    press(&mut rt, "tile/reader/edit");
+    chord(&mut rt, Key::Enter, Mods::default());
+    typed(&mut rt, "See [[s");
+    assert_eq!(rt.state.person().layer, Layer::Complete);
+    chord(&mut rt, Key::Escape, Mods::default());
+    assert_eq!(rt.state.person().layer, Layer::Draft, "put away: the keys are the draft's");
+    let now = draft(&rt.state).unwrap().stands(false);
+    said.borrow_mut().push_back(holder_ask(&rt.state, "place", "r1", json!({ "patchId": "p1", "version": now["version"], "spans": [{ "start": 19, "end": 35, "replacement": "Before the frost." }], "mutation": { "author": "agent", "actorId": "tidy" }, "did": "edited text above your cursor" })));
+    rest(&mut rt);
+    assert_eq!(answered(&asked, "r1")["answer"]["applied"], true);
+    assert_eq!((rt.state.person().layer, rt.state.completing("reader").is_none()), (Layer::Draft, true), "the patch landed above, and the list is still away");
+    chord(&mut rt, Key::Enter, Mods::default());
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the frost.\nSee [[s\n", "Return is a line, as it was before the patch");
+    // What the person types opens it again, as ever.
+    chord(&mut rt, Key::Backspace, Mods::default());
+    typed(&mut rt, "h");
+    assert_eq!((rt.state.person().layer, rt.state.completing("reader").map(|found| found.rows.len())), (Layer::Complete, Some(1)));
+}
+
 /// Marked text an input method holds is the person's and not yet typed: a patch that arrives then is turned away
 /// with why (replacing text under a composition would drop it), Return is the input method's, and what it commits
 /// lands where the caret was.
@@ -407,4 +434,27 @@ fn measure_a_long_block() {
         let idle = timed(&mut rt, &mut |rt| { rt.frame(1.0 / 60.0); });
         eprintln!("| {lines} | {:.0} KB | {typing:.1} | {own:.2} | {arrow:.1} | {idle:.1} |", long.len() as f64 / 1024.0);
     }
+}
+
+/// A list with nothing to choose from (a name nothing has yet: only the service's word on it) takes none of the
+/// keys a choice is made with: Up and Down move the caret, Tab and Return are the field's, and no action of the
+/// list's runs. Escape still puts it away, before it leaves the editor.
+#[test]
+fn a_list_with_nothing_to_choose_from_keeps_only_escape() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    press(&mut rt, "tile/reader/edit");
+    chord(&mut rt, Key::Enter, Mods::default());
+    typed(&mut rt, "See [[zz");
+    assert!(rt.state.completing("reader").is_some_and(|found| found.rows.is_empty() && found.message.is_some()), "the list says there is no such page");
+    assert_eq!(rt.state.person().layer, Layer::Said);
+    chord(&mut rt, Key::Escape, Mods::default());
+    assert_eq!((rt.state.person().layer, rt.state.completing("reader").is_none(), draft(&rt.state).is_some()), (Layer::Draft, true, true), "Escape puts the list away and leaves the block");
+    typed(&mut rt, "z");
+    assert_eq!(rt.state.person().layer, Layer::Said, "typed on, it says so again");
+    let (steps, end) = (rt.state.steps.len(), words(&rt.state).len());
+    chord(&mut rt, Key::Up, Mods::default());
+    rest(&mut rt);
+    assert!(draft(&rt.state).unwrap().buf.ends().1 < end - "See [[zzz".len(), "Up moved the caret to the line above: {:?}", draft(&rt.state).unwrap().buf.ends());
+    assert_eq!(rt.state.steps.len(), steps, "and no action of the list's ran: {:?}", rt.state.steps.last().map(|step| (step.line(), step.said.clone())));
 }

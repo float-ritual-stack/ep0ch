@@ -215,7 +215,11 @@ impl DraftSession {
             placed.push(Placed { start, end, len: with.len(), caret });
         }
         self.buf.splice(&edits, |offset| map_cursor(offset, &placed));
+        // Somebody else's change is not the person typing: a completion list that was put away (or never opened)
+        // stays away, so what their keys do is as it was. One that was open is asked again for the text as it is now.
+        let away = self.changes == self.quiet_at;
         self.changed();
+        if away { self.quiet_at = self.changes }
         // What it wrote, where it is now: each span's new text, after the ones before it moved it.
         let mut delta = 0isize;
         self.lit = placed.iter().map(|span| { let start = (span.start as isize + delta) as usize; delta += span.len as isize - (span.end - span.start) as isize; start..start + span.len }).filter(|range| !range.is_empty()).collect();

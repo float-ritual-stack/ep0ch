@@ -81,7 +81,7 @@ static MOVE: ActionRow = ActionRow::new("complete.move", Touches::Draft, "light 
 
 static DISMISS: ActionRow = ActionRow::new("complete.dismiss", Touches::Draft, "close the open completion list, leaving what's typed as it is: it opens again when more is typed")
     .person(THEIRS)
-    .keys(&[KeyRow::on("escape", "complete", "put the list away")]);
+    .keys(&[KeyRow::on("escape", "said", "put the list away")]);
 
 pub static ACTIONS: &[Action] = &[
     Action { row: &EDIT, run: edit, about: About::Notes },

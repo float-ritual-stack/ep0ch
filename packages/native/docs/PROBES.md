@@ -98,7 +98,7 @@ itself. W1's bar lists Up, Down and Return as field-layer rows.
 **As built (W5):** a block's source is a `lines` field, and Return types a line there. While the list that completes
 a word is open, the person is one layer further in (`complete`, over `draft`): Up, Down, Tab, Return and Escape are
 that layer's rows, asked before the draft's and before the editor, so the list is driven from the field without
-taking its focus. A row that says Return is still the field's (`enter`, nothing chosen yet) gets a line typed.
+taking its focus. A list with nothing to choose from (the service's word alone) is the layer `said`: Escape only. A row that says Return is still the field's (`enter`, nothing chosen yet) gets a line typed.
 
 ## 3. Drags
 

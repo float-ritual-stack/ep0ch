@@ -4,7 +4,7 @@
 //! - **The table is read from the actions' rows** (`KeyRow.keys`, `.on`, `.args`): a chord, the layer it belongs to
 //!   and the line it runs. Nothing else binds a key; a keycap on a button or a bar row is the table read backwards.
 //! - **`App::person()` says where the person's keys are**: in the bar, in a draft (in its completion list while that
-//!   is open), or on a tile. The table is asked with that layer first, then the layer under it (a completion list is
+//!   is open: `complete` with rows to choose from, `said` with only a word to say), or on a tile. The table is asked with that layer first, then the layer under it (a completion list is
 //!   open over a draft), then the rows that hold everywhere.
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
@@ -31,8 +31,12 @@ use crate::actions::{self, Actor, App, Field, word};
 pub enum Layer {
     /// The command bar is open: its line has them.
     Bar,
-    /// A block is open for editing, and the list that completes what is being typed is open over it.
+    /// A block is open for editing, and the list that completes what is being typed is open over it with rows to
+    /// choose from.
     Complete,
+    /// That list is open with nothing to choose from, only the service's word (no such page yet): Escape puts it
+    /// away, and every other key is the draft's.
+    Said,
     /// A block is open for editing: its source has them.
     Draft,
     /// A tile has them, and nothing is typed anywhere.
@@ -40,12 +44,13 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Complete => "complete", Layer::Draft => "draft", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "complete" => Layer::Complete, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, complete, draft and tile") }
+        match name { "bar" => Layer::Bar, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, complete, said, draft and tile") }
     }
-    /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still hold.
-    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
+    /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
+    /// hold, and a list with rows has every key of one that only says something.
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
 }
 
 /// Where the person is: one answer, read by the key table, the actor rule and `peek`.
@@ -85,7 +90,8 @@ impl App {
             Whereabouts { layer: Layer::Bar, focus, idle, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
         } else if let Some(draft) = self.draft_on(&self.layout.focus) {
             let tile = self.layout.name(&draft.tile);
-            let layer = if self.completing(&draft.tile).is_some() { Layer::Complete } else { Layer::Draft };
+            // The list's own keys are for choosing: one with nothing to choose from keeps only the key that puts it away.
+            let layer = match self.completing(&draft.tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft };
             Whereabouts { layer, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
             Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None }
@@ -154,7 +160,7 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Complete), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.

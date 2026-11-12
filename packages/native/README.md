@@ -85,7 +85,7 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
 | `down` | `complete.move by=1` | complete | the next row |
 | `up` | `complete.move by=-1` | complete | the row before |
-| `escape` | `complete.dismiss` | complete | put the list away |
+| `escape` | `complete.dismiss` | said | put the list away |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |
@@ -110,7 +110,8 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
 notice). While the list that completes a word is open its keys come first and the editor's still hold (`complete`
-is a layer over `draft`). Both docks resize by their inner edge.
+is a layer over `draft`); a list with nothing to choose from, only the service's word (no such page yet), keeps
+Esc alone (`said`), and every other key is the editor's. Both docks resize by their inner edge.
 
 Capture comes first here too. What is typed is written to a file as it is typed
 (`native-<outline>.drafts.json`, beside the arrangement's), so a window that ends finds it back. Saving never ends
