@@ -36,6 +36,16 @@ pub(super) fn focused(text: &str) -> TextEdit {
     edit
 }
 
+impl App {
+    /// A draft opens on `tile`, for the person: the editor holds `text` as the service has it at `revision`, and
+    /// the tile is given the keys by the layout (the caret is where `Layout.focus` is, never beside it).
+    pub(super) fn begin(&mut self, tile: String, note: String, revision: u64, text: String, by: &Actor) {
+        self.st.editor = focused(&text);
+        self.st.editing = Some(Editing { tile: tile.clone(), note, revision, base: text });
+        if self.layout.focus != tile { self.reshape(&crate::layout::Op::Focus { tile, quiet: false }, by); }
+    }
+}
+
 /// The draft session's rule, while the person is the only holder there is: the editor is theirs.
 fn theirs(by: &Actor, what: &str) -> Option<Outcome> {
     (!by.is_person()).then(|| Outcome::refused(format!("the editor is the person's: an agent doesn't {what} it · note.new and the service's own writes are an agent's way")))
@@ -47,8 +57,7 @@ fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let Some(page) = app.page_of(&tile) else { return Outcome::refused("the open note's page hasn't come yet") };
     if app.editing.is_some() { return Outcome::refused("the note is already open for editing") }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
-    app.st.editor = focused(&text);
-    app.st.editing = Some(Editing { tile, note, revision, base: text });
+    app.begin(tile, note, revision, text, by);
     Outcome::done()
 }
 

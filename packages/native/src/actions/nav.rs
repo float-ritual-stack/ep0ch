@@ -4,7 +4,6 @@ use super::{Action, Actor, App, Notice, Outcome};
 use serde_json::json;
 
 use crate::actline::Args;
-use crate::keys;
 use crate::layout::{self, Refusal, Request, TileSpec};
 
 static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open a note: the layout says in which tile (the tile it comes from when that reads notes, else where its opens land, else the first reader), and makes a new reader beside one that holds unsaved text. The reader remembers where from; the tree unfolds to it. An agent's lands without taking the person's keys")
@@ -30,24 +29,19 @@ pub(super) fn placed(row: &ActionRow) -> bool { std::ptr::eq(row, &OPEN) }
 
 pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open }, Action { row: &BACK, run: back }, Action { row: &FOLLOW, run: follow }];
 
-/// Why the one editor won't take another note: it holds unsaved text, which stays where it is.
-pub(super) fn holds(app: &App, id: &str) -> Option<String> {
-    if !app.unsaved() || app.editing.as_ref().is_none_or(|e| e.note == id) { return None }
-    let save = keys::cap("edit.save").map_or(String::new(), |cap| format!(" ({cap})"));
-    Some(format!("This note has unsaved text. Save it{save} or discard it before opening another."))
-}
-
-/// The note `id` opens: the layout says in which tile (`place`), and makes the room when it needs to (a new reader
-/// beside one that is pinned or holds unsaved text). `remember`: where it came from is somewhere to go back to.
-/// This is the one place an open is placed.
+/// The note `id` opens. This says only who asks and from where: from the tile the act is aimed at, else (the
+/// person's) the tile with their keys; an agent's that names no tile comes from outside every tile. Where it lands is
+/// the layout's (`land`).
 pub(super) fn go(app: &mut App, id: &str, by: &Actor, remember: bool) -> Outcome {
     let from = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
-    // An open that names no tile comes from outside: an agent's lands where the screen says, else in the first
-    // reader; the person's lands in the tile they are in when it reads notes.
-    let aimed = app.aimed.is_some();
-    let to = if !aimed && !by.is_person() { app.screen.lands().and_then(|name| app.layout.named(name)) } else { None };
-    let outside = !aimed && to.is_none() && (!by.is_person() || !app.facts(&from).notes);
-    let request = Request { from, note: id.to_string(), to, default: outside, ..Request::default() };
+    land(app, Request { from, note: id.to_string(), default: app.aimed.is_none() && !by.is_person(), ..Request::default() }, by, remember)
+}
+
+/// An open, placed: the layout says in which tile (`place`), and makes the room when it needs to (a new reader
+/// beside one that is pinned or holds unsaved text, a float or a tab for a new note). `remember`: where it came
+/// from is somewhere to go back to. This is the one place an open is placed; the tile it landed in is answered.
+pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) -> Outcome {
+    let id = request.note.clone();
     // A tile made for it is named, and its name is its id.
     let sprout = TileSpec::new(app.layout.auto_name("reader", &[]), "reader");
     let landing = app.asked(by, |ctx| layout::place(&app.layout, &request, &sprout, ctx));
@@ -61,7 +55,7 @@ pub(super) fn go(app: &mut App, id: &str, by: &Actor, remember: bool) -> Outcome
     app.arranged(done.layout, done.changed);
     // A draft with nothing unsaved ends when its tile shows another note.
     if app.editing.as_ref().is_some_and(|e| e.tile == tile && e.note != id) { app.st.editing = None }
-    app.show(&tile, id, remember);
+    app.show(&tile, &id, remember);
     app.keep();
     // The person's open puts the bar away; an agent's never closes what the person has open.
     if by.is_person() { app.st.bar.open = false }
@@ -78,7 +72,8 @@ fn back(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let history = app.ui(&reader).history.clone();
     let Some(at) = history.len().checked_sub(steps) else { return Outcome::refused("there is nowhere to go back to") };
     let id = history[at].clone();
-    if app.editing.as_ref().is_some_and(|e| e.tile == reader) && let Some(why) = holds(app, &id) { app.st.notice = Some(Notice::problem(why.clone())); return Outcome::refused(why) }
+    // A reader that holds unsaved text stays on its note: the fact the layout's own rules read, in its words.
+    if let Some(why) = app.holds_edit(&reader) { if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
     if app.editing.as_ref().is_some_and(|e| e.tile == reader && e.note != id) { app.st.editing = None }
     // Going back isn't itself a place to go back from.
     app.show(&reader, &id, false);

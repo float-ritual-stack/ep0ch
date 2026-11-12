@@ -22,8 +22,9 @@ cargo run --release -- -- --ws pie --machine float-2  # another machine's, over 
 
 Everything after the second `--` names the outline as every client does: `--ws`, then `EP0CH_WS`, then the nearest
 `.ep0ch`. That rule is the door's own, run once at launch (`resolve.ts`, with `bun` on the PATH or `EP0CH_BUN`);
-after that the window speaks the host's socket itself and runs nothing else. `EP0CH_SOCKET` with a named outline
-skips the lookup.
+after that the window speaks the host's socket itself and runs nothing else. `EP0CH_SOCKET` names a host
+outright, as it does for the door, and is read by that same rule (a typed `--machine` wins over it): the window
+never reads it itself.
 
 Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU draws through lavapipe
 (`mesa-vulkan-drivers`, `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`).

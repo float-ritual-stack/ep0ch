@@ -300,7 +300,7 @@ impl Step<'_, '_> {
                 if same(&self.d.lift, &lift) && self.d.zoom == zoom { self.answer.insert("changed".into(), json!(false)); }
                 Ok(())
             }
-            Op::Load { name } => self.load(name),
+            Op::Load { name, to, keys } => self.load(name, to.as_deref(), *keys),
             Op::Fill { .. } => self.fill(op),
             Op::Source { container, source } => {
                 if self.agent() { return no("where a columns container's tiles come from is the screen's (the board's hub: board.hub)") }
@@ -371,7 +371,7 @@ impl Step<'_, '_> {
             }
             Op::Zoom { tile, .. } => no_(tile, "zooming it", false),
             Op::FlowWiden { tile } | Op::FlowTravel { tile, .. } | Op::FlowHold { tile, .. } => no_(tile, "widening, holding or travelling it", false),
-            Op::Load { name } => each(self.all(), &format!("laying the screen out as {name} (it replaces the tiles)"), false),
+            Op::Load { name, .. } => each(self.all(), &format!("laying the screen out as {name} (it replaces the tiles)"), false),
             Op::Open { at: At::Tabs { target, .. }, .. } => no_(target, "opening a tile into its tabs", false),
             Op::Agents { tile, level } => {
                 let f = self.facts(tile);
@@ -575,6 +575,7 @@ impl Step<'_, '_> {
             if self.agent() && self.here() && id == self.d.focus { return no(self.theirs(id, "close it")) }
             if self.agent() && let Some(running) = &f.running { return no(format!("{name} is running {running}; an agent doesn't end it")) }
         }
+        if !gone && !self.ctx.empties && !self.d.is_float(id) && self.tree().leaves().len() <= 1 { return no(format!("{name} is the screen's last tile: it stays (the screen is never blank)")) }
         if !f.clears_on_close { self.lift(id) }
         let mut answer = Map::new();
         answer.insert("tile".into(), json!(name));
@@ -1500,8 +1501,9 @@ impl Step<'_, '_> {
         Ok(())
     }
 
-    /// Whether another arrangement may take this one's place: the load itself is the caller's.
-    fn load(&mut self, name: &str) -> Done {
+    /// Whether another arrangement may take this one's place, and, given the arrangement, the load itself: every
+    /// tile that would go is asked what a close asks (does it hold an edit, has it the person's keys).
+    fn load(&mut self, name: &str, to: Option<&Layout>, keys: bool) -> Done {
         if self.d.policy.flag("locked") == Some(true) { return no(format!("{} is locked: loading {name} would change its shape · {}", self.own_name(), self.unlock_how())) }
         if self.agent() {
             fn locks(n: &Node, out: &mut Vec<String>) { if n.is_leaf() { return } if n.policy().and_then(|p| p.flag("locked")) == Some(true) { out.push(n.id_or_t()) } for k in n.kids() { locks(k, out) } }
@@ -1510,7 +1512,21 @@ impl Step<'_, '_> {
             if let Some(theirs) = found.iter().find(|k| !self.d.locks.contains(k)) { return no(format!("{theirs} was locked by the person; loading {name} would undo it, and an agent doesn't (block.mark gets their attention)")) }
         }
         self.may_move_keys("lay the desk out under them")?;
-        self.changed = false;
+        let Some(to) = to else { self.changed = false; return Ok(()) };
+        let stays = to.all();
+        for id in self.all().into_iter().filter(|id| !stays.contains(id)) {
+            let (label, f) = (self.name(&id), self.facts(&id));
+            if let Some(editing) = &f.editing { return no(format!("{label} holds {editing}, and {name} has no such tile: save or discard it first")) }
+            if self.agent() && self.here() && id == self.d.focus { return no(self.theirs(&id, &format!("lay the screen out as {name} without it"))) }
+            if self.agent() && let Some(running) = &f.running { return no(format!("{label} is running {running}; an agent doesn't end it")) }
+        }
+        let had = self.d.focus.clone();
+        let mut next = to.clone();
+        // The revision counts on from this arrangement's, and a changed shape is a new one.
+        (next.rev, next.next_node, next.shape_key) = (self.d.rev, self.d.next_node.max(next.next_node), self.d.shape_key.clone());
+        if (!keys || self.agent()) && next.all().contains(&had) { tree::activate(next.tree_mut(), &had); next.focus = had }
+        self.d = next;
+        self.answer.insert("tiles".into(), json!(self.d.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>()));
         Ok(())
     }
 

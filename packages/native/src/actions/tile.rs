@@ -19,7 +19,7 @@ static SPLIT: ActionRow = ActionRow::new("tile.split", Touches::Shape, "a new ti
 
 static MOVE: ActionRow = ActionRow::new("tile.move", Touches::Shape, "move a tile (tile=, else the one with the keys) beside another, into its tabs, or along an edge of the screen: to= names the tile it goes by (or screen), side= which side of it (center: into its tabs)")
     .args(&[
-        ("to", ArgSpec::text("the tile it goes by, by name; screen for an edge of the whole screen").kind("tile")),
+        ("to", ArgSpec::text("the tile it goes by, as tile= names one (a name, role:<role>, an id); screen for an edge of the whole screen").kind("tile")),
         ("side", ArgSpec::text("which side of it: left, right, top, bottom, or center for a tab beside it").choices(&["left", "right", "top", "bottom", "center"])),
     ])
     .keys(&[KeyRow::via("a drag on a tile's title, dropped on another tile")])
@@ -31,6 +31,7 @@ static CLOSE: ActionRow = ActionRow::new("tile.close", Touches::Shape, "close a 
     .examples(&[Example { act: "tile.close tile=reader2", does: "closes the second reader", safe: None }]);
 
 static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, or dir= the next one that way from the tile that has them. The person's: an agent never moves their keys")
+    .person("the person's keys are theirs: an agent never moves them · block.mark gets their attention")
     .args(&[("dir", ArgSpec::text("the next tile that way").optional().choices(&["left", "right", "up", "down"]))])
     .keys(&[
         KeyRow::with("mod+alt+left", None, "the keys to the tile on the left", &[("dir", Scalar::Text("left"))]),
@@ -78,20 +79,17 @@ fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         let Some(dir) = dir else { return Outcome::refused("an edge of the screen is left, right, top or bottom") };
         Place::Edge { dir }
     } else {
-        let Some(target) = app.layout.named(to) else { return Outcome::refused(format!("no tile {to} here: this window has {}", app.layout.names.0.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", "))) };
+        let target = match app.tile_named(to, by) { Ok(target) => target, Err(why) => return Outcome::refused(why) };
         match dir { Some(dir) => Place::Split { target, dir, pair: false, weight: None }, None => Place::Tabs { target, index: None, behind: false } }
     };
     app.reshape(&Op::Move { tile, to: place }, by)
 }
 
 fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
-    let tile = target(app);
-    if app.layout.tree().leaves().len() <= 1 && !app.layout.is_float(&tile) { return Outcome::refused(format!("{} is the screen's last tile: it stays (the screen is never blank)", app.layout.name(&tile))) }
-    app.reshape(&Op::Close { tile, gone: false }, by)
+    app.reshape(&Op::Close { tile: target(app), gone: false }, by)
 }
 
 fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    if !by.is_person() { return Outcome::refused("the person's keys are theirs: an agent never moves them · block.mark gets their attention") }
     let tile = match (app.aimed.clone(), args.text("dir").and_then(Dir::read)) {
         (Some(tile), _) => tile,
         (None, Some(dir)) => match neighbour(&app.layout.rects(app.area, &|_| false), &app.layout.focus, dir) { Some(next) => next, None => return Outcome::refused(format!("there is no tile {} of this one", match dir { Dir::Left => "left", Dir::Right => "right", Dir::Up => "above", Dir::Down => "below" })) },

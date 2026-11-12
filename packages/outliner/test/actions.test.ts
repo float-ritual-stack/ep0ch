@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WATCHABLE_ACTIONS } from "@ep0ch/outline-core/protocol";
-import { ACTIONS, DECLARED, copyAnswers, extensionMay } from "../src/actions";
+import { ACTIONS, DECLARED, copyAnswers, extensionMay, isWatchable, isWatchedLater } from "../src/actions";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -49,6 +49,17 @@ test("each list main kept is now one column of the table", () => {
     "query.suggest", "screens.list"]));
 });
 
+test("a read a module answers and keeps watched says so on its row, and is listed with the rest", () => {
+  // notes.page and screens.list are the reads a native window watches most; their answers take a turn (askLater).
+  for (const action of ["notes.page", "screens.list"] as const) {
+    expect(ACTIONS[action].watch, action).toBe("later");
+    expect(WATCHABLE_ACTIONS as readonly string[], action).toContain(action);
+    expect(isWatchedLater(action) && !isWatchable(action), action).toBe(true);
+  }
+  // A write a module answers is never watched, whatever the request says.
+  expect(isWatchedLater("screens.save")).toBe(false);
+});
+
 test("blocks.read is a read a client may watch: main's copy and extension lists both had it, the read-only list didn't", () => {
   expect(MAIN.read).not.toContain("blocks.read");
   expect(MAIN.copy).toContain("blocks.read");
@@ -66,7 +77,8 @@ test("the rows agree with each other", () => {
     if (row.host) expect([row.async, row.event, row.ext, row.watch, row.whole], where).toEqual([undefined, undefined, undefined, undefined, undefined]);
     // A watched read is one an extension may make (blocks.authored-links is watched but not answered by a copy: the web
     // client's pages of a copy don't ask it, and this changes no access). The whole-outline lane holds only reads.
-    if (row.watch) expect(extensionMay(action), where).toBe("read");
+    // (A read a module answers and watches itself, `watch: "later"`, is the module's to offer: notes.page is no extension's read.)
+    if (row.watch === true) expect(extensionMay(action), where).toBe("read");
     if (row.whole) expect([row.event, row.async, extensionMay(action) === "write"], where).toEqual([undefined, undefined, false]);
     if (row.read) expect(row.copy, where).toBeUndefined();
   }

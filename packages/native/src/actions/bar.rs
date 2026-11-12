@@ -24,6 +24,7 @@ static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the comma
     .examples(&[Example { act: "bar.open scope=query query=\"type=bed NOT stage=done\"", does: "opens the bar on the beds not done yet", safe: Some(true) }]);
 
 static CLOSE: ActionRow = ActionRow::new("bar.close", Touches::Nothing, "put the command bar away, nothing picked. The person's: an agent never closes the bar the person has open")
+    .person("the bar is the person's: an agent never closes the bar the person has open")
     .keys(&[KeyRow::on("escape", "bar", "put the bar away")])
     .menu(&[MenuRow::new("Close", "Bar", Some("escape"))]);
 
@@ -36,7 +37,8 @@ static PICK: ActionRow = ActionRow::new("bar.pick", Touches::Nothing, "pick a ro
     .keys(&[KeyRow::on("enter", "bar", "pick the lit row"), KeyRow::via("a press on a row of the bar")])
     .examples(&[Example { act: "bar.pick source=actions key=note.new", does: "runs the bar's note.new row", safe: None }]);
 
-static MOVE: ActionRow = ActionRow::new("bar.move", Touches::Nothing, "move the command bar's lit row down (by=1) or up (by=-1), round again")
+static MOVE: ActionRow = ActionRow::new("bar.move", Touches::Nothing, "move the command bar's lit row down (by=1) or up (by=-1), round again. The person's: the lit row is their selection")
+    .person("the bar's lit row is the person's selection: an agent never moves it")
     .args(&[("by", ArgSpec::number("how many rows down; negative is up"))])
     .keys(&[
         KeyRow::with("down", Some("bar"), "the next row", &[("by", Scalar::Whole(1))]),
@@ -44,7 +46,8 @@ static MOVE: ActionRow = ActionRow::new("bar.move", Touches::Nothing, "move the 
     ])
     .examples(&[Example { act: "bar.move by=1", does: "lights the next row", safe: Some(true) }]);
 
-static NARROW: ActionRow = ActionRow::new("bar.narrow", Touches::Nothing, "narrow the bar's query by a property the matches carry: the query gains key=value, in the views' grammar (picked twice is still once)")
+static NARROW: ActionRow = ActionRow::new("bar.narrow", Touches::Nothing, "narrow the bar's query by a property the matches carry: the query gains key=value, in the views' grammar (picked twice is still once). The person's: an agent asks a query of its own")
+    .person("the bar is the person's: an agent asks its own query with bar.open scope=query query=…")
     .args(&[("key", ArgSpec::text("the property's key").kind("key")), ("value", ArgSpec::text("the value to keep"))])
     .keys(&[KeyRow::via("a press on a facet of the bar's query")])
     .examples(&[Example { act: "bar.narrow key=stage value=sown", does: "keeps the matches whose stage is sown", safe: Some(true) }]);
@@ -75,8 +78,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     Outcome::done()
 }
 
-fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
-    if !by.is_person() { return Outcome::refused("the bar is the person's: an agent never closes the bar the person has open") }
+fn close(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     if !app.bar.open { return Outcome::refused("the bar isn't open") }
     app.st.bar.open = false;
     Outcome::done()
@@ -111,8 +113,7 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     Outcome { answer: json!({ "ran": row.line, "answer": ran.answer }), ..ran }
 }
 
-fn step(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    if !by.is_person() { return Outcome::refused("the bar's lit row is the person's selection: an agent never moves it") }
+fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     if !app.bar.open { return Outcome::refused("the bar isn't open") }
     let rows = bar::rows(app);
     if rows.is_empty() { return Outcome::done() }
@@ -123,8 +124,7 @@ fn step(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 }
 
 /// A facet value picked: the query gains `key=value`, in the views' grammar.
-fn narrow(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    if !by.is_person() { return Outcome::refused("the bar is the person's: an agent asks its own query with bar.open scope=query query=…") }
+fn narrow(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (key, value) = (args.text("key").unwrap_or(""), args.text("value").unwrap_or(""));
     let term = format!("{key}={}", word(value));
     let now = if app.bar.open && app.bar.scope == "query" { app.bar.edit.text.trim().to_string() } else { String::new() };

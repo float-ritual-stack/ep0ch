@@ -128,6 +128,85 @@ fn the_layout_is_pure_and_only_an_action_changes_it_or_places_an_open() {
     assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/view.rs").exists(), "view.rs is split into shell.rs and tiles/");
 }
 
+/// Whether the arrangement changes has one decider, `layout::apply`, for a step undone and a screen opened as for
+/// a split: nothing but `actions/layout.rs` holds the arrangement to write, issues a load, or keeps a rule of the
+/// layout's beside it (the last tile staying, a share's limits, what unsaved text blocks).
+#[test]
+fn nothing_beside_the_layout_decides_whether_the_arrangement_changes() {
+    none("the arrangement written outside the one place that asks the layout (actions/layout.rs)", strays("st.layout =", |path| path == "actions/layout.rs"));
+    none("a load issued outside actions/layout.rs: `App::replace` asks the layout", strays("Op::Load", |path| path == "actions/layout.rs" || path.starts_with("layout")));
+    none("the last tile staying, said outside the layout", strays("last tile", |path| path.starts_with("layout")));
+    none("a share's limits outside the layout (layout/step.rs keeps them)", [".clamp(0.08", "0.92)"].iter().flat_map(|limit| strays(limit, |path| path.starts_with("layout"))).collect());
+    // What unsaved text blocks is the layout's to say, from the fact it is handed (`App::facts`): the draft's own
+    // actions ask whether there is any, and nothing else does.
+    none("a rule about unsaved text outside the layout and the draft's own actions", strays(".unsaved()", |path| ["actions/app.rs", "actions/draft.rs", "tiles/page.rs"].contains(&path)));
+}
+
+/// What Esc does is the key table's rows (`keys::esc_steps`): nothing turns an Escape into an act line by hand. A
+/// border's drag has its own way back (a resize to where it was), never the undo of some other change.
+#[test]
+fn esc_is_the_key_table_s_and_a_drag_s_way_back_is_not_the_undo() {
+    none("layout.undo run from outside its own row (a key, its bar row)", strays("\"layout.undo\"", |path| path == "actions/layout.rs"));
+    none("Escape read outside the key table", ["Key::Escape", "ChordKey::Escape"].iter().flat_map(|key| strays(key, |path| path == "keys.rs")).collect());
+    let texts = sources();
+    let shell = &texts.iter().find(|(path, _)| path == "shell.rs").expect("shell.rs").1;
+    assert!(shell.contains("d.cancelled() && d.data < 0.0).then(|| line(-d.data))"), "a border's drag let go with Escape says layout.resize, back to the share at the press");
+}
+
+/// Which tile has the keys is `Layout.focus`, changed only in `apply`; Rune's focus follows it through the one
+/// reconciler in keys.rs, the only caller of `Tx::focus`, and a tile's root is made to hold the keys there too.
+#[test]
+fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
+    none("Rune's focus set outside keys.rs: `keys::follow` is the one reconciler", ["tx.focus(", ".return_focus(", "tx.blur("].iter().flat_map(|call| strays(call, |path| path == "keys.rs")).collect());
+    none("the layout's focus written outside the layout", strays(".focus = ", |path| path.starts_with("layout")));
+    // A field's own flag is set where a draft or the bar opens, and by the arrangement settling: nowhere else.
+    none("a field's focus flag set outside the draft's and the arrangement's own files", strays(".focused = ", |path| ["actions/draft.rs", "actions/layout.rs"].contains(&path)));
+    let texts = sources();
+    let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
+    assert!(text("shell.rs").contains("keys::tile("), "each tile's root is made to hold the keys by keys::tile");
+    assert!(text("main.rs").contains("keys::follow(s, tx)"), "the window's poll runs the reconciler");
+    assert!(text("keys.rs").contains("e.tile == self.layout.focus"), "the person's layer is read from the tile with the keys");
+}
+
+/// Which tile an address names is `Layout::resolve` (layout/address.rs, held to the door's resolver by
+/// address-contract.json): nothing else reads the address grammar or looks an argument's tile up by name.
+#[test]
+fn an_address_is_read_by_the_layout_s_resolver_alone() {
+    none("an address read outside the grammar's file and the layout's resolver", strays("Address::", |path| path == "actline.rs" || path == "layout/address.rs"));
+    none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)", "lands().and_then(|name| app.layout.named"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
+    // Its callers: an act's tile (`App::tile_named`), and in app.rs a follower's source and the screen's `lands` as a name.
+    none("the resolver asked from somewhere new", calls("resolve", |path| path.starts_with("layout") || path == "client.rs" || path == "actions/mod.rs" || path == "actions/app.rs"));
+}
+
+/// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
+/// No action's run refuses an agent for whose the thing is: the three left are named, each with why it is not the
+/// row's to say.
+#[test]
+fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
+    let found: Vec<String> = sources().iter().filter(|(path, _)| path.starts_with("actions/") && path != "actions/mod.rs").flat_map(|(path, text)| {
+        text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains("refused(") && (line.contains("an agent") || line.contains("person's"))).map(|line| format!("{path}: {}", line.split("refused(").nth(1).unwrap_or("").chars().take(40).collect::<String>())).collect::<Vec<_>>()
+    }).collect();
+    assert_eq!(found, [
+        // An agent's pick is its own (it runs the row as itself); what it must name is the request's shape.
+        "actions/bar.rs: \"an agent's pick names its row: source= ",
+        // The draft session's rule, while the person is the only holder there is: W5's session takes it.
+        "actions/draft.rs: format!(\"the editor is the person's: an ",
+        // Which row an agent may fold depends on the note the person has open: no row can say that ahead.
+        "actions/tree.rs: \"the person's note is under that row: an",
+    ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
+}
+
+/// Which host and outline the window opens, and where its control socket is, is the door's rule (`resolveTarget`
+/// and `placeFor`, asked through resolve.ts): the window reads no outline or host setting itself, and the socket's
+/// name is the door's own (`DOORS`), so `--door native` looks where the window serves.
+#[test]
+fn which_outline_and_host_is_the_door_s_rule_asked_every_time() {
+    none("the outline or the host read from the environment here: resolve.ts asks the door's rule", ["EP0CH_SOCKET\"", "EP0CH_WS\"", "EP0CH_MACHINE\"", "\"--machine\""].iter().flat_map(|word| strays(word, |_| false)).collect());
+    let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("resolve.ts")).unwrap();
+    assert!(script.contains("DOORS.native") && !script.contains("\"native.sock\""), "resolve.ts names the control socket by the door's DOORS");
+    assert!(script.contains("resolveTarget(named)") && script.contains("placeFor(named)"));
+}
+
 /// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
 /// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
 /// (`--snap`, `--tree`) serves no control socket beside a window's.

@@ -123,12 +123,11 @@ fn bun(args: &[String]) -> Result<Value, String> {
     said.lines().last().and_then(|line| serde_json::from_str(line).ok()).ok_or_else(|| format!("{script} said nothing to read: {}", String::from_utf8_lossy(&out.stderr).trim()))
 }
 
-/// Where the outline is, by the door's own rule (`resolve.ts`, run once with bun).
-/// `EP0CH_SOCKET` with `--ws` or `EP0CH_WS` names both outright, as it does for every client.
+/// Where the outline is, by the door's own rule (`resolve.ts`, run once with bun): which outline (`--ws`, then
+/// `EP0CH_WS`, then the nearest `.ep0ch`), which host (`--machine` first, then `EP0CH_SOCKET`, then this machine's)
+/// and where the window's control socket goes. Nothing is decided here: every case is the rule's, so the window
+/// opens what the door would and is found where the door's client looks.
 fn resolve(args: &[String]) -> Result<Place, String> {
-    let named = flag(args, "--ws").or_else(|| std::env::var("EP0CH_WS").ok());
-    // With the host's socket named outright nothing runs the door's rule: there is no folder to be beside.
-    if let (Ok(socket), Some(outline)) = (std::env::var("EP0CH_SOCKET"), named.as_ref()) { return Ok(Place { socket, outline: outline.clone(), control: None }) }
     let answer = bun(args)?;
     match (answer["socket"].as_str(), answer["outline"].as_str()) {
         (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string(), control: answer["control"].as_str().map(str::to_string) }),

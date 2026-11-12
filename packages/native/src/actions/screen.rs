@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
 use super::{Action, Actor, App, Notice, Outcome};
 use crate::actline::Args;
-use crate::layout::Layout;
 use crate::screen::{From, Screen};
 use crate::store::Reply;
 
@@ -33,18 +32,16 @@ fn lay_out(app: &mut App, screen: Screen, by: &Actor) -> Outcome {
         let why = screen.problems.iter().map(|p| p.said.as_str()).collect::<Vec<_>>().join(" · ");
         return Outcome::refused(if why.is_empty() { format!("the screen {} has no layout to open", screen.name) } else { why });
     };
-    if let Err(why) = app.may_replace(&screen.name, by) { return Outcome::refused(why) }
-    // A draft stays on its tile when the screen has one by that id; otherwise it has nowhere to be, and the screen stays.
-    if let Some(e) = &app.editing && app.unsaved() && next.spec(&e.tile).is_none() { return Outcome::refused("a note is open with unsaved text: save or discard it before the screen changes under it") }
-    if app.editing.as_ref().is_some_and(|e| next.spec(&e.tile).is_none()) { app.st.editing = None }
     let said = screen.problems.iter().filter(|p| p.tile.is_none()).map(|p| p.said.clone()).collect::<Vec<_>>().join(" · ");
+    // The layout's rules say whether it may take this arrangement's place: a tile that would go and holds an edit
+    // keeps the screen as it is, and an agent's never takes or moves the person's keys.
+    let was_laid = match app.replace(&screen.name, next, true, by) { Ok(before) => before, Err(why) => return Outcome::refused(why) };
     // What was there is one step back: the arrangement, and the screen it was of when this opens another (a reset
     // is the same screen, read again).
     let was = std::mem::replace(&mut app.st.screen, screen);
-    let before = (app.st.layout.clone(), Some(was).filter(|was| was.name != app.st.screen.name));
-    app.st.layout = Layout::default();
-    app.arranged(next, true);
-    if let Some(last) = app.st.journal.last_mut() { *last = before } else { app.st.journal.push(before) }
+    let left = Some(was).filter(|was| was.name != app.st.screen.name);
+    if left.is_some() || !super::layout::same_shape(&was_laid, &app.st.layout) { app.stepped((was_laid, left)) }
+    app.keep();
     if !said.is_empty() { app.st.notice = Some(Notice::problem(said.clone())) }
     Outcome { said, ..Outcome::answer(json!({ "screen": app.screen.name, "tiles": app.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>() })) }
 }

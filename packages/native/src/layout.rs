@@ -9,6 +9,7 @@
 //! own answers are written down in `outline-core/fixtures/layout-contract.json` and `place-contract.json`, and
 //! `tests/contract.rs` runs every row of both against this file. A layout reads from and saves to the door's saved
 //! form (`Layout::read`, `Layout::save`), so a screen saved in one door opens in the other.
+pub mod address;
 mod placement;
 mod step;
 pub mod tree;
@@ -179,6 +180,8 @@ pub struct Ctx<'a> {
     /// How this layout says its own name, with its lock chip and what covers it.
     pub own: Option<(String, Option<String>, Option<String>)>,
     pub home: Option<Id>,
+    /// Where the screen says an open naming no tile lands (its spec's `lands`): a tile's name, or a container's key.
+    pub lands: Option<String>,
     /// Another screen takes opens this one has no reader for: its name, or none there.
     pub screen: Option<Option<String>>,
     pub outward: Option<String>,
@@ -188,7 +191,7 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     /// The person at the keys, in an area.
     pub fn person(facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> {
-        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, screen: None, outward: None, fresh_action: None }
+        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, lands: None, screen: None, outward: None, fresh_action: None }
     }
     /// An agent: its opens land beside the person, and the tile they type in is left as it is.
     pub fn agent(id: &str, facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> { Ctx { by: By::Agent(id.to_string()), standing: false, keys: false, protect_typing: true, ..Ctx::person(facts, area) } }
@@ -299,7 +302,11 @@ pub enum Op {
     Reveal { tile: Id },
     Tab { tile: Id, by: Option<i64> },
     Zoom { tile: Id, on: Option<bool>, reach: Option<String> },
-    Load { name: String },
+    /// Another arrangement takes this one's place (a screen opened, a step undone). `to`: the arrangement that
+    /// would, so the rules are asked of what would go; none asks only whether one may. `keys`: the person's keys go
+    /// where the arrangement arriving says (a screen opened), else stay on the tile that has them when it is still
+    /// there (a step undone). An agent's load never moves them.
+    Load { name: String, to: Option<Box<Layout>>, keys: bool },
     Fill { container: String, order: Vec<Id>, fresh: Vec<(TileSpec, Option<String>)>, drop: Vec<Id>, weights: Vec<(Id, f64)>, names: Vec<(Id, String)>, select: Vec<Id> },
     Source { container: String, source: String },
     FlowWiden { tile: Id },
@@ -449,6 +456,29 @@ impl Layout {
     pub fn name(&self, id: &str) -> String { self.names.get(id).cloned().unwrap_or_else(|| id.to_string()) }
     /// The tile named `name`.
     pub fn named(&self, name: &str) -> Option<Id> { self.names.0.iter().find(|(_, n)| n == name).map(|(id, _)| id.clone()) }
+    /// The tiles as an address reads them, on the screen named `screen`: a tile's role is the one set on it, else
+    /// its kind; its slots are its own name and the key of each container it is in.
+    pub fn candidates(&self, screen: &str) -> Vec<address::Candidate> {
+        self.all().into_iter().map(|id| {
+            let name = self.name(&id);
+            let spec = self.spec(&id);
+            let role = spec.and_then(|s| s.text("role")).map(str::to_string).unwrap_or_else(|| spec.map_or("tile", |s| s.kind.as_str()).to_string());
+            let chain = chain_of(self.tree(), &id);
+            let slots = std::iter::once(name.clone()).chain(chain.iter().filter_map(|p| self.tree().at(p)).filter_map(Node::key).map(str::to_string)).collect();
+            address::Candidate { from: self.opened_from.get(&id).map(|o| o.from.clone()), where_: format!("{screen}/{name}"), id, name, role, slots, screen: screen.to_string(), ..Default::default() }
+        }).collect()
+    }
+
+    /// The tile an address names here (`tile=`, `to=`, a follower's source): an id or its first characters, a role,
+    /// a slot on this screen, `^` from the tile `from`, and last a tile's name. The one resolver: why not, in its words.
+    pub fn resolve(&self, sel: &str, from: Option<&str>, screen: &str) -> Result<Id, String> {
+        let cs = self.candidates(screen);
+        match address::named(sel, &cs, from)? {
+            address::Named::Tile(at) => Ok(cs[at].id.clone()),
+            address::Named::None(why) => Err(why),
+            address::Named::Name(name) => self.named(&name).ok_or_else(|| format!("no tile {sel} here: this window has {}", self.names.0.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", "))),
+        }
+    }
     pub fn is_float(&self, id: &str) -> bool { self.floats.iter().any(|f| f.spec.id == id) }
     /// Every tile: the tree's, then the floats.
     pub fn all(&self) -> Vec<Id> { self.tree().leaves().into_iter().chain(self.floats.iter().map(|f| f.spec.id.clone())).collect() }
@@ -511,6 +541,10 @@ impl Layout {
         out
     }
 
+    /// Its shape: itself, but for where the keys are and the order tiles were given them in. The keys moving is no
+    /// change to go back through.
+    pub fn shape(&self) -> Layout { Layout { focus: String::new(), touched: Vec::new(), ..self.clone() } }
+
     /// A copy with no zoom: where things sit under one.
     fn unzoomed(&self) -> Layout { Layout { zoom: None, ..self.clone() } }
 
@@ -565,7 +599,7 @@ pub(crate) const MARK_THEM: &str = "block.mark gets their attention";
 pub(crate) fn held_back(why: &str, what: &str, way: Option<&str>) -> String { format!("{why}; an agent doesn't {what}{}", way.map_or(String::new(), |way| format!(" · {way}"))) }
 pub(crate) fn typing_in(label: &str, what: &str, way: Option<&str>) -> String { held_back(&format!("the person is typing in {label}"), what, way) }
 pub(crate) fn keys_in(label: &str, what: &str, typing: bool) -> String { if typing { typing_in(label, what, Some(MARK_THEM)) } else { held_back(&format!("{label} has the person's keys"), what, Some(MARK_THEM)) } }
-pub(crate) fn holds_edit(label: &str) -> String { format!("{label} holds an edit or a comment; it stays on its note until that's saved or closed") }
+pub fn holds_edit(label: &str) -> String { format!("{label} holds an edit or a comment; it stays on its note until that's saved or closed") }
 
 /// Why an agent is refused by a tile's limit on agents (the door's `agentRefusal`).
 pub(crate) fn agent_refusal(level: &str, tile: &str, what: &str, by: &str, command: Option<&str>) -> Option<String> {

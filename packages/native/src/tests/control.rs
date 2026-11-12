@@ -97,13 +97,11 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     d.rt.update(|s, _| s.field(crate::actions::Field::Draft).replace_text("Plot, half written"));
     let before = d.asked.borrow().len();
     for (request, why) in [
-        // An open that names no tile is the layout's to place: the screen's one reader holds their draft, and says so
-        // in the door's words. Aimed at that reader, it is the actor rule's no.
-        (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), "reader holds an edit or a comment; it stays on its note until that's saved or closed"),
+        // An open aimed at the reader that holds their draft is the actor rule's no.
         (json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "tile": "reader" }), "the person is in an edit on reader"),
-        (json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "shed" } }), "reader holds an edit or a comment"),
         (json!({ "cmd": "act", "action": "tile.close", "tile": "reader" }), "not closed: it holds an edit of Plot"),
-        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "an agent doesn't move what they look at"),
+        // The person's own, said on its row: refused in the row's words whether or not they type.
+        (json!({ "cmd": "act", "action": "tile.focus", "tile": "tree" }), "the person's keys are theirs: an agent never moves them"),
         (json!({ "cmd": "act", "action": "link.follow", "args": { "ref": "ep0ch:b/shed" } }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "back" }), "the person is in an edit on reader"),
         (json!({ "cmd": "act", "action": "edit.close", "args": { "discard": "true" } }), "the editor is the person's"),
@@ -118,6 +116,13 @@ fn what_is_the_person_s_is_refused_to_an_agent_with_why() {
     }
     assert_eq!((d.asked.borrow().len(), d.rt.state.editor.text.as_str(), d.rt.state.editor.focused, d.rt.state.subject().as_deref()), (before, "Plot, half written", true, Some("plot")), "nothing was written and nothing of theirs moved");
     assert!(d.rt.state.agent_said.as_deref().unwrap().contains("refused"), "a refusal is said too: {:?}", d.rt.state.agent_said);
+    // An open that names no tile is the layout's to place, as the door places one from outside: the screen's
+    // landing reader holds their draft, so it gets a reader of its own beside, and nothing of theirs moves.
+    for request in [json!({ "cmd": "act", "action": "open", "args": { "id": "shed" }, "as": "seedling-agent" }), json!({ "cmd": "act", "action": "tree.pick", "args": { "id": "beans" } })] {
+        let answer = d.ask(request.clone());
+        assert!(answer["ok"] == true && answer["result"]["tile"].as_str().is_some_and(|tile| tile != "reader"), "{request}: {answer}");
+    }
+    assert_eq!((d.rt.state.editor.text.as_str(), d.rt.state.editor.focused, d.rt.state.note_of("reader").as_deref(), d.rt.state.layout.focus.as_str()), ("Plot, half written", true, Some("plot"), "reader"), "the draft, its reader and the keys are where they were");
     // A request that is itself wrong says so in the door's kinds.
     let answer = d.ask(json!({ "cmd": "act", "action": "note.bin" }));
     assert_eq!((answer["ok"].as_bool(), answer["kind"].as_str()), (Some(false), Some("invalid")));

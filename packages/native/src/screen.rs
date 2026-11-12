@@ -56,6 +56,13 @@ impl Screen {
     pub fn layout(&self) -> Option<Layout> { self.spec.as_ref().and_then(|spec| spec.get("layout")).map(Layout::read) }
     /// The tile an open naming none lands in, by name.
     pub fn lands(&self) -> Option<&str> { self.spec.as_ref().and_then(|spec| spec["lands"].as_str()) }
+    /// What the screen says of a new note made while a tile of `kind` has the keys: the first of its `newNote`
+    /// rules that fits (`only`, `unless`), read as outline-core's `newNoteRule` reads them. None: it has no rule
+    /// for it, and a new note floats.
+    pub fn new_note(&self, kind: &str) -> Option<&Value> {
+        let has = |rule: &Value, key: &str| rule[key].as_array().map(|kinds| kinds.iter().any(|k| k == kind));
+        self.spec.as_ref()?.get("newNote")?.as_array()?.iter().find(|rule| has(rule, "only").unwrap_or(true) && !has(rule, "unless").unwrap_or(false))
+    }
     /// Its toolbar: act lines, one a button.
     pub fn toolbar(&self) -> Vec<String> { self.spec.as_ref().and_then(|spec| spec["toolbar"].as_array()).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() }
     /// What is wrong with one tile, by its name.

@@ -238,6 +238,9 @@ pub struct ActionRow {
     pub keys: Option<Keys>,
     #[serde(rename = "while", default, skip_serializing_if = "Option::is_none")]
     pub while_: Option<While>,
+    /// The person's own: an agent's is refused with this, which says why and what an agent does instead.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "leak::opt_str")]
+    pub person: Option<Str>,
     #[serde(default, skip_serializing_if = "<[_]>::is_empty", deserialize_with = "leak::slice")]
     pub menu: &'static [MenuRow],
     #[serde(default, skip_serializing_if = "<[_]>::is_empty", deserialize_with = "leak::slice")]
@@ -249,11 +252,13 @@ pub struct ActionRow {
 impl ActionRow {
     /// A row with nothing but its name, what it does and what it touches: the rest is added by field.
     pub const fn new(id: Str, touches: Touches, summary: Str) -> ActionRow {
-        ActionRow { scope: None, id, summary, args: Pairs(&[]), touches, keys: None, while_: None, menu: &[], examples: &[], answer: Pairs(&[]) }
+        ActionRow { scope: None, id, summary, args: Pairs(&[]), touches, keys: None, while_: None, person: None, menu: &[], examples: &[], answer: Pairs(&[]) }
     }
     pub const fn args(mut self, args: &'static [(Str, ArgSpec)]) -> ActionRow { self.args = Pairs(args); self }
     pub const fn keys(mut self, keys: &'static [KeyRow]) -> ActionRow { self.keys = Some(Keys::Rows(keys)); self }
     pub const fn typing(mut self) -> ActionRow { self.while_ = Some(While::Typing); self }
+    /// The person's own: `why` is what an agent is told, with what an agent does instead.
+    pub const fn person(mut self, why: Str) -> ActionRow { self.person = Some(why); self }
     pub const fn menu(mut self, menu: &'static [MenuRow]) -> ActionRow { self.menu = menu; self }
     pub const fn examples(mut self, examples: &'static [Example]) -> ActionRow { self.examples = examples; self }
 
