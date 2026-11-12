@@ -1167,7 +1167,7 @@ export class OutlinerServer {
       clientId,
       role: registration.role,
       contextId,
-      ...(registration.app === "door" ? { app: "door" as const } : {}),
+      ...(registration.app === "door" || registration.app === "native" ? { app: registration.app } : {}),
       ...(outline ? { outline } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),

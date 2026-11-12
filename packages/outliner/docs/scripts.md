@@ -325,8 +325,9 @@ What the fields mean:
 In the door a click, or Enter on the element, runs it as the person through the door's one dispatcher, on the note the view
 is drawn in (`this`); `act` runs the same line. The click is the consent, so there is no confirm, and what it does is
 attributed and undoable (`ext.undo`, `layout.undo`). A script run that a press starts may move the person's tiles (the
-press invites it); an agent's run of the same script may not move the tile the person is in. Any other client draws the
-primitive's label without the line. In a note the same press is `::button{label="Review" act="layout.load name=review"}`,
+press invites it); an agent's run of the same script may not move the tile the person is in. The native window runs a press through
+its own dispatcher too (`button.press`: an act line it has an action for runs there, a button with steps or a script is
+run by the service and its acts come back to that window). Any other client draws the primitive's label without the line. In a note the same press is `::button{label="Review" act="layout.load name=review"}`,
 `::button{label="Play" of=ttt-play cell=5}` or `[review](act: layout.load name=review)`. An agent presses one with `button.press label="Play"` (the door's action, through the same dispatcher; `n=` from `elements`).
 
 | Entry | Source |

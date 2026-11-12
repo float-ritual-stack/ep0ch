@@ -5,23 +5,10 @@
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, type CalloutRegistry } from "./callouts";
 import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
-import type { ListPrimitive } from "./list-row";
+import type { SourceRange } from "./code-ranges";
+import type { ComponentKind } from "./component-at";
+import type { Primitive } from "./primitive";
 import { readContentSize, type Align, type ContentWidth, type Focus, type MediaSpec } from "./media-line";
-
-/** One row of a `::links` group or a `::fields`: what it says, the note it opens (none: it opens nothing here), a quiet word after it. */
-export interface PageRow { text: string; id?: string; note?: string }
-
-/** What every component part carries: its name as written, its title, the lines it was written as, and the service's word on its answer. */
-interface ComponentPart {
-  name: string;
-  title?: string;
-  /** Its lines as written: what a client shows when it draws nothing better, and beside an `error`. */
-  source: string;
-  /** How fresh the answer is, as a page's footer says it ("live · 3 results"). */
-  status?: string;
-  /** Why it has no answer, or what is wrong with the one it has: the service's words. */
-  error?: string;
-}
 
 /**
  * A picture a note shows (a media line, `[img::path]`; or an ```svg fence, whose text is the picture): where its bytes
@@ -58,23 +45,65 @@ export function pagePicture(spec: MediaSpec, svg?: string): PagePicture {
   };
 }
 
-export type PagePart =
+/**
+ * What a part of a page is drawn as: a primitive of the catalogue (primitive.ts), or one of the four a page adds.
+ * A client draws each by its `type` and reads nothing else of the note.
+ */
+export type PagePrimitive =
+  | Exclude<Primitive, { type: "box" }>
+  /** A box: its children are the parts written inside it. */
+  | { type: "box"; title?: string; children: PagePrimitive[] }
   /** Prose as Markdown (the render target): Blockdown links written as Markdown links (`blockHref`, `pageHref`). */
-  | { kind: "prose"; markdown: string }
-  /**
-   * A `::graph-*` figure: `figure` is its kind (`stat`, `check`, `table`…), `props` what it draws from once the outline
-   * has answered (outline-core's `liveProps`), and `markdown` the same results as Markdown for a client with no drawing
-   * of that kind (outline-core's `figureResultsMarkdown`).
-   */
-  | ({ kind: "figure"; figure: string; props: Record<string, unknown>; markdown?: string } & ComponentPart)
-  /** A `::view` or a query-backed `::graph-table`: the view's own list, as every client draws it. */
-  | ({ kind: "view"; view: ListPrimitive; query?: string; truncated?: boolean } & ComponentPart)
-  /** A `::links` (and `::outlinks`, `::backlinks`, `::resources`) or a `::fields`: named groups of rows. */
-  | ({ kind: "rows"; groups: { name: string; rows: PageRow[]; empty?: string }[]; query?: string } & ComponentPart)
+  | { type: "markdown"; text: string }
   /** A picture where it stands in the note. (The note's header image is the page's `hero`, not a part.) */
-  | ({ kind: "picture"; source: string } & PagePicture)
-  /** A component the service has no answer for (a button, a box, an extension's): its source. */
-  | ({ kind: "component" } & ComponentPart);
+  | ({ type: "picture" } & PagePicture)
+  /** Lines as they were written: a component nobody has an answer or a drawing for. Never hidden. */
+  | { type: "source"; text: string }
+  | PagePart;
+
+/** The primitive types a page adds to the catalogue's, each with the fields it takes (a part's are `PagePart`'s). */
+export const PAGE_PRIMITIVE_FIELDS = {
+  markdown: ["text"],
+  picture: ["path", "svg", "alt", "width", "height", "align", "fit", "focus", "dim", "problems"],
+  source: ["text"],
+  part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "needs", "view"],
+} as const satisfies { [T in Exclude<PagePrimitive["type"], Primitive["type"]>]: readonly string[] };
+
+/** What a part was written as: `componentAt`'s kinds (component-at.ts), prose, and a picture. Said for a reader of the data; nothing draws by it. */
+export type PagePartKind = ComponentKind | "prose" | "picture";
+
+/**
+ * One part of a note's body, in order: where it is written, the service's word on its answer, and what to draw
+ * (`view`). The frame is the same for every part; a part of prose has only its place and its view.
+ */
+export interface PagePart {
+  type: "part";
+  kind: PagePartKind;
+  /** The note it is written in. */
+  block: string;
+  /** Where its lines are in that note's text, in UTF-16 code units (`end` exclusive): `text.slice(start, end)` is it as written. */
+  span: SourceRange;
+  /** The line of the note (from 0) it starts on: how a press names a button (`scripts.sequence`). */
+  line: number;
+  /** A component's name as written (`graph-stat`, `links`, `button`). */
+  name?: string;
+  /** A figure's kind (`stat`, `check`…). */
+  figure?: string;
+  title?: string;
+  /** The question it asks, in the views' grammar: a client opens it as a query. */
+  query?: string;
+  /** How fresh the answer is, as a page's footer says it ("live · 3 results"). */
+  status?: string;
+  /** Why it has no answer, or what is wrong with the one it has: the service's words. */
+  error?: string;
+  /** More matched than the view holds. */
+  truncated?: true;
+  /** A button whose press is the service's to run (several steps, or a script): `scripts.sequence` with `block` and `line`. */
+  sequence?: true;
+  /** The slots a button's line leaves empty (`{bed}` with `bed=` unwritten): a press has nothing to run until each is written or asked for. Any other `error` on a button is said and stops no press. */
+  needs?: string[];
+  view: PagePrimitive;
+}
 
 /** A note in a list, as every list of a page names one: its id, its title as lists show it, and where it sits. */
 export interface NoteRow { id: string; title: string; hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
