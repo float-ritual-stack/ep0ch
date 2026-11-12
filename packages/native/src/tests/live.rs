@@ -51,9 +51,9 @@ fn live_the_window_reads_writes_and_hears_changes_over_the_socket() {
         act(&mut app, &format!("open id={}", plan["id"].as_str().unwrap()));
         let page = app.page().expect("the page came");
         assert_eq!(page.title, "Plan");
-        let todo = |app: &App| -> Vec<String> { app.page().unwrap().parts.iter().flat_map(|part| match part { crate::page::Part::Rows { groups, .. } => groups.iter().flat_map(|g| g.rows.iter().map(|r| r.text.clone())).collect(), _ => Vec::new() }).collect() };
+        let todo = |app: &App| -> Vec<String> { app.page().unwrap().parts.iter().filter(|part| part["view"]["type"] == "list").flat_map(|part| part["view"]["rows"].as_array().cloned().unwrap_or_default()).map(|row| row["label"].as_str().unwrap_or("").to_string()).collect() };
         assert_eq!(todo(&app), ["Lift the onions"]);
-        assert!(matches!(&page.parts[0], crate::page::Part::Prose { markdown } if markdown.contains(&format!("[Shed](ep0ch:b/{})", shed["id"].as_str().unwrap()))));
+        assert!(page.parts[0]["view"]["text"].as_str().is_some_and(|text| text.contains(&format!("[Shed](ep0ch:b/{})", shed["id"].as_str().unwrap()))));
 
         // The bar's notes are the service's search: what a word typed costs, said for the record (DESIGN.md §7).
         let asked = std::time::Instant::now();

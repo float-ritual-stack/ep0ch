@@ -17,14 +17,17 @@ fn level_key(asked: &Asked, under: Option<&str>) -> String { watch_of(asked, "bl
 #[test]
 fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
     let Garden { app, asked, .. } = garden(ok());
-    assert_eq!(actions(&asked), ["ping", "blocks.read", "screens.list", "notes.page"], "the tree's top level, the outline's screens, then the first note's page: asked once, though three tiles show it");
+    assert_eq!(actions(&asked), ["ping", "events.subscribe", "blocks.read", "screens.list", "notes.page"], "who answers and who this window is, then the tree's top level, the outline's screens and the first note's page: asked once, though three tiles show it");
+    // The window registers as itself, for the acts of the scripts it starts and nothing else of the event feed.
+    let hello = asked.borrow()[1].clone();
+    assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act"])));
     assert_eq!((app.at.outline.as_str(), app.machine.as_str()), ("garden", "box"));
     assert_eq!(app.page().unwrap().title, "Plot");
     assert_eq!(listed(&app), [(0, "Plot".to_string()), (0, "Shed".to_string())], "only the top level was asked for");
     // Every read names the outline and is watched under a key of its own.
     let reads = asked.borrow();
-    assert_eq!((reads[1]["outline"].as_str(), reads[1]["under"].is_null(), reads[3]["blockId"].as_str()), (Some("garden"), true, Some("plot")));
-    let (tree, page) = (reads[1]["watch"].as_str().expect("the level is watched"), reads[3]["watch"].as_str().expect("the page is watched"));
+    assert_eq!((reads[2]["outline"].as_str(), reads[2]["under"].is_null(), reads[4]["blockId"].as_str()), (Some("garden"), true, Some("plot")));
+    let (tree, page) = (reads[2]["watch"].as_str().expect("the level is watched"), reads[4]["watch"].as_str().expect("the page is watched"));
     assert_ne!(tree, page);
 }
 
@@ -253,7 +256,7 @@ fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
     let read: Vec<String> = asked.borrow().iter().filter(|a| a["action"] == "media.read").map(|a| a["path"].as_str().unwrap().to_string()).collect();
     assert_eq!(read, ["pictures/banner.svg", "pictures/beds.svg", "pictures/missing.png"], "each file once; the fence's picture is its own text and asks nothing");
     let page = app.page().unwrap().clone();
-    let shown: Vec<bool> = page.pictures().map(|p| matches!(app.picture(p), Some(Shown::Ready { image, .. }) if image.size().is_some())).collect();
+    let shown: Vec<bool> = page.pictures().iter().map(|p| matches!(app.picture(p), Some(Shown::Ready { image, .. }) if image.size().is_some())).collect();
     assert_eq!(shown, [true, true, true, false], "the header, the file and the fence are decoded; the missing one isn't");
     let missing = page.pictures().last().unwrap();
     assert!(matches!(app.picture(missing), Some(Shown::Failed(why)) if why.contains("isn't on the outline's machine")));
@@ -263,7 +266,7 @@ fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
     assert!(asked.borrow().len() > before && !asked.borrow()[before..].iter().any(|a| a["action"] == "media.read"));
     // Another note's page: the shed's pictures are let go.
     act(&mut app, "open id=plot");
-    assert!(page.pictures().all(|p| app.picture(p).is_none()));
+    assert!(page.pictures().iter().all(|p| app.picture(p).is_none()));
 }
 
 #[test]

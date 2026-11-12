@@ -68,7 +68,6 @@ export const PAGE_PRIMITIVE_FIELDS = {
   source: ["text"],
   part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "view"],
 } as const satisfies { [T in Exclude<PagePrimitive["type"], Primitive["type"]>]: readonly string[] };
-export const PAGE_PRIMITIVE_TYPES = Object.keys(PAGE_PRIMITIVE_FIELDS) as (keyof typeof PAGE_PRIMITIVE_FIELDS)[];
 
 /** What a part was written as: `componentAt`'s kinds (component-at.ts), prose, and a picture. Said for a reader of the data; nothing draws by it. */
 export type PagePartKind = ComponentKind | "prose" | "picture";

@@ -1,0 +1,370 @@
+//! The primitive registry: one builder a primitive type, and nothing else draws a primitive.
+//!
+//! `PRIMS` has an entry for every type the service answers (outline-core's primitive.ts, and the four a page adds
+//! in note-page.ts: `outline-core/fixtures/primitives.json` lists them, and a test holds this table to it). An entry
+//! says its type, how it is drawn here (`describe`: what `actions` over the control socket and the coverage table
+//! print) and the function that builds it. A drawer hands a primitive to `build` and reads none of it itself: no
+//! figure name, no component name, no property key is matched anywhere under `tiles/`.
+//!
+//! A builder speaks as a drawer does, by act lines: a primitive's `act` runs through the dispatcher, a `link` or a
+//! row's `do.open` is an open, and a note's own button is `button.press` (its steps may be the service's to run).
+//! A type nobody has a builder for is drawn as its data, never hidden; nothing here panics on a shape it didn't
+//! expect: a missing field is an empty one.
+use rune::{El, SurfaceFit, TextStyle, col, el, row, text};
+use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Kit, Markdown};
+use serde_json::Value;
+
+use super::TileCx;
+use crate::actions::{Actor, App, CELL, Shown, word};
+use crate::keys;
+use crate::page::Picture;
+use crate::parts::{self, list, words};
+
+/// One primitive type: what it is called, how this window draws it, and the builder.
+pub struct Prim {
+    pub ty: &'static str,
+    pub describe: &'static str,
+    /// It takes the room a row gives it (a stat, a box); a control keeps its own width.
+    pub fills: bool,
+    pub build: fn(&Value, &PrimCx, &Kit) -> El,
+}
+
+pub static PRIMS: &[Prim] = &[
+    Prim { ty: "part", describe: "a component's frame: its name, title, the question it asks (a press opens it as a query) or how fresh its answer is, the service's word on what is wrong, then its view; prose and a picture have no frame", fills: true, build: part },
+    Prim { ty: "markdown", describe: "prose, by the kit's Markdown: headings, lists, tables, code fences, callouts as quotes with a bold lead; a link opens its note", fills: true, build: markdown },
+    Prim { ty: "blockdown", describe: "Blockdown read as Markdown: what the two share draws; a property, a reference or a component inside it stays as written", fills: true, build: markdown },
+    Prim { ty: "source", describe: "lines as they were written, in the code face: a component with no answer or no drawing", fills: true, build: source },
+    Prim { ty: "picture", describe: "a picture where it stands, at its own size up to the reading measure or the height its note gives; a header image as a band, cropped and dimmed as asked; what's wrong said under it", fills: true, build: picture },
+    Prim { ty: "image", describe: "a view's picture, drawn as a note's: its file read from the host, or its own svg", fills: true, build: picture },
+    Prim { ty: "text", describe: "a line of words in its tone, strong when asked; a press when it carries an act line or a link", fills: true, build: words_el },
+    Prim { ty: "badge", describe: "a small label; a press when it carries an act line", fills: false, build: badge },
+    Prim { ty: "button", describe: "a labelled press with its keycap from the key table: an act line this window has runs here, a note's button with steps or a script is the service's to run", fills: false, build: button },
+    Prim { ty: "stat", describe: "a tile: the value large over its label, in its tone", fills: true, build: stat },
+    Prim { ty: "bar", describe: "a label, its value of the most, and a track filled that far", fills: true, build: bar },
+    Prim { ty: "table", describe: "a header row and rows of equal columns; a row or a cell that opens a note or runs an act line is a press", fills: true, build: table },
+    Prim { ty: "checklist", describe: "a box a row, filled when done; read-only here", fills: true, build: checklist },
+    Prim { ty: "sparkline", describe: "a column a value, the tallest the largest", fills: true, build: sparkline },
+    Prim { ty: "card", describe: "a bordered card: title, subtitle, badge, then its children; a press when it carries a link or an act line", fills: true, build: card },
+    Prim { ty: "box", describe: "a bordered box, its title when it has one, then its children in order", fills: true, build: boxed },
+    Prim { ty: "stack", describe: "its children, one under the other", fills: true, build: stack },
+    Prim { ty: "row", describe: "its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own", fills: true, build: beside },
+    Prim { ty: "band", describe: "a heading, sized by its level; the glyph tracks of a heading style aren't drawn", fills: true, build: band },
+    Prim { ty: "track", describe: "a ruled line; a heading style's glyph pattern isn't drawn", fills: true, build: track },
+    Prim { ty: "list", describe: "rows under their group headers: a row that opens a note or runs an act line is a press, its cells as badges, its detail quiet after it; no filter, selection or preview pane here", fills: true, build: rows },
+];
+
+pub fn find(ty: &str) -> Option<&'static Prim> { PRIMS.iter().find(|prim| prim.ty == ty) }
+
+/// The registry as `actions` over the control socket lists it: each type as its own entry says it.
+pub fn described() -> Value { PRIMS.iter().map(|prim| serde_json::json!({ "type": prim.ty, "describe": prim.describe, "fills": prim.fills })).collect() }
+
+/// How deep a view may nest before it is cut (the service caps a view at 8).
+const DEEPEST: usize = 16;
+
+/// Where a primitive is being built: the tile, the element key it is found under, and the part it is the view of.
+pub struct PrimCx<'a> {
+    pub tile: &'a TileCx<'a>,
+    key: String,
+    /// The part whose own view this is: a button there is the note's button, pressed by its line.
+    own: Option<&'a Value>,
+    depth: usize,
+}
+
+impl<'a> PrimCx<'a> {
+    pub fn of(tile: &'a TileCx<'a>) -> PrimCx<'a> { PrimCx { tile, key: String::new(), own: None, depth: 0 } }
+    /// The same place, under another key of the tile.
+    pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth } }
+    fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1 } }
+    fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1 } }
+    fn key(&self) -> String { self.tile.key(&self.key) }
+    fn sub(&self, part: impl std::fmt::Display) -> String { self.tile.key(format!("{}/{part}", self.key)) }
+}
+
+/// Builds one primitive by its type. One nobody has a builder for is its data.
+pub fn build(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    if cx.depth > DEEPEST { return quiet("…", k) }
+    let keyed;
+    let cx = match parts::text(prim, "key") { Some(key) => { keyed = PrimCx { own: cx.own, ..cx.at(key) }; &keyed } None => cx };
+    match find(parts::ty(prim)) {
+        Some(found) => (found.build)(prim, cx, k),
+        None => col().key(cx.key()).w_full().gap(4.0)
+            .child(quiet(&format!("This window draws no {} primitive: its data, as it came.", if parts::ty(prim).is_empty() { "untyped" } else { parts::ty(prim) }), k))
+            .child(text(serde_json::to_string_pretty(prim).unwrap_or_default()).font(k.ty.mono).color(k.c.text_muted).wrap().selectable(true)),
+    }
+}
+
+fn children(prim: &Value, cx: &PrimCx, k: &Kit) -> Vec<El> { list(prim, "children").iter().enumerate().map(|(n, child)| build(child, &cx.under(n), k)).collect() }
+
+fn sized(base: TextStyle, size: f32, line: f32) -> TextStyle { TextStyle { size, line_height: line, ..base } }
+fn quiet(said: &str, k: &Kit) -> El { text(said.to_string()).font(k.ty.small).color(k.c.text_faint).wrap() }
+fn section(title: &str, k: &Kit) -> El { text(title.to_uppercase()).font(k.ty.text_xsmall_medium).color(k.c.text_faint) }
+
+/// A tone's colour: a theme role, never a colour of its own.
+fn tone(v: &Value, k: &Kit) -> rune::Color {
+    match v["tone"].as_str() { Some("good") => k.c.success.fg, Some("warn") => k.c.warning.fg, Some("bad") => k.c.danger.fg, Some("dim") => k.c.text_faint, Some("accent") => k.c.text_accent, _ => k.c.text_base }
+}
+
+/// What a press on `v` does, when it does anything, as the act line it is: the note it opens, else the line it runs.
+fn press_of(v: &Value) -> Option<String> { parts::opens(v).map(|id| TileCx::says("open", id)).or_else(|| parts::runs(v)) }
+
+/// `shown` as a press, when `v` says what a press does.
+fn pressable(shown: El, v: &Value, cx: &PrimCx, k: &Kit) -> El {
+    match press_of(v) {
+        Some(line) => k.interactive(shown).role(if parts::opens(v).is_some() { "link" } else { "button" }).focusable(true).on_press(cx.tile.act(line)),
+        None => shown,
+    }
+}
+
+fn markdown(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let tile = word(&cx.tile.name);
+    Markdown::new(parts::text(prim, "text").unwrap_or("")).selectable(true).tasks_read_only()
+        .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); })
+        .build(k).key(cx.key())
+}
+
+fn source(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    text(parts::text(prim, "text").unwrap_or("").to_string()).key(cx.key()).font(k.ty.mono).color(k.c.text_muted).wrap().selectable(true)
+}
+
+fn words_el(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let shown = text(words(prim)).key(cx.key()).font(if prim["strong"] == true { k.ty.ui_medium } else { k.ty.ui }).color(tone(prim, k)).wrap();
+    pressable(shown, prim, cx, k)
+}
+
+fn badge(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let variant = if prim["tone"] == "accent" { BadgeVariant::Accent } else { BadgeVariant::Subtle };
+    let shown = Badge::new(parts::text(prim, "label").unwrap_or("")).variant(variant).standard().build(k).key(cx.key());
+    match parts::runs(prim) { Some(line) => pressable(shown, prim, cx, k).help(line), None => shown }
+}
+
+/// A labelled press. A note's own button is pressed by its line (`button.press`): the dispatcher runs its act line
+/// here or hands it to the service. Any other is its act line, as written.
+fn button(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let act = parts::text(prim, "act").unwrap_or("");
+    let line = match cx.own.and_then(|part| Some((parts::text(part, "block")?, part["line"].as_u64()?))) {
+        Some((block, line)) => format!("button.press note={} line={line}", word(block)),
+        None => act.to_string(),
+    };
+    let variant = match prim["tone"].as_str() { Some("accent" | "good") => ButtonVariant::Contrast, Some("bad") => ButtonVariant::Danger, Some("warn") => ButtonVariant::Warning, _ => ButtonVariant::Neutral };
+    let made = Button::new(parts::text(prim, "label").unwrap_or(act)).variant(variant).on_press(cx.tile.act(line));
+    match keys::cap(act) { Some(cap) => made.shortcut(cap), None => made }.build(k).key(cx.key())
+}
+
+fn stat(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let lit = prim["tone"] == "accent";
+    let value = [words(&prim["value"]), words(&prim["unit"])].into_iter().filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    col().key(cx.key()).min_w(120.0).padding(12.0).gap(2.0).radius(k.radius.md).fill(k.c.layer_02).border(1.0, if lit { k.c.border_focus } else { k.c.border_muted })
+        .child(text(value).font(sized(k.ty.body_medium, 24.0, 30.0)).color(tone(prim, k)))
+        .child(text(words(&prim["label"])).font(k.ty.small).color(k.c.text_muted).wrap())
+}
+
+fn bar(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let (value, max) = (prim["value"].as_f64().unwrap_or(0.0), prim["max"].as_f64().unwrap_or(0.0));
+    let part = if max > 0.0 { (value / max).clamp(0.0, 1.0) as f32 } else { 0.0 };
+    let fill = if prim["tone"].is_string() { tone(prim, k) } else { k.c.text_muted };
+    col().key(cx.key()).w_full().gap(3.0)
+        .child(row().w_full().gap(8.0).center_y()
+            .child(text(words(&prim["label"])).font(k.ty.small).color(k.c.text_base).truncate().grow(1.0))
+            .child(text(format!("{} / {}", words(&prim["value"]), words(&prim["max"]))).font(k.ty.small).color(k.c.text_faint)))
+        .child(el().w_full().h(6.0).radius(3.0).fill(k.c.layer_02).child(el().w_frac(part).h(6.0).radius(3.0).fill(fill)))
+}
+
+fn table(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let (columns, body) = (list(prim, "columns"), list(prim, "rows"));
+    let wide = columns.len().max(body.iter().map(|r| r.as_array().map_or(0, Vec::len)).max().unwrap_or(0)).max(1);
+    let share = 1.0 / wide as f32;
+    let mut out = col().key(cx.key()).w_full().gap(2.0);
+    if columns.iter().any(|c| !words(c).is_empty()) {
+        out = out.child(columns.iter().fold(row().w_full().px(10.0).py(4.0), |line, c| line.child(text(words(c)).font(k.ty.text_xsmall_medium).color(k.c.text_faint).truncate().w_frac(share))));
+    }
+    for (n, cells) in body.iter().enumerate() {
+        let mut line = row().key(cx.sub(n)).w_full().px(10.0).py(5.0).radius(k.radius.sm);
+        for (c, cell) in cells.as_array().map_or(&[][..], Vec::as_slice).iter().enumerate() {
+            let shown = text(words(cell)).font(k.ty.ui).color(tone(cell, k)).truncate();
+            line = line.child(el().w_frac(share).child(if cell.is_object() { pressable(shown.key(cx.sub(format!("{n}/{c}"))), cell, cx, k) } else { shown }));
+        }
+        // The row's own press: the note its `links` names, else the act line its `acts` does.
+        let whole = match (prim["links"][n].as_str(), prim["acts"][n].as_str()) { (Some(id), _) => serde_json::json!({ "link": id }), (None, Some(act)) => serde_json::json!({ "act": act }), _ => Value::Null };
+        out = out.child(pressable(line, &whole, cx, k));
+    }
+    out
+}
+
+fn checklist(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    list(prim, "items").iter().enumerate().fold(col().key(cx.key()).w_full().gap(6.0), |out, (n, item)| {
+        let done = item["done"] == true;
+        let mark = el().w(14.0).h(14.0).radius(3.0).border(1.0, if done { k.c.text_accent } else { k.c.border_strong });
+        out.child(row().key(cx.sub(n)).role("checkbox").label(words(&item["label"])).w_full().gap(8.0).center_y()
+            .child(if done { mark.fill(k.c.text_accent) } else { mark })
+            .child(text(words(&item["label"])).font(k.ty.ui).color(if done { k.c.text_muted } else { k.c.text_base }).wrap().grow(1.0)))
+    })
+}
+
+fn sparkline(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    const TALL: f32 = 36.0;
+    let values: Vec<f64> = list(prim, "values").iter().filter_map(Value::as_f64).collect();
+    let most = values.iter().cloned().fold(0.0, f64::max);
+    let columns = values.iter().fold(row().h(TALL).gap(2.0).items_end(), |line, v| {
+        line.child(el().w(5.0).h(if most > 0.0 { ((v / most) as f32 * TALL).max(2.0) } else { 2.0 }).radius(1.0).fill(k.c.text_accent))
+    });
+    let mut out = col().key(cx.key()).w_full().gap(4.0);
+    if let Some(label) = parts::text(prim, "label") { out = out.child(text(label.to_string()).font(k.ty.small).color(k.c.text_muted)) }
+    out.child(columns)
+}
+
+fn framed(cx: &PrimCx, k: &Kit) -> El { col().key(cx.key()).w_full().padding(12.0).gap(8.0).radius(k.radius.md).fill(k.c.layer_01).border(1.0, k.c.border_muted) }
+
+fn card(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let mut head = row().key(cx.sub("head")).w_full().gap(8.0).center_y().child(text(words(&prim["title"])).font(k.ty.ui_medium).color(k.c.text_base).wrap().grow(1.0));
+    if prim["badge"].is_object() { head = head.child(Badge::new(words(&prim["badge"]["label"])).variant(if prim["badge"]["tone"] == "accent" { BadgeVariant::Accent } else { BadgeVariant::Subtle }).build(k)) }
+    let mut out = framed(cx, k).child(pressable(head, prim, cx, k));
+    if let Some(subtitle) = parts::text(prim, "subtitle") { out = out.child(text(subtitle.to_string()).font(k.ty.small).color(k.c.text_muted).wrap()) }
+    children(prim, cx, k).into_iter().fold(out, El::child)
+}
+
+fn boxed(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let mut out = framed(cx, k);
+    if let Some(title) = parts::text(prim, "title") { out = out.child(text(title.to_string()).font(k.ty.ui_medium).color(k.c.text_base).wrap()) }
+    children(prim, cx, k).into_iter().fold(out, El::child)
+}
+
+fn stack(prim: &Value, cx: &PrimCx, k: &Kit) -> El { children(prim, cx, k).into_iter().fold(col().key(cx.key()).w_full().gap(8.0), El::child) }
+
+fn beside(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    // The narrowest a child that fills may be, in characters: narrower, the row wraps it under the others.
+    let least = prim["minWidth"].as_f64().unwrap_or(12.0) as f32 * CELL.0;
+    list(prim, "children").iter().enumerate().fold(row().key(cx.key()).w_full().gap(8.0).center_y().flex_wrap(), |line, (n, child)| {
+        let built = build(child, &cx.under(n), k);
+        line.child(if find(parts::ty(child)).is_none_or(|prim| prim.fills) { built.min_w(least).grow(1.0) } else { built })
+    })
+}
+
+fn band(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let (size, line) = match prim["level"].as_u64() { Some(1) => (26.0, 32.0), Some(3) => (16.0, 22.0), _ => (20.0, 26.0) };
+    text(words(prim)).key(cx.key()).font(sized(k.ty.body_medium, size, line)).color(tone(prim, k)).wrap().selectable(true)
+}
+
+fn track(_: &Value, cx: &PrimCx, k: &Kit) -> El { el().key(cx.key()).w_full().h(1.0).fill(k.c.border_muted) }
+
+/// A row that opens a note when it names one, runs an act line when it carries one, and is plain words otherwise.
+pub fn line(cx: &TileCx, said: &str, id: Option<&str>, trailing: Vec<String>, detail: Option<&str>, key: String, k: &Kit) -> El {
+    let c = &k.c;
+    let mut shown = row().w_full().gap(8.0).center_y().child(text(said.to_string()).font(k.ty.ui).color(if id.is_some() { c.text_base } else { c.text_muted }).truncate().grow(1.0));
+    for cell in trailing.into_iter().filter(|cell| !cell.is_empty()) { shown = shown.child(Badge::new(cell).variant(BadgeVariant::Subtle).build(k)) }
+    if let Some(q) = detail.filter(|q| !q.is_empty()) { shown = shown.child(text(q.to_string()).font(k.ty.small).color(c.text_faint).truncate()) }
+    let shown = shown.px(10.0).py(6.0).radius(k.radius.sm).key(key);
+    match id {
+        Some(id) => k.interactive(shown).role("link").focusable(true).on_press(cx.emit("open", id)),
+        None => shown,
+    }
+}
+
+fn rows(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let (all, groups) = (list(prim, "rows"), list(prim, "groups"));
+    let mut out = col().key(cx.key()).w_full().gap(2.0);
+    if let Some(title) = parts::text(prim, "title") { out = out.child(section(title, k)) }
+    let headers = if list(prim, "headers").is_empty() { list(prim, "columns") } else { list(prim, "headers") };
+    if !headers.is_empty() && !all.is_empty() { out = out.child(text(headers.iter().map(words).collect::<Vec<_>>().join(" · ")).font(k.ty.text_xsmall_medium).color(k.c.text_faint).px(10.0)) }
+    let one = |r: &Value| {
+        // A row's key is the note it opens when it opens one: what a test, a script and an agent press it by.
+        let key = cx.sub(parts::opens(r).or(parts::text(r, "id")).unwrap_or("row"));
+        let cells = list(r, "cells").iter().map(words).collect();
+        let shown = line(cx.tile, &words(&r["label"]), parts::opens(r), cells, parts::text(r, "detail"), key, k);
+        if parts::opens(r).is_none() && parts::runs(r).is_some() { pressable(shown, r, cx, k) } else { shown }
+    };
+    if groups.is_empty() {
+        if all.is_empty() { out = out.child(quiet(parts::text(prim, "empty").unwrap_or("Nothing here yet."), k).px(10.0)) }
+        return all.iter().fold(out, |out, r| out.child(one(r)));
+    }
+    for group in groups {
+        let name = &group["name"];
+        let held: Vec<&Value> = all.iter().filter(|r| r["group"] == *name).collect();
+        if groups.len() > 1 { out = out.child(section(&words(&group["label"]), k).px(10.0)) }
+        if held.is_empty() { out = out.child(quiet(parts::text(group, "note").unwrap_or("Nothing here yet."), k).px(10.0)) }
+        out = held.into_iter().fold(out, |out, r| out.child(one(r)));
+    }
+    out
+}
+
+/// A terminal row in points: a note gives a picture's height in rows, as the door reads it.
+const ROW_POINTS: f32 = 20.0;
+/// A header image's height when the note names none.
+const HERO_POINTS: f32 = 220.0;
+
+/// What stands where a picture will be, or would have been: its alt text and why it isn't drawn.
+fn no_picture(shown: &Picture, why: &str, key: &str, k: &Kit) -> El {
+    let name = shown.alt.clone().or_else(|| shown.path.clone()).unwrap_or_else(|| "picture".into());
+    col().key(key.to_string()).w_full().padding(12.0).gap(2.0).radius(k.radius.md).fill(k.c.layer_01).border(1.0, k.c.border_muted)
+        .child(text(name).font(k.ty.ui).color(k.c.text_muted))
+        .child(quiet(why, k))
+}
+
+/// A picture where it stands: at its own size up to the reading measure (`full`: the width there is), or the
+/// height the note gives it. A header image (`band`) is a band, cropped to fill it (`contain`: shown whole).
+fn picture(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let key = cx.key();
+    let Some(shown) = Picture::of(prim) else { return no_picture(&Picture::default(), "it names no file and holds no drawing", &key, k) };
+    let band = prim["band"] == true;
+    let (image, points) = match cx.tile.app.picture(&shown) {
+        Some(Shown::Ready { image, points }) => (image, *points),
+        // A header that isn't there yet takes no room: the title doesn't jump when it comes.
+        _ if band => return el().key(key),
+        Some(Shown::Failed(why)) => return no_picture(&shown, why, &key, k),
+        Some(Shown::Asked) | None => return no_picture(&shown, "on its way…", &key, k),
+    };
+    let Some([width, _]) = image.size() else {
+        if band { return el().key(key) }
+        return match image.error() { Some(e) => no_picture(&shown, &format!("{e:?}"), &key, k), None => no_picture(&shown, "decoding…", &key, k) };
+    };
+    if band {
+        let fit = if shown.fit.as_deref() == Some("contain") { SurfaceFit::Fit } else { SurfaceFit::Fill };
+        let drawn = el().key(key).role("image").label(shown.alt.clone().unwrap_or_else(|| "Header image".into())).w_full()
+            .h(shown.height.map_or(HERO_POINTS, |rows| rows * ROW_POINTS)).radius(10.0).pixels_fit(image.pixels(), fit);
+        return match shown.dim.filter(|dim| *dim > 0.0) {
+            Some(dim) => drawn.child(el().w_full().h_full().radius(10.0).fill(k.alpha(k.c.black, dim.min(1.0)))),
+            None => drawn,
+        };
+    }
+    let mut drawn = el().key(key).role("image").label(shown.alt.clone().unwrap_or_else(|| "Picture".into())).w_full().radius(6.0);
+    drawn = match shown.height {
+        // The note says how tall: the picture is shown whole inside that band.
+        Some(rows) => drawn.h(rows * ROW_POINTS).pixels_fit(image.pixels(), SurfaceFit::Fit),
+        None => drawn.pixels(image.pixels()),
+    };
+    if shown.width != "full" && shown.height.is_none() { drawn = drawn.max_w(width as f32 / points) }
+    let mut body = col().w_full().gap(4.0).child(drawn);
+    // What's written on its line that isn't a layout value is said under it, as the door's caption does.
+    for problem in &shown.problems { body = body.child(text(problem.clone()).font(k.ty.small).color(k.c.warning.fg).wrap()) }
+    body
+}
+
+/// A part: the frame the service put around a view. Prose and a picture have none; a component has its name, its
+/// title, its question or how fresh its answer is, what is wrong, its view, and what a press of it last did.
+fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
+    let c = &k.c;
+    let view = build(&prim["view"], &cx.view_of(prim), k);
+    let Some(name) = parts::text(prim, "name") else { return view };
+    let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name).variant(BadgeVariant::Accent).build(k));
+    if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }
+    head = head.child(el().grow(1.0));
+    if let Some(q) = parts::text(prim, "query") {
+        head = head.child(
+            k.interactive(text(q.to_string()).font(k.ty.mono).color(c.text_muted).truncate())
+                .key(cx.sub("query"))
+                .help("Open this query")
+                .on_press(cx.tile.act(format!("bar.open scope=query query={}", word(q)))),
+        );
+    } else if let Some(status) = parts::text(prim, "status") {
+        head = head.child(text(status.to_string()).font(k.ty.small).color(c.text_faint));
+    }
+    let mut out = col().key(cx.key()).w_full().padding(12.0).gap(6.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_muted).child(head);
+    // The service's words on what is wrong, with whatever it could still answer under them.
+    if let Some(e) = parts::text(prim, "error") { out = out.child(text(e.to_string()).key(cx.sub("error")).font(k.ty.small).color(c.danger.fg).wrap()) }
+    out = out.child(view);
+    if prim["truncated"] == true { out = out.child(quiet("More match than are shown: open the query for all of them.", k)) }
+    // What a press here last did, said where it was pressed.
+    if let Some(said) = cx.tile.ui.said.as_ref().filter(|said| Some(said.block.as_str()) == parts::text(prim, "block") && Some(said.line) == prim["line"].as_u64()) {
+        out = out.child(text(said.words.clone()).key(cx.sub("said")).font(k.ty.small).color(if said.ok { c.text_muted } else { c.danger.fg }).wrap());
+    }
+    out
+}

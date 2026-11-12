@@ -41,12 +41,19 @@ fn page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     if id == "shed" {
         page["hero"] = json!({ "path": "pictures/banner.svg", "width": "fit", "alt": "Dusk over the beds", "dim": 0.2 });
         page["parts"] = json!([
-            { "kind": "picture", "source": "[img::pictures/beds.svg]", "path": "pictures/beds.svg", "width": "fit", "alt": "Four beds" },
-            { "kind": "picture", "source": "```svg\n…\n```", "svg": SUN, "width": "fit", "height": 6 },
-            { "kind": "picture", "source": "[img::pictures/missing.png]", "path": "pictures/missing.png", "width": "fit", "alt": "The photo nobody took", "problems": ["size::huge isn't a size"] },
+            part(id, "picture", 1, json!({}), json!({ "type": "picture", "path": "pictures/beds.svg", "width": "fit", "alt": "Four beds" })),
+            part(id, "picture", 2, json!({}), json!({ "type": "picture", "svg": SUN, "width": "fit", "height": 6 })),
+            part(id, "picture", 5, json!({}), json!({ "type": "picture", "path": "pictures/missing.png", "width": "fit", "alt": "The photo nobody took", "problems": ["size::huge isn't a size"] })),
         ]);
     }
     page
+}
+
+/// A part as `notes.page` frames one (outline-core's `PagePart`): where it is written, the service's word on it, its view.
+pub fn part(note: &str, kind: &str, line: u64, frame: Value, view: Value) -> Value {
+    let mut part = json!({ "type": "part", "kind": kind, "block": note, "span": { "start": 0, "end": 0 }, "line": line, "view": view });
+    for (key, value) in frame.as_object().into_iter().flatten() { part[key.as_str()] = value.clone() }
+    part
 }
 
 fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
@@ -56,14 +63,15 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
         "chips": [{ "key": "type", "value": "chore" }], "properties": [{ "key": "type", "value": "chore" }, { "key": "room", "value": "north" }],
         "updated": "2026-03-01T09:30:00.000Z", "author": "user", "ancestors": ancestors,
         "parts": [
-            { "kind": "prose", "markdown": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." },
-            { "kind": "rows", "name": "links", "title": "On the plot", "source": "::links{query=\"type=chore\"}\n::", "query": "type=chore", "status": "live · 1 match",
-              "groups": [{ "name": "Matches", "rows": [{ "text": "Water the beans", "id": "beans" }] }] },
-            { "kind": "figure", "name": "graph-stat", "figure": "stat", "title": "Chores", "source": "::graph-stat\n::", "status": "live",
-              "props": { "items": [{ "label": "to do", "value": "2" }, { "label": "done", "value": "5", "accent": true }] } },
-            { "kind": "view", "name": "view", "title": "Every chore", "source": "::view\n::", "view": { "type": "list", "headers": ["state"],
-              "rows": [{ "id": "fork", "label": "Take the fork", "cells": ["todo", { "text": "plot" }] }] } },
-            { "kind": "component", "name": "button", "source": "::button{label=\"Sweep\"}" },
+            part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
+            part(id, "links", 3, json!({ "name": "links", "title": "On the plot", "query": "type=chore", "status": "live · 1 match" }),
+              json!({ "type": "list", "groups": [{ "name": "Matches", "label": "Matches", "count": 1 }], "rows": [{ "id": "0.0", "label": "Water the beans", "group": "Matches", "do": { "open": "beans" } }] })),
+            part(id, "figure", 6, json!({ "name": "graph-stat", "figure": "stat", "title": "Chores", "status": "live" }),
+              json!({ "type": "row", "children": [{ "type": "stat", "label": "to do", "value": "2" }, { "type": "stat", "label": "done", "value": "5", "tone": "accent" }] })),
+            part(id, "view", 9, json!({ "name": "view", "title": "Every chore" }), json!({ "type": "list", "headers": ["state"],
+              "rows": [{ "id": "fork", "label": "Take the fork", "cells": ["todo", { "text": "plot" }], "do": { "open": "fork" } }] })),
+            part(id, "button", 12, json!({ "name": "button" }), json!({ "type": "button", "label": "Sow the peas", "act": "note.new" })),
+            part(id, "button", 13, json!({ "name": "button", "sequence": true }), json!({ "type": "button", "label": "Tidy the shed", "act": "tidy" })),
         ],
         "children": [{ "id": "fork", "title": "Take the fork" }],
         "backlinks": [{ "id": "plan", "title": "Plan for Saturday", "context": "Plot" }],
