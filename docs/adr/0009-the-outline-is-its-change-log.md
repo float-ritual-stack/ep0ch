@@ -29,8 +29,8 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 
 - **`change_log`**: one row per changed row of a replicated table, written by triggers the schema generates for every
   table (AFTER INSERT, UPDATE, DELETE): `lsn` (the position, `INTEGER PRIMARY KEY`), `txn`, `tbl`, `op` (`i`, `u`,
-  `d`), `key` (the declared primary key's columns as JSON, else `rowid`), `row` (every column as JSON, with `rowid` for
-  a table without a declared key; null for a delete), `origin` (the machine whose request wrote it) and `at`.
+  `d`), `key` (the declared primary key's columns as JSON; every table has one, and a test holds a new one to it), `row`
+  (every column as JSON, a BLOB as hex beside a marker; null for a delete) and `at`.
 - **Every table is classified** in one list beside the schema (`change-log.ts` `LOG_TABLES`): *replicated* (the
   default: blocks, properties, revisions, the change feed, marks, resources, annotations, page addresses, metadata) or
   *local* (`change_log` and `log_state` themselves; the metadata key `outline_open_token`, which each open rewrites).
@@ -133,10 +133,11 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 ### 7. Conflicts: one writer per outline
 
 - The home machine is the only writer of an outline's log. A follower never writes rows; its host is read-only.
-- **A write queued for an away machine** (the gateway's netmail, ADR 0005) stays a request in the queue, which now
-  records the follower's `logId` and `lsn` it was made against. The home applies it as an ordinary attributed,
-  revision-checked write (a conflict becomes a proposal, as now), and its rows enter the home's log with `origin` the
-  queuing machine: a log entry from another origin. The follower sees it come back in the next range.
+- **A write queued for an away machine** (the gateway's netmail, ADR 0005) stays a request in the queue, with the
+  revision and the home's instance id the follower's copy showed (the copy carries the home's own, replicated). The
+  home applies it as an ordinary attributed, revision-checked write (a conflict becomes a proposal, as now), so it
+  enters the home's log as entries like any other, the queuing actor and `queued` in the rows they wrote; the follower
+  sees it come back in the next range. Nothing but the home writes the home's log.
 
 ## Consequences
 

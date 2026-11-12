@@ -5,6 +5,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
+import { OutlineFollower } from "../src/outline-follower";
 import { OutlineHost } from "../src/outline-host";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -589,6 +590,20 @@ test("UUID links and backlinks cross forwarded host sockets without switching ou
 });
 
 
+/**
+ * The copy a follower here made of `outline` while its home answered at `socket` (outline-follower.ts, ADR 0009): its
+ * home's log applied into `<mirrors>/<machine>/`. Returns the newest change it holds (what a read says as `asOf`).
+ */
+async function followedCopy(mirrors: string, machine: string, outline: string, socket: string): Promise<string> {
+  const follower = new OutlineFollower<string>(outline, machine, mirrors, { attach: async s => ({ board: s, close() {} }), reach: async () => socket, log: () => {} });
+  try {
+    await follower.pull();
+    const read = await follower.read();
+    if ("error" in read) throw new Error(`${outline}@${machine}'s copy: ${read.error}`);
+    return read.asOf;
+  } finally { await follower.close(); }
+}
+
 test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
   const previous = process.env.EP0CH_MCP_MIRROR_DIR;
@@ -598,18 +613,13 @@ test("away machines answer links from a read-only copy while silent forwards tim
   await host.create("garden");
   const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
   const local = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: `Morning chores\n((${target.id}))` });
-  mkdirSync(join(mirrorRoot, "laptop"), { recursive: true });
   const farRoot = scratch(), far = await startHost(farRoot, "orchard");
   await far.create("orchard");
   const source = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: `Orchard chores\n((${target.id}))` });
   const pear = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: "Prune the pear" });
-  const database = new Database(layoutOf(farRoot).database("orchard"), { readonly: true });
-  database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
-  database.close();
-  // The newest change the copy holds: a host's own first writes (its extensions' pages) may land after these two notes.
-  const copy = new Database(join(mirrorRoot, "laptop", "orchard.sqlite"), { readonly: true });
-  const asOf = new Date(Date.parse((copy.query("SELECT max(updated_at) AS newest FROM blocks").get() as { newest: string }).newest)).toISOString();
-  copy.close();
+  // The copy here, followed while the laptop answered; then the laptop goes away.
+  const asOf = await followedCopy(mirrorRoot, "laptop", "orchard", far.socketPath);
+  await far.close();
   const before = readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"));
   const layout = layoutOf(root);
   mkdirSync(layout.remoteDir, { recursive: true });
@@ -646,27 +656,27 @@ test("an away machine's big copies answer links while the door's reads keep thei
   const host = await startHost(root, "garden");
   await host.create("garden");
   const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
-  // The laptop's copies: one big outline that links here (float-hub's size), and a few small ones.
-  mkdirSync(join(mirrorRoot, "laptop"), { recursive: true });
-  const seedFile = join(root, "orchard-seed.sqlite");
-  const seed = new OutlinerStore(seedFile);
+  // The laptop's outlines: one big one that links here (float-hub's size), and a few small ones, followed here while it
+  // answered.
+  const farRoot = scratch(), farOutlines = layoutOf(farRoot);
+  mkdirSync(farOutlines.root, { recursive: true });
+  const seed = new OutlinerStore(farOutlines.database("orchard"));
   const source = seed.create(`Orchard chores\n((${target.id}))`);
   seed.close();
-  const database = new Database(seedFile);
+  const database = new Database(farOutlines.database("orchard"));
   database.transaction(() => {
     const insert = database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', '2026-01-01', '2026-01-01')");
     for (let i = 0; i < 40000; i++) insert.run(crypto.randomUUID(), i + 100, `Fictional pruning record ${i} `.repeat(10));
   })();
-  database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
   database.close();
   for (const name of ["attic", "cellar", "shed", "barn"]) {
-    const small = new OutlinerStore(join(root, `${name}-seed.sqlite`));
+    const small = new OutlinerStore(farOutlines.database(name));
     small.create(`The ${name} list`);
     small.close();
-    const file = new Database(join(root, `${name}-seed.sqlite`));
-    file.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", `${name}.sqlite`)]);
-    file.close();
   }
+  let far = await startHost(farRoot);
+  for (const name of ["orchard", "attic", "cellar", "shed", "barn"]) await followedCopy(mirrorRoot, "laptop", name, far.socketPath);
+  await far.close();
   // The laptop's link accepts and never answers, as it does while the laptop sleeps.
   const layout = layoutOf(root);
   mkdirSync(layout.remoteDir, { recursive: true });
@@ -693,19 +703,14 @@ test("an away machine's big copies answer links while the door's reads keep thei
   running = false;
   await door;
   console.info(`PIE-1546: the door's slowest read during the copies' snapshots: ${Math.round(worst)} ms`);
-  expect(logged.filter(line => line.includes("can't take a snapshot"))).toEqual([]);
+  expect(logged.filter(line => line.includes("can't serve the copies") || line.includes("can't be opened"))).toEqual([]);
   expect(first.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
   expect(second.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
   expect(first.away).toContainEqual({ machine: "laptop", asOf: expect.any(String) });
   expect(worst).toBeLessThan(1000);
   expect(secondMs).toBeLessThan(1000);
   // The laptop wakes: it's asked again in the background, and links are read live once it answers.
-  const farRoot = scratch();
-  mkdirSync(layoutOf(farRoot).root, { recursive: true });
-  const seedCopy = new Database(seedFile, { readonly: true });
-  seedCopy.run("VACUUM INTO ?", [layoutOf(farRoot).database("orchard")]);
-  seedCopy.close();
-  const far = await startHost(farRoot, "orchard");
+  far = await startHost(farRoot, "orchard");
   for (const socket of sockets) socket.destroy();
   await new Promise<void>(resolve => listener.close(() => resolve()));
   symlinkSync(far.socketPath, layout.remote("laptop").socket);
@@ -717,22 +722,27 @@ test("an away machine's big copies answer links while the door's reads keep thei
   expect(live.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
 }, 90_000);
 
-test("seven laptop copies snapshotted under load never close local outlines or crash the host (PIE-1057, PIE-1546)", async () => {
+test("seven laptop copies served under load never close local outlines or crash the host (PIE-1057, PIE-1546)", async () => {
   const root = scratch(), layout = layoutOf(root), copies = join(root, "copies");
-  // Seven generations reproduce the restart threshold; garden also exists locally to check ownership.
+  // Seven copies reproduce the restart threshold; garden also exists locally to check ownership.
   const names = ["garden", "orchard", "attic", "cellar", "shed", "barn", "field"];
   const seed = new OutlinerStore(layout.database("garden"));
   const target = seed.create("Water the beans");
   const source = seed.create(`Morning chores\n((${target.id}))`);
   seed.close();
-  mkdirSync(join(copies, "laptop"), { recursive: true });
   const database = new Database(layout.database("garden"));
   database.transaction(() => {
     const insert = database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', '2026-01-01', '2026-01-01')");
     for (let i = 0; i < 30000; i++) insert.run(crypto.randomUUID(), i + 100, `Fictional planting record ${i}`);
   })();
-  for (const name of names) database.run("VACUUM INTO ?", [join(copies, "laptop", `${name}.sqlite`)]);
+  // The laptop holds the same outline under seven names; each is followed here while the laptop answers.
+  const laptopRoot = scratch(), laptop = layoutOf(laptopRoot);
+  mkdirSync(laptop.root, { recursive: true });
+  for (const name of names) database.run("VACUUM INTO ?", [laptop.database(name)]);
   database.close();
+  const laptopHost = await startHost(laptopRoot);
+  for (const name of names) await followedCopy(copies, "laptop", name, laptopHost.socketPath);
+  await laptopHost.close();
   const ssh = join(root, "ssh");
   writeFileSync(ssh, `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fake-ssh.ts")}' "$@"\n`, { mode: 0o700 });
   const env = { ...process.env, EP0CH_OUTLINES: layout.root, EP0CH_MCP_MIRROR_DIR: copies,
@@ -751,11 +761,11 @@ test("seven laptop copies snapshotted under load never close local outlines or c
     await eventually(() => output.includes('"status":"ready"'), "scratch host ready");
     const client = new OutlinerClient(layout.socket, 30000, "garden");
     const links = client.request<import("../src/types").BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: target.id, limit: 20 } });
-    await eventually(() => names.every(name => existsSync(join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock"))), "mirror generation sockets");
-    // Keep real readers queued on generations while the others are snapshotted.
+    const copiesSocket = outlineLayout(join(copies, "laptop")).socket;
+    await eventually(() => existsSync(copiesSocket), "the copies' host socket");
+    // Keep real readers queued on the copies while the host's own reads go on.
     const mirrorReads = names.flatMap(name => {
-      const socket = join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock");
-      const reader = new OutlinerClient(socket, 5000, name);
+      const reader = new OutlinerClient(copiesSocket, 5000, name);
       return Array.from({ length: 12 }, () => reader.request({ action: "tree.index" }).catch(() => undefined));
     });
     const reads = Array.from({ length: 8 }, () => client.request<Block>({ action: "get", blockId: target.id }));
@@ -764,7 +774,7 @@ test("seven laptop copies snapshotted under load never close local outlines or c
     await Promise.all([...reads, ...mirrorReads]);
     await Bun.sleep(1000);
     // The snapshots used to fail here, asking each copy for its whole index within a second (PIE-1546).
-    expect(errors).not.toContain("can't take a snapshot");
+    expect(errors).not.toContain("can't serve the copies");
     expect(errors).not.toContain("unhandled rejection");
     expect(errors).not.toContain("Cannot use a closed database");
     expect(child.exitCode).toBeNull();

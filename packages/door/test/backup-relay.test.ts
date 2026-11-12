@@ -117,7 +117,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(lines).toContain("via hub-box");
     expect(lines).toContain("went through hub-box");
     expect(lines).toContain("didn't answer");
-    expect(hubHolds("garden")).toBe(s.outlines.garden!.seq);
+    expect(hubHolds("garden")).toBe(s.outlines.garden!.seq!);
   }, 120_000);
 
   test("on the work VPN: the run says it went through the hub as status, the drill runs on the hub, and waits when the hub is out of reach too (PIE-810)", async () => {
@@ -160,11 +160,14 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     const r = await snapshot(broken, s, { say, probe: REACHABLE });
     expect(r.relayed).toEqual(["garden"]);
     expect(s.outlines.garden!.relayed?.why).toBeTruthy();
-    expect(hubHolds("garden")).toBe(s.outlines.garden!.seq);
+    expect(hubHolds("garden")).toBe(s.outlines.garden!.seq!);
     // The VPN is off again: the next change goes straight to the repository.
     s.repo = laptop.repoOf("laptop");
     await write(laptop.host, "garden", ["Mulch the beds"]);
-    expect(await snapshot(laptop, s, { say, probe: REACHABLE })).toMatchObject({ uploaded: ["garden"], relayed: [] });
+    // (Another outline whose host wrote since goes straight there too.)
+    const direct = await snapshot(laptop, s, { say, probe: REACHABLE });
+    expect(direct).toMatchObject({ failed: [], relayed: [] });
+    expect(direct.uploaded).toContain("garden");
     expect(s.outlines.garden!.relayed).toBeUndefined();
   }, 120_000);
 
@@ -205,9 +208,10 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     writeFileSync(part, other.map(r => JSON.stringify(r)).join("\n") + "\n");
     expect(await call()).toMatchObject({ ok: false, error: expect.stringContaining("don't follow") });
     expect(hubHolds("garden")).toBe(held);
-    // The log as it is: nothing new, taken as it stands.
+    // The log as the laptop holds it (since gone straight to the repository too): the hub takes what it lacks, from where it is.
     writeFileSync(part, ranges.map(r => JSON.stringify(r)).join("\n") + "\n");
-    expect(await call()).toMatchObject({ ok: true, lsn: held });
+    expect(await call()).toMatchObject({ ok: true, lsn: ranges.at(-1)!.entries.at(-1)!.lsn });
+    expect(hubHolds("garden")).toBe(ranges.at(-1)!.entries.at(-1)!.lsn);
   }, 120_000);
 
   test("a damaged or misdescribed log is refused, and so is the hub's own name", async () => {

@@ -8,7 +8,6 @@
 //   tbl, op  the table, and `i` insert, `u` update, `d` delete, or `g` a genesis (every row follows as an insert)
 //   key      the row's declared primary key, as JSON (`old` for an update or a delete)
 //   row      every column as JSON (null for a delete); a BLOB column as hex beside a `~<column>` marker
-//   origin   the machine whose request wrote it (null: this outline's own machine)
 //
 // A follower applies a range only when it follows its cursor (`applyRange`): the same log, the same schema, its own
 // newest lsn as `after`, and the same entry there (`prev`, a digest). Applied entries are added to the follower's own
@@ -51,7 +50,6 @@ export const CHANGE_LOG_SQL = `
     op TEXT NOT NULL CHECK (op IN ('g', 'i', 'u', 'd')),
     key TEXT,
     row TEXT,
-    origin TEXT,
     at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS change_log_txn ON change_log(txn);
@@ -62,7 +60,6 @@ export const CHANGE_LOG_SQL = `
     role TEXT NOT NULL CHECK (role IN ('home', 'follower')),
     txn INTEGER NOT NULL,
     applying INTEGER NOT NULL DEFAULT 0,
-    origin TEXT,
     forked_from TEXT
   );
 `;
@@ -103,7 +100,7 @@ export function installLogTriggers(database: Database): void {
   for (const { name } of existing) database.exec(`DROP TRIGGER ${q(name)}`);
   const logging = "(SELECT applying = 0 AND role = 'home' FROM log_state WHERE id = 1)";
   for (const t of replicatedTables(database)) {
-    const write = (op: string, key: string, row: string) => `INSERT INTO change_log (txn, tbl, op, key, row, origin, at) SELECT txn, ${lit(t.name)}, '${op}', ${key}, ${row}, origin, ${NOW} FROM log_state WHERE id = 1;`;
+    const write = (op: string, key: string, row: string) => `INSERT INTO change_log (txn, tbl, op, key, row, at) SELECT txn, ${lit(t.name)}, '${op}', ${key}, ${row}, ${NOW} FROM log_state WHERE id = 1;`;
     database.exec(`
       CREATE TRIGGER ${q(`log_${t.name}_i`)} AFTER INSERT ON ${q(t.name)} WHEN ${logging}${notLocal(t, "NEW.")} BEGIN ${write("i", keyJson(t, "NEW."), rowJson(t, "NEW."))} END;
       CREATE TRIGGER ${q(`log_${t.name}_u`)} AFTER UPDATE ON ${q(t.name)} WHEN ${logging}${notLocal(t, "NEW.")} BEGIN ${write("u", keyJson(t, "OLD."), rowJson(t, "NEW."))} END;
@@ -181,7 +178,7 @@ export function compactLog(database: Database, schema: number, factor = 4): bool
 }
 
 /** One log entry, as a range carries it. `key` and `row` stay the JSON text the log holds. */
-export interface LogEntry { lsn: number; txn: number; tbl: string; op: "g" | "i" | "u" | "d"; key: string | null; row: string | null; origin: string | null; at: string }
+export interface LogEntry { lsn: number; txn: number; tbl: string; op: "g" | "i" | "u" | "d"; key: string | null; row: string | null; at: string }
 /** A range of an outline's log: what follows `after`, through whole transactions. */
 export interface LogRange { logId: string; schema: number; after: number; head: number; prev: string | null; entries: LogEntry[]; complete: boolean }
 
@@ -190,9 +187,9 @@ export const LOG_RANGE_MAX_LIMIT = 20_000;
 
 /** A digest of an entry as stored, so two logs can tell whether they hold the same one at an lsn. */
 export const entryDigest = (e: LogEntry): string =>
-  createHash("sha256").update(JSON.stringify([e.lsn, e.txn, e.tbl, e.op, e.key, e.row, e.origin, e.at])).digest("hex");
+  createHash("sha256").update(JSON.stringify([e.lsn, e.txn, e.tbl, e.op, e.key, e.row, e.at])).digest("hex");
 
-const entryAt = (database: Database, lsn: number) => database.query("SELECT lsn, txn, tbl, op, key, row, origin, at FROM change_log WHERE lsn = ?").get(lsn) as LogEntry | null;
+const entryAt = (database: Database, lsn: number) => database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn = ?").get(lsn) as LogEntry | null;
 
 /**
  * The entries after `after`, at most `limit` and then to the end of the last one's transaction, read in one read
@@ -209,10 +206,10 @@ export function readRange(database: Database, after: number, limit = LOG_RANGE_D
     const held = after > 0 && after <= head && !entryAt(database, after);
     const from = after === 0 || held ? Math.max(0, latestGenesis(database) - 1) : after;
     const prevEntry = from > 0 ? entryAt(database, from) : null;
-    const entries = database.query("SELECT lsn, txn, tbl, op, key, row, origin, at FROM change_log WHERE lsn > ? ORDER BY lsn LIMIT ?").all(from, limit) as LogEntry[];
+    const entries = database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn > ? ORDER BY lsn LIMIT ?").all(from, limit) as LogEntry[];
     const last = entries.at(-1);
     if (last && entries.length === limit) {
-      entries.push(...database.query("SELECT lsn, txn, tbl, op, key, row, origin, at FROM change_log WHERE lsn > ? AND txn = ? ORDER BY lsn").all(last.lsn, last.txn) as LogEntry[]);
+      entries.push(...database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn > ? AND txn = ? ORDER BY lsn").all(last.lsn, last.txn) as LogEntry[]);
     }
     const end = entries.at(-1)?.lsn ?? from;
     return { logId, schema, after: from, head, prev: prevEntry ? entryDigest(prevEntry) : null, entries, complete: end >= head };
@@ -301,9 +298,9 @@ export function applyEntries(database: Database, entries: readonly LogEntry[], s
   try {
     database.transaction(() => {
       database.query("UPDATE log_state SET applying = 1 WHERE id = 1").run();
-      const add = database.query("INSERT INTO change_log (lsn, txn, tbl, op, key, row, origin, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const add = database.query("INSERT INTO change_log (lsn, txn, tbl, op, key, row, at) VALUES (?, ?, ?, ?, ?, ?, ?)");
       for (const e of entries) {
-        add.run(e.lsn, e.txn, e.tbl, e.op, e.key, e.row, e.origin, e.at);
+        add.run(e.lsn, e.txn, e.tbl, e.op, e.key, e.row, e.at);
         if (e.op === "g") {
           const at = (JSON.parse(e.row ?? "{}") as { schema?: number }).schema;
           if (at !== schema) throw new RangeRefused(`the range holds a genesis at schema ${at}, and this copy is ${schema}`, false);
