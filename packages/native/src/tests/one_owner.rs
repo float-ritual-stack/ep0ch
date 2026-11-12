@@ -48,7 +48,9 @@ fn state_changes_only_under_actions_and_the_store() {
     none("App handed out to write: only Deref", strays("DerefMut", |_| false));
     none("the state handed out to write", strays("&mut State", |_| false));
     none("the store handed out to write", strays("&mut Store", |path| path == "store.rs"));
-    none("state behind a cell, where a view could write it", strays("RefCell", |_| false).into_iter().chain(strays("Cell<", |path| path == "store.rs")).collect());
+    // (The store's hub is behind one: the windows of a run share it, and a window's views read the answers as that
+    // window last took them, never the hub itself.)
+    none("state behind a cell, where a view could write it", strays("RefCell", |path| path == "store.rs").into_iter().chain(strays("Cell<", |path| path == "store.rs")).collect());
     // The ways in that are not acts are the kit's own hands and the link's life, each with the callers named here.
     for (hand, callers) in [
         (".field(", vec!["keys.rs"]),
@@ -214,9 +216,13 @@ fn kinds_screens_and_a_list_s_rows_are_the_service_s_and_the_window_keeps_no_cop
     for gone in ["src/tiles/tree.rs", "src/tiles/about.rs"] { assert!(!manifest.join(gone).exists(), "{gone}: a tree and what is about a note are lists, drawn by tiles/list.rs") }
     none("a screen or a kind catalogue compiled in", strays("include_str!(", |path| path == "main.rs"));
     // Rows come from one read. The reads the window mapped to rows itself are asked by nobody here.
-    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\"", "\"extensions.list\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\""].iter().flat_map(|read| strays(read, |_| false)).collect());
     none("lists.read asked from somewhere new (`App::ask_of` makes every one: a tile's and the bar's)", strays("\"lists.read\"", |path| path == "actions/app.rs"));
     none("the screens asked from somewhere new", strays("\"screens.list\"", |path| path == "actions/app.rs"));
+    // What the extensions add is held as the service lists it (`ext.rs`: a setting's schema for its form, an
+    // action's name), asked in one place; the bar's rows about extensions are a list the service answers.
+    none("the extensions asked from somewhere new", strays("\"extensions.list\"", |path| path == "actions/app.rs"));
+    none("a bar row made from the extensions here: `lists.read from=extensions` lists them", strays("BarRow {", |path| path == "bar.rs"));
     // A row's act line is the row's own: nothing anywhere writes an open for a row, a child or a link.
     none("an act line written for a row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line(", "tile.emit"].iter().flat_map(|line| strays(line, |_| false)).collect());
     // A kind is found by the service's row (`App::kind_row`), never compared by name.

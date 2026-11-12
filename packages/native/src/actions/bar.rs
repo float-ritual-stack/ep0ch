@@ -7,10 +7,10 @@ use super::{Action, Actor, App, Outcome, About, draft};
 use crate::actline::Args;
 use crate::bar;
 
-static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, whatever the service lists on a bar's main list (the outline's notes by its search); scope= lists one source: actions, or one the service says a bar lists (query: the views' grammar, with the facets its matches carry; screens: the screens to open). The person's opens it; an agent's opens nothing: it answers the rows for its own query=, the actions at once and a served source's as the store holds them, with the ask that lists them")
+static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the command bar: one palette over the window. It lists the actions there are (with their keys) and, typed, whatever the service lists on a bar's main list (the outline's notes by its search); scope= lists one source: actions, or one the service says a bar lists (query: the views' grammar, with the facets its matches carry; screens: the screens to open; extensions: what is installed and what can be; outlines: the outlines there are to switch to). The person's opens it; an agent's opens nothing: it answers the rows for its own query=, the actions at once and a served source's as the store holds them, with the ask that lists them")
     .args(&[
         ("query", ArgSpec::text("what's typed in it").optional()),
-        ("scope", ArgSpec::text("one source: actions, or one the service lists for a bar (search, query, screens); all (the default) lists actions, then the main list").optional()),
+        ("scope", ArgSpec::text("one source: actions, or one the service lists for a bar (search, query, screens, extensions, outlines); all (the default) lists actions, then the main list").optional()),
     ])
     .keys(&[
         KeyRow::keys("mod+k", "open the bar on everything"),
@@ -21,6 +21,8 @@ static OPEN: ActionRow = ActionRow::new("bar.open", Touches::Nothing, "the comma
         MenuRow::new("Find", "Bar", Some("mod+k")),
         MenuRow::with("Query", "Bar", Some("mod+l"), &[("scope", Scalar::Text("query"))]),
         MenuRow::with("Screens", "Bar", None, &[("scope", Scalar::Text("screens"))]),
+        MenuRow::with("Extensions", "Bar", None, &[("scope", Scalar::Text("extensions"))]),
+        MenuRow::with("Outlines", "Bar", None, &[("scope", Scalar::Text("outlines"))]),
     ])
     .examples(&[Example { act: "bar.open scope=query query=\"type=bed NOT stage=done\"", does: "opens the bar on the beds not done yet", safe: Some(true) }]);
 

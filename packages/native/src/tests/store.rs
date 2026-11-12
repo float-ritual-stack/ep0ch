@@ -150,7 +150,7 @@ fn a_refused_read_is_said_once_keeps_no_watch_and_leaves_an_earlier_answer_stand
 #[test]
 fn a_write_is_stamped_with_who_acts_and_a_link_made_again_asks_for_everything_shown() {
     let mut h = host();
-    h.store.set_person("ep0ch-native:box".into());
+    h.store.set_person(&h.at.clone(), "ep0ch-native:box".into());
     fn then(_: &mut crate::actions::App, _: crate::store::Reply) {}
     h.store.write(&h.at.clone(), "update", json!({ "blockId": "north" }), &Actor::Person, then, Value::Null);
     h.store.write(&h.at.clone(), "update", json!({ "blockId": "north" }), &Actor::Agent("compost-agent".into()), then, Value::Null);

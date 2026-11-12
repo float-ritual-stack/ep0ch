@@ -31,6 +31,8 @@ use crate::actions::{self, Actor, App, Field, word};
 pub enum Layer {
     /// The command bar is open: its line has them.
     Bar,
+    /// A form is open over the window: its fields have them.
+    Form,
     /// A block is open for editing, and the list that completes what is being typed is open over it with rows to
     /// choose from.
     Complete,
@@ -44,13 +46,13 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, complete, said, draft and tile") }
+        match name { "bar" => Layer::Bar, "form" => Layer::Form, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, complete, said, draft and tile") }
     }
     /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
     /// hold, and a list with rows has every key of one that only says something.
-    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
 }
 
 /// Where the person is: one answer, read by the key table, the actor rule and `peek`.
@@ -88,6 +90,8 @@ impl App {
         let idle = self.last_key().map(|at| at.elapsed());
         if self.bar.open {
             Whereabouts { layer: Layer::Bar, focus, idle, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
+        } else if self.form.is_some() {
+            Whereabouts { layer: Layer::Form, focus, idle, typing_in: Some("form".into()), busy: true, why: Some("the person is filling in a form".into()) }
         } else if let Some(draft) = self.draft_on(&self.layout.focus) {
             let tile = self.layout.name(&draft.tile);
             // The list's own keys are for choosing: one with nothing to choose from keeps only the key that puts it away.
@@ -160,7 +164,7 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
@@ -255,7 +259,7 @@ pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
     if let Some(asked) = wanted(s, &names) { return ask(s, asked, tx) }
     let focus = s.layout.name(&s.layout.focus);
     let echo = s.held().asked.as_ref().and_then(|(key, _)| tile_of(key, &names));
-    let pressed = now.as_deref().filter(|_| moved && !s.bar.open).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
+    let pressed = now.as_deref().filter(|_| moved && !s.bar.open && s.form.is_none()).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
     // The caret is in a draft whose tile hasn't the keys: a press put it there.
     let drafted = s.drafts.iter().find(|draft| draft.buf.takes_keys() && draft.tile != s.layout.focus && !s.bar.open).map(|draft| s.layout.name(&draft.tile));
     let Some(tile) = drafted.or(pressed) else { return false };
@@ -343,7 +347,8 @@ impl Text {
     }
 }
 
-/// What an act asked of the next frame, done: an element brought into view. True when something moved.
+/// What an act asked of the next frame, done: an element brought into view, the window closed. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
+    if s.closing { tx.close_window() }
     match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }

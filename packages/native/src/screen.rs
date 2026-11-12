@@ -27,6 +27,8 @@ pub enum From {
     /// A note in the outline, at the revision read.
     Note { id: String, revision: u64 },
     Extension(String),
+    /// No screen's: a tile torn out of another window into one of its own.
+    Torn,
 }
 
 /// A screen as served: its spec as data, and what the service found wrong with it.

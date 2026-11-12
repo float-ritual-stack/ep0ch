@@ -10,11 +10,11 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use rune::{El, col, el, row, text};
-use rune_kit::{Badge, BadgeVariant, Dialog, Keybind, Kit, glyphs};
+use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, Keybind, Kit, glyphs};
 use serde_json::json;
 
 use crate::actions::row::KeyRow;
-use crate::actions::{self, Actor, App, Field, word};
+use crate::actions::{self, Actor, App, Field, FormUi, word};
 use crate::keys::{self, Layer};
 use crate::list::{self, Rows};
 use crate::page::{Facet, ListAnswer};
@@ -217,9 +217,51 @@ fn row_el(row: &BarRow, lit: bool, k: &Kit) -> El {
         .on_press(move |s: &mut App| { s.act(&pick, Actor::Person); })
 }
 
-/// The bar, over the window, when it is open.
+/// A button for an act line: its label is the action's, its keycap the key table's.
+fn button(line: &'static str, variant: ButtonVariant, k: &Kit) -> El {
+    let b = Button::new(actions::label(line)).variant(variant).on_press(move |s: &mut App| { s.act(line, Actor::Person); });
+    match keys::cap(line) { Some(cap) => b.shortcut(cap), None => b }.build(k)
+}
+
+/// The act lines a form's two buttons run; what each is called is its action's row.
+const FORM_SAVE: &str = "form.save";
+const FORM_CLOSE: &str = "form.close";
+/// The action a form of settings saves by: its row's label is what the form is called.
+const CONFIGURE: &str = "extensions.configure";
+
+/// The form over the window: an extension's settings, a field each. What a field is called, what it means, what it
+/// takes and what it does when left empty are its schema's words (`ext::SettingField`, as the service lists them),
+/// read each time; the form itself holds only what is typed. A secret is said, never typed here: where its value
+/// comes from is a reference on the host.
+fn form(s: &App, form: &FormUi, k: &Kit, layer: &mut Vec<El>) {
+    let c = &k.c;
+    let settings = s.settings_of(&form.extension);
+    let name = s.extensions().map_or(form.extension.as_str(), |listed| listed.named(&form.extension)).to_string();
+    let mut body = col().w_full().px(16.0).pb(16.0).gap(12.0);
+    for field in &form.fields {
+        let said = settings.and_then(|settings| settings.fields.iter().find(|f| f.name == field.name));
+        let input = keys::input(&field.edit, Field::Form(field.name.clone())).label(field.name.clone()).placeholder(said.and_then(|f| f.default.as_ref()).map(crate::ext::shown).unwrap_or_default()).width(None).build(k).key(format!("form/field/{}", field.name));
+        let mut one = col().w_full().gap(4.0).child(input);
+        if let Some(about) = said.map(|f| f.about()).filter(|about| !about.is_empty()) { one = one.child(text(about).key(format!("form/about/{}", field.name)).font(k.ty.small).color(c.text_faint).wrap()) }
+        body = body.child(one);
+    }
+    for secret in settings.into_iter().flat_map(|settings| settings.secrets.iter()) {
+        let stands = [secret.reference.clone().unwrap_or_default(), secret.state.clone(), secret.description.clone().unwrap_or_default()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" · ");
+        body = body.child(text(format!("{}: {stands}", secret.name)).key(format!("form/secret/{}", secret.name)).font(k.ty.small).color(c.text_muted).wrap());
+    }
+    // Why the last save was refused, in the service's words: every word typed is still in its field.
+    if let Some(said) = form.said.as_ref().or(settings.and_then(|settings| settings.error.as_ref())) { body = body.child(text(said.clone()).key("form/said").font(k.ty.small).color(c.danger.fg).wrap()) }
+    if let Some(file) = settings.map(|settings| settings.file.clone()).filter(|file| !file.is_empty()) { body = body.child(text(file).key("form/file").font(k.ty.small).color(c.text_faint).truncate()) }
+    let hints = keys::hints(Layer::Form).into_iter().fold(row().key("form/keys").gap(12.0).center_y().grow(1.0).min_w(0.0), |line, (cap, does)| {
+        line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
+    });
+    body = body.child(row().w_full().gap(8.0).center_y().child(hints).child(button(FORM_CLOSE, ButtonVariant::Ghost, k).key("form/close")).child(button(FORM_SAVE, ButtonVariant::Submit, k).key("form/save")));
+    Dialog::new("form", format!("{} · {name}", actions::label(CONFIGURE))).open(true).width(560.0).fit().child(body).on_close(|s: &mut App| { s.act(FORM_CLOSE, Actor::Person); }).build(k, layer);
+}
+
+/// The bar, over the window, when it is open; else a form, while one is.
 pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) {
-    if !s.bar.open { return }
+    if !s.bar.open { if let Some(open) = &s.form { form(s, open, k, layer) } return }
     let c = &k.c;
     let (source, _) = reading(s);
     let field = keys::input(&s.bar.edit, Field::Bar).label(source.about.clone()).placeholder(source.placeholder.clone()).leading_icon(&glyphs::SEARCH).width(None).build(k).key("bar/field");

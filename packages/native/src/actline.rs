@@ -191,7 +191,8 @@ fn shown_line(action: &str, args: &[(String, Value)]) -> String {
 fn checked_names(row: &ActionRow, given: &Map<String, Value>) -> Result<(), Refused> {
     let mut problems: Vec<String> = Vec::new();
     let mut fixes: Vec<(&str, &str)> = Vec::new();
-    let unknown: Vec<&str> = given.keys().map(String::as_str).filter(|k| row.args.get(k).is_none()).collect();
+    // An action that takes any other `key=value` as its own says so with an argument named `*` (the door's `FREE_ARGS`).
+    let unknown: Vec<&str> = given.keys().map(String::as_str).filter(|k| row.args.get(k).is_none() && row.args.get(FREE).is_none()).collect();
     for key in &unknown {
         match closest(key, row.args.iter().map(|(name, _)| name)).filter(|target| !given.contains_key(*target)) {
             Some(target) => { problems.push(format!("`{key}` is not an argument of {}; did you mean `{target}`?", row.id)); fixes.push((key, target)) }
@@ -217,6 +218,9 @@ fn checked_names(row: &ActionRow, given: &Map<String, Value>) -> Result<(), Refu
     }
     refused(lines.join("\n"))
 }
+
+/// The argument a row declares to take any other `key=value` as its own (outline-core's and the door's `FREE_ARGS`).
+pub const FREE: &str = "*";
 
 /// A request's arguments checked (unknown, missing) and typed as the row declares them, or refused saying which.
 pub fn coerce(row: &ActionRow, given: &Map<String, Value>) -> Result<Args, Refused> {
@@ -244,6 +248,8 @@ pub fn coerce(row: &ActionRow, given: &Map<String, Value>) -> Result<Args, Refus
         };
         out.push((name.to_string(), typed));
     }
+    // What a row with `*` was given beyond its own arguments goes on as written: whose words they are is the action's.
+    if row.args.get(FREE).is_some() { out.extend(given.iter().filter(|(name, value)| row.args.get(name).is_none() && !value.is_null()).map(|(name, value)| (name.clone(), value.clone()))) }
     for (name, spec) in row.args.iter() {
         let Some((_, value)) = out.iter().find(|(k, _)| k == name) else { continue };
         if spec.choices.is_empty() || spec.kind.is_some() { continue }

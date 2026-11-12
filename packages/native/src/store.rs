@@ -1,29 +1,36 @@
-//! Every read and every write the window makes, in one place.
+//! Every read and every write the windows make, in one place.
 //!
 //! - **An `Ask` is a question**: an outline (and its machine), a wire action, its parameters, and whether the
 //!   service should say when the answer moves. Equal asks share one slot, whoever wants them: two tiles on one
-//!   note read it once.
+//!   note read it once, in one window or in two.
 //! - **A slot only ever holds the answer to its own ask.** There is no "is this answer still for what's on
 //!   screen?": what a tile shows is the slot of what it wants now, and `last` is the answer it showed before,
 //!   kept so the tile never blanks while the next one is on its way.
-//! - **Tiles are a slot's users.** `want` is told everything wanted now; a slot nobody wants keeps its answer and
-//!   gives up its watch for the next ask that needs one.
+//! - **Tiles are a slot's users.** `want` is told everything a window wants now; a slot nobody wants keeps its
+//!   answer and gives up its watch for the next ask that needs one.
 //! - **The budget is the service's**: 64 watched answers a connection (`WATCH_LIMITS`). A watch is a key the
 //!   service keeps an answer under, and asking another question under a key replaces it, so the store owns 64
 //!   keys a link and hands them out. Past the budget an ask is read unwatched and registered when a key is free;
 //!   one the service dropped is asked again when next wanted.
 //! - **A write is a request with a continuation**: `write` stamps who it is recorded as, and the answer comes back
-//!   from `take` with the function that goes on from it.
+//!   from `take` with the function that goes on from it, in the window that wrote.
+//! - **One store, however many windows.** The links, the slots and the budget are the `Hub`'s, which the windows
+//!   of one run share; a `Store` is one window's face on it: what that window wants, the answers as it last took
+//!   them (so a view reads them without reaching into what another window may be changing), and what the service
+//!   said that is this window's to hear. A link is one an outline and machine: two windows on one outline share
+//!   it and its 64 keys, and a window on another outline brings a second.
 use std::any::Any;
-use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::cell::{OnceCell, RefCell};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use crate::actions::{Actor, Then};
-use crate::client::Link;
+use crate::client::{Link, Waker};
 
 /// How many watched answers the service keeps for one connection (outline-core's `WATCH_LIMITS.perConnection`).
 pub const WATCH_BUDGET: usize = 64;
@@ -124,15 +131,23 @@ enum Fresh {
     No,
 }
 
+/// One answer, and the type its drawer read it as, once: shared by every window that shows it.
+struct Answer {
+    value: Value,
+    typed: OnceCell<Option<Box<dyn Any>>>,
+}
+
+/// Which window: the hub's own number for it.
+type Window = u64;
+
 struct Slot {
     ask: Ask,
-    users: BTreeSet<User>,
+    /// Who shows it: a window's tile, as a role.
+    users: BTreeSet<(Window, User)>,
     /// The newest answer the service gave.
-    answer: Option<Value>,
+    answer: Option<Rc<Answer>>,
     /// Its no to the newest read, when that was refused: an answer from before stays to be shown.
     refused: Option<Refusal>,
-    /// The answer read as the type its drawer wants, once.
-    typed: OnceCell<Option<Box<dyn Any>>>,
     /// Counts the answers that landed: what a tile's memo will be versioned by, and what `peek` says of it.
     epoch: u64,
     /// The request out for it.
@@ -147,7 +162,7 @@ struct Slot {
 /// What a request out was.
 enum Out {
     Read(AskKey),
-    Reply { at: OutlineAt, then: Then, ctx: Value, by: Actor },
+    Reply { at: OutlineAt, window: Window, then: Then, ctx: Value, by: Actor },
 }
 
 /// A write's or a one-off read's answer, with what goes on from it.
@@ -165,7 +180,7 @@ pub enum Landed {
     Answer(AskKey),
     Reply(Reply),
     /// A link ended; `detail` says how.
-    Lost { detail: String },
+    Lost { at: OutlineAt, detail: String },
     /// The service asks this window to run an action for a script (a `script` event aimed at this client): the
     /// dispatcher runs it and `answer` says how it went.
     Call { at: OutlineAt, call: Call },
@@ -209,63 +224,51 @@ struct Wire {
     link: Box<dyn Link>,
     /// The watch keys of this connection: which slot each is registered for.
     keys: Vec<Option<AskKey>>,
+    /// The link said it ended, and none has been made in its place yet.
+    lost: bool,
+    /// This run is registered on it as a client that runs actions and holds drafts.
+    registered: bool,
 }
 
+/// What the windows of one run share: the links, the slots, the budget, and what is out.
 #[derive(Default)]
-pub struct Store {
+struct Hub {
     wires: HashMap<OutlineAt, Wire>,
     slots: HashMap<AskKey, Slot>,
-    /// What is wanted now, in the order it was said: asks go out in it.
-    order: Vec<AskKey>,
+    /// What each window wants now, in the order it said it: asks go out in it.
+    orders: BTreeMap<Window, Vec<AskKey>>,
     /// The answer each user showed last.
-    shown: HashMap<User, AskKey>,
+    shown: HashMap<(Window, User), AskKey>,
     out: HashMap<String, Out>,
+    /// What the service said that is one window's to hear, until that window takes it.
+    inbox: HashMap<Window, Vec<Landed>>,
+    /// The windows there are, each by the name its shell gave it.
+    windows: BTreeMap<Window, String>,
     next: u64,
     tick: u64,
     /// A headless render steps a virtual clock: each ask waits for its answer, so a frame shows what it asked for.
-    pub blocking: bool,
-    /// Who the person's writes are recorded as.
-    person: String,
-    /// The name this window is registered under on each link: what a script's act is aimed at.
+    blocking: bool,
+    /// Who the person's writes are recorded as, on each host.
+    persons: HashMap<OutlineAt, String>,
+    /// The name this run is registered under on each link: what a script's act and a draft's ask are aimed at.
     client: String,
+    /// The window a script's acts come back to on a link: the one that last pressed there.
+    pressed: HashMap<OutlineAt, Window>,
+    /// The window that holds the draft of a block: the one that last asked for its hold.
+    holders: HashMap<(OutlineAt, String), Window>,
+    /// What wakes each window; a link's line wakes them all, since any of them may show what it moved.
+    wakers: Arc<Mutex<HashMap<Window, Waker>>>,
 }
 
-impl Store {
-    pub fn new() -> Store {
-        static WINDOWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let n = WINDOWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Store { person: "ep0ch-native".into(), client: format!("native-{}-{n}", std::process::id()), ..Store::default() }
+impl Hub {
+    fn waker(&self) -> Waker {
+        let wakers = self.wakers.clone();
+        Arc::new(move || { let all: Vec<Waker> = wakers.lock().unwrap().values().cloned().collect(); for wake in all { wake() } })
     }
 
-    /// The name this window is registered under: a press names it, so a script's acts come back here.
-    pub fn client(&self) -> &str { &self.client }
-
-    /// Registers this window on a link as a client that runs actions and holds drafts (`events.subscribe`): the
-    /// service then sends it the acts of the scripts it started, how each run ended and what it asks of a draft
-    /// held here, and nothing else of the event feed.
-    pub fn register(&mut self, at: &OutlineAt) {
-        let client = json!({ "clientId": self.client, "role": "observer", "contextId": self.client, "app": "native" });
-        let kinds: Vec<&str> = [SCRIPT_ACT, SCRIPT_ENDED].into_iter().chain(DRAFT_ASKS.iter().copied()).collect();
-        self.send(at, "events.subscribe", json!({ "client": client, "kinds": kinds }));
-    }
-
-    /// Answers what the service asked of a draft held here (`drafts.answer`): the answer, or why there is none.
-    pub fn held(&mut self, at: &OutlineAt, request: &str, answer: Result<Value, String>) {
-        let mut said = json!({ "requestId": request, "clientId": self.client });
-        match answer { Ok(answer) => said["answer"] = answer, Err(error) => said["error"] = json!(error) }
-        self.send(at, "drafts.answer", said);
-    }
-
-    /// Answers a script's act (`scripts.answer`): what the action answered, or why it didn't run.
-    pub fn answer(&mut self, at: &OutlineAt, request: &str, result: Result<Value, String>) {
-        let mut said = json!({ "requestId": request, "clientId": self.client });
-        match result { Ok(result) => said["result"] = result, Err(error) => said["error"] = json!(error) }
-        self.send(at, "scripts.answer", said);
-    }
-
-    /// The link to an outline's host: made, or made again (its watches and whatever was out ended with the old one).
-    pub fn link(&mut self, at: &OutlineAt, link: Box<dyn Link>) {
-        self.wires.insert(at.clone(), Wire { link, keys: vec![None; WATCH_BUDGET] });
+    fn link(&mut self, at: &OutlineAt, mut link: Box<dyn Link>) {
+        link.set_waker(self.waker());
+        self.wires.insert(at.clone(), Wire { link, keys: vec![None; WATCH_BUDGET], lost: false, registered: false });
         self.out.retain(|_, out| match out { Out::Read(key) => self.slots.get(key).is_none_or(|slot| slot.ask.at != *at), Out::Reply { at: theirs, .. } => theirs != at });
         for slot in self.slots.values_mut().filter(|slot| slot.ask.at == *at) {
             slot.out = None;
@@ -274,57 +277,27 @@ impl Store {
         }
     }
 
-    pub fn set_waker(&mut self, waker: crate::client::Waker) { for wire in self.wires.values_mut() { wire.link.set_waker(waker.clone()) } }
-
-    /// Who the person's writes are recorded as (`ep0ch-native:<the host's machine>`).
-    pub fn set_person(&mut self, actor_id: String) { self.person = actor_id }
-
-    // ── reading ─────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// The service's no to this ask.
-    pub fn refusal(&self, ask: &Ask) -> Option<&Refusal> { self.slots.get(&ask.key()).and_then(|slot| slot.refused.as_ref()) }
-
-    /// The answer to exactly this ask, read as `T` (once: a slot keeps it).
-    pub fn read<T: DeserializeOwned + 'static>(&self, ask: &Ask) -> Option<&T> { self.decoded(&ask.key()) }
-
-    /// The answer `tile` showed last as `role`, whatever it answered: what stays, dimmed, while the wanted one is on its way.
-    pub fn last<T: DeserializeOwned + 'static>(&self, tile: &str, role: &'static str) -> Option<&T> { self.decoded(self.shown.get(&(tile.to_string(), role))?) }
-
-    fn decoded<T: DeserializeOwned + 'static>(&self, key: &AskKey) -> Option<&T> {
-        let slot = self.slots.get(key)?;
-        let value = slot.answer.as_ref()?;
-        slot.typed.get_or_init(|| serde_json::from_value::<T>(value.clone()).ok().map(|t| Box::new(t) as Box<dyn Any>)).as_ref()?.downcast_ref::<T>()
-    }
-
-    /// How many answers have landed for this ask: what follows from an answer is done once for each.
-    pub fn epoch(&self, ask: &Ask) -> u64 { self.slots.get(&ask.key()).map_or(0, |slot| slot.epoch) }
-
-    /// Nothing has answered this ask yet, with an answer or a no.
-    pub fn waiting(&self, ask: &Ask) -> bool { self.slots.get(&ask.key()).is_none_or(|slot| slot.answer.is_none() && slot.refused.is_none()) }
-
-    // ── wanting ─────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// Everything wanted now. A slot nobody names any more keeps its answer and frees its watch for the next ask;
-    /// whatever is wanted and not yet asked (or asked before something changed) is asked.
-    pub fn want(&mut self, wants: Vec<Want>) {
+    fn want(&mut self, window: Window, wants: Vec<Want>) {
         self.tick += 1;
-        for slot in self.slots.values_mut() { slot.users.clear() }
-        self.order.clear();
+        for slot in self.slots.values_mut() { slot.users.retain(|(theirs, _)| *theirs != window) }
+        let mut order: Vec<AskKey> = Vec::new();
         for want in wants {
             let key = want.ask.key();
-            let slot = self.slots.entry(key.clone()).or_insert_with(|| Slot { ask: want.ask, users: BTreeSet::new(), answer: None, refused: None, typed: OnceCell::new(), epoch: 0, out: None, watch: None, fresh: Fresh::No, touched: 0 });
+            let slot = self.slots.entry(key.clone()).or_insert_with(|| Slot { ask: want.ask, users: BTreeSet::new(), answer: None, refused: None, epoch: 0, out: None, watch: None, fresh: Fresh::No, touched: 0 });
             let user = (want.tile, want.role);
-            if slot.answer.is_some() { self.shown.insert(user.clone(), key.clone()); }
-            slot.users.insert(user);
+            if slot.answer.is_some() { self.shown.insert((window, user.clone()), key.clone()); }
+            slot.users.insert((window, user));
             slot.touched = self.tick;
-            if !self.order.contains(&key) { self.order.push(key) }
+            if !order.contains(&key) { order.push(key) }
         }
+        self.orders.insert(window, order);
         self.pump();
         self.forget();
     }
 
     fn pump(&mut self) {
-        for key in self.order.clone() {
+        let wanted: Vec<AskKey> = self.orders.values().flatten().cloned().collect();
+        for key in wanted {
             let Some(slot) = self.slots.get(&key) else { continue };
             if slot.out.is_some() { continue }
             // Answered but not kept by the service (read past the budget, or dropped): registered when a key is free.
@@ -369,12 +342,6 @@ impl Store {
         if kept && let Some(slot) = self.slots.get_mut(key) { slot.out = Some(id) }
     }
 
-    /// Reads an ask's answer now, unwatched: after this window's own write, when the kept answer is the one from before it.
-    pub fn refresh(&mut self, ask: &Ask) {
-        let key = ask.key();
-        if self.slots.contains_key(&key) { self.send_read(&key, false) }
-    }
-
     /// Idle answers past the number kept are forgotten, oldest first; one a tile showed last stays.
     fn forget(&mut self) {
         let mut idle: Vec<(u64, AskKey)> = self.slots.iter().filter(|(_, slot)| slot.users.is_empty() && slot.out.is_none()).map(|(key, slot)| (slot.touched, key.clone())).collect();
@@ -387,8 +354,6 @@ impl Store {
         }
     }
 
-    // ── asking once, and writing ────────────────────────────────────────────────────────────────────────────
-
     fn send(&mut self, at: &OutlineAt, action: &str, request: Value) -> String { self.send_as(at, action, request, self.blocking) }
 
     /// `waited`: nothing goes on until the answer is here (a headless render's every ask).
@@ -398,40 +363,21 @@ impl Store {
         request["id"] = json!(id);
         request["action"] = json!(action);
         request["outline"] = json!(at.outline);
-        match self.wires.get_mut(at) {
-            Some(wire) => {
-                wire.link.send(&request);
-                if waited { wire.link.wait(&id, Duration::from_secs(20)) }
-            }
-            None => {}
+        if let Some(wire) = self.wires.get_mut(at) {
+            wire.link.send(&request);
+            if waited { wire.link.wait(&id, Duration::from_secs(20)) }
         }
         id
     }
 
-    /// One request whose answer goes on in `then` (with `ctx`, what the asker kept for it).
-    pub fn request(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
-        let id = self.send(at, action, params);
-        self.out.insert(id, Out::Reply { at: at.clone(), then, ctx, by: by.clone() });
-    }
-
-    /// A write, recorded as whoever acts: the person as this window (`author: user`), an agent as itself.
-    pub fn write(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
-        let (params, waited) = (self.stamped(action, params, by), self.blocking);
+    /// A request whose answer goes on in a window.
+    fn reply(&mut self, window: Window, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value, waited: bool) {
         let id = self.send_as(at, action, params, waited);
-        self.out.insert(id, Out::Reply { at: at.clone(), then, ctx, by: by.clone() });
+        self.out.insert(id, Out::Reply { at: at.clone(), window, then, ctx, by: by.clone() });
     }
 
-    /// A write the service answers only once this window has answered it in turn (a patch to a draft held here):
-    /// never waited for with the link held, even by a headless render, which lands what the host says meanwhile
-    /// until the answer is in (`App::settled_for`).
-    pub fn write_through(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
-        let params = self.stamped(action, params, by);
-        let id = self.send_as(at, action, params, false);
-        self.out.insert(id, Out::Reply { at: at.clone(), then, ctx, by: by.clone() });
-    }
-
-    fn stamped(&self, action: &str, mut params: Value, by: &Actor) -> Value {
-        let (author, actor_id) = match by { Actor::Person => ("user", self.person.clone()), Actor::Agent(id) => ("agent", id.clone()) };
+    fn stamped(&self, at: &OutlineAt, action: &str, mut params: Value, by: &Actor) -> Value {
+        let (author, actor_id) = match by { Actor::Person => ("user", self.persons.get(at).cloned().unwrap_or_else(|| PERSON.to_string())), Actor::Agent(id) => ("agent", id.clone()) };
         if action == "create" {
             // The store records who made a block: a person's names no client, an agent's names the agent.
             params["author"] = json!(author);
@@ -442,14 +388,13 @@ impl Store {
         params
     }
 
-    /// A write of `action` is out.
-    pub fn out_for(&self, then: Then) -> bool { self.out.values().any(|out| matches!(out, Out::Reply { then: theirs, .. } if std::ptr::fn_addr_eq(*theirs, then))) }
+    /// The window an event with no asker is for: the one named when it is still here, else the first there is.
+    fn heard_by(&self, named: Option<&Window>) -> Option<Window> { named.filter(|window| self.windows.contains_key(window)).or_else(|| self.windows.keys().next()).copied() }
 
-    // ── landing ─────────────────────────────────────────────────────────────────────────────────────────────
+    fn hear(&mut self, window: Option<Window>, landed: Landed) { if let Some(window) = window { self.inbox.entry(window).or_default().push(landed) } }
 
-    /// Lands whatever the hosts have said, in the order they said it.
-    pub fn take(&mut self) -> Vec<Landed> {
-        let mut landed = Vec::new();
+    /// Lands whatever the hosts have said, in the order they said it, each in the inbox of the window it is for.
+    fn take(&mut self) {
         let mut ats: Vec<OutlineAt> = self.wires.keys().cloned().collect();
         ats.sort();
         for at in ats {
@@ -458,32 +403,40 @@ impl Store {
                 if let Some(id) = line["id"].as_str() {
                     let result = if line["ok"] == true { Ok(line["result"].clone()) } else { Err(Refusal { kind: line["kind"].as_str().unwrap_or("failed").to_string(), error: line["error"].as_str().unwrap_or("refused").to_string() }) };
                     match self.out.remove(id) {
-                        Some(Out::Read(key)) => if self.land(&key, id, result) { landed.push(Landed::Answer(key)) },
-                        Some(Out::Reply { then, ctx, by, .. }) => landed.push(Landed::Reply(Reply { then, ctx, by, result })),
+                        Some(Out::Read(key)) => if self.land(&key, id, result) {
+                            let shows: BTreeSet<Window> = self.slots.get(&key).map(|slot| slot.users.iter().map(|(window, _)| *window).collect()).unwrap_or_default();
+                            for window in shows { self.hear(Some(window), Landed::Answer(key.clone())) }
+                        },
+                        Some(Out::Reply { window, then, ctx, by, .. }) => self.hear(Some(window), Landed::Reply(Reply { then, ctx, by, result })),
                         None => {}
                     }
                 } else if line["event"]["action"] == "queries.changed" {
                     for change in line["event"]["changes"].as_array().into_iter().flatten() { self.changed(&at, change) }
                 } else if line["event"]["action"] == SCRIPT_ACT {
                     let call = &line["event"]["script"];
-                    if call["targetClientId"] == self.client.as_str() && let Some(call) = Call::read(call) { landed.push(Landed::Call { at: at.clone(), call }) }
+                    if call["targetClientId"] == self.client.as_str() && let Some(call) = Call::read(call) { self.hear(self.heard_by(self.pressed.get(&at)), Landed::Call { at: at.clone(), call }) }
                 } else if line["event"]["domain"] == "draft" {
                     let ask = &line["event"]["draft"];
                     // Who a patch is recorded as, read where an attribution is written: an agent by its id, else the person.
                     let by = match (ask["mutation"]["author"].as_str(), ask["mutation"]["actorId"].as_str()) { (Some("agent"), id) => Some(Actor::Agent(id.unwrap_or("agent").to_string())), (Some(_), _) => Some(Actor::Person), (None, _) => None };
-                    if ask["targetClientId"] == self.client.as_str() && ask["requestId"].is_string() { landed.push(Landed::Asked { at: at.clone(), ask: ask.clone(), by }) }
+                    if ask["targetClientId"] == self.client.as_str() && ask["requestId"].is_string() {
+                        let holder = self.heard_by(line["event"]["blockId"].as_str().or(ask["blockId"].as_str()).and_then(|block| self.holders.get(&(at.clone(), block.to_string()))));
+                        self.hear(holder, Landed::Asked { at: at.clone(), ask: ask.clone(), by });
+                    }
                 } else if line["event"]["action"] == SCRIPT_ENDED {
                     let ended = &line["event"]["ended"];
                     let text = |key: &str| ended[key].as_str().unwrap_or("").to_string();
-                    landed.push(Landed::Ended { run: text("run"), reason: text("reason"), message: text("message") });
+                    // Whichever window waits on the run knows it by its id: every window hears, and the rest pass it by.
+                    for window in self.windows.keys().copied().collect::<Vec<_>>() { self.hear(Some(window), Landed::Ended { run: text("run"), reason: text("reason"), message: text("message") }) }
                 } else if line["link"] == "lost" {
                     self.out.retain(|_, out| match out { Out::Read(key) => self.slots.get(key).is_none_or(|slot| slot.ask.at != at), Out::Reply { at: theirs, .. } => *theirs != at });
                     for slot in self.slots.values_mut().filter(|slot| slot.ask.at == at) { slot.out = None }
-                    landed.push(Landed::Lost { detail: line["detail"].as_str().unwrap_or("the connection ended").to_string() });
+                    if let Some(wire) = self.wires.get_mut(&at) { wire.lost = true }
+                    let detail = line["detail"].as_str().unwrap_or("the connection ended").to_string();
+                    for window in self.windows.keys().copied().collect::<Vec<_>>() { self.hear(Some(window), Landed::Lost { at: at.clone(), detail: detail.clone() }) }
                 }
             }
         }
-        landed
     }
 
     fn land(&mut self, key: &AskKey, id: &str, result: Result<Value, Refusal>) -> bool {
@@ -495,7 +448,7 @@ impl Store {
             if result.is_err() && let (Some(index), Some(wire)) = (slot.watch.take(), self.wires.get_mut(&slot.ask.at)) { wire.keys[index] = None }
         }
         match result {
-            Ok(value) => { slot.answer = Some(value); slot.refused = None; slot.typed = OnceCell::new() }
+            Ok(value) => { slot.answer = Some(Rc::new(Answer { value, typed: OnceCell::new() })); slot.refused = None }
             Err(refusal) => slot.refused = Some(refusal),
         }
         slot.epoch += 1;
@@ -519,23 +472,253 @@ impl Store {
         }
     }
 
-    // ── describing itself ───────────────────────────────────────────────────────────────────────────────────
-
-    /// How many of a connection's watch keys hold an answer somebody shows, and how many the store holds at all.
-    pub fn watching(&self, at: &OutlineAt) -> (usize, usize) {
+    fn watching(&self, at: &OutlineAt) -> (usize, usize) {
         let Some(wire) = self.wires.get(at) else { return (0, 0) };
         let held: Vec<&Slot> = wire.keys.iter().flatten().filter_map(|key| self.slots.get(key)).collect();
         (held.iter().filter(|slot| !slot.users.is_empty()).count(), held.len())
     }
+}
 
-    /// The asks a tile shows now.
-    pub fn asks_of(&self, tile: &str) -> Vec<Value> {
-        self.order.iter().filter_map(|key| self.slots.get(key)).filter(|slot| slot.users.iter().any(|(user, _)| user == tile)).map(|slot| slot.ask.json()).collect()
+/// Who the person's writes are recorded as until a host has said its machine's name.
+const PERSON: &str = "ep0ch-native";
+
+/// A slot as one window last took it: what its views read.
+struct Seen {
+    answer: Option<Rc<Answer>>,
+    refused: Option<Refusal>,
+    epoch: u64,
+}
+
+/// One window's face on the store its run shares.
+pub struct Store {
+    hub: Rc<RefCell<Hub>>,
+    window: Window,
+    client: String,
+    /// The slots as this window last took them, and the answer each of its users showed last.
+    seen: HashMap<AskKey, Seen>,
+    shown: HashMap<User, AskKey>,
+}
+
+impl Drop for Store {
+    /// A window that is gone wants nothing, hears nothing and holds no key.
+    fn drop(&mut self) {
+        let Ok(mut hub) = self.hub.try_borrow_mut() else { return };
+        let window = self.window;
+        for slot in hub.slots.values_mut() { slot.users.retain(|(theirs, _)| *theirs != window) }
+        hub.orders.remove(&window);
+        hub.inbox.remove(&window);
+        hub.windows.remove(&window);
+        hub.shown.retain(|(theirs, _), _| *theirs != window);
+        hub.out.retain(|_, out| !matches!(out, Out::Reply { window: theirs, .. } if *theirs == window));
+        hub.wakers.lock().unwrap().remove(&window);
+    }
+}
+
+impl Store {
+    /// The store of a run's first window.
+    pub fn new() -> Store {
+        static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let client = format!("native-{}-{n}", std::process::id());
+        let hub = Hub { client: client.clone(), windows: BTreeMap::from([(0, MAIN.to_string())]), ..Hub::default() };
+        Store { hub: Rc::new(RefCell::new(hub)), window: 0, client, seen: HashMap::new(), shown: HashMap::new() }
     }
 
-    /// What `peek` says of the store: each slot, who shows it, how it stands, and the budget of each connection.
+    /// Another window's face on the same store, by the name its shell gives it: the same links, slots and budget.
+    pub fn beside(&self, name: &str) -> Store {
+        let mut hub = self.hub.borrow_mut();
+        let window = hub.windows.keys().next_back().map_or(0, |last| last + 1);
+        hub.windows.insert(window, name.to_string());
+        let mut store = Store { hub: self.hub.clone(), window, client: self.client.clone(), seen: HashMap::new(), shown: HashMap::new() };
+        drop(hub);
+        store.sync();
+        store
+    }
+
+    /// The name this window has among its run's.
+    pub fn window(&self) -> String { self.hub.borrow().windows.get(&self.window).cloned().unwrap_or_default() }
+    /// The windows there are on this store, by name, in the order they were made.
+    pub fn windows(&self) -> Vec<String> { self.hub.borrow().windows.values().cloned().collect() }
+
+    /// The answers as the hub holds them now, taken for this window's views to read.
+    fn sync(&mut self) {
+        let hub = self.hub.borrow();
+        self.seen.retain(|key, _| hub.slots.contains_key(key));
+        for (key, slot) in &hub.slots {
+            if self.seen.get(key).is_some_and(|seen| seen.epoch == slot.epoch) { continue }
+            self.seen.insert(key.clone(), Seen { answer: slot.answer.clone(), refused: slot.refused.clone(), epoch: slot.epoch });
+        }
+        self.shown = hub.shown.iter().filter(|((window, _), _)| *window == self.window).map(|((_, user), key)| (user.clone(), key.clone())).collect();
+    }
+
+    /// The name this run is registered under: a press names it, so a script's acts come back here.
+    pub fn client(&self) -> &str { &self.client }
+
+    /// Registers this run on a link as a client that runs actions and holds drafts (`events.subscribe`), once a
+    /// link: the service then sends it the acts of the scripts it started, how each run ended and what it asks of a
+    /// draft held here, and nothing else of the event feed.
+    pub fn register(&mut self, at: &OutlineAt) {
+        let mut hub = self.hub.borrow_mut();
+        if hub.wires.get(at).is_none_or(|wire| wire.registered) { return }
+        let client = json!({ "clientId": self.client, "role": "observer", "contextId": self.client, "app": "native" });
+        let kinds: Vec<&str> = [SCRIPT_ACT, SCRIPT_ENDED].into_iter().chain(DRAFT_ASKS.iter().copied()).collect();
+        hub.send(at, "events.subscribe", json!({ "client": client, "kinds": kinds }));
+        if let Some(wire) = hub.wires.get_mut(at) { wire.registered = true }
+    }
+
+    /// Answers what the service asked of a draft held here (`drafts.answer`): the answer, or why there is none.
+    pub fn held(&mut self, at: &OutlineAt, request: &str, answer: Result<Value, String>) {
+        let mut said = json!({ "requestId": request, "clientId": self.client });
+        match answer { Ok(answer) => said["answer"] = answer, Err(error) => said["error"] = json!(error) }
+        self.hub.borrow_mut().send(at, "drafts.answer", said);
+    }
+
+    /// Answers a script's act (`scripts.answer`): what the action answered, or why it didn't run.
+    pub fn answer(&mut self, at: &OutlineAt, request: &str, result: Result<Value, String>) {
+        let mut said = json!({ "requestId": request, "clientId": self.client });
+        match result { Ok(result) => said["result"] = result, Err(error) => said["error"] = json!(error) }
+        self.hub.borrow_mut().send(at, "scripts.answer", said);
+    }
+
+    /// The link to an outline's host: made, or made again (its watches and whatever was out ended with the old one).
+    pub fn link(&mut self, at: &OutlineAt, link: Box<dyn Link>) {
+        self.hub.borrow_mut().link(at, link);
+        self.sync();
+    }
+
+    /// A link to this outline's host is here and has not said it ended: another window made it, or made it again.
+    pub fn linked(&self, at: &OutlineAt) -> bool { self.hub.borrow().wires.get(at).is_some_and(|wire| !wire.lost) }
+
+    /// The outlines this store has a link to, in order.
+    pub fn links(&self) -> Vec<OutlineAt> { let mut ats: Vec<OutlineAt> = self.hub.borrow().wires.keys().cloned().collect(); ats.sort(); ats }
+
+    /// A headless render: every ask waits for its answer.
+    pub fn set_blocking(&mut self, blocking: bool) { self.hub.borrow_mut().blocking = blocking }
+
+    pub fn set_waker(&mut self, waker: Waker) {
+        let mut hub = self.hub.borrow_mut();
+        hub.wakers.lock().unwrap().insert(self.window, waker);
+        let all = hub.waker();
+        for wire in hub.wires.values_mut() { wire.link.set_waker(all.clone()) }
+    }
+
+    /// Who the person's writes are recorded as on a host (`ep0ch-native:<the host's machine>`).
+    pub fn set_person(&mut self, at: &OutlineAt, actor_id: String) { self.hub.borrow_mut().persons.insert(at.clone(), actor_id); }
+
+    /// This window pressed a button on a link: the acts of the script it runs come back here.
+    pub fn pressing(&mut self, at: &OutlineAt) { self.hub.borrow_mut().pressed.insert(at.clone(), self.window); }
+
+    /// This window holds the draft of a block from now: what the service asks of it comes here.
+    pub fn holding(&mut self, at: &OutlineAt, block: &str) { self.hub.borrow_mut().holders.insert((at.clone(), block.to_string()), self.window); }
+
+    /// The window that holds the draft of a block, when it is another than this one: a block is written in one place.
+    pub fn held_elsewhere(&self, at: &OutlineAt, block: &str) -> Option<String> {
+        let hub = self.hub.borrow();
+        hub.holders.get(&(at.clone(), block.to_string())).filter(|window| **window != self.window).and_then(|window| hub.windows.get(window).cloned())
+    }
+
+    /// A block's draft is held by no window any more.
+    pub fn let_go(&mut self, at: &OutlineAt, block: &str) {
+        let mut hub = self.hub.borrow_mut();
+        let key = (at.clone(), block.to_string());
+        if hub.holders.get(&key) == Some(&self.window) { hub.holders.remove(&key); }
+    }
+
+    // ── reading ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The service's no to this ask.
+    pub fn refusal(&self, ask: &Ask) -> Option<&Refusal> { self.seen.get(&ask.key()).and_then(|seen| seen.refused.as_ref()) }
+
+    /// The answer to exactly this ask, read as `T` (once: a slot keeps it).
+    pub fn read<T: DeserializeOwned + 'static>(&self, ask: &Ask) -> Option<&T> { self.decoded(&ask.key()) }
+
+    /// The answer `tile` showed last as `role`, whatever it answered: what stays, dimmed, while the wanted one is on its way.
+    pub fn last<T: DeserializeOwned + 'static>(&self, tile: &str, role: &'static str) -> Option<&T> { self.decoded(self.shown.get(&(tile.to_string(), role))?) }
+
+    fn decoded<T: DeserializeOwned + 'static>(&self, key: &AskKey) -> Option<&T> {
+        let answer = self.seen.get(key)?.answer.as_ref()?;
+        answer.typed.get_or_init(|| serde_json::from_value::<T>(answer.value.clone()).ok().map(|t| Box::new(t) as Box<dyn Any>)).as_ref()?.downcast_ref::<T>()
+    }
+
+    /// How many answers have landed for this ask: what follows from an answer is done once for each.
+    pub fn epoch(&self, ask: &Ask) -> u64 { self.seen.get(&ask.key()).map_or(0, |seen| seen.epoch) }
+
+    /// Nothing has answered this ask yet, with an answer or a no.
+    pub fn waiting(&self, ask: &Ask) -> bool { self.seen.get(&ask.key()).is_none_or(|seen| seen.answer.is_none() && seen.refused.is_none()) }
+
+    // ── wanting ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Everything this window wants now. A slot nobody names any more keeps its answer and frees its watch for the
+    /// next ask; whatever is wanted and not yet asked (or asked before something changed) is asked.
+    pub fn want(&mut self, wants: Vec<Want>) {
+        self.hub.borrow_mut().want(self.window, wants);
+        self.sync();
+    }
+
+    /// Reads an ask's answer now, unwatched: after this window's own write, when the kept answer is the one from before it.
+    pub fn refresh(&mut self, ask: &Ask) {
+        let key = ask.key();
+        let mut hub = self.hub.borrow_mut();
+        if hub.slots.contains_key(&key) { hub.send_read(&key, false) }
+    }
+
+    // ── asking once, and writing ────────────────────────────────────────────────────────────────────────────
+
+    /// One request whose answer goes on in `then` (with `ctx`, what the asker kept for it).
+    pub fn request(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
+        let mut hub = self.hub.borrow_mut();
+        let waited = hub.blocking;
+        hub.reply(self.window, at, action, params, by, then, ctx, waited);
+    }
+
+    /// A write, recorded as whoever acts: the person as this window (`author: user`), an agent as itself.
+    pub fn write(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
+        let mut hub = self.hub.borrow_mut();
+        let (params, waited) = (hub.stamped(at, action, params, by), hub.blocking);
+        hub.reply(self.window, at, action, params, by, then, ctx, waited);
+    }
+
+    /// A write the service answers only once this window has answered it in turn (a patch to a draft held here):
+    /// never waited for with the link held, even by a headless render, which lands what the host says meanwhile
+    /// until the answer is in (`App::settled_for`).
+    pub fn write_through(&mut self, at: &OutlineAt, action: &str, params: Value, by: &Actor, then: Then, ctx: Value) {
+        let mut hub = self.hub.borrow_mut();
+        let params = hub.stamped(at, action, params, by);
+        hub.reply(self.window, at, action, params, by, then, ctx, false);
+    }
+
+    /// A request of this window's that goes on in `then` is out.
+    pub fn out_for(&self, then: Then) -> bool { self.hub.borrow().out.values().any(|out| matches!(out, Out::Reply { then: theirs, window, .. } if *window == self.window && std::ptr::fn_addr_eq(*theirs, then))) }
+
+    // ── landing ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Lands whatever the hosts have said, in the order they said it, and answers what of it is this window's.
+    pub fn take(&mut self) -> Vec<Landed> {
+        let mine = {
+            let mut hub = self.hub.borrow_mut();
+            hub.take();
+            hub.inbox.remove(&self.window).unwrap_or_default()
+        };
+        self.sync();
+        mine
+    }
+
+    // ── describing itself ───────────────────────────────────────────────────────────────────────────────────
+
+    /// How many of a connection's watch keys hold an answer somebody shows, and how many the store holds at all.
+    pub fn watching(&self, at: &OutlineAt) -> (usize, usize) { self.hub.borrow().watching(at) }
+
+    /// The asks a tile of this window shows now.
+    pub fn asks_of(&self, tile: &str) -> Vec<Value> {
+        let hub = self.hub.borrow();
+        hub.orders.get(&self.window).into_iter().flatten().filter_map(|key| hub.slots.get(key)).filter(|slot| slot.users.iter().any(|(window, (user, _))| *window == self.window && user == tile)).map(|slot| slot.ask.json()).collect()
+    }
+
+    /// What `peek` says of the store: each slot, who shows it, how it stands, and the budget of each connection. A
+    /// tile of another window is named with its window (`second/reader:page`).
     pub fn peek(&self) -> Value {
-        let mut slots: Vec<(&AskKey, &Slot)> = self.slots.iter().collect();
+        let hub = self.hub.borrow();
+        let mut slots: Vec<(&AskKey, &Slot)> = hub.slots.iter().collect();
         slots.sort_by(|a, b| a.0.cmp(b.0));
         let state = |slot: &Slot| match (&slot.answer, slot.out.is_some(), &slot.fresh) {
             _ if slot.refused.is_some() => "refused",
@@ -545,14 +728,15 @@ impl Store {
             (Some(_), false, Fresh::Yes) => "held",
             (Some(_), false, _) => "stale",
         };
-        let mut links: Vec<&OutlineAt> = self.wires.keys().collect();
+        let user = |(window, (tile, role)): &(Window, User)| if *window == self.window { format!("{tile}:{role}") } else { format!("{}/{tile}:{role}", hub.windows.get(window).map_or("", String::as_str)) };
+        let mut links: Vec<&OutlineAt> = hub.wires.keys().collect();
         links.sort();
         json!({
-            "budget": links.iter().map(|at| { let (shown, held) = self.watching(at); json!({ "outline": at.outline, "machine": at.machine, "shown": shown, "held": held, "of": WATCH_BUDGET, "said": format!("{held}/{WATCH_BUDGET}") }) }).collect::<Vec<_>>(),
+            "budget": links.iter().map(|at| { let (shown, held) = hub.watching(at); json!({ "outline": at.outline, "machine": at.machine, "shown": shown, "held": held, "of": WATCH_BUDGET, "said": format!("{held}/{WATCH_BUDGET}") }) }).collect::<Vec<_>>(),
             "slots": slots.iter().map(|(_, slot)| {
                 let mut row: Map<String, Value> = Map::new();
                 row.insert("ask".into(), slot.ask.json());
-                row.insert("tiles".into(), json!(slot.users.iter().map(|(tile, role)| format!("{tile}:{role}")).collect::<Vec<_>>()));
+                row.insert("tiles".into(), json!(slot.users.iter().map(user).collect::<Vec<_>>()));
                 row.insert("state".into(), json!(state(slot)));
                 row.insert("answers".into(), json!(slot.epoch));
                 if let Some(index) = slot.watch { row.insert("watch".into(), json!(format!("w{index}"))); }
@@ -561,3 +745,6 @@ impl Store {
         })
     }
 }
+
+/// The name a run's first window has.
+pub const MAIN: &str = "main";

@@ -11,12 +11,13 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use super::{Actor, Step, About};
-use crate::client::{Link, PROTOCOL};
+use crate::client::{Link, PROTOCOL, Way};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
 use crate::draft::{DraftSession, Kept, Recovery};
 use crate::page::{Completion, ListAnswer, ListRow, Page, Picture, SourceRow};
 use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
+use crate::ext::{self, Extensions};
 use crate::keys::Text;
 use crate::tiles::picture::{Pictures, Shown};
 use crate::tiles::{self, TileCx};
@@ -91,6 +92,42 @@ pub enum Field {
     Bar,
     /// The source of the block being written in this tile.
     Draft(Id),
+    /// A field of the open form, by the name its schema gives it.
+    Form(String),
+}
+
+/// A form over the window: an extension's settings, a field each as its own schema says them (`ext::Settings`), and
+/// what is typed in each. The form holds only what is typed: what a field is, its choices and what it has now are
+/// read from the service's answer each time it is drawn.
+pub struct FormUi {
+    /// The extension whose settings it is.
+    pub extension: String,
+    pub fields: Vec<FormField>,
+    /// Why the last save was refused, in the service's words: the text stays, with why.
+    pub said: Option<String>,
+}
+
+/// One field of a form: its name, what is typed in it, and what it showed when the form opened.
+pub struct FormField {
+    pub name: String,
+    pub edit: Text,
+    pub was: String,
+}
+
+/// What a window keeps of an outline it has switched away from: its arrangement, each tile's own state, the way
+/// back through both, and the blocks that were being written, as typed. Switched back to, it is as it was left.
+pub struct Parked {
+    pub(in crate::actions) machine: String,
+    pub(in crate::actions) layout: Layout,
+    pub(in crate::actions) screen: Screen,
+    pub(in crate::actions) tiles: HashMap<Id, TileUi>,
+    pub(in crate::actions) journal: Vec<(Layout, Option<Screen>)>,
+    pub(in crate::actions) screen_seen: Option<(String, String)>,
+    pub(in crate::actions) drafts: Vec<DraftSession>,
+    pub(in crate::actions) recovered: Vec<Kept>,
+    pub(in crate::actions) trashed: HashMap<String, String>,
+    pub(in crate::actions) kept_in: Option<PathBuf>,
+    pub(in crate::actions) recovery: Option<Recovery>,
 }
 
 pub struct State {
@@ -136,6 +173,12 @@ pub struct State {
     pub nowhere: Text,
 
     pub bar: BarUi,
+    /// The form open over the window, when one is.
+    pub form: Option<FormUi>,
+    /// The outlines this window has switched away from, each as it was left.
+    pub parked: HashMap<OutlineAt, Parked>,
+    /// The window was asked to close: the shell closes it on the next frame.
+    pub closing: bool,
     pub notice: Option<Notice>,
     /// The last act an agent ran, as the status line says it.
     pub agent_said: Option<String>,
@@ -151,8 +194,13 @@ pub struct State {
 pub struct App {
     pub(in crate::actions) st: State,
     pub(in crate::actions) store: Store,
-    /// Makes the link again after it is lost.
-    connect: Option<Box<dyn Fn() -> Box<dyn Link>>>,
+    /// The way to an outline's host: its link, made (or made again after it is lost), and where a window keeps that
+    /// outline's arrangement. Asked for the outline this window opened on and for any it switches to.
+    pub(in crate::actions) ways: Option<Ways>,
+    /// The windows this one asked for (a tile torn out), until the shell opens them.
+    pub(in crate::actions) born: Vec<App>,
+    /// Other windows' drafts files this one read when it opened: gone once what they held is back in its block.
+    pub(in crate::actions) strays: Vec<PathBuf>,
     /// The pictures of the pages the readers show, by `Picture::key`: only what they show is kept.
     pictures: Pictures,
     /// The chords of a key sequence pressed so far: the key table's own.
@@ -162,6 +210,10 @@ pub struct App {
     /// Where what is being written is kept while it is unsaved. None: nowhere.
     pub(in crate::actions) recovery: Option<Recovery>,
 }
+
+/// How a window reaches an outline's host, by the outline's name and its machine's: every case is the rule's
+/// (`client::way`), or a test's stand-in.
+pub type Ways = std::rc::Rc<dyn Fn(&OutlineAt) -> Result<Way, String>>;
 
 impl Deref for App {
     type Target = State;
@@ -186,10 +238,19 @@ static NO_ROWS: Vec<ListRow> = Vec::new();
 const NO_SCREENS: &str = "This outline has no screens to open: the ones every door ships are an extension's, and the bar's Screens says how to get them.";
 
 impl App {
-    pub fn new(link: Box<dyn Link>, outline: &str) -> App {
-        let at = OutlineAt { outline: outline.to_string(), machine: String::new() };
+    pub fn new(link: Box<dyn Link>, outline: &str) -> App { App::opened(link, OutlineAt { outline: outline.to_string(), machine: String::new() }) }
+
+    /// A run's first window, on an outline by its name and its machine's (empty: this machine), over the link to it.
+    pub fn opened(link: Box<dyn Link>, at: OutlineAt) -> App {
         let mut store = Store::new();
         store.link(&at, link);
+        App::new_on(store, &at)
+    }
+
+    /// A window on an outline, over a store that has the link to it (the run's first window makes both; a window
+    /// torn from another is handed that window's store).
+    pub(in crate::actions) fn new_on(store: Store, at: &OutlineAt) -> App {
+        let at = at.clone();
         App {
             st: State {
                 at,
@@ -214,6 +275,9 @@ impl App {
                 recovered: Vec::new(),
                 nowhere: Text::new(""),
                 bar: BarUi { open: false, scope: "all".into(), edit: Text::new(""), cursor: 0 },
+                form: None,
+                parked: HashMap::new(),
+                closing: false,
                 notice: None,
                 agent_said: None,
                 steps: Vec::new(),
@@ -221,7 +285,9 @@ impl App {
                 reveal: None,
             },
             store,
-            connect: None,
+            ways: None,
+            born: Vec::new(),
+            strays: Vec::new(),
             pictures: Pictures::default(),
             held: crate::keys::Held::default(),
             kept_in: None,
@@ -234,14 +300,17 @@ impl App {
     pub fn arranged_in(mut self, path: PathBuf) -> App {
         let recovery = Recovery::beside(&path);
         self.st.recovered = recovery.read();
+        // What a window torn from this one left unsaved when the run ended is this window's to bring back.
+        for stray in recovery.strays() { self.st.recovered.extend(Recovery(stray.clone()).read()); self.strays.push(stray) }
         self.recovery = Some(recovery);
         self.kept_in = Some(path);
         self.restore();
         self
     }
 
-    pub fn reconnecting(mut self, connect: Box<dyn Fn() -> Box<dyn Link>>) -> App {
-        self.connect = Some(connect);
+    /// The way to any outline's host: how a lost link is made again, and how another outline is switched to.
+    pub fn reaching(mut self, ways: Ways) -> App {
+        self.ways = Some(ways);
         self
     }
 
@@ -254,7 +323,7 @@ impl App {
     /// A headless render: every ask waits for its answer.
     pub fn blocking(mut self, blocking: bool) -> App {
         self.st.blocking = blocking;
-        self.store.blocking = blocking;
+        self.store.set_blocking(blocking);
         self
     }
 
@@ -279,6 +348,20 @@ impl App {
     pub fn sources_ask(&self) -> Ask { Ask::read(&self.at, "lists.read", json!({ "from": "sources" })) }
 
     fn served(&self) -> Option<&Served> { self.store.read::<Served>(&self.screens_ask()) }
+
+    /// What the outline's extensions are and add, as the service lists them (`extensions.list`): read once, and
+    /// again after this window installs, removes or configures one, or the screens they serve moved.
+    pub fn extensions_ask(&self) -> Ask { Ask::read(&self.at, "extensions.list", json!({})) }
+    /// The extensions, once they have come.
+    pub fn extensions(&self) -> Option<&Extensions> { self.store.read::<Extensions>(&self.extensions_ask()) }
+    /// An installed extension's settings, as its own schema says them.
+    pub fn settings_of(&self, extension: &str) -> Option<&ext::Settings> { self.extensions()?.entry(extension)?.settings.as_ref() }
+
+    /// A rendered tile's view (`tiles.view`), a watched read: the tile's kind and its own fields, which are the script's props.
+    pub fn view_ask(&self, tile: &str) -> Option<Ask> {
+        let spec = self.spec(tile)?;
+        Some(Ask::watched(&self.at, "tiles.view", json!({ "kind": spec.kind, "fields": spec.fields })))
+    }
 
     // ── kinds: what a tile's kind is, from the service's rows ───────────────────────────────────────────────
 
@@ -562,6 +645,7 @@ impl App {
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
             wants.push(Want { tile: "sources".into(), role: "list", ask: self.sources_ask() });
+            wants.push(Want { tile: "extensions".into(), role: "list", ask: self.extensions_ask() });
         }
         wants
     }
@@ -571,7 +655,7 @@ impl App {
     /// The first asks: who answers, then whatever is wanted.
     pub fn start(&mut self) {
         let at = self.at.clone();
-        self.store.request(&at, "ping", json!({}), &Actor::Person, hello, Value::Null);
+        self.store.request(&at, "ping", json!({}), &Actor::Person, hello, json!({ "outline": at.outline, "machine": at.machine }));
         // The window says who it is, so a script it starts can send its acts back here (`actions/script.rs`), and the
         // service can ask about a draft held here. A link made again holds each draft again.
         self.store.register(&at);
@@ -652,6 +736,8 @@ impl App {
         let epoch = self.store.epoch(&self.screens_ask());
         if epoch == self.st.screens_epoch { return }
         self.st.screens_epoch = epoch;
+        // What the extensions serve moved with it (one installed, removed, or its folder changed): their list is read again.
+        if epoch > 1 { let ask = self.extensions_ask(); self.store.refresh(&ask) }
         // (A save of this window's own is what moved it: that is no news.)
         let wrote = std::mem::take(&mut self.st.screen_wrote);
         let Some(now) = self.seen_of() else { return };
@@ -691,10 +777,11 @@ impl App {
                 Landed::Call { at, call } => super::script::called(self, &at, &call),
                 Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
                 Landed::Asked { at, ask, by } => super::draft::asked(self, &at, &ask, by),
-                Landed::Lost { detail } => {
+                // (A link to an outline this window isn't on now is another window's to say, or nobody's.)
+                Landed::Lost { at, detail } => if at == self.at {
                     self.st.online = false;
                     self.st.notice = Some(Notice::problem(format!("Offline: {detail}")));
-                }
+                },
             }
         }
         // What landed may want more (a page's folders, a first note), and a watched answer that moved is read here.
@@ -715,10 +802,12 @@ impl App {
 
     /// The link is lost: make it again and ask for everything wanted (its watches ended with it). True when it came back.
     pub fn reconnect(&mut self) -> bool {
-        let Some(connect) = &self.connect else { return false };
-        let link = connect();
+        let Some(ways) = self.ways.clone() else { return false };
         let at = self.at.clone();
-        self.store.link(&at, link);
+        // Another window on this outline may have made it again already: the link is the store's, one an outline.
+        if !self.store.linked(&at) {
+            match ways(&at) { Ok(way) => self.store.link(&at, way.link), Err(_) => return false }
+        }
         self.st.online = true;
         self.st.notice = Some(Notice::info("Back online."));
         self.start();
@@ -728,6 +817,12 @@ impl App {
     /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).
     pub fn revealed(&mut self) -> Option<String> { self.st.reveal.take() }
 
+    /// The windows this one asked for, each its whole state, taken once: the shell opens them (`shell::windows` is
+    /// the one caller in a run; a test draws one itself).
+    pub fn born(&mut self) -> Vec<App> { std::mem::take(&mut self.born) }
+    /// The name this window has among its run's (`main`, then what each torn-out one was called).
+    pub fn window(&self) -> String { self.store.window() }
+
     // ── the kit's own hands: text typed into a field, a pane dragged by its edge ─────────────────────────────
 
     /// The text of a field, for the kit's editor to type into (`keys.rs` is the one caller). A field whose draft
@@ -736,6 +831,7 @@ impl App {
         match field {
             Field::Bar => &mut self.st.bar.edit,
             Field::Draft(tile) => match self.st.drafts.iter().position(|draft| draft.tile == *tile) { Some(at) => &mut self.st.drafts[at].buf, None => &mut self.st.nowhere },
+            Field::Form(name) => match self.st.form.as_mut().and_then(|form| form.fields.iter_mut().find(|field| field.name == *name)) { Some(field) => &mut field.edit, None => &mut self.st.nowhere },
         }
     }
 
@@ -745,6 +841,7 @@ impl App {
         match field {
             Field::Bar => self.st.bar.cursor = 0,
             Field::Draft(tile) => self.wrote_in(tile),
+            Field::Form(_) => if let Some(form) = &mut self.st.form { form.said = None },
         }
         self.pump();
     }
@@ -825,6 +922,8 @@ impl App {
 
 /// The host said who it is.
 fn hello(app: &mut App, reply: Reply) {
+    // The window switched to another outline before this one's host answered: its hello is nobody's now.
+    if reply.ctx["outline"] != app.at.outline.as_str() || reply.ctx["machine"] != app.at.machine.as_str() { return }
     let result = match reply.result {
         Ok(result) => result,
         Err(refusal) => { app.st.notice = Some(Notice::problem(refusal.error)); return }
@@ -838,8 +937,8 @@ fn hello(app: &mut App, reply: Reply) {
         return;
     }
     app.st.machine = result["location"]["machine"].as_str().unwrap_or("").to_string();
-    let person = format!("ep0ch-native:{}", app.st.machine);
-    app.store.set_person(person);
+    let (at, person) = (app.at.clone(), format!("ep0ch-native:{}", app.st.machine));
+    app.store.set_person(&at, person);
 }
 
 /// A picture's bytes came, or the host's word on why not: said where the picture would be.

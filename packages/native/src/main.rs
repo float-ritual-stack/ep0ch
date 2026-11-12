@@ -15,6 +15,7 @@ mod bar;
 mod client;
 mod control;
 mod draft;
+mod ext;
 mod keys;
 mod layout;
 mod list;
@@ -34,6 +35,7 @@ use rune::{AppSpec, Tx};
 
 use actions::App;
 use client::{Nowhere, Socket};
+use store::OutlineAt;
 
 // The scenes: every `scenes/<name>.act`, a file of act lines, as a `--scene <name>` (written by build.rs).
 include!(concat!(env!("OUT_DIR"), "/scenes.rs"));
@@ -43,16 +45,19 @@ fn flag(name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|at| args.get(at + 1)).cloned()
 }
 
+/// The way to an outline's host, by the rule every client opens one by: how a lost link is made again and how a
+/// window switches outline. A headless render keeps no arrangement.
+fn ways(headless: bool) -> actions::Ways { std::rc::Rc::new(move |at: &OutlineAt| client::way(&at.outline, &at.machine, !headless)) }
+
 fn init() -> App {
     // A headless render steps a virtual clock: each ask waits for its answer, so the frame drawn shows it.
     let headless = rune::tooling::headless_run().is_some();
     let app = match client::place(rune::extra_args()) {
         Ok(place) => {
-            let path = place.socket.clone();
-            let app = App::new(Box::new(Socket::connect(&place.socket)), &place.outline).reconnecting(Box::new(move || Box::new(Socket::connect(&path))));
+            let app = App::opened(Box::new(Socket::connect(&place.socket)), OutlineAt { outline: place.outline.clone(), machine: place.machine.clone() }).reaching(ways(headless));
             // The arrangement is kept beside the control socket, a file an outline: a headless render keeps none.
             match client::control(rune::extra_args()).filter(|_| !headless) {
-                Some(control) => app.arranged_in(std::path::Path::new(&control).with_file_name(format!("native-{}.layout.json", place.outline))),
+                Some(control) => app.arranged_in(client::arrangement(&control, &place.outline)),
                 None => app,
             }
         }
@@ -68,8 +73,19 @@ fn init() -> App {
             Err(e) => eprintln!("ep0ch-native: can't read {file}: {e}"),
         }
     }
+    // A headless render draws one window: `--window <name>` says which, when the acts tore one out (a window of a
+    // live run is opened by the shell; a headless one opens none).
+    if let Some(name) = flag("--window").filter(|_| headless) {
+        match app.born().into_iter().find(|born| born.window() == name) {
+            Some(mut born) => { born.settle(); return born }
+            None => eprintln!("ep0ch-native: no window named {name} was torn out: drawing the first"),
+        }
+    }
     app
 }
+
+/// A state nobody opens on: what a window's spec names until the shell hands it the state it was made for.
+fn nobody() -> App { App::new(Box::new(Nowhere(None)), "") }
 
 fn setup(s: &mut App, waker: rune::Waker) { s.set_waker(waker) }
 
@@ -78,6 +94,8 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     // The drafts held are renewed on the service, and it is told when the keys go quiet: asked again when due.
     if let Some(due) = s.beat() { tx.wake_after(due) }
     let moved = keys::effects(s, tx) | keys::follow(s, tx);
+    // A window an act asked for (a tile torn out) is opened, over the state the act made for it.
+    for born in s.born() { shell::open(born, made(nobody)) }
     // A lost link is made again, now and every two seconds until the host answers.
     if !s.online && !s.blocking {
         s.reconnect();
@@ -86,19 +104,25 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     landed || moved
 }
 
-fn main() {
-    let window = rune::App::new(AppSpec::<App> {
+/// What every window of the run is made of: its view, its keys, what it does each turn. `init` makes its state.
+fn made(init: fn() -> App) -> AppSpec<App> {
+    AppSpec::<App> {
         min_size: Some((720.0, 420.0)),
         scenes: SCENES,
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys::press),
         ..AppSpec::new("ep0ch", (1180.0, 760.0), init, shell::view)
-    });
+    }
+}
+
+fn main() {
+    let window = rune::App::new(made(init)).on_close(control::gone);
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.
     let _control = (!rune::is_headless()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {
-        control::serve(std::path::Path::new(&path), window.handle()).map_err(|why| eprintln!("ep0ch-native: {why}")).ok()
+        control::here(store::MAIN, window.handle());
+        control::serve(std::path::Path::new(&path), control::Windows).map_err(|why| eprintln!("ep0ch-native: {why}")).ok()
     });
     window.run();
 }

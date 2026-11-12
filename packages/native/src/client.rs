@@ -108,12 +108,21 @@ impl Link for Nowhere {
     fn wait(&mut self, _: &str, _: Duration) {}
 }
 
+/// The way to an outline's host: the link to it, and where a window keeps that outline's arrangement between runs
+/// (none: nowhere, as a headless render keeps none).
+pub struct Way {
+    pub link: Box<dyn Link>,
+    pub kept: Option<std::path::PathBuf>,
+}
+
 /// Where the outline is: its host's socket and its name, and where this window serves its control socket
 /// (`native.sock` beside the outline's `door.sock`), when the door's rule said.
 #[derive(Clone)]
 pub struct Place {
     pub socket: String,
     pub outline: String,
+    /// The ssh name of the machine the outline is on, as the rule read it; empty for this one.
+    pub machine: String,
     pub control: Option<String>,
 }
 
@@ -134,10 +143,23 @@ fn bun(args: &[String]) -> Result<Value, String> {
 fn resolve(args: &[String]) -> Result<Place, String> {
     let answer = bun(args)?;
     match (answer["socket"].as_str(), answer["outline"].as_str()) {
-        (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string(), control: answer["control"].as_str().map(str::to_string) }),
+        (Some(socket), Some(outline)) => Ok(Place { socket: socket.to_string(), outline: outline.to_string(), machine: answer["machine"].as_str().unwrap_or("").to_string(), control: answer["control"].as_str().map(str::to_string) }),
         _ => Err(answer["error"].as_str().unwrap_or("no outline is named here").to_string()),
     }
 }
+
+/// The way to an outline by its name (and its machine's ssh name, when it is another's), by the same rule: what a
+/// window switching outline asks, and a lost link made again. `keeps`: whether an arrangement is kept at all.
+pub fn way(outline: &str, machine: &str, keeps: bool) -> Result<Way, String> {
+    // (`--to <outline> [<machine>]`: resolve.ts says it to the rule in the rule's own words.)
+    let args: Vec<String> = ["--to", outline, machine].iter().filter(|word| !word.is_empty()).map(|word| word.to_string()).collect();
+    let place = resolve(&args)?;
+    let kept = place.control.as_ref().filter(|_| keeps).map(|control| arrangement(control, &place.outline));
+    Ok(Way { link: Box::new(Socket::connect(&place.socket)), kept })
+}
+
+/// Where a window keeps an outline's arrangement: a file an outline, beside the control socket.
+pub fn arrangement(control: &str, outline: &str) -> std::path::PathBuf { std::path::Path::new(control).with_file_name(format!("native-{outline}.layout.json")) }
 
 /// Where the outline is, asked once a run: the window's first state and its control socket both read it.
 pub fn place(args: &[String]) -> Result<Place, String> {
