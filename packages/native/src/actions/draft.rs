@@ -43,11 +43,12 @@ fn theirs(by: &Actor, what: &str) -> Option<Outcome> {
 
 fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(no) = theirs(by, "open") { return no }
-    let Some(page) = app.page() else { return Outcome::refused("the open note's page hasn't come yet") };
+    let Some(tile) = app.reader() else { return Outcome::refused("there is no reader to edit a note in") };
+    let Some(page) = app.page_of(&tile) else { return Outcome::refused("the open note's page hasn't come yet") };
     if app.editing.is_some() { return Outcome::refused("the note is already open for editing") }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
     app.st.editor = focused(&text);
-    app.st.editing = Some(Editing { note, revision, base: text });
+    app.st.editing = Some(Editing { tile, note, revision, base: text });
     Outcome::done()
 }
 

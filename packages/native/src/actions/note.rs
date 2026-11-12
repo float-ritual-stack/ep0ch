@@ -51,9 +51,11 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         return Outcome::refused(why);
     }
     let parent = args.text("near").map(str::to_string).or_else(|| app.subject());
-    if by.is_person() && let Some(p) = &parent { app.st.unfolded.insert(p.clone()); }
+    if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.tree_tile()) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
+    // The new note opens in the reader this act means: said now, while the act's aim is known.
+    let reader = app.reader();
     let at = app.at.clone();
-    app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent }));
+    app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent, "reader": reader }));
     Outcome::done()
 }
 
@@ -67,11 +69,13 @@ fn created(app: &mut App, reply: Reply) {
         app.st.notice = Some(Notice::info(format!("{} made a note.", reply.by.label())));
         return;
     }
-    app.show(&id);
+    let Some(reader) = reply.ctx["reader"].as_str().map(str::to_string).filter(|tile| app.spec(tile).is_some()).or_else(|| app.reader()) else { app.wrote(&[parent]); return };
+    app.show(&reader, &id, true);
     app.st.bar.open = false;
     // A new note opens to be written, at the revision the service made it at.
     app.st.editor = super::draft::focused(&text);
-    app.st.editing = Some(Editing { note: id, revision, base: text });
+    app.st.editing = Some(Editing { tile: reader, note: id, revision, base: text });
+    app.keep();
     app.wrote(&[parent]);
 }
 
@@ -98,10 +102,10 @@ fn trashed(app: &mut App, reply: Reply) {
     let said = if reply.by.is_person() { "Moved to the Trash.".to_string() } else { format!("{} moved a note to the Trash.", reply.by.label()) };
     // The notice knows what to bring back: its undo is an act line.
     app.st.notice = Some(Notice { undo: Some(format!("note.untrash id={}", word(&note))), ..Notice::info(said) });
-    // The note on screen is gone: the window moves to the note above it, whoever trashed it.
-    if app.subject().as_deref() == Some(note.as_str()) {
-        app.st.note = parent.clone();
-        app.st.back.retain(|id| *id != note);
+    // A note on screen is gone: each reader that showed it moves to the note above it, whoever trashed it.
+    for tile in app.layout.all() {
+        if app.ui(&tile).note.as_deref() == Some(note.as_str()) || (app.ui(&tile).note.is_none() && app.spec(&tile).is_some_and(|s| s.kind == "reader") && app.note_of(&tile).as_deref() == Some(note.as_str())) { app.ui_mut(&tile).note = parent.clone() }
+        if app.ui(&tile).history.contains(&note) { app.ui_mut(&tile).history.retain(|id| *id != note) }
     }
     app.wrote(&[parent]);
 }

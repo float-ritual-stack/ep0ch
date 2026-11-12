@@ -1,12 +1,14 @@
 //! ep0ch as a native window. `ep0ch-native [--ws <name>] [--machine <ssh-name>]` opens the outline the usual rule
-//! names (`--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`): the tree on the left, the open note in the middle,
-//! what the service knows about it on the right, and the command bar over all of it.
+//! names (`--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`) on a screen: tiles arranged by a layout, each drawn
+//! by its kind's drawer, with the command bar over all of it. The screen it ships is the outline's tree, a
+//! reader, and what the service knows about the open note in a dock.
 //!
 //! It speaks the outline host's socket and draws what the host answers: see the README beside Cargo.toml.
 //! Every change is an act line through one dispatcher (`actions/`), whoever asks: a key (`keys.rs`), a press
-//! (`view.rs`, `bar.rs`), or an agent over the control socket (`control.rs`).
+//! (`shell.rs`, a tile's drawer, `bar.rs`), or an agent over the control socket (`control.rs`).
 //! Rune's own flags work as in any Rune app: `--snap out.png`, `--scene edit`, `--script steps.json`, `--tree`;
-//! after `--`, `--act <file>` runs a file of act lines before the first frame.
+//! after `--`, `--act <file>` runs a file of act lines before the first frame, and `--screen <name>` opens on that
+//! screen.
 mod actions;
 mod actline;
 mod bar;
@@ -16,10 +18,12 @@ mod keys;
 mod layout;
 mod list;
 mod page;
+mod screen;
+mod shell;
 mod store;
 #[cfg(test)]
 mod tests;
-mod view;
+mod tiles;
 
 use std::time::Duration;
 
@@ -42,13 +46,23 @@ fn init() -> App {
     let app = match client::place(rune::extra_args()) {
         Ok(place) => {
             let path = place.socket.clone();
-            App::new(Box::new(Socket::connect(&place.socket)), &place.outline).reconnecting(Box::new(move || Box::new(Socket::connect(&path))))
+            let app = App::new(Box::new(Socket::connect(&place.socket)), &place.outline).reconnecting(Box::new(move || Box::new(Socket::connect(&path))));
+            // The arrangement is kept beside the control socket, a file an outline: a headless render keeps none.
+            match client::control(rune::extra_args()).filter(|_| !headless) {
+                Some(control) => app.arranged_in(std::path::Path::new(&control).with_file_name(format!("native-{}.layout.json", place.outline))),
+                None => app,
+            }
         }
         Err(why) => App::new(Box::new(Nowhere(Some(why))), ""),
     };
     let mut app = app.blocking(headless);
     app.start();
     if headless { app.settle(); }
+    if let Some(name) = flag("--screen") {
+        let opened = app.act(&format!("screen.open name={}", actions::word(&name)), actions::Actor::Person);
+        if !opened.ok { eprintln!("ep0ch-native: {}", opened.said) }
+        if headless { app.settle(); }
+    }
     if let Some(file) = flag("--act") {
         match std::fs::read_to_string(&file) {
             Ok(lines) => { app.script(&lines); }
@@ -78,7 +92,7 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys::press),
-        ..AppSpec::new("ep0ch", (1180.0, 760.0), init, view::view)
+        ..AppSpec::new("ep0ch", (1180.0, 760.0), init, shell::view)
     });
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.

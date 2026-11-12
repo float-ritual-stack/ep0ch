@@ -19,7 +19,8 @@
 //   `open`, `source`), a container's policy by its policy keys, and a tile's `TileSpec` fields as written. A tile's
 //   wires are properties named by their verb: `[select::reader]`, `[open::reader]`. `keys` holds one block a key: the
 //   key's name, then `[action::<an act line>]`. `floats` holds tiles with `[rect::col row cols rows]`, and `policy`
-//   the screen's own policy (`policy [locked::true]`); `newNote` holds what a new note does, one rule a block.
+//   the screen's own policy (`policy [locked::true]`); `newNote` holds what a new note does, one rule a block, and
+//   `toolbar` the act lines a door draws as buttons, one a block.
 //
 // Pure: the caller hands over the note and its children's text. `screens.list` (the outline host) is the one reader in
 // the service; `screenNoteBlocks` is the one writer of the block form (`screens.save`).
@@ -207,6 +208,8 @@ function lowered(note: NoteBlock, name: string, title: string): Record<string, u
   const rest = (c: NoteBlock) => c.text.split("\n").slice(1).join("\n").trim();
   const hint = kids.find(c => head(c).words[0] === "hint"), hints = kids.find(c => head(c).words[0] === "hints");
   const hintMap = hints ? Object.fromEntries((hints.children ?? []).filter(c => c.text.trim()).map(c => [c.text.split("\n")[0]!.trim(), rest(c)])) : undefined;
+  // Its toolbar: one act line a block.
+  const toolbar = kids.filter(c => head(c).words[0] === "toolbar").flatMap(c => (c.children ?? []).map(line => line.text.split("\n")[0]!.trim()).filter(Boolean));
   const policies = kids.filter(c => head(c).words[0] === "policy"), newNotes = kids.filter(c => head(c).words[0] === "newNote");
   if (!roots.length) throw new Unread(`has no layout under it: its first block is a split, tabs, dock, columns, flow or tile <kind>`);
   if (roots.length > 1) throw new Unread(`has ${roots.length} layouts under it (${roots.map(r => `((${r.id}))`).join(", ")}): a screen has one root · put them under a split`);
@@ -222,6 +225,7 @@ function lowered(note: NoteBlock, name: string, title: string): Record<string, u
     ...(keys.length ? { keys: keys.flatMap(keysOf) } : {}), ...(newNotes.length ? { newNote: newNotes.flatMap(newNoteOf) } : {}),
     ...Object.fromEntries(SPEC_TEXT.filter(k => h.props.has(k)).map(k => [k, h.props.get(k)!])),
     ...(hint ? { hint: rest(hint) } : {}), ...(hintMap ? { hint: hintMap } : {}),
+    ...(toolbar.length ? { toolbar } : {}),
     ...(h.props.get("frame") === "dotted" ? { frame: "dotted" } : {}), ...(h.props.get("digits") === "false" ? { digits: false } : {}),
     ...(h.props.get("layouts") === "true" ? { layouts: true } : {}), ...(h.props.get("stays") === "true" ? { stays: true } : {}),
     ...(menu ? { menu: { key: [...menu][0], label: menu.slice([...menu][0]!.length).trim() } } : {}),
@@ -348,5 +352,6 @@ export function screenNoteBlocks(spec: ScreenSpec): WrittenBlock {
   const newNote: WrittenBlock[] = (spec.newNote ?? []).map(r => ({ text: fenced([r.opens !== undefined ? `opens ${r.opens}` : `action ${r.action}`, ...(r.only ? [chip("only", r.only.join(" "))] : []), ...(r.unless ? [chip("unless", r.unless.join(" "))] : [])].join(" "), r.args ?? {}), children: [] }));
   const hint: WrittenBlock[] = typeof spec.hint === "string" ? [{ text: `hint\n${spec.hint}`, children: [] }]
     : spec.hint ? [{ text: "hints", children: Object.entries(spec.hint).map(([kind, said]) => ({ text: `${kind}\n${said}`, children: [] })) }] : [];
-  return { text: header, children: [nodeBlock(layout.root), ...hint, ...(newNote.length ? [{ text: "newNote", children: newNote }] : []), ...(policy.length ? [{ text: ["policy", ...policy].join(" "), children: [] }] : []), ...(keys.length ? [{ text: "keys", children: keys }] : []), ...(floats.length ? [{ text: "floats", children: floats }] : [])] };
+  const toolbar: WrittenBlock[] = spec.toolbar?.length ? [{ text: "toolbar", children: spec.toolbar.map(line => ({ text: line, children: [] })) }] : [];
+  return { text: header, children: [nodeBlock(layout.root), ...toolbar, ...hint, ...(newNote.length ? [{ text: "newNote", children: newNote }] : []), ...(policy.length ? [{ text: ["policy", ...policy].join(" "), children: [] }] : []), ...(keys.length ? [{ text: "keys", children: keys }] : []), ...(floats.length ? [{ text: "floats", children: floats }] : [])] };
 }

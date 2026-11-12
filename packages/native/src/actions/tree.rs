@@ -1,4 +1,4 @@
-//! The outline's tree in the sidebar: picking a row, folding one.
+//! The outline's tree in its tile: picking a row, folding one.
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
 use super::{Action, Actor, App, Outcome, nav};
 use crate::actline::Args;
@@ -18,20 +18,26 @@ pub static ACTIONS: &[Action] = &[Action { row: &PICK, run: pick }, Action { row
 fn folds(app: &App, id: &str) -> bool { app.tree().iter().any(|line| line.row.id == id && line.row.has_children) }
 
 fn set(app: &mut App, id: &str, open: Option<bool>) {
-    let open = open.unwrap_or(!app.unfolded.contains(id));
-    if open { app.st.unfolded.insert(id.to_string()); } else { app.st.unfolded.remove(id); }
+    let Some(tree) = app.tree_tile() else { return };
+    let open = open.unwrap_or(!app.ui(&tree).unfolded.contains(id));
+    let ui = app.ui_mut(&tree);
+    if open { ui.unfolded.insert(id.to_string()); } else { ui.unfolded.remove(id); }
+    app.keep();
 }
 
 fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let id = args.text("id").unwrap_or("").to_string();
     // An agent's pick is an open, by the same rule as any agent's open: asked of the dispatcher, not done round it.
     if !by.is_person() { return app.act(&format!("open id={}", super::word(&id)), by.clone()) }
-    // A press opens the note; on the open note it folds or unfolds what's under it.
-    if app.subject().as_deref() == Some(id.as_str()) {
+    let Some(tree) = app.tree_tile() else { return Outcome::refused("this screen has no tree to pick a row of") };
+    // A press opens the note; on the note the tree marks as open it folds or unfolds what's under it.
+    if app.selected_in(&tree).as_deref() == Some(id.as_str()) {
         if folds(app, &id) { set(app, &id, None) }
         return Outcome::done();
     }
     let unfold = folds(app, &id);
+    // The open comes from the tree: where it lands is the layout's to say.
+    app.st.aimed = Some(tree);
     let outcome = nav::go(app, &id, by, true);
     if outcome.ok && unfold { set(app, &id, Some(true)) }
     outcome

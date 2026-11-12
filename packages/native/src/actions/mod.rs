@@ -13,15 +13,18 @@
 mod app;
 mod bar;
 mod draft;
+mod layout;
 mod nav;
 mod note;
 pub mod row;
+mod screen;
 mod shell;
+mod tile;
 mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, Editing, Field, Notice, Shown, Tone, TreeLine};
+pub use app::{App, CELL, Editing, Field, Notice, Shown, TileUi, Tone, TreeLine};
 pub use row::ActionRow;
 
 use crate::actline::{self, Address, Args};
@@ -75,7 +78,7 @@ pub struct Step {
 
 impl Step {
     /// The act line it was, with its arguments as the action's row typed them.
-    pub fn line(&self) -> String { actline::line_of(&self.action, &self.args) }
+    pub fn line(&self) -> String { let line = actline::line_of(&self.action, &self.args); match &self.tile { Some(tile) => format!("{line} tile={}", word(tile)), None => line } }
     pub fn json(&self) -> Value { json!({ "line": self.line(), "action": self.action, "args": self.args, "tile": self.tile, "by": self.by.id(), "ok": self.ok, "said": self.said }) }
 }
 
@@ -88,26 +91,24 @@ pub struct Action {
     pub run: fn(&mut App, &Args, &Actor) -> Outcome,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, shell::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, bar::ACTIONS, tree::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }
 
 pub fn find(id: &str) -> Option<&'static Action> { all().find(|action| action.row.id == id) }
 
-/// The one tile an action runs in until there is a layout: the reader.
-pub const READER: &str = "reader";
-
-/// The actor rule: whether `by` may run an action that touches `touches`, given where the person is. The person
-/// always may. An agent never takes the person's keys, their draft or the tile they type in.
-fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts) -> Result<(), String> {
+/// The actor rule: whether `by` may run an action that touches `touches`, given where the person is and the tile
+/// the act is about. The person always may. An agent never takes the person's keys, their draft or the tile they
+/// type in. (What an agent may do to the arrangement is the layout's own rule, asked by `reshape`.)
+fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result<(), String> {
     let Actor::Agent(_) = by else { return Ok(()) };
     let way = "block.mark gets their attention";
     match row.touches {
         Touches::Nothing | Touches::Shape => Ok(()),
         Touches::Tile => {
-            let typing = person.typing_in == Some(READER);
-            let held = if row.while_ == Some(While::Typing) { typing } else { person.focus == READER || typing };
+            let typing = person.typing_in.as_deref() == Some(tile);
+            let held = if row.while_ == Some(While::Typing) { typing } else { person.focus == tile || typing };
             if held { Err(format!("{}; an agent doesn't run {} there · {way}", person.why.clone().unwrap_or_else(|| format!("{} has the person's keys", person.focus)), row.id)) } else { Ok(()) }
         }
         // The draft session's rule decides, in the action: it knows which note the act is about.
@@ -143,16 +144,27 @@ impl App {
             Err(why) => { step.said = why.0; return self.invalid(step) }
         };
         step.args = args.json();
-        // `tile=` is an address (outline-core's grammar). Until there is a layout, the one tile to address is the reader.
-        if let Some(tile) = req.tile.as_deref() && !matches!(Address::parse(tile), Address::Name(name) | Address::Role { role: name, scope: None } if name == READER) {
-            step.said = format!("no tile {tile} here: this window has one, {READER}");
-            return self.invalid(step);
-        }
-        if let Err(why) = rule(action.row, &by, &self.person()) {
+        // `tile=` is an address (outline-core's grammar): here, a tile of the arrangement by its name or its id.
+        let aimed = match req.tile.as_deref() {
+            None => None,
+            Some(tile) => {
+                let found = match Address::parse(tile) { Address::Name(name) | Address::Role { role: name, scope: None } => self.layout.named(&name), Address::Id(id) => Some(id).filter(|id| self.layout.spec(id).is_some()), _ => None }.or_else(|| self.layout.named(tile));
+                let Some(found) = found else {
+                    step.said = format!("no tile {tile} here: this window has {}", self.layout.names.0.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", "));
+                    return self.invalid(step);
+                };
+                Some(found)
+            }
+        };
+        // The tile a tile-touching act is about: the one it names, else the reader.
+        let about = aimed.clone().or_else(|| self.reader()).map(|tile| self.layout.name(&tile)).unwrap_or_default();
+        if let Err(why) = rule(action.row, &by, &self.person(), &about) {
             step.said = why;
             return self.record(step);
         }
+        let outer = std::mem::replace(&mut self.st.aimed, aimed);
         let outcome = (action.run)(self, &args, &by);
+        self.st.aimed = outer;
         step.ok = outcome.ok;
         step.said = outcome.said.clone();
         self.said(&step);

@@ -54,7 +54,7 @@ fn state_changes_only_under_actions_and_the_store() {
         (".field(", vec!["keys.rs"]),
         (".typed(", vec!["keys.rs"]),
         (".held()", vec!["keys.rs"]),
-        (".pane(", vec!["view.rs"]),
+        (".resized(", vec!["shell.rs"]),
         (".effects(", vec!["keys.rs", "control.rs", "main.rs"]),
         (".take()", vec!["main.rs", "store.rs", "client.rs"]),
         (".reconnect()", vec!["main.rs"]),
@@ -62,12 +62,13 @@ fn state_changes_only_under_actions_and_the_store() {
         (".settle()", vec!["main.rs"]),
         (".script(", vec!["main.rs"]),
     ] {
-        none(&format!("{hand} called from somewhere new"), strays(hand, |path| path.starts_with("actions/") || callers.contains(&path)));
+        // The layout is pure (it holds no App: `a_layout_is_pure` below), so a word that is also a hand's name there is its own.
+        none(&format!("{hand} called from somewhere new"), strays(hand, |path| path.starts_with("actions/") || path.starts_with("layout") || callers.contains(&path)));
     }
     // Everywhere else, a handler that gets the App does one thing with it: runs an act line.
     for (path, text) in texts.iter().filter(|(path, _)| !path.starts_with("actions/") && !["store.rs", "keys.rs", "control.rs", "main.rs"].contains(&path.as_str())) {
         for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
-            let hands_on = line.contains(".act(") || line.contains("s.pane(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            let hands_on = line.contains(".act(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
             assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
         }
     }

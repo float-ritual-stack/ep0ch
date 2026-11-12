@@ -9,40 +9,40 @@ use crate::keys;
 #[test]
 fn the_note_draws_every_part_and_a_row_in_a_component_opens_its_note() {
     let mut rt = window(garden(ok()).app);
-    for key in ["tree/plot", "tree/shed", "note-title", "part/0", "part/1", "part/2", "part/3", "part/3/fork", "part/4", "child/fork", "backlink/plan", "edit", "find", "query", "new"] {
+    for key in ["tile/tree/row/plot", "tile/tree/row/shed", "tile/reader/title", "tile/reader/part/0", "tile/reader/part/1", "tile/reader/part/2", "tile/reader/part/3", "tile/reader/part/3/fork", "tile/reader/part/4", "tile/reader/child/fork", "tile/backlinks/backlink/plan", "tile/reader/edit", "tool/bar.open", "tool/bar.open scope=query", "tool/note.new"] {
         assert!(rt.find(key).is_some(), "{key} is on screen");
     }
-    assert!(rt.find("tree/onions").is_none(), "a folded folder's notes aren't asked for or built");
-    press(&mut rt, "part/1/beans");
+    assert!(rt.find("tile/tree/row/onions").is_none(), "a folded folder's notes aren't asked for or built");
+    press(&mut rt, "tile/reader/part/1/beans");
     assert_eq!(rt.state.page().unwrap().title, "Water the beans");
-    assert!(rt.find("tree/beans").is_some() && rt.find("path").is_some(), "the tree unfolded to it, and its path is drawn");
+    assert!(rt.find("tile/tree/row/beans").is_some() && rt.find("tile/reader/path").is_some(), "the tree unfolded to it, and its path is drawn");
 }
 
 #[test]
 fn a_press_on_a_tree_row_opens_its_note_and_on_the_open_note_folds_it() {
     let mut rt = window(garden(ok()).app);
-    press(&mut rt, "tree/plot");
-    assert!(rt.find("tree/onions").is_some(), "the open note's row unfolds what is under it");
-    press(&mut rt, "tree/onions");
+    press(&mut rt, "tile/tree/row/plot");
+    assert!(rt.find("tile/tree/row/onions").is_some(), "the open note's row unfolds what is under it");
+    press(&mut rt, "tile/tree/row/onions");
     assert_eq!(rt.state.subject().as_deref(), Some("onions"));
-    assert!(rt.find("tree/fork").is_some(), "opening a folder shows its notes");
-    press(&mut rt, "tree/onions");
-    assert!(rt.find("tree/fork").is_none(), "and a press on the open note folds it again");
+    assert!(rt.find("tile/tree/row/fork").is_some(), "opening a folder shows its notes");
+    press(&mut rt, "tile/tree/row/onions");
+    assert!(rt.find("tile/tree/row/fork").is_none(), "and a press on the open note folds it again");
 }
 
 #[test]
 fn the_editor_s_buttons_say_what_leaving_would_do() {
     let mut rt = window(garden(ok()).app);
-    press(&mut rt, "edit");
+    press(&mut rt, "tile/reader/edit");
     assert_eq!(rt.state.editor.text, "Plot [type::chore]\nBefore the rain.");
-    assert!(rt.find("source").is_some() && rt.find("done").is_some() && rt.find("discard").is_none() && rt.find("note-title").is_none());
+    assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/done").is_some() && rt.find("tile/reader/discard").is_none() && rt.find("tile/reader/title").is_none());
     rt.update(|s, _| s.field(Field::Draft).replace_text("Plot, changed"));
     for _ in 0..30 { rt.frame(1.0 / 60.0); }
-    assert!(rt.find("discard").is_some() && rt.find("done").is_none(), "with unsaved text the way out is Discard, by name");
-    press(&mut rt, "save");
+    assert!(rt.find("tile/reader/discard").is_some() && rt.find("tile/reader/done").is_none(), "with unsaved text the way out is Discard, by name");
+    press(&mut rt, "tile/reader/save");
     assert!(rt.state.editing.is_some() && !rt.state.unsaved());
-    press(&mut rt, "done");
-    assert!(rt.state.editing.is_none() && rt.find("note-title").is_some());
+    press(&mut rt, "tile/reader/done");
+    assert!(rt.state.editing.is_none() && rt.find("tile/reader/title").is_some());
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn a_chip_is_a_query_for_every_note_that_carries_it_and_binning_offers_undo() {
     let g = garden(ok());
     let asked = g.asked.clone();
     let mut rt = window(g.app);
-    press(&mut rt, "chip/type/chore");
+    press(&mut rt, "tile/reader/chip/type/chore");
     assert_eq!(last(&asked)["query"]["where"], "type=chore");
     assert!(rt.find("bar/field").is_some() && rt.find("bar/facet/area/plot").is_some());
     press(&mut rt, "bar/row/query/beans");
@@ -70,8 +70,8 @@ fn pictures_are_drawn_where_they_stand_under_the_header_image() {
     let mut rt = window(app);
     for _ in 0..10 { rt.frame(1.0 / 60.0); }
     let y = |rt: &Runtime<App>, key: &str| rt.find(key).unwrap_or_else(|| panic!("{key} is on screen")).1;
-    assert!(y(&rt, "hero") < y(&rt, "note-title"), "the header image sits above the title");
-    assert!(y(&rt, "note-title") < y(&rt, "part/0") && y(&rt, "part/0") < y(&rt, "part/1") && y(&rt, "part/1") < y(&rt, "part/2"));
+    assert!(y(&rt, "tile/reader/hero") < y(&rt, "tile/reader/title"), "the header image sits above the title");
+    assert!(y(&rt, "tile/reader/title") < y(&rt, "tile/reader/part/0") && y(&rt, "tile/reader/part/0") < y(&rt, "tile/reader/part/1") && y(&rt, "tile/reader/part/1") < y(&rt, "tile/reader/part/2"));
 }
 
 /// The wave's sentence: the bar opened by its chord, an action found by a word of its name, and run.
@@ -135,7 +135,7 @@ fn in_the_note_s_source_the_table_has_a_chord_first_and_return_types_a_line() {
     let g = garden(ok());
     let asked = g.asked.clone();
     let mut rt = window(g.app);
-    press(&mut rt, "edit");
+    press(&mut rt, "tile/reader/edit");
     typed(&mut rt, " Now");
     chord(&mut rt, Key::Enter, Mods::default());
     typed(&mut rt, "then");
@@ -161,10 +161,5 @@ fn a_button_s_label_and_keycap_are_its_action_s_row_and_the_table_s() {
         let label = crate::actions::label(line);
         assert!(texts.iter().any(|t| *t == label), "{line}'s label {label:?} is drawn: {texts:?}");
     }
-    // The sidebar's rows draw their keycaps beside them (a button keeps its own for its tooltip).
-    for line in ["bar.open", "bar.open scope=query", "note.new"] {
-        let cap = keys::cap(line).expect("it has a chord");
-        assert!(texts.iter().any(|t| *t == cap), "{line}'s keycap {cap:?} is drawn: {texts:?}");
-    }
-    assert_eq!((crate::actions::label("edit.close"), crate::actions::label("edit.close discard=true"), crate::actions::label("note.untrash id=beans"), crate::actions::label("tree.pick id=beans")), ("Done".into(), "Discard".into(), "Undo".into(), "tree.pick".into()), "a label is the menu row for the arguments given, else the action's name");
+        assert_eq!((crate::actions::label("edit.close"), crate::actions::label("edit.close discard=true"), crate::actions::label("note.untrash id=beans"), crate::actions::label("tree.pick id=beans")), ("Done".into(), "Discard".into(), "Undo".into(), "tree.pick".into()), "a label is the menu row for the arguments given, else the action's name");
 }

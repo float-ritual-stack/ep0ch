@@ -129,10 +129,11 @@ fn peek_says_where_the_person_is_and_actions_lists_every_row() {
     for part in ["screen", "focus", "whereabouts", "watches", "tiles"] { assert!(!screen[part].is_null(), "peek has {part}: {screen}") }
     assert_eq!((screen["focus"].as_str(), screen["whereabouts"]["layer"].as_str(), screen["whereabouts"]["typingIn"].as_str(), screen["whereabouts"]["esc"].as_str()), (Some("reader"), Some("bar"), Some("bar"), Some("bar.close")));
     let tiles: Vec<&str> = screen["tiles"].as_array().unwrap().iter().map(|tile| tile["name"].as_str().unwrap()).collect();
-    assert_eq!(tiles, ["tree", "reader", "bar"]);
+    assert_eq!(tiles, ["tree", "reader", "props", "backlinks", "bar"], "every tile of the arrangement, then the bar while it is open");
     assert_eq!(screen["tiles"][1]["asks"][0]["action"], "notes.page");
-    assert_eq!((screen["tiles"][2]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][2]["asks"][0]["params"]["query"]["where"].as_str()), (Some("open id=beans"), Some("type=chore")));
-    assert_eq!(screen["watches"]["budget"][0]["said"], "3/64", "the top level, the page and the bar's query");
+    assert_eq!((screen["tiles"][4]["facts"]["rows"][0]["act"].as_str(), screen["tiles"][4]["asks"][0]["params"]["query"]["where"].as_str()), (Some("open id=beans"), Some("type=chore")));
+    assert_eq!((screen["tiles"][2]["facts"]["follows"].as_str(), screen["tiles"][3]["facts"]["backlinks"][0]["id"].as_str(), screen["tiles"][3]["asks"][0]["params"]["blockId"].as_str()), (Some("tile:reader"), Some("plan"), Some("plot")), "the tiles that follow the reader read its note's page");
+    assert_eq!(screen["watches"]["budget"][0]["said"], "4/64", "the top level, the page (one slot, though three tiles show it), the outline's screens and the bar's query");
     assert!(peek["result"]["text"].as_array().unwrap().iter().any(|line| line.as_str().unwrap().contains("> Plot")), "the screen as text marks the open note");
 
     let listed = d.ask(json!({ "cmd": "actions" }));

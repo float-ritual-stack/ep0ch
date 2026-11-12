@@ -1,7 +1,8 @@
 # ep0ch, native
 
-ep0ch as a native window: the outline's tree, the open note and what the service knows about it, drawn on the GPU
-with [Rune](https://github.com/anomalyco/rune) and its `rune-kit` components. It is a third client of the same
+ep0ch as a native window: tiles arranged by a layout (the outline's tree, readers, what the service knows about
+the open note), drawn on the GPU with [Rune](https://github.com/anomalyco/rune) and its `rune-kit` components. A
+screen is a note: an arrangement saved here opens in the door, and one saved there opens here. It is a third client of the same
 outline, beside the door and the Herdr console, and a thin host like every small client: it draws, and nothing in it
 reads Blockdown.
 
@@ -31,7 +32,10 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 
 | Do | How |
 |---|---|
-| Walk the outline | The sidebar's tree: a press opens a note, a press on the open note folds or unfolds it |
+| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it |
+| Arrange the window | `tile.split` (a second reader on the same note, or `kind=`), a tile's title dragged onto another tile (`tile.move to= side=`: a side of it, or its middle for a tab), a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`; `layout.undo` takes each back |
+| Keep an arrangement | `screen.save name="Garden work"` writes it as a `[type::screen]` note; `screen.open name=` lays the window out as any screen the outline has; `screen.reset` puts it back as its screen has it. The window opens as it was left |
+| Read what is wrong | A tile whose kind nobody draws, or that names a tile its screen hasn't, says so on the tile, in the service's words, and draws its spec as data |
 | Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and query-backed `::graph-table` as rows that open; `::graph-stat` as tiles and the other figures with the service's results |
 | See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
 | Follow anything | A link, a child, a backlink, a row in a component; `back` goes back |
@@ -65,9 +69,19 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `enter` | `bar.pick` | bar | pick the lit row |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
-| `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the tree |
-| `mod+i` | `dock.toggle side=right` | everywhere | show or hide the details |
 | `escape` | `notice.dismiss` | tile | dismiss the notice |
+| `mod+d` | `tile.split` | everywhere | split this tile: a new one on its right |
+| `mod+shift+d` | `tile.split dir=down` | everywhere | split this tile: a new one below |
+| `mod+w` | `tile.close` | everywhere | close this tile |
+| `mod+alt+left` | `tile.focus dir=left` | everywhere | the keys to the tile on the left |
+| `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
+| `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
+| `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
+| `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
+| `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
+| `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
+| `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
+| `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
 <!-- /keys -->
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
@@ -76,19 +90,22 @@ by their inner edge.
 
 Capture comes first here too. Saving never ends editing, so a key typed around a save always has somewhere to
 land. A save the service refuses (the note changed underneath) leaves every word in the editor and says why.
-Leaving the editor with unsaved text is refused, and so is opening another note over it: only Discard, by name,
-drops words.
+Leaving the editor with unsaved text is refused; another note opened meanwhile opens in a reader of its own beside
+it (the layout's rule for a tile that holds an edit). Only Discard, by name, drops words.
 
 ## How it fits
 
 ```text
 src/ (Rust, Rune)                                      the outline host
-  view.rs, bar.rs   draw; a press runs an act line
+  shell.rs, bar.rs  draw any layout; a press, a drag, a drop runs an act line
+  tiles/            a kind's row; a drawer an answer shape (page, tree, about)
   keys.rs           chord -> act line, by where the person is
   control.rs        an agent's act line, over native.sock
         │ an act line, whoever asks
         ▼
-  actions/          the one dispatcher; one module a noun     ────────▶ update, create, move, delete
+  actions/          the one dispatcher; one module a noun     ────────▶ update, create, move, delete, screens.save
+  layout.rs         apply(layout, op) and place(layout, open): pure, the door's rules
+  screen.rs         a screen as served, with its problems     ◀───────  screens.list
   store.rs          one slot an ask; 64 watches a link        ◀───────  notes.page, blocks.read, blocks.query
   client.rs         the socket                                ◀───────  queries.changed
   page.rs           the wire's shapes
@@ -103,6 +120,20 @@ src/ (Rust, Rune)                                      the outline host
 - **An action describes itself** (`actions/row.rs`, outline-core's `ActionRow`): its name, summary, arguments,
   what it touches, its keys and its menu labels. Nothing restates them: a button names its act line and is
   labelled from the row.
+- **The arrangement is a layout, and two functions decide about it** (`layout.rs`, no Rune and no socket).
+  `apply(layout, op, ctx)` answers the layout after an operation or the refusal in words; `place(layout, open,
+  ctx)` answers the tile an open lands in and why. Both are the door's (`desk/screen-layout.ts`,
+  `desk/landing.ts`), rule for rule: the door's own answers are written down in `outline-core/fixtures/` and
+  `src/tests/contract.rs` asks every row of `layout-contract.json` and `place-contract.json` here. Only an action
+  issues an `Op`, and only `open` asks `place`.
+- **A tile is a kind and a drawer** (`tiles/`). A kind's row says which drawer draws it and what the layout needs
+  to know of it; a drawer is handed a `TileCx` (the store to read, its spec, its own state) and speaks only by
+  act lines (`cx.act`, `cx.emit`). The shell (`shell.rs`) draws whatever tree the layout holds from the boxes
+  the layout answers, so a split, a tab set, a dock, a flow and a float are one loop.
+- **A screen is data** (`screen.rs`): a row of `screens.list` (a `[type::screen]` note in either body, or an
+  extension's), validated by the service, or a file this window ships (`screens/desk.json`). `screen.save` is the
+  service's write (`screens.save`), so the note's form has one writer. The arrangement as it stands is kept in a
+  file beside the control socket (`native-<outline>.layout.json`), written on each change.
 - **Every read is an ask in the store** (`store.rs`): an outline, a wire action, its parameters, watched or not.
   Equal asks share a slot; a tile is a slot's user; a slot nobody shows keeps its answer and gives its watch to
   the next ask. `peek` lists the slots, who shows each and how much of the budget is held.
@@ -110,8 +141,9 @@ src/ (Rust, Rune)                                      the outline host
   body as parts (prose as Markdown; each component with its answer in it), and the notes above, under and linking
   to it. It walks the note as a published page does and asks the same questions; where a page writes HTML, it
   hands over data.
-- **The window is a function of what's chosen and what's answered** (`actions/app.rs`). The open note, each
-  unfolded folder and the bar's words each want an ask; an answer lands in the slot of its own ask, or nowhere.
+- **The window is a function of what's chosen and what's answered** (`actions/app.rs`). Each tile on screen wants
+  what its drawer asks (a reader its note's page, a tree each unfolded folder; a hidden tab asks nothing), and the
+  bar its words; an answer lands in the slot of its own ask, or nowhere. Three tiles on one note read it once.
   There is no "is this answer still for what's on screen?" to get wrong.
 - **Changes arrive as answers, not events to interpret.** A watched read (ADR 0004) is registered under one of the
   link's 64 keys: the service says which answer moved and the slot reads it by generation, when someone shows it.
@@ -120,10 +152,11 @@ src/ (Rust, Rune)                                      the outline host
   costs what's on screen.
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
   lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
-  the UI thread, and keeps only the open page's. One the host can't read says so, in the host's words, where it
+  the UI thread, and keeps only those of the pages its readers show. One the host can't read says so, in the host's words, where it
   would be.
-- **It holds no grammar and names no property.** `view.rs` is `rune-kit`'s shell (`SplitView`, `Sidebar`,
-  `Toolbar`), `Markdown` and `Badge`; `bar.rs` is its `Dialog` over the one list; every field is `keys.rs`'s. A `graph-stat` is drawn as tiles from its props; a
+- **It holds no grammar and names no property.** A tile's body is `rune-kit`'s `Markdown`, `Badge` and `Button`;
+  `bar.rs` is its `Dialog` over the one list; every field is `keys.rs`'s; the toolbar is the screen's own list of
+  act lines, each button labelled from its action's row. A `graph-stat` is drawn as tiles from its props; a
   figure kind with no drawing here shows the service's Markdown for it; a component the service answers nothing
   for shows its source. Nothing is hidden.
 - **`PROTOCOL` is the checkout's**: `build.rs` reads it from outline-core's `protocol.ts`, and a host on another
@@ -137,15 +170,21 @@ The window serves a control socket that speaks the door's control protocol (`con
 
 ```sh
 ep0ch act --door native note.trash --as compost-agent   # the same action a key runs, recorded as the agent's
-ep0ch peek --door native --json                         # {screen, focus, whereabouts, watches, tiles, …, text}
+ep0ch peek --door native --json                         # {screen, focus, whereabouts, watches, tiles, layout, …, text}
+ep0ch act --door native tile.split tile=reader dir=down # the layout's own rules say what an agent may arrange
 ep0ch actions --door native                             # every action, as its row
 ```
 
 - **An act is attributed.** Its write carries `mutation: {author: "agent", actorId}`, its step says who, and the
-  sidebar's status line names the agent and the action.
+  toolbar's status line names the agent and the action.
 - **An act takes nothing of the person's.** Not their keys, not the bar they have open or its lit row, not the
   editor: `edit`, `edit.save`, `edit.close`, `bar.close` and `notice.dismiss` are refused to an agent with why,
-  and an agent's `open` is refused while the person types in the reader.
+  `tile.focus` is the person's alone, and an agent's `open` lands without taking their keys: beside the reader
+  when it holds unsaved text.
+- **An agent arranges by the layout's rules.** `tile.split`, `tile.move`, `tile.close`, `tile.dock`,
+  `layout.resize` are refused in the door's words when they would take the tile with the person's keys, resize
+  the tile they type in, or undo a lock of theirs. A tile is addressed by name (`tile=reader2`); `peek` lists
+  each with its kind, what it asks and what its drawer says of it, and the layout with every container's id.
 - **An agent's `bar.open` lists the actions** for its words and opens nothing. The notes and a query's matches
   are the service's answers, which an act can't wait for: those scopes are refused with where to ask
   (`ep0ch find`), never answered as an empty list.
@@ -163,10 +202,13 @@ bun run check                       # resolve.ts
 `src/tests/` has one file a kind of test: the garden (what the window asks and does with the answers), the window
 drawn and pressed, the parity table (every action by its chord, by its bar row pressed and by its act line, one
 step record), the store (one slot an ask, the budget, what the service dropped), the fixtures (the act-line grammar
-and the action rows against `outline-core/fixtures/`), the control socket, and `one_owner.rs`, which scans the
-source for a second place that binds a key, writes to the wire, lists rows or labels a button.
+and the action rows against `outline-core/fixtures/`), the contract tables (every row of the door's layout and
+place answers), the shell (one test a container kind, opens through the `open` action, a screen saved and broken),
+the control socket, and `one_owner.rs`, which scans the source for a second place that binds a key, writes to the
+wire, lists rows, labels a button, issues an `Op` or places an open.
 
-The service's side is `packages/outliner/test/notes-page.test.ts`.
+The service's side is `packages/outliner/test/notes-page.test.ts` and `test/screens.test.ts`; the block form of a
+screen note is `packages/outline-core/test/screen-note.test.ts`.
 
 Rune renders headless, so a change can be looked at without a display, on a scratch outline:
 
@@ -174,14 +216,28 @@ Rune renders headless, so a change can be looked at without a display, on a scra
 target/debug/ep0ch-native --snap out.png --scene bar --theme dark -- --ws scratch
 target/debug/ep0ch-native --snap out.png -- --ws scratch --act steps.act
 target/debug/ep0ch-native --tree tree.json -- --ws scratch
+target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   # opened on a screen the outline has
 ```
+
+![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
 A scene is a file of act lines, `scenes/<name>.act`: `bar`, `edit`, `find`, `query`, and `plan`, `figures`,
 `callouts` (which open notes of the showcase outline by title). `--act <file>` runs any file of them before the
-first frame. A Rune `--script` taps by element key (`find`, `edit`, `save`, `done`, `tree/<id>`, `child/<id>`,
-`part/<n>/<id>`, `chip/<key>/<value>`, `bar/field`, `bar/row/<source>/<key>`, `bar/facet/<key>/<value>`).
+first frame. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
+`tile/reader/save`, `tile/tree/row/<id>`, `tile/reader/child/<id>`, `tile/reader/part/<n>/<id>`,
+`tile/reader/chip/<key>/<value>`, `tile/<name>/bar` its title, `tile/<name>/close`), a toolbar button is
+`tool/<its act line>`, a border `grip/<split id>/<n>`, and the bar's are `bar/field`, `bar/row/<source>/<key>`,
+`bar/facet/<key>/<value>`.
 
 ## Not here yet
+
+- Tiles: three drawers (`page`, `tree`, `about`); no query, board or terminal tile. Folding a tile to a spine,
+  zooming and floating one have no action here yet, though a screen that holds them is laid out and drawn.
+- A dock that slides over the layout is drawn where the layout says, without the door's tab strip along its edge;
+  a drag shows no hint of where a tile will drop.
+- A press inside a tile's body doesn't give it the keys by itself (its title, its tab or `tile.focus` does): Rune's
+  focus isn't reconciled with the layout's yet (PROBES.md §1).
+- One window: the arrangement is kept a file an outline.
 
 - Editing is the whole note's source in one text area: no per-block outliner editing, completions or live drafts
   an agent can patch (`drafts.hold`).

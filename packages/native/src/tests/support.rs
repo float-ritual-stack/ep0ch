@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::actions::{Actor, App, Outcome};
 use crate::client::{Link, PROTOCOL};
-use crate::view::view;
+use crate::shell::view;
 
 pub type Asked = Rc<RefCell<Vec<Value>>>;
 pub type Said = Rc<RefCell<VecDeque<Value>>>;
@@ -104,6 +104,9 @@ pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden 
                 "pictures/missing.png" => Err(("failed", "pictures/missing.png isn't on the outline's machine".into())),
                 path => Ok(json!({ "path": path, "mime": "image/svg+xml", "from": "file", "base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, SUN) })),
             },
+            "screens.save" => Ok(json!({ "name": "beds", "title": "Beds", "id": "screen-note", "revision": ask["base"]["revision"].as_u64().map_or(1, |r| r + 1), "created": ask["base"].is_null() })),
+            // The outline's own screens: none, until a test's host says otherwise (`host_says`).
+            "screens.list" => Ok(json!({ "screens": [], "problems": [], "anyChange": true })),
             "tree.search" => Ok(json!({ "matches": [{ "block": { "id": "beans", "revision": 1 }, "title": format!("found for {}", ask["query"].as_str().unwrap()), "path": "Plot" }] })),
             "blocks.query" => match ask["query"]["where"].as_str().unwrap() {
                 "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
@@ -157,7 +160,8 @@ pub fn window(app: App) -> Runtime<App> {
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
     rt.poll = Some(|s, _, tx| { let landed = s.take(); s.effects(tx) || landed });
     rt.on_key = Some(crate::keys::press);
-    rt.frame(0.0);
+    // The tiles' area is measured on the first frame, and the tiles sit in it from the next.
+    for _ in 0..3 { rt.frame(0.0); }
     rt
 }
 

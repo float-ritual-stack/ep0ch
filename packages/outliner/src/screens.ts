@@ -134,7 +134,10 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
 /** `screens.save`: `spec` written as its screen note in the block form: the note by that name, else a new one. */
 export async function saveScreen(own: Own, request: Extract<ScreensRequest, { action: "screens.save" }>): Promise<ScreenSaved> {
   let spec: ScreenSpec;
-  try { spec = readSpec(request.spec); } catch (e) { throw new Refusal("invalid", `screens.save: ${(e as Error).message}`); }
+  // A name as a person typed it ("Garden work") is the screen's title, and its name the slug of it: the one rule.
+  const given = (request.spec && typeof request.spec === "object" ? request.spec : {}) as Record<string, unknown>;
+  const typed = typeof given.name === "string" && screenNameProblem(given.name) ? given.name.trim() : null;
+  try { spec = readSpec(typed === null ? given : { ...given, title: typed, name: screenSlug(typed) }); } catch (e) { throw new Refusal("invalid", `screens.save: ${(e as Error).message}`); }
   const bad = screenNameProblem(spec.name);
   if (bad) throw new Refusal("invalid", bad);
   const { extensions = [] } = await own.request<ExtensionsListed>({ action: "extensions.list" }).catch((): ExtensionsListed => ({}));

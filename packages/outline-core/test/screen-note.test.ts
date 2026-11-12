@@ -57,6 +57,13 @@ describe("a screen note", () => {
     expect(spec(readScreenNote(blocksOf(written)))).toEqual(given);
   });
 
+  test("a toolbar is act lines, one a block, and reads back as written", () => {
+    const given = readSpec({ name: "seed-list", title: "seed-list", toolbar: ["bar.open", "bar.open scope=query", "note.new"], layout: { root: { t: "leaf", kind: "reader", name: "reader" } } });
+    const written = screenNoteBlocks(given);
+    expect(written.children[1]).toEqual({ text: "toolbar", children: [{ text: "bar.open", children: [] }, { text: "bar.open scope=query", children: [] }, { text: "note.new", children: [] }] });
+    expect(spec(readScreenNote(blocksOf(written)))).toEqual(given);
+  });
+
   test("a block that isn't part of a layout is said, with the block and what goes there", () => {
     const stray = readScreenNote(block("Beds [type::screen]", block("split row", block("tile reader [name::bed]"), block("compost heap"))));
     expect("problem" in stray && stray.problem).toMatch(/\(Beds\)|beds/);

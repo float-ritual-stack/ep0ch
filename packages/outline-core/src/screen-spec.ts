@@ -387,6 +387,11 @@ export interface ScreenSpec {
    * (`screen.menu`). A key another row holds leaves this row keyless, said.
    */
   menu?: MenuRow;
+  /**
+   * Its toolbar, where a door draws one (the native window's): act lines, one a button. A button's label and keycap
+   * are its action's row's, never written here.
+   */
+  toolbar?: string[];
 }
 
 /** A screen's row on the main menu (PIE-1525). */
@@ -467,12 +472,15 @@ export function readSpec(x: unknown, isKind?: (kind: string) => boolean): Screen
     if (bad) throw new Error(`screen ${name}: ${bad}`);
     menu = { key: (m.key as string).toUpperCase(), label: (m.label as string).trim(), ...(typeof m.about === "string" && m.about.trim() ? { about: m.about.trim() } : {}) };
   }
+  if (o.toolbar !== undefined && !(Array.isArray(o.toolbar) && o.toolbar.every(l => typeof l === "string" && l.trim()))) throw new Error(`screen ${name}: toolbar is a list of act lines, one a button`);
+  const toolbar = (o.toolbar as string[] | undefined)?.map(l => l.trim());
   const str = (k: string) => (typeof o[k] === "string" && o[k] ? { [k]: o[k] as string } : {});
   const spec: ScreenSpec = {
     name, title, layout,
     ...(keys ? { keys } : {}),
     ...(newNote ? { newNote } : {}),
     ...(menu ? { menu } : {}),
+    ...(toolbar?.length ? { toolbar } : {}),
     ...str("hint"), ...hintMap(o.hint), ...str("band"), ...str("home"), ...str("lands"), ...str("fresh"), ...str("saves"),
     ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
     ...(o.digits === false ? { digits: false as const } : {}),

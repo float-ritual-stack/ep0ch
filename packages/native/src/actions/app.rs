@@ -1,32 +1,55 @@
 //! What the window holds.
 //!
-//! `State` is what was chosen (the note opened, the folders unfolded, the bar's words, what is being typed); what
-//! is shown is a function of it and of the store's answers (`subject`, `tree`, `shown`, `wants`). `App`'s state is
-//! private to `actions/`: everything else reads it (`App` derefs to `State`) and changes it by an act line.
+//! `State` is what was chosen (the arrangement, each tile's own state, the bar's words, what is being typed); what
+//! is shown is a function of it and of the store's answers (`note_of`, `tree_of`, `shown_of`, `wants`). `App`'s
+//! state is private to `actions/`: everything else reads it (`App` derefs to `State`) and changes it by an act line.
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::PathBuf;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use base64::Engine;
 use rune::{Image, ImageCache, TextEdit, Tx};
-use rune_kit::shell::PaneState;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Actor, Step};
 use crate::client::{Link, PROTOCOL};
+use crate::layout::{self, Id, Layout, Rect, TileSpec};
 use crate::page::{NoteRow, Page, Picture};
+use crate::screen::{self, Screen};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
+use crate::tiles::{self, TileCx};
 
 /// The note being typed in. `base` is the text the service holds at `revision`: a save names that revision, and the
 /// editor has something unsaved exactly when its text differs from `base`.
 pub struct Editing {
+    /// The tile the draft is on.
+    pub tile: Id,
     pub note: String,
     pub revision: u64,
     pub base: String,
 }
 
-/// One line of the sidebar: a note at its depth in the unfolded tree.
+/// A tile's own state: what it was last told to show. Kept by the tile's id, so it outlives a move or a rename.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TileUi {
+    /// A reader's note. None: the outline's first, once the top level has come.
+    pub note: Option<String>,
+    /// The notes a reader showed before, oldest first: where `back` goes.
+    pub history: Vec<String>,
+    /// The folders a tree has unfolded.
+    pub unfolded: BTreeSet<String>,
+    /// The note whose way from the top a tree unfolded when its page first came (once: a folder folded by hand stays folded).
+    pub revealed: Option<String>,
+}
+
+static NO_UI: std::sync::LazyLock<TileUi> = std::sync::LazyLock::new(TileUi::default);
+
+/// A window's cell, in points: the layout's rules count in cells, as the door's do.
+pub const CELL: (f32, f32) = (8.0, 18.0);
+
+/// One line of a tree: a note at its depth in the unfolded tree.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TreeLine {
     pub depth: usize,
@@ -85,15 +108,20 @@ pub struct State {
     /// A headless render steps a virtual clock: each ask waits for its answer, so a frame shows what it asked for.
     pub blocking: bool,
 
-    /// The note opened. None: the outline's first note, once the top level has come.
-    pub note: Option<String>,
-    pub back: Vec<String>,
-    /// The folders unfolded in the tree.
-    pub unfolded: BTreeSet<String>,
-    /// The note whose way from the top was unfolded when its page first came (once: a folder folded by hand stays folded).
-    pub revealed: Option<String>,
-    /// The page (its note, and which of its answers) whose pictures are the ones held.
-    pub pictured: Option<(String, u64)>,
+    /// The arrangement: which tiles, how they sit, which has the keys. Changed only by `layout::apply`.
+    pub layout: Layout,
+    /// The screen the arrangement is of.
+    pub screen: Screen,
+    /// Each tile's own state, by its id.
+    pub tiles: HashMap<Id, TileUi>,
+    /// The area the layout fills, in cells: the window's, as the shell last measured it.
+    pub area: Rect,
+    /// The arrangements before each change, oldest first: what `layout.undo` goes back through.
+    pub journal: Vec<Layout>,
+    /// The tile the act being run is aimed at (`tile=`).
+    pub aimed: Option<Id>,
+    /// The page (its note, and which of its answers) whose pictures are held, a reader.
+    pub pictured: HashMap<Id, (String, u64)>,
 
     /// The editor's text, there whether or not a note is being edited, so a key always has somewhere to land.
     pub editor: TextEdit,
@@ -103,10 +131,8 @@ pub struct State {
     pub notice: Option<Notice>,
     /// The last act an agent ran, as the status line says it.
     pub agent_said: Option<String>,
-    pub sidebar: PaneState,
-    pub inspector: PaneState,
 
-    /// The open page's pictures, by `Picture::key`: only what it shows is kept.
+    /// The pictures of the pages the readers show, by `Picture::key`: only what they show is kept.
     pub pictures: HashMap<String, Shown>,
     /// Every act, as it was read and how it went.
     pub steps: Vec<Step>,
@@ -124,6 +150,8 @@ pub struct App {
     images: ImageCache,
     /// The chords of a key sequence pressed so far: the key table's own.
     held: crate::keys::Held,
+    /// Where the arrangement is kept between runs. None: nowhere (a test, a headless render).
+    pub(in crate::actions) kept_in: Option<PathBuf>,
 }
 
 impl Deref for App {
@@ -148,18 +176,18 @@ impl App {
                 machine: String::new(),
                 online: true,
                 blocking: false,
-                note: None,
-                back: Vec::new(),
-                unfolded: BTreeSet::new(),
-                revealed: None,
-                pictured: None,
+                layout: screen::default().layout().unwrap_or_default(),
+                screen: screen::default(),
+                tiles: HashMap::new(),
+                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
+                journal: Vec::new(),
+                aimed: None,
+                pictured: HashMap::new(),
                 editor: TextEdit::new(""),
                 editing: None,
                 bar: BarUi { open: false, scope: "all".into(), edit: TextEdit::new(""), cursor: 0 },
                 notice: None,
                 agent_said: None,
-                sidebar: PaneState::new(280.0).range(180.0, 520.0),
-                inspector: PaneState::new(280.0).range(220.0, 440.0),
                 pictures: HashMap::new(),
                 steps: Vec::new(),
                 trashed: HashMap::new(),
@@ -170,7 +198,15 @@ impl App {
             // Until the window gives its waker, a decoded picture wakes nobody (a test's window is driven by hand).
             images: ImageCache::new(Arc::new(|| {})),
             held: crate::keys::Held::default(),
+            kept_in: None,
         }
+    }
+
+    /// The arrangement is kept in this file between runs, and read from it now when it is there.
+    pub fn arranged_in(mut self, path: PathBuf) -> App {
+        self.kept_in = Some(path);
+        self.restore();
+        self
     }
 
     pub fn reconnecting(mut self, connect: Box<dyn Fn() -> Box<dyn Link>>) -> App {
@@ -202,36 +238,86 @@ impl App {
     /// A note's page, a watched read.
     pub fn page_ask(&self, note: &str) -> Ask { Ask::watched(&self.at, "notes.page", json!({ "blockId": note })) }
 
+    /// The outline's screens, a watched read: this window says which kinds it draws, and the service says what is wrong.
+    pub fn screens_ask(&self) -> Ask { Ask::watched(&self.at, "screens.list", json!({ "kinds": tiles::kinds() })) }
+
     fn level(&self, parent: Option<&str>) -> &[NoteRow] { self.store.read::<Level>(&self.level_ask(parent)).map_or(&[], |level| &level.blocks) }
 
-    /// The note on screen: the one opened, else the outline's first.
-    pub fn subject(&self) -> Option<String> { self.note.clone().or_else(|| self.level(None).first().map(|row| row.id.clone())) }
+    // ── tiles ───────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// The open note's page, once it has come.
+    /// A tile's own state.
+    pub fn ui(&self, tile: &str) -> &TileUi { self.tiles.get(tile).unwrap_or(&NO_UI) }
+    pub fn spec(&self, tile: &str) -> Option<&TileSpec> { self.layout.spec(tile) }
+    fn row_of(&self, tile: &str) -> Option<&'static tiles::KindRow> { self.spec(tile).and_then(|spec| tiles::kind(&spec.kind)) }
+    /// What a drawer is handed for a tile.
+    pub fn cx<'a>(&'a self, tile: &'a str) -> Option<TileCx<'a>> {
+        let spec = self.spec(tile)?;
+        Some(TileCx { app: self, id: tile, name: self.layout.name(tile), spec, ui: self.ui(tile), row: tiles::kind(&spec.kind)?, focused: self.layout.focus == tile })
+    }
+    /// The tiles on screen, in the order the layout lists them: the tree's shown ones, then the floats.
+    pub fn shown_tiles(&self) -> Vec<Id> { self.layout.tree().visible().into_iter().chain(self.layout.floats.iter().map(|f| f.spec.id.clone())).collect() }
+
+    /// The reader an act about "the open note" means: the tile it is aimed at or the one with the keys, when that
+    /// reads notes; else where the screen says opens land; else the first tile that reads notes.
+    pub fn reader(&self) -> Option<Id> {
+        let reads = |tile: &Id| self.row_of(tile).is_some_and(|row| row.notes);
+        self.aimed.clone().filter(reads).or_else(|| Some(self.layout.focus.clone()).filter(reads))
+            .or_else(|| self.screen.lands().and_then(|name| self.layout.named(name)).filter(reads))
+            .or_else(|| self.layout.all().into_iter().find(reads))
+    }
+    /// The tree an act about "the tree" means: the one aimed at, else the first.
+    pub fn tree_tile(&self) -> Option<Id> {
+        let lists = |tile: &Id| self.spec(tile).is_some_and(|spec| spec.kind == "tree");
+        self.aimed.clone().filter(lists).or_else(|| self.layout.all().into_iter().find(lists))
+    }
+
+    /// The note a reader shows: the one it was told, else the outline's first.
+    pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone().or_else(|| self.level(None).first().map(|row| row.id.clone())) }
+    /// The note a follower is about: its source tile's (`source: tile:<name>`), else the reader's.
+    pub fn followed_by(&self, tile: &str) -> Option<String> {
+        let source = self.spec(tile).and_then(|spec| spec.text("source")).and_then(|s| s.strip_prefix("tile:")).and_then(|name| self.layout.named(name));
+        source.or_else(|| self.reader()).and_then(|reader| self.note_of(&reader))
+    }
+    /// The note a tree marks as the one open: the note of the reader its selection feeds, else the reader's.
+    pub fn selected_in(&self, tile: &str) -> Option<String> {
+        let fed = self.layout.select_targets(tile).into_iter().find(|to| self.row_of(to).is_some_and(|row| row.notes));
+        fed.or_else(|| self.reader()).and_then(|reader| self.note_of(&reader))
+    }
+
+    /// The note on screen for an act that names none: the reader's.
+    pub fn subject(&self) -> Option<String> { self.reader().and_then(|reader| self.note_of(&reader)) }
+    /// The reader's page, once it has come.
     pub fn page(&self) -> Option<&Page> { self.store.read::<Page>(&self.page_ask(&self.subject()?)) }
+    /// The reader's page to draw.
+    pub fn shown(&self) -> Option<&Page> { self.reader().and_then(|reader| self.shown_of(&reader)) }
+    /// The reader's page hasn't come yet.
+    pub fn loading(&self) -> bool { self.reader().is_some_and(|reader| self.loading_of(&reader)) }
 
-    /// The page to draw: the open note's, or the last one while the open note's is on its way.
-    pub fn shown(&self) -> Option<&Page> { self.subject().and_then(|_| self.page().or_else(|| self.store.last::<Page>(super::READER, "page"))) }
+    /// A tile's page, once it has come.
+    pub fn page_of(&self, tile: &str) -> Option<&Page> { self.store.read::<Page>(&self.page_ask(&self.note_of(tile)?)) }
+    /// The page a tile draws: its note's, or the last one while its note's is on its way.
+    pub fn shown_of(&self, tile: &str) -> Option<&Page> { self.note_of(tile).and_then(|_| self.page_of(tile).or_else(|| self.store.last::<Page>(tile, "page"))) }
+    pub fn loading_of(&self, tile: &str) -> bool { self.note_of(tile).is_some() && self.page_of(tile).is_none() }
 
-    /// The open note's page hasn't come yet.
-    pub fn loading(&self) -> bool { self.subject().is_some() && self.page().is_none() }
-
-    /// The sidebar's lines: each level's rows, and under an unfolded row its own level once it has come.
-    pub fn tree(&self) -> Vec<TreeLine> {
-        fn walk(app: &App, parent: Option<&str>, depth: usize, out: &mut Vec<TreeLine>) {
+    /// A tree's lines: each level's rows, and under an unfolded row its own level once it has come.
+    pub fn tree_of(&self, tile: &str) -> Vec<TreeLine> {
+        fn walk(app: &App, unfolded: &BTreeSet<String>, parent: Option<&str>, depth: usize, out: &mut Vec<TreeLine>) {
             for row in app.level(parent) {
                 out.push(TreeLine { depth, row: row.clone() });
-                if app.unfolded.contains(&row.id) { walk(app, Some(&row.id), depth + 1, out) }
+                if unfolded.contains(&row.id) { walk(app, unfolded, Some(&row.id), depth + 1, out) }
             }
         }
         let mut out = Vec::new();
-        walk(self, None, 0, &mut out);
+        walk(self, &self.ui(tile).unfolded, None, 0, &mut out);
         out
     }
+    /// The first tree's lines.
+    pub fn tree(&self) -> Vec<TreeLine> { self.tree_tile().map(|tile| self.tree_of(&tile)).unwrap_or_default() }
 
     /// The folder a note is listed in, among the levels that have come.
     pub fn parent_of(&self, id: &str) -> Option<String> {
-        std::iter::once(None).chain(self.unfolded.iter().map(Some)).find(|parent| self.level(parent.map(String::as_str)).iter().any(|row| row.id == id)).flatten().cloned()
+        let unfolded: BTreeSet<&String> = self.tiles.values().flat_map(|ui| ui.unfolded.iter()).collect();
+        std::iter::once(None).chain(unfolded.into_iter().map(Some)).find(|parent| self.level(parent.map(String::as_str)).iter().any(|row| row.id == id)).flatten().cloned()
     }
 
     pub fn picture(&self, picture: &Picture) -> Option<&Shown> { self.pictures.get(&picture.key()) }
@@ -242,12 +328,42 @@ impl App {
     /// A save is out for the note being edited.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
 
-    /// Everything wanted now: the top level and every unfolded folder for the tree, the open note's page for the
-    /// reader, and the bar's question.
+    // ── screens ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Every screen there is to open: the ones this window ships, then the outline's as the service lists them.
+    pub fn screens(&self) -> Vec<Screen> {
+        let served = self.store.read::<serde_json::Value>(&self.screens_ask()).and_then(|list| list["screens"].as_array()).map(|rows| rows.iter().map(Screen::row).collect::<Vec<_>>()).unwrap_or_default();
+        let mut all: Vec<Screen> = screen::shipped().into_iter().filter(|shipped| !served.iter().any(|s| s.name == shipped.name)).collect();
+        all.extend(served);
+        all
+    }
+    /// What the service says is wrong with a tile of the screen shown, in its words.
+    pub fn problems_of(&self, tile: &str) -> Vec<String> {
+        let name = self.layout.name(tile);
+        self.screens().iter().find(|s| s.name == self.screen.name).map(|s| s.problems_of(&name).map(|p| p.said.clone()).collect()).unwrap_or_default()
+    }
+
+    /// What the layout's rules read of a tile: its kind's facts, then what its own state says.
+    pub fn facts(&self, tile: &str) -> layout::Facts {
+        let spec = self.spec(tile);
+        let kind = spec.map_or("tile", |spec| spec.kind.as_str()).to_string();
+        let row = tiles::kind(&kind);
+        // A reader that holds unsaved text holds an edit: an open lands beside it, and it isn't closed.
+        let editing = self.editing.as_ref().filter(|e| e.tile == tile && self.unsaved()).map(|e| format!("an edit of {}", self.page_of(tile).map_or(e.note.as_str(), |p| p.title.as_str())));
+        layout::Facts { kind, notes: row.is_some_and(|r| r.notes), lists: row.is_some_and(|r| r.lists), follower: row.is_some_and(|r| r.follower), showing: row.filter(|r| r.notes).and_then(|_| self.note_of(tile)), editing, ..layout::Facts::default() }
+    }
+
+    /// Everything wanted now: what each tile on screen reads (a hidden tab asks nothing and keeps what it showed),
+    /// the bar's question, and the outline's screens.
     pub fn wants(&self) -> Vec<Want> {
-        let mut wants: Vec<Want> = std::iter::once(None).chain(self.unfolded.iter().map(|id| Some(id.as_str()))).map(|parent| Want { tile: "tree".into(), role: "level", ask: self.level_ask(parent) }).collect();
-        if let Some(note) = self.subject() { wants.push(Want { tile: super::READER.into(), role: "page", ask: self.page_ask(&note) }) }
+        let mut wants: Vec<Want> = Vec::new();
+        for tile in self.shown_tiles() {
+            let Some(cx) = self.cx(&tile) else { continue };
+            let Some(drawer) = tiles::drawer(cx.row.drawer) else { continue };
+            wants.extend((drawer.asks)(&cx).into_iter().map(|(role, ask)| Want { tile: tile.clone(), role, ask }));
+        }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
+        if self.online && !self.at.outline.is_empty() { wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() }) }
         wants
     }
 
@@ -267,22 +383,31 @@ impl App {
         self.store.want(wants);
     }
 
-    /// What follows from the open note's page being here, done once for the note and once for each answer: the way
-    /// to it unfolds in the tree, and its pictures are the ones held.
+    /// What follows from a reader's page being here, done once for the note and once for each answer: the way to it
+    /// unfolds in the tree that marks it, and its pictures are among the ones held.
     fn follow(&mut self) {
-        let Some(note) = self.subject() else { return };
-        let ask = self.page_ask(&note);
-        let now = (note.clone(), self.store.epoch(&ask));
-        if self.pictured.as_ref() == Some(&now) && self.revealed.as_deref() == Some(note.as_str()) { return }
-        let Some(page) = self.page().cloned() else { return };
-        // Its ancestors unfold, so the sidebar shows where it is.
-        // (Once, when it first comes: a folder folded by hand afterwards stays folded.)
-        if self.revealed.as_deref() != Some(note.as_str()) {
-            self.st.unfolded.extend(page.ancestors.iter().map(|a| a.id.clone()));
-            self.st.revealed = Some(note);
+        let readers: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.row_of(tile).is_some_and(|row| row.notes)).collect();
+        let trees: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.spec(tile).is_some_and(|spec| spec.kind == "tree")).collect();
+        for tree in trees {
+            let Some(note) = self.selected_in(&tree) else { continue };
+            if self.ui(&tree).revealed.as_deref() == Some(note.as_str()) { continue }
+            let Some(ancestors) = self.store.read::<Page>(&self.page_ask(&note)).map(|page| page.ancestors.iter().map(|a| a.id.clone()).collect::<Vec<_>>()) else { continue };
+            // Its ancestors unfold, so the tree shows where it is.
+            // (Once, when it first comes: a folder folded by hand afterwards stays folded.)
+            let ui = self.st.tiles.entry(tree).or_default();
+            ui.unfolded.extend(ancestors);
+            ui.revealed = Some(note);
         }
-        self.want_pictures(&page);
-        self.st.pictured = Some(now);
+        let mut moved = false;
+        for reader in &readers {
+            let Some(note) = self.note_of(reader) else { continue };
+            let now = (note.clone(), self.store.epoch(&self.page_ask(&note)));
+            if self.pictured.get(reader) == Some(&now) || self.page_of(reader).is_none() { continue }
+            self.st.pictured.insert(reader.clone(), now);
+            moved = true;
+        }
+        self.st.pictured.retain(|tile, _| readers.contains(tile));
+        if moved { let pages: Vec<Page> = readers.iter().filter_map(|reader| self.page_of(reader).cloned()).collect(); self.want_pictures(&pages) }
     }
 
     /// Lands everything asked so far, and what that asked in turn: for a blocking link, whose answers are already here.
@@ -311,12 +436,15 @@ impl App {
         any
     }
 
-    /// An answer landed in a slot. The open note's page in a shape this window can't read is said, not left blank.
+    /// An answer landed in a slot. A reader's page in a shape this window can't read is said, not left blank.
     fn landed(&mut self, key: &AskKey) {
-        let Some(note) = self.subject() else { return };
-        let ask = self.page_ask(&note);
-        if ask.key() != *key || self.store.refusal(&ask).is_some() || self.page().is_some() { return }
-        self.st.notice = Some(Notice::problem("couldn't read the page: the host answered a shape this window doesn't know"));
+        for reader in self.shown_tiles() {
+            if !self.row_of(&reader).is_some_and(|row| row.notes) { continue }
+            let Some(note) = self.note_of(&reader) else { continue };
+            let ask = self.page_ask(&note);
+            if ask.key() != *key || self.store.refusal(&ask).is_some() || self.page_of(&reader).is_some() { continue }
+            self.st.notice = Some(Notice::problem("couldn't read the page: the host answered a shape this window doesn't know"));
+        }
     }
 
     /// The link is lost: make it again and ask for everything wanted (its watches ended with it). True when it came back.
@@ -353,8 +481,11 @@ impl App {
     /// The key table's memory of a sequence under way (`keys::press` is the one caller).
     pub fn held(&mut self) -> &mut crate::keys::Held { &mut self.held }
 
-    /// The sidebar's pane, for the kit's split view to drag (false: the inspector's).
-    pub fn pane(&mut self, sidebar: bool) -> &mut PaneState { if sidebar { &mut self.st.sidebar } else { &mut self.st.inspector } }
+    /// The window is this large, in points (the shell is the one caller): the area the layout fills, in cells.
+    pub fn resized(&mut self, width: f32, height: f32) {
+        let area = Rect { col: 0.0, row: 0.0, cols: (width / CELL.0).floor().max(1.0) as f64, rows: (height / CELL.1).floor().max(1.0) as f64 };
+        if area != self.st.area { self.st.area = area }
+    }
 
     // ── what the actions share ──────────────────────────────────────────────────────────────────────────────
 
@@ -370,29 +501,38 @@ impl App {
         self.st.agent_said = Some(if step.ok { format!("{} · {}", step.by.label(), step.action) } else { format!("{} · {} refused: {}", step.by.label(), step.action, step.said) });
     }
 
-    /// The note on screen is `id`.
-    pub(in crate::actions) fn show(&mut self, id: &str) {
-        self.st.note = Some(id.to_string());
+    /// The reader `tile` shows `id`. `remember`: the note it showed is somewhere to go back to.
+    pub(in crate::actions) fn show(&mut self, tile: &str, id: &str, remember: bool) {
+        let was = self.note_of(tile);
+        let ui = self.st.tiles.entry(tile.to_string()).or_default();
+        if remember && let Some(was) = was.filter(|was| was != id) { ui.history.push(was) }
+        ui.note = Some(id.to_string());
     }
 
-    /// This window wrote: what it shows of the open note and of these folders is read now, not when the watch says.
+    /// A tile's own state, to change.
+    pub(in crate::actions) fn ui_mut(&mut self, tile: &str) -> &mut TileUi { self.st.tiles.entry(tile.to_string()).or_default() }
+
+    /// This window wrote: what it shows of the notes its readers have open and of these folders is read now, not
+    /// when the watch says.
     pub(in crate::actions) fn wrote(&mut self, parents: &[Option<String>]) {
-        if let Some(note) = self.subject() { let ask = self.page_ask(&note); self.store.refresh(&ask) }
+        let readers: Vec<String> = self.shown_tiles().into_iter().filter(|tile| self.row_of(tile).is_some_and(|row| row.notes)).filter_map(|tile| self.note_of(&tile)).collect();
+        for note in readers { let ask = self.page_ask(&note); self.store.refresh(&ask) }
+        let unfolded: HashSet<String> = self.tiles.values().flat_map(|ui| ui.unfolded.iter().cloned()).collect();
         let mut seen: HashSet<Option<String>> = HashSet::new();
         for parent in parents {
             if !seen.insert(parent.clone()) { continue }
-            if parent.as_ref().is_none_or(|p| self.unfolded.contains(p)) { let ask = self.level_ask(parent.as_deref()); self.store.refresh(&ask) }
+            if parent.as_ref().is_none_or(|p| unfolded.contains(p)) { let ask = self.level_ask(parent.as_deref()); self.store.refresh(&ask) }
         }
     }
 
     // ── pictures ────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// The pictures `page` shows are the ones held: a file's bytes are asked of the host (`media.read`), an svg
-    /// fence's text is the picture already, and what the page no longer shows is let go.
-    fn want_pictures(&mut self, page: &Page) {
-        let shown: HashSet<String> = page.pictures().map(Picture::key).collect();
+    /// The pictures these pages show are the ones held: a file's bytes are asked of the host (`media.read`), an svg
+    /// fence's text is the picture already, and what no page shows any more is let go.
+    fn want_pictures(&mut self, pages: &[Page]) {
+        let shown: HashSet<String> = pages.iter().flat_map(Page::pictures).map(Picture::key).collect();
         self.st.pictures.retain(|key, _| shown.contains(key));
-        for picture in page.pictures() {
+        for picture in pages.iter().flat_map(Page::pictures) {
             let key = picture.key();
             if self.pictures.contains_key(&key) { continue }
             match (&picture.svg, &picture.path) {
