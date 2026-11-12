@@ -5,6 +5,7 @@
 
 use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime};
 
+pub mod accessors;
 pub mod grid;
 
 /// A light window at scale 1, as the app's own window tests build theirs.
