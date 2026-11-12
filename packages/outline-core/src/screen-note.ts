@@ -80,7 +80,7 @@ function policyIn(props: Map<string, string>): Record<string, unknown> | undefin
   const given: Record<string, unknown> = {};
   for (const k of POLICY_KEYS) if (props.has(k)) given[k] = k === "accepts" ? words(props.get(k)!) : typed(props.get(k)!);
   const policy = policyOf(given);
-  return Object.keys(policy).length ? policy : undefined;
+  return Object.keys(policy).length ? { ...policy } : undefined;
 }
 
 /** The object in a block's own ```json fence: the fields a property can't hold (a list, an object, a typed argument). */
@@ -231,7 +231,7 @@ function lowered(note: NoteBlock, name: string, title: string): Record<string, u
 /** The name a screen note gives its screen, and its title: its `screen::` property, else its title's slug. */
 export function screenNoteName(text: string): { name: string; title: string } {
   const h = headerLine(text), heading = h.prose.trim();
-  const name = (h.chips.findLast(c => c.key === SCREEN_TYPE)?.value ?? "").trim() || screenSlug(heading) || heading;
+  const name = (h.chips.filter(c => c.key === SCREEN_TYPE).at(-1)?.value ?? "").trim() || screenSlug(heading) || heading;
   // Its title is the note's own when that makes this name (renaming the property renames the screen, title and all).
   return { name, title: heading && screenSlug(heading) === name ? heading : name };
 }

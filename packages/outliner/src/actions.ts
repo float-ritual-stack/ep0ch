@@ -365,6 +365,10 @@ export const ACTIONS = {
   "shares.snapshot.take": { copy: true, async: true },
   "shares.start": { async: true },
   "shares.tunnel": { async: true },
+  // A screen is a note or an extension's (screens.ts): listed with its problems, saved in the block form. `screens.list` is
+  // watched as `notes.page` is: its answer takes a turn (`QueryWatches.askLater`).
+  "screens.list": { read: true, async: true },
+  "screens.save": { async: true },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
   "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },
