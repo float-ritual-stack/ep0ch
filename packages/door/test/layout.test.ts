@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import {
-  besideSlot, columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, sideOf, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  besideSlot, columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, giveRoom, grow, keptShare, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, sideOf, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   type Grab, type LNode,
 } from "../src/desk/layout";
 
@@ -462,5 +462,27 @@ describe("sideOf: where one tile is from another, however deep their splits nest
     const elsewhere = { t: "split", dir: "row", kids: [{ t: "leaf", id: 1 }, { t: "tabs", ids: [3, 2], active: 0 }], weights: [1, 1] } as unknown as LNode<number>;
     expect(sideOf(elsewhere, new Map([[1, r(0, 0, 80, 30)], [3, r(80, 0, 80, 30)]]), 1, 2)).toBe("tab");
     expect(sideOf(col, new Map([[1, r(0, 0, 44, 20)], [2, r(10, 5, 20, 5)]]), 1, 2)).toBeNull();
+  });
+});
+
+// PIE-1771: a group gathered from tiles takes the room they had. Evan's desk, made up: row[a .25, row[b, c, d] .75].
+describe("the room a gathered tile had", () => {
+  const split = (dir: "row" | "col", kids: LNode[], weights: number[]): LNode => ({ t: "split", dir, kids, weights });
+  const desk = () => split("row", [leaf(1), split("row", [leaf(2), leaf(3), leaf(4)], [1, 1, 1])], [0.25, 0.75]);
+  test("b's room along the row goes to a's side of the split that holds both, and leaves c and d theirs", () => {
+    const t = remove(giveRoom(desk(), 2, 1, "row"), 2)!;
+    expect(share(t, 1)).toBeCloseTo(0.5);
+    // c and d each half of the other half: a quarter of the row, as they had.
+    expect([share(t, 3), share(t, 4)].map(x => +x!.toFixed(3))).toEqual([0.5, 0.5]);
+  });
+  test("nothing moves across the axis: a tile stacked under another frees no width, and a group laid out down takes no width", () => {
+    const stacked = split("row", [leaf(1), split("col", [leaf(2), leaf(3)], [1, 1])], [0.5, 0.5]);
+    expect(giveRoom(stacked, 2, 1, "row")).toEqual(stacked);
+    expect(giveRoom(desk(), 2, 1, "col")).toEqual(desk());
+  });
+  test("a kid's kept share: its tiles' weights along the axis, all of a kid held across it", () => {
+    expect(keptShare(desk(), id => id === 2, "row")).toBeCloseTo(0.25);
+    expect(keptShare(split("col", [leaf(2), leaf(3)], [1, 1]), id => id === 2, "row")).toBe(1);
+    expect(keptShare(split("col", [leaf(2), leaf(3)], [1, 1]), id => id === 2, "row", 0)).toBe(0);
   });
 });

@@ -24,7 +24,7 @@ import type { Rect } from "../canvas";
 import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
-  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, keptInDock, kidsOf, leaf, leaves, move,
+  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, giveRoom, has, insert, isLine, keptInDock, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
@@ -36,7 +36,7 @@ import { agentRefusal, type AgentLevel } from "../surface/agent-level";
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
   chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
-  pair, pairSide, sideOf, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
+  keptShare, pair, pairSide, sideOf, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
 export { clone as copyTree } from "./layout";
@@ -229,7 +229,7 @@ export type Op<I = number> =
    * A group (PIE-651): tile `tile`, or the container `node` (its id or key), and the tiles `take` names, leave this
    * layout whole, and a new tile `with` (a group tile holding them as its own screen) takes the place of `tile` or `node`.
    */
-  | { op: "group"; tile?: I; node?: string; take?: I[]; with: I; kind: string; name?: string }
+  | { op: "group"; tile?: I; node?: string; take?: I[]; with: I; kind: string; name?: string; room?: Axis }   // room: the axis the group lays `take` beside `tile` on, which it takes their room along (PIE-1771)
   /** A group tile `tile` spills back (PIE-651): `tree`, its tiles under new ids with their `names`, takes its place. */
   | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][]; folds?: [I, Fold][]; agents?: [I, AgentLevel][]; wires?: Wire<I>[] }
   | { op: "move"; tile: I; to: Place<I> }
@@ -1413,7 +1413,7 @@ class Step<I> {
     if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
     const had = all.includes(this.d.focus);
     // The tiles taken beside it leave first; then the gathered place becomes the group tile.
-    for (const t of extra) { const fl = this.isFloat(t); const next = fl ? this.d.tree : remove(this.d.tree, t); if (!next) refuse(`${this.name(t)} is the screen's last tile`); this.d.tree = normalise(next!); this.d.floats = this.d.floats.filter(f => f.id !== t); }
+    for (const t of extra) { const fl = this.isFloat(t); const next = fl ? this.d.tree : remove(op.room && op.tile !== undefined ? giveRoom(this.d.tree, t, op.tile, op.room) : this.d.tree, t); if (!next) refuse(`${this.name(t)} is the screen's last tile`); this.d.tree = normalise(next!); this.d.floats = this.d.floats.filter(f => f.id !== t); }
     if (target) this.d.tree = replaceNode(this.d.tree, target, leaf(op.with));
     else if (this.isFloat(op.tile!)) refuse(`${this.name(op.tile!)} is a float`);
     else swapLeaf(this.d.tree, op.tile!, op.with);

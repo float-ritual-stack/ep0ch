@@ -7,6 +7,7 @@
 import type { ActionDef } from "../surface/actions";
 import { effective, keyTable } from "../surface/keymap";
 import type { PanelGroup } from "./key-panel";
+import type { HintPart } from "../surface/modes";
 
 /** The groups the panel and the popup show them under, in order. */
 export const W_GROUPS = ["focus & move", "size & shape", "tabs", "open", "mounts & groups", "drawer", "layouts & more"] as const;
@@ -40,7 +41,7 @@ export interface WKey {
   says?: string;
   /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
   sticky?: true;
-  /** About the tile holding this desk rather than the tile inside it: `mount` whenever there is one, `group` on a group the keys aren't inside. */
+  /** About the tile holding this desk rather than the tile inside it: `mount` whenever there is one, `group` on a group the keys aren't inside (its resize keys size the whole group, its tiles keeping their shares: PIE-1771; ^W e goes in to size one of them). */
   holder?: "mount" | "group";
 }
 
@@ -48,6 +49,9 @@ export interface WKey {
  * ^W reached this desk through the mount holding it: a key about the mount itself goes to the desk holding that mount (PIE-1574),
  * so `^W e` is never asked of the tile inside. Null: the key is this desk's.
  */
+/** The hint row's part on a group's desk (PIE-1771): its resize keys size the whole group, so ^W > grows it. */
+export const GROUP_GROW_PART: HintPart = { action: "tile.resize", key: "ctrl+w >", label: "wider group", args: { by: 1, axis: "row" } };
+
 export function holdingDesk<D>(e: WKey, holder: { tile: object; desk(): D | null } | null): D | null {
   const mount = holder?.tile as { group?: boolean; inside?: boolean } | undefined;
   return holder && (e.holder === "mount" || (e.holder === "group" && mount?.group && !mount.inside)) ? holder.desk() : null;
@@ -70,10 +74,10 @@ const W_TABLE = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true, holder: "group" },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true, holder: "group" },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true, holder: "group" },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true, holder: "group" },
   { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
   { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }) },
   { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }) },

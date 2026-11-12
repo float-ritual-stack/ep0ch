@@ -268,7 +268,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.resize": def({
     words: "grow or shrink this tile",
-    summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
+    summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row; on a group the keys size the group whole, its tiles keeping their shares (^W e first sizes one inside, PIE-1771). layout.resize places a border exactly",
     keys: [{ keys: "^W < > + -", does: "resize", says: "make this tile narrower, wider, shorter or taller" }, { keys: "< >", does: "on the board" }, { keys: "drag", does: "a border" }],
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.name ?? r.tile}`,
     args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, choices: ["row", "col"], about: "row (width, default) or col (height)" } },
