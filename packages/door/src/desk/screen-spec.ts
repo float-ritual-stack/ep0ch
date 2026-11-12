@@ -25,11 +25,8 @@ export {
   type KeyBinding, type MenuRow, type NewNoteOpens, type NewNoteRule, type ScreenSpec,
 } from "@ep0ch/outline-core/screen-spec";
 
-
 /** x closes a reader or a preview where the screen lets it close (a detail, a float): the board's and the river's one key (PIE-1403). */
 export const CLOSE_KEY: KeyBinding = { key: "x", label: "close", action: "tile.close", only: ["preview", "reader"] };
-
-
 
 /**
  * A spec read back from data (a note's, a saved one's): checked field by field, a bad one refused with what's
@@ -37,7 +34,6 @@ export const CLOSE_KEY: KeyBinding = { key: "x", label: "close", action: "tile.c
  * extension hasn't loaded yet is a tile that says so, as in any saved layout).
  */
 export function readSpec(x: unknown, known = false): ScreenSpec { return readSpecData(x, known ? k => isTileKind(k) : undefined); }
-
 
 // ── the screens the door knows by name ──────────────────────────────────────────
 
@@ -59,7 +55,6 @@ const registrations = new Map<string, ScreenRegistration>();
 /** Goes up with every screen registered or forgotten: what a reader of the registry (the menu's rows) keys its copy on. */
 let version = 0;
 export const screensVersion = (): number => version;
-
 
 /**
  * Why a screen can't be saved as `title` (what a person typed: spaces and capitals are fine), or null. The reason says
@@ -193,5 +188,4 @@ export function mountProblem(chain: readonly string[], screen: string, part = fa
   for (const m of mountsIn(inner)) { const why = mountProblem([...chain, screen], m); if (why) return why; }
   return null;
 }
-
 

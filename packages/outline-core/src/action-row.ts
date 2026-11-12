@@ -10,13 +10,13 @@
 export type ArgType = "string" | "number" | "boolean";
 /**
  * What kind of thing in the system an argument's value names (PIE-1031), so the power bar's form offers the values
- * there are (src/bar/arg-kinds.ts answers each from the system: the layout, the service), and `actions` says it:
+ * there are (the door's src/bar/arg-kinds.ts answers each from the system: the layout, the service), and `actions` says it:
  * - `tile`: a tile on the screen shown (`to=`); the dispatcher reads it with `tile=`'s one grammar, so the action is
  *   given that tile's name.
  * - `note`: a note, by the service's search (an id, a `((ref))`, a Work ID). `page`: a page's name (`[[name]]`).
  * - `screen`: a screen by name (screen.list). `view`: a saved view (a virtual branch's block id).
  * - `key`: a property's key; `value`: a value of the key the argument `of` names (the outline's property index).
- * - `tile-kind`: a kind of tile (the tile-kind registry). `agent`: a persona of the agents here (src/bar/ask-agent.ts).
+ * - `tile-kind`: a kind of tile (the tile-kind registry). `agent`: a persona of the agents here (the door's src/bar/ask-agent.ts).
  * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
  */
 export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout" | "agent" | "script";
@@ -63,12 +63,12 @@ export interface ArgSpec {
 export interface ActionExample { act: string; does: string; safe?: boolean }
 
 /**
- * What an action touches of the person's (PIE-514). The dispatcher (src/surface/dispatch.ts) checks it once, against
- * where the person is (src/whereabouts.ts), before the action runs; the action never asks who acts for this.
+ * What an action touches of the person's (PIE-514). The door's dispatcher (its src/surface/dispatch.ts) checks it once, against
+ * where the person is (its src/whereabouts.ts), before the action runs; the action never asks who acts for this.
  * - `nothing`: a read; a mark; what the service writes and attributes (an extension's action, a refresh). Anyone, any time.
  * - `tile`: the tile it runs in: its view, cursor, selection or input. An agent's is refused in the tile that has the
  *   person's keys (`while: "typing"`: only while they type in it), with the agent's own way said (`way`).
- * - `shape`: the screen's layout. The layout engine decides each operation (src/desk/screen-layout.ts) from the same
+ * - `shape`: the screen's layout. The layout engine decides each operation (the door's src/desk/screen-layout.ts) from the same
  *   answer about where the person is (`ctx.person`).
  * - `draft`: a note the person may have open in a draft. The draft session's rule decides (`draftRule`).
  * - `screen`: what the person looks at, or where their keys go (another screen, their focus, a list's lit row, the
@@ -126,7 +126,7 @@ export interface ActionDescription<Args extends object = Record<string, ArgSpec>
   summary: string;
   /**
    * Every way to press it (PIE-1048): rows of keys and what each does (KeyRow), or, for a key list that reads cleanly as
-   * keycaps, one line of them ("j k ↓ ↑, or a click on a row"). `test/key-rows.test.ts` fails on a line that doesn't.
+   * keycaps, one line of them ("j k ↓ ↑, or a click on a row"). The door's `test/key-rows.test.ts` fails on a line that doesn't.
    */
   keys?: Keys;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
@@ -135,7 +135,7 @@ export interface ActionDescription<Args extends object = Record<string, ArgSpec>
   while?: "focused" | "typing";
   args: Args;
   answer?: Readonly<Record<string, AnswerField>>;
-  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
+  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (the door's test/action-pages.test.ts). */
   examples?: readonly ActionExample[];
   /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
   menu?: Menu | readonly Menu[];

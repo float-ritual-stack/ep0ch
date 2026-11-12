@@ -29,13 +29,14 @@ export const isAgentLevel = (x: unknown): x is AgentLevel => typeof x === "strin
 export type Dir = "left" | "right" | "up" | "down";
 /** row: kids side by side; col: one over another. */
 export type Axis = "row" | "col";
+/** Where automatically folded pages gather in their row. */
+export type Spines = "book" | "start" | "end" | "centre" | "invoker";
+export const SPINES: readonly Spines[] = ["book", "start", "end", "centre", "invoker"];
+
 /**
  * What a container allows (PIE-505), saved with the screen. Left out, a field is what the container around it
  * says (the screen's policy is the outermost); `locked` anywhere above locks everything under it.
  */
-export type Spines = "book" | "start" | "end" | "centre" | "invoker";
-export const SPINES: readonly Spines[] = ["book", "start", "end", "centre", "invoker"];
-
 export interface Policy {
   /** Screen spacing, in cells: between tiles and inside its outer edge. */
   gap?: number;
@@ -113,7 +114,7 @@ export const OPEN_RULES = ["reader", "next", "beside", "float", "full", "self"] 
 export type OpenRule = typeof OPEN_RULES[number];
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width", "gap", "inset"] as const;
 
-/** A wire's verb: what a tile does that another tile takes (PIE-473): its selection, its opens, its alt-opens, its hover. */
+/** A wire's verb (PIE-473): what of a tile another tile takes: its selection, its opens, its alt-opens, its hover. */
 export type WireVerb = "select" | "open" | "alt" | "hover";
 export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt", "hover"];
 
@@ -134,7 +135,6 @@ export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string; p
 /** A dock as saved (PIE-505): what it holds, its edge, open or shut. */
 export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; view?: number[]; id?: string; policy?: Policy; keeps?: true };
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
-/** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */
 /** A kind as a saved layout or policy names it: `detail` and `pinned` are readers now (the other retired names resolve in the registry). */
 export const canonKind = (kind: string): string => (kind === "detail" || kind === "pinned" ? "reader" : kind);
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
