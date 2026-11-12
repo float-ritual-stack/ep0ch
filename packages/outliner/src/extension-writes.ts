@@ -1,4 +1,6 @@
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { editHunks } from "@ep0ch/outline-core/edit-merge";
+import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { personRequestKeys } from "./agent-requests";
 import { personAsk } from "./invocation-grants";
@@ -676,6 +678,54 @@ export function chipSpans(before: string, after: string): DraftPatchSpan[] {
     at += line.length + 1;
   }
   return spans;
+}
+
+/**
+ * Where a span of `base` is in `current` now, followed through the edits between them (Codex on #1462), or why it
+ * can't be. Lines first: lines added or taken out above it only move it. On a line that changed, words: an edit inside
+ * it, or pressed against it without a space (a chip deleted, or made into a link's label: `[use [kind::seed]](…)`),
+ * refuses it; a word typed after it with a space only moves it. With `chip`, the place must still be that chip,
+ * outside links and code.
+ */
+export function followSpan(base: string, current: string, span: { start: number; end: number; observed: string }, chip?: { key: string; value: string }): { start: number; end: number } | { reason: string } {
+  const lines = editHunks(base, current);
+  if (!lines) return { reason: "the draft changed too much since it was saved to place it safely" };
+  let delta = 0, at: { start: number; end: number } | undefined;
+  for (const h of lines) {
+    if (h.start < span.end && span.start < h.end) {
+      // The span's own line changed: follow it word by word inside that hunk.
+      if (h.start > span.start || h.end < span.end) return { reason: "it was changed or taken out in the draft" };
+      const inner = followWords(base.slice(h.start, h.end), h.text, { start: span.start - h.start, end: span.end - h.start });
+      if ("reason" in inner) return inner;
+      at = { start: h.start + delta + inner.start, end: h.start + delta + inner.end };
+      break;
+    }
+    if (h.end <= span.start) delta += h.text.length - (h.end - h.start);
+  }
+  at ??= { start: span.start + delta, end: span.end + delta };
+  if (current.slice(at.start, at.end) !== span.observed) return { reason: "it isn't in the draft any more" };
+  if (chip) {
+    const record = parsePropertyRecords(current).find(r => r.start === at!.start && r.end === at!.end);
+    if (!record || record.key !== chip.key || record.value !== chip.value) return { reason: "it isn't a property in the draft any more (code, or another chip)" };
+    if (linkOccurrences(current).some(link => link.start <= at!.start && at!.end <= link.end)) return { reason: "it is inside a link in the draft" };
+  }
+  return at;
+}
+
+/** A span of `before` placed in `after` by a word-sized diff, or refused when an edit is in it or pressed against it. */
+function followWords(before: string, after: string, span: { start: number; end: number }): { start: number; end: number } | { reason: string } {
+  const hunks = editHunks(before, after, true);
+  if (!hunks) return { reason: "the line changed too much to place it safely" };
+  const solid = (text: string | undefined) => !!text && !/\s/.test(text);
+  let delta = 0;
+  for (const h of hunks) {
+    const inside = (h.start < span.end && span.start < h.end) || (h.start === h.end && span.start < h.start && h.start < span.end);
+    // Pressed against it: what's now right before it ends in a non-space, or right after it starts with one.
+    const pressed = (h.end === span.start && solid(h.text.slice(-1))) || (h.start === span.end && solid(h.text.slice(0, 1)));
+    if (inside || pressed) return { reason: "it was changed or taken out in the draft" };
+    if (h.end <= span.start) delta += h.text.length - (h.end - h.start);
+  }
+  return { start: span.start + delta, end: span.end + delta };
 }
 
 /** A new block's label for words: its first line, short. */
