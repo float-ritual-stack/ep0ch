@@ -610,6 +610,7 @@ function workActor(values: Record<string, unknown>): WorkActor {
 const WORK_USAGE = [
   "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F] [--new | --attach PIE-n]",
   "      an agent's create that looks like open work is refused with the twins: --attach PIE-n adds it under that item (its words, dated); --new files it anyway, beside them",
+  "  work prefix [<PREFIX>]   (the Work-ID prefix new tickets take: shown, or set once; GATE makes GATE-001)",
   "  work stage <item> <stage> [--expected N]",
   "  work set <item> <key> <value> [--expected N]",
   "  work set <delivery> delivery-stage complete|validate [--expected N]   (delivery: block UUID or key, e.g. PIE-123/door)",
@@ -623,6 +624,8 @@ const WORK_USAGE = [
 
 const ACTOR_OPTIONS = {
   author: { type: "string" }, actor: { type: "string" }, session: { type: "string" }, expected: { type: "string" },
+  // Every work command answers in JSON already; `--json`, which `ep0ch work`'s help lists, says so (PIE-1760).
+  json: { type: "boolean" },
 } as const;
 
 /**
@@ -663,9 +666,7 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           const body = await textInput(values, "body-file", "work create", false);
           return await attachToItem(client, { item: values.attach as string, title: values.title as string, ...(body === undefined ? {} : { body }), ...(values.source === undefined ? {} : { sourceBlockId: values.source as string }) }, workActor(values));
         }
-        for (const name of ["title", "project", "arc", "track", "priority"] as const) {
-          if (values[name] === undefined) throw new Error(`work create requires --${name}`);
-        }
+        // What's missing (a flag, the project's work queue, the Work-ID prefix) the service names in one answer (PIE-1760).
         const body = await textInput(values, "body-file", "work create", false);
         return await createWorkItem(client, {
           title: values.title as string,
@@ -682,6 +683,12 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           ...(body === undefined ? {} : { body }),
           ...(values.new ? { new: true } : {}),
         }, workActor(values));
+      }
+      case "prefix": {
+        // The outline's Work-ID prefix (GATE makes GATE-1, GATE-2…): shown, or set when none is yet (PIE-1760).
+        const { positionals } = parse({});
+        if (positionals.length > 1) throw new Error("work prefix takes one prefix, or none to show it");
+        return await client.request(positionals.length ? { action: "work-ids.configure", prefix: positionals[0]! } : { action: "work-ids.status" });
       }
       case "stage": {
         const { values, positionals } = parse({});

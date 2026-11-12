@@ -1855,7 +1855,7 @@ Second paragraph`;
         arc: "safety-agency",
         tracks: ["safety"],
       })
-    ).toThrow("Expected exactly one active work queue");
+    ).toThrow("2 work queues for project pi-outliner; keep one");
     expect(store.workIdAllocatorStatus().nextWorkId).toBe("PIE-002");
   });
 

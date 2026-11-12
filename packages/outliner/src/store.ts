@@ -489,6 +489,7 @@ import type { AgentRequestStatus } from "./schema";
 import {
   ROADMAP_CREATE_STAGES,
   ROADMAP_PRIORITIES,
+  RoadmapProblems,
   assertNoReservedRoadmapProperties,
   normalizeRoadmapRelationshipId,
   normalizeRoadmapRelationshipIds,
@@ -1227,7 +1228,8 @@ export class OutlinerStore {
     if (!input || typeof input !== "object") {
       throw new Error("Roadmap item input must be an object");
     }
-    const title = normalizeRoadmapText(input.title, "Roadmap title");
+    const problems = new RoadmapProblems();
+    const title = problems.take(input.title, v => normalizeRoadmapText(v, "Roadmap title"), "no title (--title)")!;
     let body = "";
     if (input.body !== undefined) {
       if (typeof input.body !== "string") {
@@ -1236,9 +1238,7 @@ export class OutlinerStore {
       body = input.body.trim();
     }
     const priority = input.priority;
-    if (ROADMAP_PRIORITIES[priority] !== true) {
-      throw new Error(`Invalid roadmap priority: ${String(priority)}`);
-    }
+    if (ROADMAP_PRIORITIES[priority] !== true) problems.add(priority === undefined ? "no priority (--priority high|medium|low)" : `Invalid roadmap priority: ${String(priority)}`);
     const workBatchId = input.workBatchId === undefined
       ? undefined
       : normalizeRoadmapRelationshipId(input.workBatchId, "workBatchId");
@@ -1246,30 +1246,25 @@ export class OutlinerStore {
     if (ROADMAP_CREATE_STAGES[workStage] !== true) {
       throw new Error(`Invalid roadmap work stage: ${String(workStage)}`);
     }
-    const project = normalizeRoadmapText(input.project, "Roadmap project");
-    const arc = normalizeRoadmapText(input.arc, "Roadmap arc");
-    const tracks = normalizeRoadmapValues(input.tracks, "Roadmap tracks");
+    const project = problems.take(input.project, v => normalizeRoadmapText(v, "Roadmap project"), "no project (--project)")!;
+    const arc = problems.take(input.arc, v => normalizeRoadmapText(v, "Roadmap arc"), "no arc (--arc)")!;
+    const tracks = problems.take(input.tracks, v => normalizeRoadmapValues(v, "Roadmap tracks"), "no track (--track, one or more)")!;
     const dependsOn = normalizeRoadmapRelationshipIds(input.dependsOn, "dependsOn");
     const relatedTo = normalizeRoadmapRelationshipIds(input.relatedTo, "relatedTo");
     const sourceBlockId = input.sourceBlockId === undefined
       ? undefined
       : normalizeRoadmapRelationshipId(input.sourceBlockId, "sourceBlockId");
     const wave = input.wave === undefined ? undefined : normalizeRoadmapText(input.wave, "Roadmap wave");
-    assertNoReservedRoadmapProperties(title, body);
+    if (title !== undefined) assertNoReservedRoadmapProperties(title, body);
 
-    const workQueues = this.database.query(
+    const workQueues = project === undefined ? [] : this.database.query(
       "SELECT DISTINCT block.id FROM blocks block JOIN block_properties type_property ON type_property.block_id = block.id AND type_property.scope = 'block' AND type_property.key = 'type' AND type_property.value = 'work-queue' JOIN block_properties project_property ON project_property.block_id = block.id AND project_property.scope = 'block' AND project_property.key = 'project' AND project_property.value = ? WHERE block.effective_deleted_root_id IS NULL ORDER BY block.id",
     ).all(project) as Array<{ id: string }>;
-    if (workQueues.length !== 1) {
-      throw new Error(
-        `Expected exactly one active work queue for project ${project}; found ${workQueues.length}`,
-      );
-    }
-    const workQueueId = workQueues[0]!.id;
+    if (project !== undefined && workQueues.length !== 1) problems.add(workQueues.length ? `${workQueues.length} work queues for project ${project}; keep one` : `no work queue for project ${project}: make one, a note with [type::work-queue] [project::${project}] (ep0ch new "Work [type::work-queue] [project::${project}]")`);
     const allocator = this.workIdAllocatorFromCurrentRead();
-    if (!allocator) {
-      throw new Error("Configure the project Work-ID prefix before creating roadmap items");
-    }
+    if (!allocator) problems.add("no Work-ID prefix: ep0ch work prefix <PREFIX> sets one (GATE makes GATE-001, GATE-002…)");
+    problems.throwIfAny();
+    const workQueueId = workQueues[0]!.id;
     for (const blockId of [...dependsOn, ...relatedTo, ...(sourceBlockId ? [sourceBlockId] : [])]) {
       const target = this.getFromCurrentRead(blockId);
       if (!target) throw new Error(`Relationship target not found: ${blockId}`);
@@ -1278,7 +1273,7 @@ export class OutlinerStore {
       }
     }
 
-    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator};
+    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator:allocator!};
   }
 
   createRoadmapItem(

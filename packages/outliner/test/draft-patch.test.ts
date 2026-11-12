@@ -736,6 +736,17 @@ describe("draft.patch over the protocol", () => {
     expect(roof.text).toBe(lined.text);
   });
 
+  // PIE-1760 (the verifier on #1461): a word after the title's last chip makes it read inline in the draft; it is still
+  // the same chip on the same line, so the person's own stage lands.
+  test("a word typed after the title's last chip: the stage from another shell still lands", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low]\n\nTwo coats.");
+    const door = await fakeDoor(client, "door-suffix", ticket.id, "Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GATE-3] [priority::low] now\n\nTwo coats.", ticket.revision);
+    const staged = await client.request<PropertiesPatched>({ action: "properties.patch", blockId: ticket.id, operations: [{ op: "set", key: "work-stage", value: "doing" }], mutation: { author: "user" } });
+    expect(staged.text).toContain("[work-stage::doing]");
+    expect(door).toMatchObject({ revision: staged.revision, text: "Paint the bench [type::roadmap-item] [work-stage::doing] [work-id::GATE-3] [priority::low] now\n\nTwo coats." });
+  });
+
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();
     const note = store.create("Morning plan");

@@ -162,6 +162,9 @@ const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(
 type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean; kind?: RefusalKind };
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
+/** The line `offset` is on in `text`, from 0. */
+const lineAt = (text: string, offset: number): number => { let line = 0; for (let i = text.indexOf("\n"); i >= 0 && i < offset; i = text.indexOf("\n", i + 1)) line += 1; return line; };
+
 class AlongsideFailure extends Error {
   constructor(readonly cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause));
@@ -344,11 +347,12 @@ export class DraftPatchRouter {
       const at = locateSpans(draft.text, [span]);
       if (!at.ok) throw new Refusal(at.kind ?? "conflict", `not applied: ${span.observed.trim()} isn't in the draft as it's saved (${at.reason}); read it again`);
       const found = at.spans[0]!;
-      // A chip is the same chip only in the same place: one the person took off the title doesn't become a copy of it
-      // in the body (CodeRabbit on #1461).
+      // A chip is the same chip when the draft has it, key and value, on the same line: one the person took off the
+      // title doesn't become a copy of it in the body (CodeRabbit on #1461). Its scope and placement may differ: a word
+      // typed after the title's last chip makes it read inline until the person saves (PIE-1760).
       const was = savedChips.find(r => r.start === span.range!.start && r.end === span.range!.end);
       const is = draftChips.find(r => r.start === found.start && r.end === found.end);
-      if (was && (!is || is.scope !== was.scope || is.placement !== was.placement)) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (it was taken out or moved); read it again`);
+      if (was && (!is || is.key !== was.key || is.value !== was.value || lineAt(draft.text, found.start) !== lineAt(now.text, was.start))) throw new Refusal("conflict", `not applied: ${span.observed.trim()} isn't where it's saved in the draft (it was taken out or moved); read it again`);
       return { ...span, range: { start: found.start, end: found.end } };
     });
     // A line goes at the draft's end, a paragraph of its own, the way the saved note takes it: the draft's trailing
