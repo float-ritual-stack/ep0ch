@@ -63,6 +63,7 @@ import {
 } from "./draft-patch";
 import { createHash } from "node:crypto";
 import type { PlacedSpan } from "@ep0ch/outline-core/draft-patch-place";
+import { placingFor } from "./draft-place";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
@@ -275,7 +276,9 @@ function normalizeMutation(mutation: MutationProvenance | undefined): MutationPr
 }
 
 export class DraftPatchRouter {
-  constructor(private readonly deps: DraftPatchRouterDeps) {}
+  private readonly deps: DraftPatchRouterDeps;
+  /** Every ask of a holder goes through `placingFor`: one that places no patch itself has it placed by the service (draft-place.ts). */
+  constructor(deps: DraftPatchRouterDeps) { this.deps = { ...deps, ask: placingFor(deps.ask) }; }
 
   private yolo(): boolean { return this.deps.yolo?.() === true; }
 

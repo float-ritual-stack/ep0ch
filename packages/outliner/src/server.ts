@@ -33,7 +33,7 @@ import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
 import { proposalOutcomes } from "./proposal-outcomes";
 import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
-import { EditRecoveryRepository } from "./edit-recovery"; import { placingFor } from "./draft-place";
+import { EditRecoveryRepository } from "./edit-recovery";
 import { grepBlocks } from "./block-grep";
 import {rankSearchWithJev} from './search-ranking';
 import { deepCandidates } from './search-deep';
@@ -471,7 +471,7 @@ export class OutlinerServer {
       holds: this.draftHolds,
       isLive: clientId => this.hasClient(clientId),
       yolo: () => this.yolo.on,
-      ask: placingFor((hold, request) => this.askHolder(hold, request)),
+      ask: (hold, request) => this.askHolder(hold, request),
       // The edit policy's guard reads backlinks and block text through the service's own handler.
       client: {
         request: async <T>(input: RequestInput): Promise<T> => {
