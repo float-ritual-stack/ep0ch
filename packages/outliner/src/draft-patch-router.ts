@@ -58,6 +58,7 @@ import {
   type DraftProposalStatus,
   type DraftGroup,
   type PropertiesPatched,
+  type DraftStandsOn,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
 import { embedMatches } from "./transclusions";
@@ -71,7 +72,7 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 /** What a request to a holding door carries besides its ids, which the server fills in. */
 export type DraftHolderAsk =
   | { kind: "read" }
-  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal }
+  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal; standsOn?: DraftStandsOn }
   | { kind: "revert"; patchId: string };
 
 export interface DraftPatchRouterDeps {
@@ -140,6 +141,8 @@ interface RunOptions {
   proposal?: DraftHolderProposal;
   /** Writes that land with the saved notes, in their transaction (a write group's blocks made, moved and ordered). */
   alongside?: () => void;
+  /** The saved note takes the patch's change too, in `alongside` (a property stamp, PIE-1756): the draft stands on it. */
+  standsOn?: DraftStandsOn;
   /** `<copy>:<target>^<anchor>`, what a write group's netmail tells (PIE-829): that copy's link to that anchor stays. */
   told?: ReadonlySet<string>;
   /** The texts the whole patch leaves its saved notes with, which the guard judges links by (set by `run`). */
@@ -309,16 +312,16 @@ export class DraftPatchRouter {
   }
 
   /**
-   * A `properties.patch` on a note a door holds a live draft of (PIE-1756): one patch into that draft, as any agent's
-   * edit there is, so the person's typing stays and the save carries both; never a whole-text write that stales it.
-   * `set` and `add` read the draft as typed (a second stamp before the save counts from the first); ordinal
-   * operations read the saved revision they name and rebase onto the draft. One span per changed line keeps a
-   * passage being typed between two chips out of the patch. Null when nobody holds the note, or the person writes it
-   * (a card moved, the props panel: theirs to save where they made it): the store writes it. A door that holds it and
-   * doesn't answer refuses it, as `run` does, and nothing is written under its draft.
+   * An agent's `properties.patch` on a note a door holds a live draft of (PIE-1756): the saved note and the draft take
+   * it in one run, and the draft stands on the new revision. Nothing waits in the draft (a discard or a crash keeps
+   * it), the answer and the board are the saved note, and the event that follows is no news to the draft. The door
+   * goes first: one that refuses it (the line being typed on, a save under way) or doesn't answer leaves both as they
+   * were. `set` and `add` read the draft for its line and the saved note for its value, as the store does. Null when
+   * nobody holds the note or the person writes it (a card moved, the props panel): the store alone writes it.
    */
-  async patchProperties(input: { blockId: string; expectedRevision?: number; operations: PropertyPatchOperation[]; mutation: MutationProvenance }): Promise<PropertiesPatched | null> {
-    const saved = this.deps.store.requireActive(input.blockId);
+  async patchProperties(input: { blockId: string; expectedRevision?: number; operations: PropertyPatchOperation[]; mutation: MutationProvenance; keepUpdated?: boolean }): Promise<PropertiesPatched | null> {
+    const { store } = this.deps;
+    const saved = store.requireActive(input.blockId);
     checkPropertyPatch(saved, input.expectedRevision, input.operations);
     if (input.mutation.author !== "agent" || !this.isHeld(saved.id)) return null;
     const draft = await this.read(saved.id);
@@ -326,12 +329,30 @@ export class DraftPatchRouter {
       if (this.isHeld(saved.id)) throw new Refusal("busy", `not applied: the door holding a draft of ${saved.id} didn't answer; nothing was written, try again once it does`);
       return null;
     }
-    const keyed = input.operations.every(op => op.op === "set" || op.op === "add");
-    const [text, revision] = keyed ? [draft.text, draft.revision] : [saved.text, saved.revision];
-    const patches = changedLineSpans(text, patchPropertyText(text, keyedPropertyOps(text, input.operations)));
-    if (patches.length) await this.patch({ blockId: saved.id, revision, patches, mutation: input.mutation, policy: "edit" });
-    const now = patches.length ? await this.read(saved.id) : draft;
-    return { ...this.deps.store.requireActive(saved.id), draft: { holder: draft.holder!, text: now.text } };
+    const now = store.requireActive(saved.id);
+    checkPropertyPatch(now, input.expectedRevision, input.operations);
+    const text = patchPropertyText(now.text, keyedPropertyOps(now.text, input.operations));
+    if (text === now.text) return { ...now, draft: { holder: draft.holder!, text: draft.text } };
+    // The draft's line for each line the saved note changes: the same chips, on the line as it's typed.
+    const patches = changedLineSpans(now.text, text).map(span => {
+      const at = locateSpans(draft.text, [{ observed: span.observed, replacement: span.replacement }]);
+      if (!at.ok) throw new Refusal(at.kind ?? "conflict", `not applied: ${span.observed.trim()} isn't in the draft as it's saved (${at.reason}); read it again`);
+      return { ...span, range: { start: at.spans[0]!.start, end: at.spans[0]!.end } };
+    });
+    let written: ReturnType<OutlinerStore["patchProperties"]> | undefined;
+    const outcome = await this.run([{ blockId: saved.id, revision: draft.revision, patches }], {
+      mutation: input.mutation, policy: "edit", standsOn: { revision: now.revision + 1, text },
+      alongside: () => {
+        written = store.patchProperties(saved.id, input.expectedRevision, input.operations, input.mutation, input.keepUpdated === true);
+        // Someone saved it between: the draft would stand on a text that isn't the note's. Taken back, both.
+        if (written.revision !== now.revision + 1 || written.text !== text) throw new Refusal("stale-revision", "the note was saved while the stamp went in; read it again");
+      },
+    });
+    if (!outcome.ok) throw new DraftPatchRefusal(outcome.reason, outcome.kind ?? "conflict");
+    // The draft as the door has it now; a door that took the patch and then didn't answer the read is said so, never
+    // given the saved text as its draft's (CodeRabbit on #1458).
+    const after = await this.read(saved.id);
+    return { ...written!, draft: { holder: draft.holder!, ...(after.route === "draft" ? { text: after.text } : {}) } };
   }
 
   /** Only the output planner sets output: it has checked the region belongs to its producer. */
@@ -801,6 +822,7 @@ export class DraftPatchRouter {
           ...(options.output ? { output: true } : {}),
           ...(options.force ? { force: true } : {}),
           ...(options.proposal ? { proposal: options.proposal } : {}),
+          ...(options.standsOn ? { standsOn: options.standsOn } : {}),
         });
       } catch (error) {
         // A slow door may still apply it after the service stopped waiting: take it back there too.

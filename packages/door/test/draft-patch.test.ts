@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Draft } from "../src/edit";
-import { recordAs } from "../src/draft-session";
+import { recordAs, unsent } from "../src/draft-session";
 import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor, type PropertyPatch, requesterOf } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
@@ -187,7 +187,7 @@ describe("a patch in a draft being typed in", () => {
   });
 
   // PIE-1756: a stamp changes chips only, so it may land on another line of the paragraph being typed in, never on
-  // the cursor's own line or a line with words changed; and the save's property check starts from it.
+  // the cursor's own line or a line with words changed; the saved note took it too, so the draft stands on that.
   test("a stamp on another line of the paragraph being typed lands; on the cursor's line, or with words, it waits", () => {
     const STAMP: Actor = { kind: "agent", id: "stamp" };
     const d = new Draft("note-9", 2, "Beds by the fence\n[touches::1]\nthe compost is warm", [{ key: "touches", value: "1" }]);
@@ -195,16 +195,25 @@ describe("a patch in a draft being typed in", () => {
     const words = d.applyPatch({ patchId: "w", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::1] mulched")] }, STAMP);
     expect(words).toEqual({ applied: false, reason: "it changes the block being typed in" });
     expect(d.applyPatch({ patchId: "s1", revision: 2, patches: [span(d.text, "[touches::1]", "[touches::2]")] }, STAMP)).toEqual({ applied: true });
-    expect(d.saveProps).toEqual([{ key: "touches", value: "2" }]);
     expect([d.row, d.col]).toEqual([2, "the compost is warm".length]);
+    // The saved note took it as revision 3: the draft stands there, unchanged, its chips the save's starting point.
+    d.standOn("s1", { revision: 3, text: "Beds by the fence\n[touches::2]\nthe compost is warm" });
+    expect({ base: d.base, dirty: d.dirty, props: d.baseProps }).toEqual({ base: 3, dirty: false, props: [{ key: "touches", value: "2" }] });
     // The person's own chip edit is theirs: the check still sees it.
     d.row = 1; d.col = d.lines[1]!.length;
     for (const c of " [moved::yes]") d.key(char(c));
-    expect(d.saveProps).toEqual([{ key: "touches", value: "2" }]);
+    expect(d.baseProps).toEqual([{ key: "touches", value: "2" }]);
     // On the cursor's own line: waits for the person.
-    const here = d.applyPatch({ patchId: "s2", revision: 2, patches: [span(d.text, "[touches::2] [moved::yes]", "[touches::3] [moved::yes]")] }, STAMP);
+    const here = d.applyPatch({ patchId: "s2", revision: 3, patches: [span(d.text, "[touches::2] [moved::yes]", "[touches::3] [moved::yes]")] }, STAMP);
     expect(here.applied).toBe(false);
     expect(d.text).toBe("Beds by the fence\n[touches::2] [moved::yes]\nthe compost is warm");
+    // A chip inside a code fence is the fence's text: the paragraph being typed in keeps it (CodeRabbit on #1458).
+    const fenced = new Draft("note-10", 4, "Seed log\n```\n[touches::1]\nturn it\n```");
+    fenced.row = 3; fenced.col = 4;
+    expect(fenced.applyPatch({ patchId: "f", revision: 4, patches: [span(fenced.text, "[touches::1]", "[touches::2]")] }, STAMP)).toEqual({ applied: false, reason: "it changes the block being typed in" });
+    // A service revert of the stamp stands the draft back where it was.
+    expect(d.unstand("s1")).toBe(2);
+    expect({ base: d.base, props: d.baseProps }).toEqual({ base: 2, props: [{ key: "touches", value: "1" }] });
   });
 
   test("a draft only an extension's @agent changed saves as the saver's, naming it: never as ext:<id> (PIE-510)", () => {
@@ -487,29 +496,35 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   }, 30_000);
 
   // PIE-1756: a stamp (properties.patch set/add) on a note being typed in was a whole-text update: the draft read
-  // "changed elsewhere", ^S was refused and the typed line went to a drafts file. It lands through the hold instead.
-  test("Evan types under the chips while a stamp sets a property twice: both land in his draft, and ^S saves both", async () => {
+  // "changed elsewhere", ^S was refused and the typed line went to a drafts file. Now the saved note and the draft take
+  // it in one run, and the draft stands on the new revision.
+  test("Evan types under the chips while a stamp sets a property twice: saved at once, in his draft too, and ^S saves his words", async () => {
     const e = await editing("Beds by the fence\n[touches::1] [tended::2026-11-01]\nthe compost is warm");
     const keptCopies = () => { try { return readdirSync(join(scratch.root, "door", "drafts"), { recursive: true }).map(String).filter(f => f.includes(e.id.slice(0, 8))); } catch { return []; } };
     try {
       e.type(", turn it");
       const stamp = (operations: PropertyPatch[]) => agent.request("properties.patch", { blockId: e.id, operations, mutation: { author: "agent", actorId: "stamp" } });
-      const saved = (await board.get(e.id))!;
+      const saved = { revision: (await board.get(e.id))!.revision! };
       const first = await stamp([{ op: "add", key: "touches", by: 1 }, { op: "set", key: "tended", value: "2026-11-12" }]);
-      expect(first).toMatchObject({ id: e.id, revision: saved.revision, draft: { holder: expect.any(String) } });
+      // The answer is the saved note: the stamp is there already, whatever becomes of the draft.
+      expect(first).toMatchObject({ id: e.id, revision: saved.revision + 1, text: "Beds by the fence\n[touches::2] [tended::2026-11-12]\nthe compost is warm", draft: { holder: expect.any(String) } });
+      expect((await board.get(e.id))!.text).toBe(first.text);
       expect(e.d.text).toBe("Beds by the fence\n[touches::2] [tended::2026-11-12]\nthe compost is warm, turn it");
+      expect(e.d.base).toBe(first.revision);
       e.type(" weekly");
-      // A second stamp before any save counts from the first: it reads the draft, not the saved note.
-      await stamp([{ op: "add", key: "touches", by: 1 }]);
+      // A second stamp counts from the first.
+      const second = await stamp([{ op: "add", key: "touches", by: 1 }]);
+      expect(second).toMatchObject({ revision: saved.revision + 2, text: "Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm" });
       expect(e.d.text).toBe("Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm, turn it weekly");
-      expect((await board.get(e.id))!.text).toBe(saved.text);
+      expect(e.d.base).toBe(second.revision);
       const drawn = e.s.render(80, 12, e.h).lines.map(visible).join("\n");
       expect(drawn).not.toContain("changed elsewhere");
       expect(drawn).toContain("you and an agent (stamp) typed this");
       expect(drawn).toContain("[touches::3] [tended::2026-11-12]  @stamp · just now");
-      expect(e.s.agent).toMatchObject({ id: "stamp", did: expect.stringContaining("set a property in your draft") });
+      expect(e.s.agent).toMatchObject({ id: "stamp", did: expect.stringContaining("set a property: saved, and in your draft") });
+      // One ^S: his words on top of the stamped revision, no property question, no copy put aside.
       await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
-      expect((await board.get(e.id))!.text).toBe("Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm, turn it weekly");
+      expect((await board.get(e.id))!).toMatchObject({ revision: saved.revision + 3, text: "Beds by the fence\n[touches::3] [tended::2026-11-12]\nthe compost is warm, turn it weekly" });
       expect(keptCopies()).toEqual([]);
       // A note nobody holds still takes it as a store write, a revision of its own.
       const loose = await create("Seed tray\n[touches::4]");
@@ -519,18 +534,44 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     } finally { e.s.dispose(); }
   }, 30_000);
 
-  test("the save asks only about chips the person changed: a stamp taken back with ctrl+z, or one beside theirs", async () => {
+  test("a stamp outlives the draft it landed in: put aside, or left with only the stamp, the saved note keeps it", async () => {
+    const stamp = (id: string) => agent.request("properties.patch", { blockId: id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: { author: "agent", actorId: "stamp" } });
+    const close = (e: Awaited<ReturnType<typeof editing>>, args: Record<string, unknown> = {}) => NOTE_ACTIONS.run("edit.close", args, { surface: e.s, host: e.h, standing: true }, USER);
+    // Typed on, stamped, then put aside (as esc twice does): his words go to the unsent copy, the stamp stays saved.
+    const a = await editing("Leek trench\n[touches::1]\ndig it deep");
+    try {
+      a.type(" and wide");
+      await stamp(a.id);
+      await close(a, { discard: true });
+      expect(a.s.draft).toBeFalsy();
+      expect(unsent(`edit:${a.id}`)?.text).toContain("dig it deep and wide");
+      expect((await board.get(a.id))!.text).toBe("Leek trench\n[touches::2]\ndig it deep");
+    } finally { a.s.dispose(); }
+    // Only stamped: nothing of his changed, so one esc closes it with nothing put aside.
+    const b = await editing("Onion sets\n[touches::1]\nplant them shallow");
+    try {
+      await stamp(b.id);
+      expect(b.d.dirty).toBe(false);
+      await close(b);
+      expect(b.s.draft).toBeFalsy();
+      expect(unsent(`edit:${b.id}`)).toBeNull();
+      expect((await board.get(b.id))!.text).toBe("Onion sets\n[touches::2]\nplant them shallow");
+    } finally { b.s.dispose(); }
+  }, 30_000);
+
+  test("the save asks about chips it changes from the saved note: a stamp taken back with ctrl+z asks; one beside his own names only his", async () => {
     const stamp = (id: string) => agent.request("properties.patch", { blockId: id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: { author: "agent", actorId: "stamp" } });
     const save = (e: Awaited<ReturnType<typeof editing>>) => NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     const said = (e: Awaited<ReturnType<typeof editing>>) => e.s.render(100, 12, e.h).lines.map(visible).join("\n");
-    // Stamped, then ctrl+z: the draft is back to the saved chips, and one ctrl+s saves the words.
+    // Stamped (saved), then ctrl+z: his save would take the saved stamp back, so it asks first.
     const a = await editing("Pea rows\n[touches::1]\nsow them thin");
     try {
       a.type(" in March");
       await stamp(a.id);
-      expect(a.d.text).toContain("[touches::2]");
       a.s.key(ctrl("z"), a.h);
       expect(a.d.text).toBe("Pea rows\n[touches::1]\nsow them thin in March");
+      await save(a);
+      expect(said(a)).toContain("this save changes properties: touches: 2 → 1");
       await save(a);
       expect((await board.get(a.id))!.text).toBe("Pea rows\n[touches::1]\nsow them thin in March");
     } finally { a.s.dispose(); }

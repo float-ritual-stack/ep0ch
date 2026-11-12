@@ -2257,7 +2257,7 @@ Answers `Block \| DraftPatchResult`.
 
 #### `properties.patch`
 
-A block's properties changed by key, with no revision to read first: `set` a key's value, `add` a number to it (`{ op: "add", key: "visits", by: 1 }`), each the first such chip or a new one on the property line (PIE-1752). `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. A note a door holds a live draft of gets the change in that draft, beside the person's typing (`draft` says so; the saved note waits for their save); one on the very line they are typing on is refused, and nothing is written (PIE-1756).
+A block's properties changed by key, with no revision to read first: `set` a key's value, `add` a number to it (`{ op: "add", key: "visits", by: 1 }`), each the first such chip or a new one on the property line (PIE-1752). `replace`, `remove` and `append` name a chip by its place and need `expectedRevision`. On a note a door holds a live draft of, the saved note and the draft take it together (`draft` is the draft as it is now, typing and all); one on the very line the person is typing on, or while their save is under way, is refused and nothing is written (PIE-1756).
 
 | Field | Type | |
 |---|---|---|

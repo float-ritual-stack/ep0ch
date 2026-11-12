@@ -178,7 +178,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
  */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
+  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" }; /** The saved note took the same change as this revision and text (PIE-1756): the draft stands on it. */ standsOn?: { revision: number; text: string } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
 export type DraftAnswer = { text: string; revision: number; cursorLine?: number } | { applied: true; inverse?: { before: string; text: string; revision: number } } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */

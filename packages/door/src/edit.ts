@@ -568,6 +568,7 @@ export class Draft {
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
     this.record(USER, "a change");
+    this.stood.clear();   // what a stamp's revert would stand it back on is gone with the old base
     this.baseProps = propertyListOf(m);
     this.base = m.revision ?? this.base;
     this.original = m.text;
@@ -1121,7 +1122,8 @@ export class Draft {
         const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
         // A chip changed on another line of that block (a stamp under the title while the person types below it,
         // PIE-1756) leaves the words being typed alone: only the cursor's own line holds it back.
-        const stamp = (sp: LocatedSpan) => chipsOnly(text.slice(sp.start, sp.end), sp.replacement) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
+        // Judged on the whole draft, so a chip inside a code fence is the fence's text, never a property (CodeRabbit on #1458).
+        const stamp = (sp: LocatedSpan) => chipsOnly(text, text.slice(0, sp.start) + sp.replacement + text.slice(sp.end)) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
         if (located.spans.some(sp => !stamp(sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
           return no("it changes the block being typed in");
         }
@@ -1161,14 +1163,28 @@ export class Draft {
     return { applied: true };
   }
 
+  /** What the draft stood on before a patch the saved note also took (PIE-1756), by patch: a service revert goes back. */
+  private stood = new Map<string, { base: number; original: string; baseProps: PropertyList }>();
+
   /**
-   * The properties a save compares the draft with (PIE-1756): the saved note's, moved by the agents' chip stamps still
-   * in the history since the last save (one taken back with ctrl+z, or reverted, moves them back), so "this save
-   * changes properties" asks only about chips the person changed.
+   * A patch the saved note took too, as `on.revision` with `on.text` (an agent's property stamp, PIE-1756): the draft
+   * stands on that revision, its unchanged text is that text (an edit holding only the stamp closes on one esc), and the
+   * save's "this changes properties" check starts from its chips, so a stamp taken back with ctrl+z is the person's change.
    */
-  get saveProps(): PropertyList {
-    const from = this.undos.findLastIndex(step => step.saved !== undefined) + 1;
-    return this.undos.slice(from).reduce((props, step) => step.unit?.by.kind === "agent" && chipsOnly(step.before, step.after) ? chipsMoved(props, step.before, step.after) : props, this.baseProps);
+  standOn(patchId: string, on: { revision: number; text: string }) {
+    this.stood.set(patchId, { base: this.base, original: this.original, baseProps: this.baseProps });
+    this.baseProps = chipsMoved(this.baseProps, this.original, on.text);
+    this.original = on.text;
+    this.base = on.revision;
+  }
+
+  /** The service took back a patch `standOn` followed: the draft stands where it stood. The revision now, or undefined. */
+  unstand(patchId: string): number | undefined {
+    const was = this.stood.get(patchId);
+    if (!was) return undefined;
+    this.stood.delete(patchId);
+    this.base = was.base; this.original = was.original; this.baseProps = was.baseProps;
+    return was.base;
   }
 
   /** Plan a run's inverse using the same compare as undo, without changing the live draft or caret. */
@@ -1871,7 +1887,7 @@ const applyEdits = (from: string, edits: Edit[]) => { let out = "", i = 0; for (
 const wordsOf = (text: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(text)) { out += text.slice(at, p.start); at = p.end; } return (out + text.slice(at)).replace(/\s+/g, " ").trim(); };
 const chipsIn = (text: string) => parsePropertyRecords(text).map(p => text.slice(p.start, p.end)).join("\u0000");
 /** A change of property chips alone (a stamp, PIE-1756): the chips differ, and the words around them are the same. */
-export const chipsOnly = (before: string, after: string) => chipsIn(before) !== chipsIn(after) && wordsOf(before) === wordsOf(after);
+const chipsOnly = (before: string, after: string) => chipsIn(before) !== chipsIn(after) && wordsOf(before) === wordsOf(after);
 /** `props` with the chips `before` held and `after` doesn't taken out, and the ones `after` adds put in. */
 const chipsMoved = (props: PropertyList, before: string, after: string): PropertyList => {
   const chips = (text: string) => parsePropertyRecords(text).map(p => `${p.key}\u0000${p.value}`);

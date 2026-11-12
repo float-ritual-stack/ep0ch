@@ -1,14 +1,16 @@
 // draft.patch (PIE-501): compare-and-swap on a span of a note's text, routed to the door holding a live
 // draft or to the saved note, refusing a failed interactive patch without writing anything (PIE-1125). Fictional notes only.
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+import { scratchDir } from "./scratch-outline";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, rebaseSpans, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult, type PropertiesPatched } from "../src/draft-patch";
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
+import { setWorkProperty } from "../src/work-tools";
+import { restore } from "../src/work-later";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerEvent } from "../src/types";
 
@@ -18,7 +20,7 @@ afterEach(async () => {
 });
 
 async function service() {
-  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-draft-patch-"));
+  const directory = scratchDir("draft-patch-");   // a socket lives here: never tmpdir() (PIE-1654)
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const socket = join(directory, "outliner.sock");
@@ -114,7 +116,7 @@ const TIDY = { author: "agent" as const, actorId: "tidy" };
 async function fakeDoor(client: OutlinerClient, clientId: string, blockId: string, text: string, revision: number, options: { leaseMs?: number; answer?: boolean; refuse?: string; slowPatchMs?: number } = {}) {
   const door = { text, revision, requests: [] as DraftHolderRequest[], holdId: "" };
   const connected = Promise.withResolvers<void>();
-  const patches = new Map<string, { before: string }>();
+  const patches = new Map<string, { before: string; revision: number }>();
   const watcher = client.watch({
     client: { clientId, role: "observer", contextId: clientId },
     onConnect: connected.resolve,
@@ -131,11 +133,16 @@ async function fakeDoor(client: OutlinerClient, clientId: string, blockId: strin
         else {
           const located = locateSpans(door.text, request.patches, request.force);
           if (!located.ok) answer = { applied: false, reason: located.reason };
-          else { patches.set(request.patchId, { before: door.text }); door.text = applyLocated(door.text, located.spans); answer = { applied: true }; }
+          else {
+            patches.set(request.patchId, { before: door.text, revision: door.revision });
+            door.text = applyLocated(door.text, located.spans);
+            if (request.standsOn) door.revision = request.standsOn.revision;   // the saved note takes the same change (PIE-1756)
+            answer = { applied: true };
+          }
         }
       } else {
         const was = patches.get(request.patchId);
-        if (was) door.text = was.before;
+        if (was) { door.text = was.before; door.revision = was.revision; }
         answer = { reverted: !!was };
       }
       // A slow door: it applies the patch at once, but its answer comes after the service stopped waiting.
@@ -646,25 +653,50 @@ describe("draft.patch over the protocol", () => {
     expect(door.requests.every(request => request.kind === "read")).toBe(true);
   }, 20_000);
 
-  // PIE-1756: an agent's properties.patch on a held note is the hold's, never a whole-text write under the draft.
-  test("an agent's property stamp lands in the held draft; a silent door refuses it; the person's own stays the store's", async () => {
+  // PIE-1756: an agent's properties.patch on a held note lands in the store and the draft in one run, and the draft
+  // stands on the new revision: nothing waits in the draft, and no "changed elsewhere".
+  test("an agent's property stamp lands in the store and the held draft at once; a silent door refuses it", async () => {
     const { store, client } = await service();
     const note = store.create("Beds by the fence\n[touches::1]\nthe compost is warm");
     const door = await fakeDoor(client, "door-stamp", note.id, `${note.text}, turn it`, note.revision);
     const stamp = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: note.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation });
-    expect(await stamp(TIDY)).toMatchObject({ revision: note.revision, draft: { holder: "door-stamp", text: "Beds by the fence\n[touches::2]\nthe compost is warm, turn it" } });
-    expect(door.text).toBe("Beds by the fence\n[touches::2]\nthe compost is warm, turn it");
-    expect(store.require(note.id).text).toBe(note.text);
-    // The person's own write (a card moved, the props panel) is theirs to save where they made it: the store's.
+    const answer = await stamp(TIDY);
+    expect(answer).toMatchObject({ revision: note.revision + 1, text: "Beds by the fence\n[touches::2]\nthe compost is warm", draft: { holder: "door-stamp", text: "Beds by the fence\n[touches::2]\nthe compost is warm, turn it" } });
+    expect(store.require(note.id)).toMatchObject({ text: answer.text, revision: answer.revision });
+    expect(door).toMatchObject({ text: answer.draft!.text, revision: answer.revision });
+    // A second stamp counts from the first, in both.
+    expect(await stamp(TIDY)).toMatchObject({ revision: note.revision + 2, text: "Beds by the fence\n[touches::3]\nthe compost is warm", draft: { text: "Beds by the fence\n[touches::3]\nthe compost is warm, turn it" } });
+    expect(door.revision).toBe(note.revision + 2);
+    // The person's own write stays the store's alone, as before.
     const own = await stamp({ author: "user" });
-    expect(own).toMatchObject({ revision: note.revision + 1, text: "Beds by the fence\n[touches::2]\nthe compost is warm" });
+    expect(own).toMatchObject({ revision: note.revision + 3, text: "Beds by the fence\n[touches::4]\nthe compost is warm" });
     expect(own.draft).toBeUndefined();
-    // A door that stops answering keeps its hold: refused, and nothing is written under its draft.
+    // A door that stops answering keeps its hold: refused, and nothing is written.
     const quiet = store.create("Seed tray\n[touches::4]");
     await fakeDoor(client, "door-quiet", quiet.id, quiet.text, quiet.revision, { answer: false, leaseMs: 6_000 });
     await expect(client.request({ action: "properties.patch", blockId: quiet.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: TIDY })).rejects.toThrow("didn't answer");
     expect(store.require(quiet.id)).toMatchObject({ text: quiet.text, revision: quiet.revision });
   }, 20_000);
+
+  test("a work stage set on a ticket being typed in: the answer, the saved ticket and the draft agree (PIE-1756)", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Mend the gate [type::roadmap-item] [work-stage::queued] [work-id::GATE-1]\n\nThe latch sticks after rain.");
+    const door = await fakeDoor(client, "door-ticket", ticket.id, `${ticket.text} Oil it`, ticket.revision);
+    const set = await setWorkProperty(client, ticket.id, "work-stage", "doing", { author: "agent", actorId: "loki-test" });
+    expect(set).toMatchObject({ value: "doing", changed: true });
+    expect(store.require(ticket.id).text).toBe("Mend the gate [type::roadmap-item] [work-stage::doing] [work-id::GATE-1]\n\nThe latch sticks after rain.");
+    expect(door.text).toBe("Mend the gate [type::roadmap-item] [work-stage::doing] [work-id::GATE-1]\n\nThe latch sticks after rain. Oil it");
+  });
+
+  test("a parked ticket restored while it's being typed in keeps its stage in the saved ticket (PIE-1756)", async () => {
+    const { store, client } = await service();
+    const ticket = store.create("Fix the shed roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01]\n\nTar paper first.");
+    await fakeDoor(client, "door-later", ticket.id, ticket.text, ticket.revision);
+    const restored = await restore(client as never, ticket.id, "asked again: the roof leaks", undefined, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
+    expect(restored.text).toContain("[work-stage::queued]");
+    expect(store.require(ticket.id).text).toContain("[work-stage::queued]");
+    expect(store.require(ticket.id).text).toContain("**Back from later, 2026-11-12:** asked again: the roof leaks");
+  });
 
   test("a slow door that applies a patch after the deadline is asked to take it back", async () => {
     const { store, client } = await service();

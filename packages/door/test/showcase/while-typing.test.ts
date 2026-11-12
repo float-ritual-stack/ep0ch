@@ -54,13 +54,17 @@ describe.skipIf(!outliner)("the showcase: an agent works while the person types 
     // Why the edited reader keeps its note, as every screen asks it: the one answer and its one wording.
     expect(left!.keepsOff(right!.msg)).toBe(holdsEdit("the reader"));
 
-    // A stamp (properties.patch set/add, an extension's or an agent's) lands in the edit beside the typing, lit with
-    // who, never a "changed elsewhere" (PIE-1756); the saved note waits for the person's save.
-    const savedText = (await h.board.get(editing))!.text;
+    // A stamp (properties.patch set/add, an extension's or an agent's) is saved and lands in the edit beside the typing,
+    // lit with who: the edit stands on the new revision, so the event that follows is no "changed elsewhere" (PIE-1756).
+    const savedRevision = (await h.board.get(editing))!.revision!;
     const stamped = await h.board.request("properties.patch", { blockId: editing, operations: [{ op: "add", key: "visits", by: 1 }], mutation: { author: "agent", actorId: "fern" } });
+    expect(stamped).toMatchObject({ revision: savedRevision + 1 });
+    expect(stamped.text).toContain("[room::kitchen] [visits::1]");
     expect(stamped.draft?.text).toContain("[room::kitchen] [visits::1]");
     expect(left!.draft!.text).toContain("[room::kitchen] [visits::1]");
-    expect((await h.board.get(editing))!.text).toBe(savedText);
+    expect(left!.draft!.base).toBe(stamped.revision);
+    // The event reached this door (its reader's note is the new revision), and the edit says nothing of it.
+    await until(() => left!.msg?.revision === stamped.revision, "the stamp's event in the door");
     expect(h.screen()).not.toContain("changed elsewhere");
 
     const after = keys();

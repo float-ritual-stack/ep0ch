@@ -16,7 +16,7 @@ import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
 import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DraftStatus, type DraftPhase } from "./draft-status";
-import { DRAFT_ACTIONS, chipsOnly, pruneOld, sameParty, tidy, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
+import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import type { ElementEdit } from "./surface/element-editor";
@@ -641,13 +641,19 @@ export class DraftSession {
     // The cursor's line goes with it: an ask being written there waits for the person (PIE-1743).
     if (r.kind === "read") return { text: d.text, revision: d.base, cursorLine: d.writingOn };
     const redraw = () => this.env.redraw?.();
-    if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
+    if (r.kind === "revert") {
+      const reverted = d.revertPatch(r.patchId), back = d.unstand(r.patchId);
+      if (back !== undefined) this.hold?.revise(back);
+      redraw(); return { reverted };
+    }
     const by = patchActor(r.mutation);
     const a = d.applyPatch(r, by);
+    // The saved note took it too (a property stamp, PIE-1756): the draft stands on that revision, so its event is no news.
+    if (a.applied && r.standsOn) { d.standOn(r.patchId, r.standsOn); this.hold?.revise(r.standsOn.revision); }
     if (a.applied) {
       if (r.replyTo) this.env.answered?.(r.replyTo, by);
       this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft"
-        : r.patches.every(p => chipsOnly(p.observed, p.replacement)) ? "set a property in your draft · ctrl+s saves it with your words" : "edited text above your cursor");
+        : r.standsOn ? "set a property: saved, and in your draft beside your words" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }
@@ -928,7 +934,7 @@ export function blockTarget(m: Msg, o: {
         const next: PropertyList | null = await o.board.previewPropertyList(text).catch(() => null);
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
         if (!s.open || d.body !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
-        const change = next ? propertyChange(d.saveProps, next) : "";
+        const change = next ? propertyChange(d.baseProps, next) : "";
         if (change) {
           // Leaving by a click isn't the second save a property change asks for: it's kept unsent.
           if (away) { const why = `it changes properties (${change}); ctrl+s twice saves it`; return { ok: false, why, said: why }; }
