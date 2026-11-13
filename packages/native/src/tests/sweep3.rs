@@ -192,9 +192,17 @@ fn a_closed_reader_s_note_stays_on_screen_in_the_reader_its_opens_land_in() {
 
 // ── what an agent the actor rule holds back is told to do instead: an action this window has ───────────────────────
 
-/// Every action a refusal of this window's own names (`word.word`, as an act line starts).
+/// Every action a refusal of this window's own names: a `word.word`, as an act line starts, and the word an
+/// argument is written after (`comment body=…`), which is how an action of one word is named.
 fn actions_named(said: &str) -> Vec<String> {
-    said.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_')).filter(|word| word.contains('.') && !word.starts_with('.') && !word.ends_with('.') && word.chars().all(|c| c.is_ascii_lowercase() || c == '.')).map(str::to_string).collect()
+    let id = |word: &str| !word.is_empty() && !word.starts_with('.') && !word.ends_with('.') && word.chars().all(|c| c.is_ascii_lowercase() || c == '.');
+    let dotted = said.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_')).filter(|word| word.contains('.') && id(word)).map(str::to_string);
+    let words: Vec<&str> = said.split_whitespace().collect();
+    let argued = words.windows(2).filter(|pair| pair[1].split_once('=').is_some_and(|(key, _)| !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase()))).map(|pair| pair[0].trim_start_matches('(')).filter(|word| id(word)).map(str::to_string);
+    let mut named: Vec<String> = dotted.chain(argued).collect();
+    named.sort();
+    named.dedup();
+    named
 }
 
 /// An agent refused by the dispatcher is told a way out it can take here: every action its refusal names is one
@@ -202,6 +210,8 @@ fn actions_named(said: &str) -> Vec<String> {
 #[test]
 fn a_refusal_of_the_dispatcher_s_names_only_actions_this_window_has() {
     let lacking = |said: &str| actions_named(said).into_iter().filter(|id| crate::actions::find(id).is_none()).collect::<Vec<_>>();
+    // (The reading finds an action of one word too, which is what this window's way out is.)
+    assert_eq!(actions_named("their keys are theirs · a remark gets their attention (remark body=…), or block.mark"), ["block.mark", "remark"]);
     // What is the person's own says so on its row.
     for action in crate::actions::all() {
         if let Some(theirs) = action.row.person { assert_eq!(lacking(theirs), Vec::<String>::new(), "{}'s refusal names an action this window hasn't: {theirs}", action.row.id) }
@@ -217,5 +227,5 @@ fn a_refusal_of_the_dispatcher_s_names_only_actions_this_window_has() {
     assert!(!typing.ok && typing.said.contains("comment body="), "{}", typing.said);
     assert_eq!(lacking(&typing.said), Vec::<String>::new(), "{}", typing.said);
     let focus = g.app.act("tile.focus tile=tree", agent());
-    assert!(!focus.ok && lacking(&focus.said).is_empty(), "{}", focus.said);
+    assert!(!focus.ok && actions_named(&focus.said).contains(&"comment".to_string()) && lacking(&focus.said).is_empty(), "{}", focus.said);
 }
