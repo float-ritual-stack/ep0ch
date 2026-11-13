@@ -48,5 +48,27 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
       expect(p.capture()).toContain("a group of one");
     } finally { p.close(); }
   }, 60_000);
+
+  // The drawer's tab strip put the "*" (just opened here) by the shell while the note had landed in the preview: the
+  // mark sat at the frame's corner, over the first tab, whatever tab it was for.
+  test("the drawer's tab strip marks the tab a note just landed in, not the first tab", async () => {
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 120, 30);
+    try {
+      const drawer = () => layers(p).find(l => l.drawer)!;
+      p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
+      expect(p.act("tile.open", "kind=reader").ok).toBe(true);
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 3, "a third tile");
+      p.keys("C-w", "h"); await Bun.sleep(300);
+      p.keys("C-w", "a"); await until(() => drawer().tiles.some(t => t.name === "detail"), "detail in the drawer");
+      expect(p.act("tile.drawer", "tile=detail-preview").ok).toBe(true);
+      await until(() => drawer().tiles.some(t => t.name === "detail-preview"), "its preview in the drawer");
+      p.keys("C-w", "x");
+      await until(() => drawer().tiles.find(t => t.focused)?.name === "detail-preview", "the preview in front with the note");
+      await Bun.sleep(300);
+      const strip = p.capture().split("\n").find(l => l.includes("sh |"))!;
+      expect(strip).not.toContain("*sh");
+      expect(strip).toContain("*Seed tray");
+    } finally { p.close(); }
+  }, 60_000);
 });
 

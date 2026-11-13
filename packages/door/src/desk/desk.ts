@@ -4053,7 +4053,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
       this.presses.draw(canvas, { kind, id, row, from: x, to: x + width(glyph), right: true, ...does }, glyph, sgr);
     if (lifts) button("lift", at.liftX, lifting ? "⇣" : "⇡", fg(C.yellow), lifting ? { label: "drop the lift", action: "tile.zoom", args: { reach: lifting.reach, on: false } } : { label: "lift over its column", action: "tile.zoom", args: { reach: "column", on: true } });
-    if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
+    if (arrival && (tabsOf(this.root, id)?.ids.length ?? 0) < 2) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);   // a tab set marks the tab it landed in, in its strip
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
@@ -4171,7 +4171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
       const stripRoom = room >= 2 * width(this.numLabel(id) + this.displayTitle(id)) ? room : max - x;
-      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: this.displayTitle(t), key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
+      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: `${this.arriving(t) ? "*" : ""}${this.displayTitle(t)}`, key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
       for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.presses.record({ kind: "title", id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row, label: `tab ${h.label}`, action: "tab.select" });
       put(strip!.text, "");
       if (x >= max) return this.headOut;
