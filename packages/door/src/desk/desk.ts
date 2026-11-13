@@ -3759,9 +3759,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
-    // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) {
-      const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
+    for (const [d, o] of this.holder ? [] : this.descend().flatMap(d => [...d.overlays.all()].reverse().map(o => [d, o] as const))) {   // images would bleed through an overlay; a group's or mount's is drawn over the whole screen, not its tile (PIE-1783)
+      const p = d.focusedPane(), values = p ? d.lookAt(p, cols).values : lookFor(d.lookSrc, { screen: d.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
       const box = o.drawn?.();
@@ -4912,7 +4911,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private keyIn(k: Key, ctx: Ctx) {
-    if (this.overlays.key(k, this) !== null) return this.redraw();
+    const raised = k.kind === "mouse" && !this.holder ? this.descend().find(d => d !== this && d.overlays.top()) : undefined;   // a group's overlay is drawn over this screen: its clicks are in this screen's cells
+    if (this.overlays.key(k, this) !== null || (raised && raised.overlays.key(k, raised) !== null)) { raised?.redraw(); return this.redraw(); }
     if (this.linking && k.kind !== "mouse") return this.linkKey(k);
     // In a terminal tile: every key is the program's, but the escape chord and the mouse. Once the program
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.

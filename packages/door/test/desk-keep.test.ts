@@ -70,5 +70,20 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       await until(() => JSON.parse(p.act("layout.get").out).zoom !== null, "the zoom the chord asked for", 3000);
     } finally { p.close(); }
   }, 60_000);
+
+  // ^W P from a tile in a group drew the panel in the group tile's own room: at 44 columns a tile of 11, the panel 5
+  // wide, a letter or two a row. A group's (or a mount's) overlays are drawn over the whole screen.
+  test("^W P inside a narrow group is drawn over the screen, its rows readable", async () => {
+    const p = await doors.pane(await doors.create("Leek trench\ndig it deep"), "Leek trench", 44, 30);
+    try {
+      for (let i = 0; i < 3 && deskOf(p).length < 3; i++) { p.keys("C-w", "v"); await Bun.sleep(800); }
+      await until(() => deskOf(p).length >= 3, "three tiles");
+      p.keys("C-w", "G"); await until(() => p.capture().includes("gather into a group"), "the question");
+      p.keys("Enter"); await until(() => layers(p).some(l => l.screen === "group"), "a group of one");
+      p.keys("C-w", "e"); await until(() => p.capture().includes("in the group"), "in the group");
+      p.keys("C-w", "P"); await until(() => p.capture().includes("policy"), "the policy panel");
+      expect(p.capture()).toContain("Pin: □ not pinned · p pins");
+    } finally { p.close(); }
+  }, 60_000);
 });
 
