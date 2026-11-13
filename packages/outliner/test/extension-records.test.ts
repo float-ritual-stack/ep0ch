@@ -658,3 +658,47 @@ test("the first poll after a restart looks back to when each copy was read, not 
   expect(await restarted.poll()).toEqual({ checked: 1, changed: 1 });
   expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
 });
+
+test("content that comes back under the same `updated` (A, B, then A again) reads as A, even after A's old text was evicted", async () => {
+  const { fake, store, client, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  const issue = fake.issues.get("PC-1")!;
+  const refresh = () => client.request({ action: "resources.projection.refresh", blockId: page.id });
+
+  issue.assignee = "Dana Ortiz-Reyes";
+  await refresh();
+  // A's text isn't the current copy now: retention evicts it as it would (its row stays, its text goes).
+  store.database.query(`UPDATE remote_entity_representations SET markdown = NULL, payload_state = 'evicted', payload_bytes = 0, evicted_at = ?
+    WHERE source_snapshot_id IN (SELECT id FROM remote_entity_source_snapshots WHERE resource_id = ?) AND markdown LIKE '%Dana Ortiz\`%'`)
+    .run(new Date().toISOString(), resourceId);
+  issue.assignee = "Dana Ortiz";
+  await refresh();
+
+  const now = store.resources.describe(resourceId, false);
+  expect(now.remoteStatus?.freshness).toBe("fresh");
+  expect(now.remoteEntity?.markdown).toContain("Dana Ortiz`");
+  // Asked by its revision, the same: the newest read's text, not B's.
+  const byRevision = store.resources.describe(resourceId, false, now.remoteEntity!.sourceSnapshot!.revision);
+  expect(byRevision.remoteEntity?.markdown).toContain("Dana Ortiz`");
+  expect(byRevision.remoteEntity?.metadata.assignee).toBe("Dana Ortiz");
+});
+
+test("a ticket whose first read failed is read by the next poll, though Jira hasn't changed it", async () => {
+  const { fake, store, server, client, create, recordOf } = await setup();
+  await recordOf((await create("PC-1 Rollout [jira::PC-1]")).id);
+  const receipt = await client.request<{ resource: { id: string } }>({
+    action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" },
+    mutation: { author: "agent", actorId: "helper-agent" },
+  });
+  fake.status = 503;
+  await client.request({ action: "resources.refresh", resourceId: receipt.resource.id }).catch(() => {});
+  expect(store.resources.describe(receipt.resource.id, false).remoteStatus?.freshness).toBe("failed");
+  fake.status = null;
+
+  await server.extensionSync.for("jira")!.poll();
+  const described = store.resources.describe(receipt.resource.id, false);
+  expect(described.remoteStatus?.freshness).toBe("fresh");
+  expect(described.remoteEntity?.title).toBe("Label printer drops the last line");
+});

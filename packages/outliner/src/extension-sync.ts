@@ -418,7 +418,7 @@ export class ExtensionSync {
    * block, a list item, a link a reader opened: PIE-1776), changed since the
    * last poll (with a minute of overlap); only those are read again. The first
    * poll after a start looks back to when each copy was last read (at most a
-   * week); a copy never read, or read before that week, is read directly. A
+   * week); a copy never read well (none yet, a failed or cut-off read), or read before that week, is read directly. A
    * provider that can't search has its stale copies refreshed instead. A search
    * that fails keeps its window for the next poll; a paused sync skips the poll.
    */
@@ -430,15 +430,15 @@ export class ExtensionSync {
       return { checked: 0, changed: 0 };
     }
     const registered = this.store.resources.remoteEntityKeys(this.provider);
-    // The first poll looks back to the oldest copy's last read (the service may have been down), at most a week;
-    // later ones to the last poll that finished.
+    // The first poll looks back to the oldest copy's last good read (the service may have been down), at most a week;
+    // later ones to the last poll that finished. A failed or cut-off read is no checkpoint (Codex on #1499).
     const weekAgo = started - 7 * 24 * 60 * 60_000;
-    const read = (row: { checkedAt: string | null }) => row.checkedAt === null ? NaN : Date.parse(row.checkedAt);
+    const read = (row: { readAt: string | null }) => row.readAt === null ? NaN : Date.parse(row.readAt);
     const oldest = Math.min(...registered.map(read).filter(Number.isFinite));
     const from = Math.max(weekAgo, this.lastPoll ?? (Number.isFinite(oldest) ? oldest : started - this.pollEveryMs));
     const sinceMinutes = Math.ceil((started - from) / 60_000) + 1;
     const bySource = new Map<string, Map<string, string>>();
-    // Copies no search window reaches: never read, or read before the week the first poll looks back.
+    // Copies no search window reaches: never read well (none yet, failed, cut off), or read before the week looked back.
     const unread = new Map<string, string[]>();
     for (const row of registered) {
       const keys = bySource.get(row.sourceId) ?? new Map<string, string>();

@@ -2476,6 +2476,9 @@ export class ResourceCatalog {
         observed.representation.contentHash,
       ) as { id: string } | null;
       if (!representation) throw new ResourceCatalogError("source-unavailable", "Remote entity Markdown representation was not retained");
+      // A text seen before (A, B, then A under one weak revision) is this read's again: newest, and back if evicted.
+      this.database.query("UPDATE remote_entity_representations SET markdown = ?, derived_at = ?, payload_state = 'available', payload_bytes = ?, evicted_at = NULL WHERE id = ?")
+        .run(observed.markdown, observed.representation.derivedAt, Buffer.byteLength(observed.markdown), representation.id);
       const stateUpdate = this.database.query(`
         UPDATE remote_entity_resource_state
         SET address_version = ?,
@@ -2507,11 +2510,12 @@ export class ResourceCatalog {
     return this.describe(refreshedId, destinationHostRegistered);
   }
 
-  /** Every registered Resource of a provider, its key and when its copy was last read (null: never): what the poll keeps fresh. */
-  remoteEntityKeys(provider: string): readonly { resourceId: string; sourceId: string; key: string; checkedAt: string | null }[] {
+  /** Every registered Resource of a provider, its key, and when its copy was last read well (null: never, failed or cut off). */
+  remoteEntityKeys(provider: string): readonly { resourceId: string; sourceId: string; key: string; readAt: string | null }[] {
     return this.database.query(`SELECT r.id AS resourceId, r.source_id AS sourceId, json_extract(r.address_json, '$.key') AS key,
-      s.checked_at AS checkedAt FROM resources r LEFT JOIN remote_entity_resource_state s ON s.resource_id = r.id AND s.address_version = r.address_version
-      WHERE r.provider = ? AND key IS NOT NULL ORDER BY r.id`).all(provider) as { resourceId: string; sourceId: string; key: string; checkedAt: string | null }[];
+      CASE WHEN s.freshness = 'fresh' THEN s.checked_at END AS readAt FROM resources r LEFT JOIN remote_entity_resource_state s
+      ON s.resource_id = r.id AND s.address_version = r.address_version WHERE r.provider = ? AND key IS NOT NULL ORDER BY r.id`)
+      .all(provider) as { resourceId: string; sourceId: string; key: string; readAt: string | null }[];
   }
 
   /**
