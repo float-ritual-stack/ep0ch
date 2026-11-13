@@ -53,11 +53,11 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   // bun:test doesn't run a function beforeEach returns: the environment and the state folder go back here.
   afterEach(() => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(state, { recursive: true, force: true }); });
 
-  /** A door on the desk with a terminal tile running `cat` (named `kettle`), on a fake 140x40 terminal. */
-  async function door(saved?: unknown) {
+  /** A door on the desk with a terminal tile running `cat` (named `kettle`), on a fake 140x40 terminal (`cols` wide). */
+  async function door(saved?: unknown, cols = 140) {
     let key: (k: Key) => void = () => {};
     let painted: string[] = [];
-    const term: any = { info: { cols: 140, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term: any = { info: { cols, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, board, Date.now(), () => {});
     // `saved`: the desk comes back as a previous door left it (a session handover's), not as the named layout.
     const desk = new Desk(undefined, saved === undefined ? { layout: "desk" } : { saved });
@@ -438,8 +438,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("an agent puts a terminal tile by act: moved, not started again; said; the dock and the person's keys stay put", async () => {
-    const d = await door();
+  // PIE-1784: at any bar width (the clock, a slow or offline chip, the machine's name all take its room), never the bar's words.
+  for (const cols of [140, 112]) test(`at ${cols} columns, an agent puts a terminal tile by act: moved, not started again; said; the dock and the person's keys stay put`, async () => {
+    const d = await door(undefined, cols);
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
@@ -453,10 +454,16 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.open).toBe(false);                       // an agent's drawer doesn't pull it up
       expect(d.desk.focusedName()).toBe("tree");                 // nor move the person's keys
       expect(d.A.message).toContain(`an agent (${AS})`);
-      // The chip: its own program, and one more tile. While the long message is up it gives up where its name came from
-      // (PIE-1598: the message is said whole), and that's back with the message gone.
-      expect(d.paint().at(-1)).toContain("▲ cat +1");
+      // The drawer holds its own program and the tile put there, as layout.get answers; the chip says the same in its own
+      // words (its short ones are what a full bar leaves it, PIE-1598: the message is said whole). The bar's drawn words
+      // depend on what else takes its room, so they aren't read (PIE-1784).
+      const layout = await d.app.act({ action: "layout.get", args: {}, as: AS }) as any;
+      const drawer = layout.layers.find((l: any) => l.drawer);
+      expect(drawer.tiles.map((t: any) => t.name)).toContain("kettle");
+      expect(drawer.tiles).toHaveLength(2);
+      expect(plain(d.app.drawer.chips().short)).toBe("▲ cat +1");
       expect(d.app.drawer.chipText()).toContain("▲ cat (from EP0CH_DAILY_AGENT) +1");
+      expect(d.paint().at(-1)).toContain("▲");   // the chip is on the bar at any width (keep: its arrow at least)
     } finally { d.app.quit(); }
   });
 
