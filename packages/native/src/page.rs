@@ -340,6 +340,12 @@ pub struct CompletionRow {
     /// `new line`: until a deliberate choice, Return belongs to the field.
     #[serde(default)]
     pub enter: Option<String>,
+    /// What the row says of itself, in its source's words (Blockdown): drawn beside the list while it is lit.
+    #[serde(default)]
+    pub docs: Option<String>,
+    /// What choosing it makes, as the service drew it: a primitive, on the row its answer was asked to light.
+    #[serde(default)]
+    pub view: Option<Value>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]

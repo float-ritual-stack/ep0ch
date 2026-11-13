@@ -1,6 +1,7 @@
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
 import { asksAtCursor, completionAt } from "./completion-at";
+import { drawnExample } from "./note-page";
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import type { OutlinerStore } from "./store";
 import type { OutlinerRequester } from "./client-target";
@@ -45,7 +46,8 @@ export class CompletionRequests {
       }).catch(() => {});
     } else if (asksAtCursor(request)) {
       // A client that reads no Blockdown sends the text and the cursor: the token is found here, and its rows merged.
-      result = await completionAt(request, asked => this.run({ ...asked, id: request.id, action: "completion.rows" }) as Promise<WireAnswer<"completion.rows">>);
+      result = await completionAt(request, asked => this.run({ ...asked, id: request.id, action: "completion.rows" }) as Promise<WireAnswer<"completion.rows">>,
+        (about, example) => drawnExample({ request: input => this.own.request(input as RequestInput) }, about, "Example", example));
     } else {
       const t = request.target as Record<string, unknown> | undefined;
       if (!t || typeof t !== "object" || typeof t.kind !== "string" || typeof t.query !== "string" || t.query.length > 500) throw new Error("completion.rows needs target: { kind, query } (query up to 500 characters)");

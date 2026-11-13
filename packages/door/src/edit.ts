@@ -27,6 +27,7 @@ import { applyLocated, locateSpans, mapOffset, type DraftPatchSpan, type Located
 import { mapCursor, patchedSpans, placeDraftPatch, revertSpans, type PatchedSpan } from "@ep0ch/outline-core/draft-patch-place";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { indentShifts, listLead, listParent, shiftedCol, type ListLead } from "@ep0ch/outline-core/draft-indent";
 import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
@@ -948,7 +949,7 @@ export class Draft {
     if (lead && col >= lead.length) {
       if (!line.slice(lead.length).trim()) {
         // An empty item: up to the parent item's level (continuing its numbering), or out of the list.
-        const up = this.parentOf(this.row, lead.indent.length);
+        const up = listParent(L, this.row, lead.indent.length);
         const next = up ? up.indent + nextMarker(up.marker) + up.gap + (lead.box ? "[ ] " : "")
           : lead.indent ? outdentBy(lead.indent) + lead.marker + lead.gap + lead.box : "";
         L[this.row] = next;
@@ -989,32 +990,6 @@ export class Draft {
     return componentBlocks(closer).length > componentBlocks(this.lines).length;
   }
 
-  /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */
-  private parentOf(row: number, than: number): ListLead | null {
-    for (let r = row - 1; r >= 0; r--) {
-      const l = this.lines[r]!;
-      if (!l.trim()) continue;
-      const lead = listLead(l);
-      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
-      if (ind < than) return lead;
-      if (ind === 0) return null;
-    }
-    return null;
-  }
-
-  /** The nearest list item above `row` at exactly `indent`: the one this item follows. */
-  private siblingOf(row: number, indent: number): ListLead | null {
-    for (let r = row - 1; r >= 0; r--) {
-      const l = this.lines[r]!;
-      if (!l.trim()) continue;
-      const lead = listLead(l);
-      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
-      if (ind < indent) return null;
-      if (lead && ind === indent) return lead;
-    }
-    return null;
-  }
-
   /** The lines a Tab acts on: the selection's, else the cursor's. */
   private span(): [number, number] {
     const s = this.selection();
@@ -1022,38 +997,20 @@ export class Draft {
   }
 
   /**
-   * Indent (`dir` 1) or outdent (-1) lines `from`..`to` by one level. A list item goes under the item above
-   * it (its text's column), or back to its parent's level; anything else moves two spaces. Every line
-   * moves by the first line's step, so the nesting inside a selection is kept. The cursor stays on its text.
+   * Indent (`dir` 1) or outdent (-1) lines `from`..`to` by one level. Which lines move, and by how much, is
+   * outline-core's rule (`indentShifts`: a list item under the item above it or back to its parent's level, anything
+   * else two spaces, every line by the first line's step), the one the native window is held to. The cursor stays on its text.
    */
   indent(dir: 1 | -1, from = this.span()[0], to = this.span()[1]): number {
     const L = this.lines;
-    from = Math.max(0, Math.min(L.length - 1, from)); to = Math.max(from, Math.min(L.length - 1, to));
-    const first = L[from]!, lead = listLead(first);
-    const ind = lead ? lead.indent : /^[ \t]*/.exec(first)![0];
-    const tabs = ind.includes("\t");
-    let step: number;
-    if (dir > 0) {
-      const sib = lead ? this.siblingOf(from, ind.length) : null;
-      step = sib && !tabs ? sib.marker.length + sib.gap.length : tabs ? 1 : 2;
-    } else {
-      const up = lead ? this.parentOf(from, ind.length) : null;
-      step = up && !tabs ? ind.length - up.indent.length : Math.min(ind.length, tabs ? 1 : 2);
+    const { put, shifts } = indentShifts(L, dir, from, to);
+    for (const { row, by } of shifts) {
+      const l = L[row]!;
+      L[row] = by > 0 ? put + l : l.slice(-by);
+      if (row === this.row) this.col = shiftedCol(this.col, by);
+      if (this.anchor && row === this.anchor.row) this.anchor.col = shiftedCol(this.anchor.col, by);
     }
-    if (step <= 0) return 0;
-    let moved = 0;
-    for (let r = from; r <= to; r++) {
-      const l = L[r]!;
-      if (!l.trim() && from !== to) continue;
-      const have = /^[ \t]*/.exec(l)![0].length;
-      const d = dir > 0 ? step : -Math.min(step, have);
-      if (!d) continue;
-      L[r] = dir > 0 ? (tabs ? "\t" : " ".repeat(step)) + l : l.slice(-d);
-      moved++;
-      if (r === this.row) this.col = Math.max(0, this.col + d);
-      if (this.anchor && r === this.anchor.row) this.anchor.col = Math.max(0, this.anchor.col + d);
-    }
-    return moved;
+    return shifts.length;
   }
 
   // ── an agent's patch (PIE-501): compare-and-swap on a span, while the person types ──
@@ -1611,15 +1568,7 @@ const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "
 
 export { hangOf, wrapRows, type VRow } from "./draft-view";
 
-/** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
-export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
-const LIST_LEAD = new RegExp(`^([ \\t]*)([-*+]|\\d{1,9}[.)])([ \\t]+)(${STEP_BOX}(?:[ \\t]+|$))?`);
-
-/** The list item `line` starts, or null. `- ` with nothing after it is an (empty) item; `-` alone isn't. */
-export function listLead(line: string): ListLead | null {
-  const m = LIST_LEAD.exec(line);
-  return m ? { indent: m[1]!, marker: m[2]!, gap: m[3]!, box: m[4] ?? "", length: m[0].length } : null;
-}
+export { listLead, type ListLead };
 
 /** An empty item with a marker typed after it: `- -`, `  1. 2.`, `- [ ] *` (indent, the typed marker). */
 const TYPED_MARKER = new RegExp(`^([ \\t]*)(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?([-*+]|\\d{1,9}[.)])$`);

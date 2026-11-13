@@ -790,7 +790,12 @@ export interface CompletionRowsRequest {
  * text being written and the cursor in it (a UTF-16 offset). The service finds the token itself
  * (`completionTargetAtCursor`) and answers it with its rows merged and ready to draw (`CompletionRowsResult.token`, `.rows`).
  */
-export interface CompletionAtRequest extends Omit<CompletionRowsRequest, "target"> { text: string; cursor: number }
+export interface CompletionAtRequest extends Omit<CompletionRowsRequest, "target"> {
+  text: string;
+  cursor: number;
+  /** The row (from 0) whose drawn form is wanted, `CompletionAtRow.view`: the one lit. Left out: the first, lit as a list opens. */
+  lit?: number;
+}
 
 /** One source's answer to `completion.rows`, with what its list says when it's empty or cut. */
 export interface CompletionSourceAnswer extends SourceAnswer {
@@ -855,6 +860,14 @@ export interface CompletionAtRow {
   pick: string;
   /** Until a deliberate choice, Enter belongs to the field; Tab still inserts. */
   enter?: "new line" | "applies";
+  /** What the row says of itself, as its source wrote it (`SourceRow.docs`, Blockdown): drawn beside the list while it is lit. */
+  docs?: string;
+  /**
+   * What choosing it makes, on the row the request says is lit (`lit`) when its source gave an example
+   * (`SourceRow.example`): the example as written and as a page would draw it, a primitive each. No client draws a
+   * component, a value or a callout's look itself to show it here.
+   */
+  view?: import("./note-page").PagePrimitive;
 }
 
 /** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */

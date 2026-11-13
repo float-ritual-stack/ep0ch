@@ -84,6 +84,19 @@ export async function drawnParts(own: Own, about: string, text: string): Promise
   return (await noteParts(reader(own).host, { id: about, text }, {})).parts;
 }
 
+/**
+ * What an example makes, for a client to show beside what offers it (a component in the library, the lit row of a
+ * completion list): the example as written, with the note that declares what it uses, and as drawn, the parts a page
+ * would answer for a note that held it. `title` is that made-up note's header line.
+ */
+export async function drawnExample(own: Own, about: string, title: string, example: { use: string; note?: string }): Promise<PagePrimitive[]> {
+  const parts = await drawnParts(own, about, `${title}\n${example.use}`);
+  return [
+    { type: "box", title: "As written", children: [{ type: "source", text: [example.note, example.use].filter(Boolean).join("\n\n") }] },
+    { type: "box", title: "As drawn", children: parts },
+  ];
+}
+
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** A button's tone as a primitive's: a theme role either way. */

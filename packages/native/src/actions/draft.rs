@@ -46,11 +46,19 @@ static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "close th
     ])
     .examples(&[Example { act: "edit.close discard=true", does: "leaves the editor and drops what it holds unsaved", safe: None }]);
 
-static PASTE: ActionRow = ActionRow::new("draft.paste", Touches::Draft, "put text in at the caret of the open edit as it came, as a paste does (over the selection, if any): what completes it is offered as when it is typed")
+static PASTE: ActionRow = ActionRow::new("draft.paste", Touches::Draft, "put text in at the caret of the open edit as it came, as a paste does (over the selection, if any; one step of the editor's undo, however much): text= says the words, and left out they are the clipboard's. Line ends are made plain on the way in (a carriage return is a newline); what completes it is offered as when it is typed")
     .person(THEIRS)
-    .args(&[("text", ArgSpec::text("the text, as it is to stand"))])
-    .keys(&[KeyRow::via("a paste into the block being written")])
+    .args(&[("text", ArgSpec::text("the text, as it is to stand (left out: what the clipboard holds)").optional())])
+    .keys(&[KeyRow::on("mod+v", "draft", "paste the clipboard"), KeyRow::via("a paste into the block being written")])
     .examples(&[Example { act: "draft.paste text=\"See [[se\"", does: "writes that at the caret, and offers the pages that match", safe: None }]);
+
+static INDENT: ActionRow = ActionRow::new("draft.indent", Touches::Draft, "indent the caret's line, or every line the selection touches, one level: a list item goes under the item above it, anything else two spaces (one tab where the line is indented with tabs). One step of the editor's undo")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("tab", "draft", "indent the line, or the selected lines")]);
+
+static OUTDENT: ActionRow = ActionRow::new("draft.outdent", Touches::Draft, "outdent the caret's line, or every line the selection touches, one level: a list item back to its parent's level, anything else two spaces or a tab. One step of the editor's undo")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("shift+tab", "draft", "outdent the line, or the selected lines")]);
 
 static PATCH: ActionRow = ActionRow::new("draft.patch", Touches::Nothing, "change a passage of the note a reader shows, through the service: in the draft a window holds of it (in front of whoever writes there, never in the block they are typing in), else in the saved note. Checked against the revision read; refused with why, and nothing changes")
     .args(&[
@@ -88,6 +96,8 @@ pub static ACTIONS: &[Action] = &[
     Action { row: &SAVE, run: save, about: About::Drafts },
     Action { row: &CLOSE, run: close, about: About::Drafts },
     Action { row: &PASTE, run: paste, about: About::Drafts },
+    Action { row: &INDENT, run: indent, about: About::Drafts },
+    Action { row: &OUTDENT, run: outdent, about: About::Drafts },
     Action { row: &PATCH, run: patch, about: About::Notes },
     Action { row: &ACCEPT, run: accept, about: About::Drafts },
     Action { row: &ENTER, run: enter, about: About::Drafts },
@@ -396,14 +406,47 @@ fn close(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     Outcome::done()
 }
 
-/// Text put in at the caret, as the keys would: the same way in as the kit's editor has.
+impl App {
+    /// Words pasted into the block being written on `tile`: at the caret, over the selection, as one step of the
+    /// editor's undo, their line ends made plain. The one way in for a paste, whoever hands the words over: the
+    /// field's own paste (`keys::area`), `draft.paste` with its words, and the clipboard read for it (`App::pasted`).
+    pub(super) fn paste_in(&mut self, tile: &str, words: &str) {
+        let field = Field::Draft(tile.to_string());
+        self.field(&field).insert(&draft::plain_ends(words));
+        self.typed(&field);
+    }
+}
+
+/// Text put in at the caret, as a paste: the words the act says, else the clipboard's, read where the window's
+/// hands are on the next frame (`keys::effects`) and handed back to `App::pasted`.
 fn paste(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
-    let field = Field::Draft(tile);
-    app.field(&field).insert(args.text("text").unwrap_or(""));
-    app.typed(&field);
+    match args.text("text") {
+        Some(text) => { let text = text.to_string(); app.paste_in(&tile, &text) }
+        None => app.st.pasting = Some(tile),
+    }
     Outcome::done()
 }
+
+/// The caret's line, or every line the selection touches, a level in or out: the rule's edits (`draft::indent`,
+/// outline-core's by contract) as one step of the field's way back, the caret and the selection kept on their text.
+fn level(app: &mut App, out: bool) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) else { return Outcome::refused("no note is open for editing") };
+    let (anchor, caret) = draft.buf.ends();
+    let did = draft::indent(draft.buf.words(), out, anchor, caret);
+    let lines = did.edits.len();
+    if lines > 0 {
+        let edits: Vec<(usize, usize, &str)> = did.edits.iter().map(|(start, end, with)| (*start, *end, with.as_str())).collect();
+        // (The selection's two ends are the same place when nothing is selected, and one answer serves both.)
+        draft.buf.splice(&edits, |offset| if offset == anchor { did.anchor } else { did.caret });
+        app.typed(&Field::Draft(tile));
+    }
+    Outcome::answer(json!({ "lines": lines }))
+}
+
+fn indent(app: &mut App, _: &Args, _: &Actor) -> Outcome { level(app, false) }
+fn outdent(app: &mut App, _: &Args, _: &Actor) -> Outcome { level(app, true) }
 
 /// A passage changed through the service, as whoever acts: the service says where it goes (the draft a window
 /// holds, this one's included, or the saved note) and whether it may.
@@ -483,10 +526,10 @@ fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
     let Some(rows) = app.completing(&tile).map(|found| found.rows.len() as i64).filter(|rows| *rows > 0) else { return Outcome::refused("no completion list is open here") };
     let by = args.number("by").unwrap_or(1.0) as i64;
-    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) {
-        draft.completing.lit = (draft.completing.lit as i64 + by).rem_euclid(rows) as usize;
-        draft.completing.moved = true;
-    }
+    let at = app.at.clone();
+    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.light((draft.completing.lit as i64 + by).rem_euclid(rows) as usize, &at) }
+    // What choosing the row now lit makes is asked for.
+    app.pump();
     Outcome::done()
 }
 
