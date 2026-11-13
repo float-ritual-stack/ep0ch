@@ -298,6 +298,8 @@ export interface Facts {
   machine?: import("./machine-health").MachineHealth;
   /** The restic backup job (PIE-607, src/backup/): its units, settings, restic, the secrets, its state and alert. */
   restic?: BackupSetupFacts;
+  /** The disk keeper (PIE-1787, src/disk/): its units, offload, the storage box it names, what it last saw. */
+  disk?: import("../disk/setup").DiskSetupFacts;
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

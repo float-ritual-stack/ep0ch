@@ -16,6 +16,7 @@ const RULES: Record<string, string> = {
   'outline-core.md': '---\npaths:\n  - "packages/outline-core/**"\n---\n\n# outline-core\n\nNo I/O.\n',
   'claude-mod.md': '---\npaths:\n  - "packages/claude-mod/**"\n---\n\n# The mod\n\nOnly register.ts gets $.\n',
   'outlines-by-name.md': '---\npaths:\n  - "packages/outline-core/src/{outline-location,machine}.ts"\n  - "packages/door/src/{home,pick}.ts"\n---\n\n# Outlines by name\n\nFlag, env, .ep0ch.\n',
+  'machine-disk.md': "---\npaths:\n  - \"packages/door/src/setup/install-backups.ts\"\ncommands:\n  - '\\bssh\\b(\\s+-\\S+(\\s+[^-\\s]\\S*)?)*\\s+(\\S+@)?float-2\\b[\\s\\S]*\\b(df|du|rm|mv|rsync|offload)\\b'\n---\n\n# Disk space\n\nRead the hub first.\n",
 }
 
 /** A session in the repository whose shell is in `cwd()`; every Bash call answers plainly. */
@@ -78,6 +79,14 @@ describe('path-scoped rules reach a command that touches their package', () => {
     expect(files(await bash($, 'ls packages/outline-core'))).toEqual(['.claude/rules/outline-core.md'])
   })
 
+  test('a disk command on float-2 over ssh gets machine-disk.md once; a read elsewhere gets nothing', async ($, on) => {
+    sessionIn(on)
+    expect(files(await bash($, "ssh float-2 'df -h / && du -sh ~/.claude'"))).toEqual(['.claude/rules/machine-disk.md'])
+    expect(await bash($, "ssh float-2 'rm -r ~/old'")).toEqual([])
+    expect(await bash($, "ssh float-2 'systemctl --user is-active outliner-host.service'", 'agent-2')).toEqual([])
+    expect(await bash($, 'df -h /')).toEqual([])
+  })
+
   test('a refused command gets no rule', async ($, on) => {
     sessionIn(on)
     expect(await bash($, 'cd packages/door && git stash')).toEqual([])
@@ -115,6 +124,23 @@ describe('which rules a command touches', () => {
     expect(names('cat packages/door/src/home.ts')).toEqual(['door.md', 'outlines-by-name.md'])
     expect(names('cat packages/door/src/menu.ts')).toEqual(['door.md'])
     expect(names('cat packages/outline-core/src/machine.ts')).toEqual(['outline-core.md', 'outlines-by-name.md'])
+  })
+
+  test('commands: matches the command itself, not its paths, and only on its own machine', () => {
+    const disk = (command: string) => rulesFor(pathsIn(command, ROOT, ROOT), rules, command).map(r => r.file.slice('.claude/rules/'.length))
+    expect(disk("ssh float-2 'cd ~/projects/ep0ch && rsync -an ./ /mnt/x/'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh evan@float-2 'offload --list'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh -t float-2 'sudo journalctl --vacuum-size=200M && df -h /'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh -o ConnectTimeout=10 -p 22 float-2 'du -sh ~'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh laptop 'du -sh ~'")).toEqual([])
+    expect(disk("ssh float-2 'ep0ch doctor'")).toEqual([])
+    expect(disk('cat packages/door/src/setup/install-backups.ts')).toEqual(['door.md', 'machine-disk.md'])
+  })
+
+  test('a commands: line that is not a regular expression is left out, and its rule still matches by its paths', () => {
+    const rule = ruleOf('r.md', "---\npaths:\n  - \"packages/door/**\"\ncommands:\n  - '(unclosed'\n  - 'ssh float-2'\n---\nBody\n")!
+    expect(rule.commands.map(String)).toEqual(['/ssh float-2/'])
+    expect(rulesFor(['packages/door/x.ts'], [rule])).toHaveLength(1)
   })
 
   test('a rule with no paths: loads anyway, so it is not one of these', () => {

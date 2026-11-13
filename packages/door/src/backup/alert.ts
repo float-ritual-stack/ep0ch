@@ -125,6 +125,11 @@ export function followedCopies(mirrors: string, listed: readonly string[] = []):
 
 
 export interface Incident { key: string; title: string; detail: string; fix: string; since: string }
+/** The disk keeper's incidents (src/disk/): keyed `disk:…`, announced by the keeper itself (it escalates), kept in disk.json. */
+export const DISK_KEY = "disk:";
+export const isDisk = (i: Pick<Incident, "key">) => i.key.startsWith(DISK_KEY);
+/** The disk keeper's open incidents, from its own file beside alert.json. */
+export const readDiskIncidents = (dir: string): Incident[] => readJson<{ incidents?: Incident[] }>(join(dir, "disk.json"))?.incidents ?? [];
 export interface Alert {
   machine: string;
   checkedAt: string;
@@ -205,14 +210,30 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
   return out;
 }
 
-/** The new alert: these incidents, and which of them are new (to announce). Resolved ones are forgotten. */
+/**
+ * The new alert: these incidents, and which of them are new (to announce). Resolved ones are forgotten. The disk
+ * keeper's incidents are never announced here: the keeper announces its own, and again only when one gets worse.
+ */
 export function nextAlert(prev: Alert | null, found: Incident[], machine: string, now: number): { alert: Alert; announce: Incident[] } {
   const was = new Set(prev?.announced ?? []);
-  const announce = found.filter(i => !was.has(i.key));
+  const announce = found.filter(i => !was.has(i.key) && !isDisk(i));
   return { alert: { machine, checkedAt: new Date(now).toISOString(), incidents: found, announced: found.map(i => i.key) }, announce };
 }
 
-/** What the door's status bar shows for the alert: nothing, a stale backup, or a check that stopped running. */
+/**
+ * The disk keeper's incidents into alert.json beside the backup job's, leaving the backup job's own (and the time it
+ * last checked, which says whether that job still runs) as they are.
+ */
+export function mergeDisk(dir: string, machine: string, disk: Incident[], now: number): Alert {
+  const prev = readAlert(dir);
+  const alert: Alert = { ...(prev ?? { machine, checkedAt: new Date(now).toISOString(), announced: [] }),
+    incidents: [...(prev?.incidents ?? []).filter(i => !isDisk(i)), ...disk],
+    announced: [...(prev?.announced ?? []).filter(k => !k.startsWith(DISK_KEY)), ...disk.map(i => i.key)] };
+  writeAlert(dir, alert);
+  return alert;
+}
+
+/** What the door's status bar shows for the alert: nothing, a stale backup, a full disk, or a check that stopped running. */
 export function alertMark(a: Alert | null, now: number): { text: string; say: string; status?: boolean } | null {
   if (!a) return null;
   if (now - Date.parse(a.checkedAt) >= CHECK_LATE_MS) {
@@ -225,5 +246,5 @@ export function alertMark(a: Alert | null, now: number): { text: string; say: st
   }
   const first = a.incidents[0]!;
   const more = a.incidents.length > 1 ? ` · +${a.incidents.length - 1} more (ep0ch doctor)` : "";
-  return { text: `✗ backup${a.incidents.length > 1 ? ` ${a.incidents.length}` : ""}`, say: `${first.detail} · fix: ${first.fix}${more}` };
+  return { text: `✗ ${isDisk(first) ? "disk" : "backup"}${a.incidents.length > 1 ? ` ${a.incidents.length}` : ""}`, say: `${first.detail} · fix: ${first.fix}${more}` };
 }

@@ -5,7 +5,8 @@ applies:
 
 - **Package rules** are in `.claude/rules/`: [door](.claude/rules/door.md), [outliner](.claude/rules/outliner.md),
   [outline-core](.claude/rules/outline-core.md), [claude-mod](.claude/rules/claude-mod.md), and
-  [outlines-by-name](.claude/rules/outlines-by-name.md) for the code that picks an outline or a machine. Claude Code
+  [outlines-by-name](.claude/rules/outlines-by-name.md) for the code that picks an outline or a machine, and
+  [machine-disk](.claude/rules/machine-disk.md) before moving or deleting anything on a machine's disk. Claude Code
   loads each one when you read its files, and the repository's mod (below) gives it to a Claude session when a Bash
   command touches them. **Any other tool (Codex, Pi), and any agent about to plan, change or run
   something in a package (a test door, snapshots, sessions) without having opened its files: read that package's file

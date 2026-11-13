@@ -147,6 +147,7 @@ if (args[0] === "doctor" || args[0] === "install") {
   process.exit(code);
 }
 if (args[0] === "backup") { const { backupCommand } = await import("./backup/cli"); process.exit(await backupCommand(args)); }
+if (args[0] === "disk") { const { diskCommand } = await import("./disk/cli"); process.exit(await diskCommand(args)); }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
 // A screen nobody knows is refused before the door takes the terminal, with the names there are. A name that may be a
 // screen a person made (a screen note, PIE-565) is the door's to find once it has read the outline's screen notes.

@@ -1,0 +1,13 @@
+# Written by `ep0ch install` from scripts/disk/offload-sweep.service in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=The weekly sweep of cold files to the storage box, through the disk keeper (ep0ch disk keep --sweep; PIE-1787)
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH={{PATH}}
+EnvironmentFile=-%h/.config/ep0ch/disk.env
+ExecStart={{BUN}} {{MAIN}} disk keep --sweep
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=50min
