@@ -144,8 +144,12 @@ export interface TileKind {
   takesQuery?(p: Pane, query: string, desk: DeskApi, actor: Actor): Promise<{ query: string; notes: { id: string; title: string }[] }>;
   /** In the drawer, opens without a wire use the screen shown. Local and cross-edge wires take precedence. */
   readonly opensOnScreen?: true;
-  /** Why tile `p` can't be carried whole from desk `from` to desk `to` (the drawer, a group, another screen), or null: its own rule, asked by the one carry plan (planCarry). */
-  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi): string | null;
+  /**
+   * Why tile `p`, on desk `from`, can't be carried to desk `to` (the drawer, a group, another screen), or null: its own
+   * rule, asked by the one carry plan (planCarry) of every tile the carry takes, a group's members too. `goes`: the panes
+   * that travel with it.
+   */
+  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi, goes: ReadonlySet<Pane>): string | null;
   /** A list whose open (⏎) gives the reader it lands in the person's keys when nothing routes it (the tree); placement decides it. */
   readonly handsKeys?: true;
   /**

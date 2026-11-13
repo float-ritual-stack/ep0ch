@@ -31,6 +31,30 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
     } finally { p.close(); }
   }, 90_000);
 
+  // A group holding an answer, its reader outside the group: ^W a on the group carried the answer away from its
+  // reader too (CodeRabbit on #1493). His keys inside the group take ^W a to the answer itself, so it's the group's own send. The carry asks every tile it takes, so it's refused the same way.
+  test("a group holding an answer, sent to the drawer, keeps it: refused with why, nothing closes", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      const screen = () => layers(p).find(l => !l.drawer && l.screen === "detail")!.tiles;
+      const answer = screen().find(t => t.name === "answer")!;
+      const grouped = p.act("tile.group", `tile=${answer.tile}`, "with=detail3");
+      expect(grouped.ok).toBe(true);
+      await until(() => !screen().some(t => t.name === "answer"), "the answer in a group");
+      // The whole group goes (an agent's tile.drawer on it, or its frame's drawer press); his keys inside it take ^W a to
+      // the answer itself, the case above.
+      const group = screen().find(t => t.kind === "screen")!;
+      const sent = p.act("tile.drawer", `tile=${group.tile}`);
+      expect(sent.ok).toBe(false);
+      expect(sent.out).toContain("goes with its reader");
+      await Bun.sleep(600);
+      expect(screen().some(t => t.tile === group.tile)).toBe(true);
+      expect(names(p)).toContain("group/answer");
+    } finally { p.close(); }
+  }, 90_000);
+
   // Inside a group of one (at 44 columns the common shape), ^W G asked nothing and nested a second group of one:
   // group/group/tile. Now it says why not, and nothing nests.
   test("^W G inside a group of one doesn't nest another", async () => {
