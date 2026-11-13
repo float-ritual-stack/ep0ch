@@ -7,11 +7,23 @@ import { screenNames, screenSlug, screenTargetArg, screenTitleProblem } from "./
 import { screenNotes } from "./screen-notes";
 import type { TileSpec } from "./tiles";
 import { C, fg, RESET, selected } from "../style";
-import type { Desk } from "./desk";
+import type { Container } from "./layout";
 
 // ── the desk's overlays (the layout picker, the policy panel, the search): pickers on its mode stack ─────────
 
-type DeskPicker = ListPicker<any, Desk>;
+/**
+ * What an overlay asks of the screen it opens on, and nothing else: its actions (`run`), the shell's press, the screen
+ * saver's save, and ^W P's rows. The pickers act through these; none reaches into the desk.
+ */
+export interface OverlayHost {
+  run(name: string, args?: Record<string, unknown>, reader?: string): void;
+  readonly ctx: { press?(name: string, args?: Record<string, unknown>, tile?: string): Promise<unknown> };
+  saveFromPrompt(typed: string): Promise<void>;
+  policyNodes(tile: number): { label: string; node: Container | null }[];
+  wireRows(tile: number): PanelRow[];
+  policyRows(tile: number, node: Container | null): PanelRow[];
+}
+type DeskPicker = ListPicker<any, OverlayHost>;
 
 /** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
 export interface PanelRow { label: string; value: string; clear?: () => void; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | WireVerb }
@@ -29,7 +41,7 @@ export function layoutPicker(items: { name: string; title: string; saved: boolea
 
 /** ^W w: the name to save this screen as (its own, typed over): a screen note in the outline. */
 export function screenSaver(name: string): DeskPicker {
-  return linePrompt<Desk>({
+  return linePrompt<OverlayHost>({
     name: "layouts", title: "save this screen as", text: name, w: 100,
     doing: t => (screenNotes().some(n => n.name === screenSlug(t)) ? `save it over the screen ${t.trim()} (a note in the outline)` : `save it as ${t.trim()}, a screen note in the outline`),
     // The reason shows as it's typed, and ⏎ on a name that can't be saved leaves the prompt open with what was typed.
@@ -48,7 +60,7 @@ export function screensToOpen(): { name: string; title: string; made: boolean }[
 }
 export function screenPicker(): DeskPicker {
   const items = screensToOpen;
-  const p: DeskPicker = new ListPicker<{ name: string; title: string; made: boolean }, Desk>({
+  const p: DeskPicker = new ListPicker<{ name: string; title: string; made: boolean }, OverlayHost>({
     name: "screens", items,
     row: (it, _i, on, w) => [...pickRows(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
     // screen.open is the App's (the shell's), as the menu's letters run it.
@@ -89,13 +101,13 @@ export function choicePicker(title: string, items: { label: string; spec: Partia
  * ⏎, space or a click changes a row through the same action an agent calls; h l (or a click on a name) pick the
  * container; + - change a size; esc, q or a click outside closes it.
  */
-export function policyPanel(d: Desk, tile: number): DeskPicker {
+export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
   let wireWidth = 0;
   let node = Number.MAX_SAFE_INTEGER, crumbs: { from: number; to: number; y: number; i: number }[] = [];
   const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
   const rows = () => [...d.wireRows(tile), ...d.policyRows(tile, nodes()[node]!.node)];
   const first = () => d.wireRows(tile).length;
-  const p: DeskPicker = new ListPicker<PanelRow, Desk>({
+  const p: DeskPicker = new ListPicker<PanelRow, OverlayHost>({
     name: "policy", items: rows, closers: "q", stays: true,
     closed: () => { d.run("tile.link", { ask: false }); },
     row: (r, _i, on, w) => {
