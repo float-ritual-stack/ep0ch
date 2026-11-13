@@ -1,0 +1,33 @@
+// PIE-1792: Evan sends any tile to the drawer or gathers it into a group, and it's there when he looks, at 44 columns
+// as at 177. Each case as he meets it: a real tmux pane over a scratch service (TallyDoors), by his keys, or an agent's
+// act on the same door. Made-up notes only.
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { outliner, until } from "./scratch";
+import { beanDesk, TallyDoors, type Pane } from "./tally-pane";
+
+type Tile = { tile: string; name: string; kind: string; focused: boolean; showing?: { title: string } };
+const layers = (p: Pane) => JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; screen: string; tiles: Tile[] }[];
+const names = (p: Pane) => layers(p).flatMap(l => l.tiles.map(t => `${l.drawer ? "drawer" : l.screen}/${t.name}`));
+
+describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lose a tile (PIE-1792)", () => {
+  const doors = new TallyDoors();
+  beforeAll(() => doors.start(), 30_000);
+  afterAll(() => doors.stop());
+
+  // ^W a on an answer tile said "put answer in your drawer from the detail", and the answer closed itself there: its
+  // reader stayed on the desk, out of the drawer's reach. Now the move is refused with why, and nothing closes.
+  test("^W a on an answer tile keeps it: refused with why, the answer still beside its reader", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      const answer = layers(p).find(l => !l.drawer)!.tiles.find(t => t.name === "answer")!;
+      expect(p.act("tile.focus", `tile=${answer.tile}`).ok).toBe(true);
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "answer", "his keys on the answer");
+      p.keys("C-w", "a");
+      await Bun.sleep(1200);
+      expect(names(p)).toContain("detail/answer");
+      expect(p.capture()).toContain("goes with its reader");
+    } finally { p.close(); }
+  }, 90_000);
+});
