@@ -29,7 +29,8 @@ use crate::store::Ask;
 /// How long a hold lasts unless it is renewed, and how often it is (the door's `DRAFT_LEASE_MS`, `DRAFT_HEARTBEAT_MS`).
 pub const LEASE: std::time::Duration = std::time::Duration::from_secs(15);
 pub const BEAT: std::time::Duration = std::time::Duration::from_secs(5);
-/// How long the keys are quiet before the service is told the draft was typed in (the door's `DRAFT_TOUCH_MS`).
+/// How long the keys are quiet before the service is told the draft was typed in. (The door waits too, a second:
+/// its `DRAFT_TOUCH_MS`. The two waits are each window's own.)
 pub const QUIET: std::time::Duration = std::time::Duration::from_millis(600);
 
 /// A draft's hold on the service: while it is held, an agent's patch on the note comes to this window.

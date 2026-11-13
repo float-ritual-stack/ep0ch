@@ -553,18 +553,19 @@ Hyper have no chord. `core-contract.json`'s `keyNames` lists every name there is
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
-(DESIGN.md §5, §6.1). Seven tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
+(DESIGN.md §5, §6.1). Eight tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
 own functions on made-up garden layouts and never edited by hand.
 
 | Table | Asks | Holds the answer of |
 |---|---|---|
-| `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal in words |
+| `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal in words; for the close that commits, who keeps the closed reader's note (`closeHeir`: a tile here, one across an edge, none) |
 | `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves |
 | `act-lines.json` | an act line; a `tile=` | the line's words, its request, its arguments typed by the action; the address it is |
 | `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
-| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
+| `actor-contract.json` | an action's row (`touches`, `while`, `person`), who runs it (the person, an agent, a script's run with and without the invitation a press minted) and where the person is | `actorRule`: whether they may, with the door's sentence when not. Cargo asks each row of the window's `rule()` and holds it to whether, not to the words |
+| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows
@@ -575,8 +576,10 @@ scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check
   what they ask against the door's source: every operation, node kind, place, policy field, open rule, alt rule and
   wire verb, and every agent-gated operation asked by an agent.
 - **Read without the door:** outline-core's `test/screen-spec.test.ts` reads every table through `screen-spec.ts`,
-  `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place, address and core tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
+  `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place, address, actor and core tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
 - **Where the door decides today:** `LAYOUT_FAMILIES` in the door's `test/one-owner.test.ts`.
+
+**What the actor table found (sweep 3):** the window let an agent's act that moves the screen through while the person typed, when nothing said why they were held; the door refuses it whenever they are busy. One row of 240.
 
 Three things the tables record as the door does them, for W2 to match or to raise:
 
