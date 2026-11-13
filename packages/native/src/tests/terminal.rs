@@ -171,6 +171,24 @@ fn a_size_the_scrollback_and_a_paste_reach_the_program() {
     assert_eq!(lines(&rt, "shell").last().map(String::as_str), Some("plot $ rows"), "what was pasted is on its line, cut at the tile's width");
 }
 
+/// What keeps a program is said whole in a narrow tile too: what is said beside it (that the program was found
+/// running) gives way, and the words a person relies on are never the ones cut.
+#[test]
+fn what_keeps_a_program_is_said_whole_in_a_narrow_tile() {
+    let (g, _running) = shed("herdr-core", true);
+    let mut rt = window(g.app);
+    // An agent beside the note, in half the reader's width. Detached and given a tile again, it was found running,
+    // and its tile says so beside what keeps it.
+    assert!(line(&mut rt, "terminal.open agent=true").ok);
+    assert!(line(&mut rt, "terminal.detach tile=agent").ok && line(&mut rt, "terminal.attach key=garden-1").ok);
+    assert!(rt.find("tile/agent/found").is_some(), "the tile says its program was found running");
+    let said = facts(&rt, "agent")["kept"].as_str().unwrap().to_string();
+    let wide = rune::text::measure(&said, &[], rune_kit::Kit::neutral(false).ty.small, None).0;
+    let (kept, tile) = (rect_of(&rt, "tile/agent/kept").expect("what keeps it is drawn"), rect_of(&rt, "tile/agent").unwrap());
+    assert!(wide < tile[2] - 16.0, "the tile has room for the words: {wide} in {tile:?}");
+    assert!(kept[2] + 0.5 >= wide, "\"{said}\" is {wide} wide and was given {}: it is cut short", kept[2]);
+}
+
 // ── detach, attach, return ──────────────────────────────────────────────────────────────────────────────────
 
 #[test]

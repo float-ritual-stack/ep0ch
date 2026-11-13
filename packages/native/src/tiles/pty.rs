@@ -107,9 +107,10 @@ fn button(cx: &TileCx, line: &str, k: &Kit) -> El {
 fn strip(cx: &TileCx, shown: &Shown, typing: bool, k: &Kit) -> El {
     let c = &k.c;
     let say = |words: String, part: &str, color: Color| text(words).key(cx.key(part)).font(k.ty.small).color(color).truncate();
-    // What keeps it, on a line of its own: read before anything is relied on.
-    let mut kept = row().w_full().gap(10.0).center_y().child(say(shown.kept_said(), "kept", if shown.keeps { c.text_muted } else { c.warning.fg }));
-    if shown.attached { kept = kept.child(say(pty::FOUND.to_string(), "found", c.text_faint)) }
+    // What keeps it, on a line of its own: read before anything is relied on, so said whole. What is said beside
+    // it (that the program was found running) has the room that is left, and is what a narrow tile cuts.
+    let mut kept = row().w_full().gap(10.0).center_y().child(text(shown.kept_said()).key(cx.key("kept")).font(k.ty.small).color(if shown.keeps { c.text_muted } else { c.warning.fg }));
+    if shown.attached { kept = kept.child(say(pty::FOUND.to_string(), "found", c.text_faint).grow(1.0).min_w(0.0)) }
     // Then how it stands, in its own word where it reports one, and whose the keys are: the act that changes
     // that, by its own label and key.
     let mut stands = row().w_full().gap(8.0).center_y();
