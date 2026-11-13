@@ -285,3 +285,62 @@ export function quoteRefusal(miss: PassageMiss): Refusal {
     ? new Refusal("ambiguous", `Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId (${said})`)
     : new Refusal("not-found", `Comment quote or context was not found; read the current source and select it again (${said})`);
 }
+
+// ── a span of the source, in a text written from it; and a passage as whole words ───────────────────────────────
+
+/** The drawn characters `[from, to)` of `drawn` that came from `span` of its source, or null when none did. */
+function drawnRange(drawn: DrawnText, span: { start: number; end: number }): { from: number; to: number } | null {
+  let from = -1, to = -1;
+  for (let i = 0; i < drawn.at.length; i++) {
+    if (drawn.at[i]! >= span.end || drawn.end[i]! <= span.start) continue;
+    if (from < 0) from = i;
+    to = i + 1;
+  }
+  return from < 0 ? null : { from, to };
+}
+
+/** Every place `words` is in `text`, as offsets. */
+function places(text: string, words: string): number[] {
+  const found: number[] = [];
+  for (let at = text.indexOf(words); at >= 0; at = text.indexOf(words, at + 1)) found.push(at);
+  return found;
+}
+
+/**
+ * What an anchor on a part's drawn words is found by (part-anchor.ts): a place on drawn text other things attach to.
+ * Where `span` of `source` is in `rendered`, a text written from that source for a renderer (a prose part's
+ * Markdown, `proseMarkdown`): the range of `rendered` the same drawn words are drawn from. Both texts are read as a
+ * reader draws them; where the two readings agree the place is the same place, and where they don't (a reference
+ * with no title here, drawn as its id there) the span's own words are looked for, the nearest to where they stood.
+ * Null: the span holds nothing a reader draws, or its words aren't in `rendered`.
+ */
+export function spanIn(source: string, span: { start: number; end: number }, rendered: string, reads: DrawnReads = {}): { start: number; end: number } | null {
+  const from = drawnText(source, reads), found = drawnRange(from, span);
+  if (!found) return null;
+  const words = from.text.slice(found.from, found.to);
+  if (!words.trim()) return null;
+  const to = drawnText(rendered, reads);
+  if (to.text.slice(found.from, found.to) === words) return drawnSpan(rendered, to, found.from, found.to);
+  const at = places(to.text, words).sort((a, b) => Math.abs(a - found.from) - Math.abs(b - found.from))[0];
+  return at === undefined ? null : drawnSpan(rendered, to, at, at + words.length);
+}
+
+const WORD = /[\p{L}\p{N}]/u;
+const inWord = (text: string, at: number) => at > 0 && at < text.length && WORD.test(text[at - 1]!) && WORD.test(text[at]!);
+
+/**
+ * A passage picked by hand is whole words: a selection that starts or ends inside a word (a press that landed past
+ * the middle of its first letter) takes the whole word.
+ * `span` of `text` as whole words: a passage that starts or ends inside a word takes the whole word, read as a
+ * reader draws the text (so `**Act**ion` is one word, and a word is never cut at a mark). The span it is now, and
+ * its words as drawn. A span that holds nothing a reader draws is answered as it came.
+ */
+export function wholePassage(text: string, span: { start: number; end: number }, reads: DrawnReads = {}): { span: { start: number; end: number }; words: string; widened: boolean } {
+  const drawn = drawnText(text, reads), found = drawnRange(drawn, span);
+  if (!found) return { span, words: "", widened: false };
+  let { from, to } = found;
+  while (inWord(drawn.text, from)) from -= 1;
+  while (inWord(drawn.text, to)) to += 1;
+  const widened = from !== found.from || to !== found.to;
+  return { span: widened ? drawnSpan(text, drawn, from, to) : span, words: drawn.text.slice(from, to), widened };
+}

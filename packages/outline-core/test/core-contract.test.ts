@@ -38,7 +38,31 @@ test("the quoted rows hold a passage found as written, one found as drawn, and e
   for (const row of t.quoted) if (row.found) expect((row.text ?? t.quotedNote.text).slice(row.found.start, row.found.end)).toBe(row.found.exact);
   // The note's parts are where its text has them, and its prose is drawn from that text.
   for (const part of t.quotedNote.parts) expect(t.quotedNote.text.slice(part.span.start, part.span.end).length).toBeGreaterThan(0);
-  expect(t.quotedNote.parts.map(p => p.view.type)).toEqual(["markdown", "picture", "markdown"]);
+  expect(t.quotedNote.parts.map(p => p.view.type)).toEqual(["markdown", "picture", "markdown", "picture", "markdown"]);
+});
+
+test("a found row says its passage as whole words, and the quoted note says where a thread's words are in a part's own text", () => {
+  type Whole = { start: number; end: number; exact: string; quote: string; widened: boolean };
+  const t = JSON.parse(readFileSync(CORE_CONTRACT, "utf8")) as {
+    quotedNote: { text: string; thread: { id: string; start: number; end: number }; parts: { line: number; view: { text?: string } }[]; marked: { line: number; marks: { kind: string; id: string; start: number; end: number; act: string }[] }[] };
+    quoted: { text?: string; passage: { quote: string }; found?: { start: number; end: number }; whole?: Whole }[];
+  };
+  const found = t.quoted.filter(row => row.found);
+  for (const row of found) {
+    const whole = row.whole!;
+    expect((row.text ?? t.quotedNote.text).slice(whole.start, whole.end)).toBe(whole.exact);
+    // Whole words hold what was found, and a passage that was whole is the asker's own words.
+    expect(whole.start <= row.found!.start && whole.end >= row.found!.end).toBe(true);
+    expect(whole.widened ? whole.quote !== row.passage.quote : whole.quote === row.passage.quote).toBe(true);
+  }
+  // One that starts inside a word, in a paragraph and in a list item, and ones that don't.
+  expect(found.filter(row => row.whole!.widened).map(row => row.whole!.quote)).toEqual(["Sow the early peas in March", "Net the peas against pigeons. Stake the beans"]);
+  expect(found.some(row => !row.whole!.widened)).toBe(true);
+  // The thread's words, in the Markdown the part it is in is drawn from.
+  const mark = t.quotedNote.marked[0]!.marks[0]!, part = t.quotedNote.parts.find(p => p.line === t.quotedNote.marked[0]!.line)!;
+  expect([t.quotedNote.marked.length, mark.kind, mark.id, mark.act]).toEqual([1, "thread", t.quotedNote.thread.id, `thread.toggle thread="${t.quotedNote.thread.id}"`]);
+  expect(part.view.text!.slice(mark.start, mark.end)).toBe("the last frost.\n\nWater the beds at dusk.");
+  expect(t.quotedNote.text.slice(t.quotedNote.thread.start, t.quotedNote.thread.end)).toBe("the last frost.\n\nWater the beds at dusk.");
 });
 
 test("the indent rows hold a level in and out, tabs, a selection, and a press that moves nothing; each row's spans make its text", () => {

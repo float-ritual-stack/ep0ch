@@ -14,6 +14,10 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 
 ![About a note, on the kitchen screen: a comment being written on words of it, its thread with a reply, an agent's proposed edit as the lines the service found, and an earlier revision opened to what changed since, dark](docs/about-dark.png)
 
+![A note read with a pen: the words two comment threads are on marked where they are drawn, the first thread opened whole in the margin beside them (the comment, an agent's answer, its own Reply and Resolve), the second folded to its first words, dark](docs/margin-dark.png)
+
+![A comment written where its words are, inside a part: the note's prose is one part, and the field stands in it under the list whose last item was picked (a press late at each end, found as whole words), over the paragraph that follows, the words two threads are on still marked on both sides, dark](docs/inplace-dark.png)
+
 ![A comment on words as the reader draws them: begun on words across bold text and a reference, beside a thread the service anchored to the source such words were drawn from (the link whole, the bold run with its marks), dark](docs/quote-dark.png)
 ![The keys screen: every way to press an action, a list made from the actions' own rows, dark](docs/keys-dark.png)
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
@@ -75,7 +79,8 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Complete what you type | A page's name begun (`[[se`), a note's (`((po`), a property, a component, a callout: the service's list hangs at the caret. Down and Up light a row, Tab or Return writes it, Esc puts the list away. Beside the list is what the lit row says of itself (a property's meaning, how many notes carry it, a value's own words) and what choosing it makes, as written and as the service drew it; under it, what it is a list of and which row of how many is lit (`properties 2/5`) |
 | Write while an agent edits | The block is held on the service while it is open: an agent's edit lands in your text in front of you, lit, and the tile says who changed what. Never in the paragraph you are typing in, never under an input method's marked text, and your caret and selection stay yours. The editor's own undo takes it back |
 | Find your words back | What you type is kept as you type it. A window that ended before a save finds the text back in its block, and says so |
-| Comment on words | Select words in a reader and press the comment's key (`comment`; its button is on the kitchen screen's toolbar, and the bar runs it for the same words): the comment opens over the note, in the editor a block has, under the words it quotes; Save sends it. The words may cross a link, bold text or paragraphs: they are sent as the reader drew them, and the service anchors the thread to the source they were drawn from. Words the note draws twice are told apart by the part they were selected in, and refused with why when one part draws them twice. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
+| Comment on words | Select words in a reader and press the comment's key (`comment`: `a` then `c` while words are picked, as in the door, or its own chord anywhere; its button stands by the selection, and the bar runs it for the same words): the comment opens in place, in the page under the block the words end in (inside a long run of prose too, with the rest of it under the field: the service says where the words are in what was drawn; under the part when they end in its last block, or the host is an older one), with both scrolled into view, in the editor a block has, under the words it quotes (a long passage by its start and its end); Save sends it. The words are whole words: a selection that starts or ends inside one (a press past the middle of a first letter) takes the whole word, as the service finds the passage when the words are picked (`passages.find`), and words the note doesn't hold as picked are said over the field before anything is written. The words may cross a link, bold text or paragraphs: they are sent as the reader drew them, and the service anchors the thread to the source they were drawn from. Words the note draws twice are told apart by the part they were selected in, and refused with why when one part draws them twice. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
+| See what is commented | The words a thread is on are marked where the note is read, and the thread stands beside them: in a margin when the reader is wide enough for one, under the part when it isn't. Folded it is the comment's first words; a press on it, or on the marked words, shows it whole, with its replies and its own Reply and Resolve (`thread.toggle thread=`). A comment you send brings the Comments tile to the front of its tabs (`threads`); somebody else's moves no tab, and is marked and listed as it lands |
 | Answer and resolve | The Comments tile lists the note's threads, the open ones first, each with what it is on and its replies under it. Reply opens the same editor where the note is read (`reply thread=`); Resolve puts the thread among the earlier ones, and Reopen brings it back (`resolve thread=`) |
 | Review a proposed edit | The Proposals tile lists the edits waiting beside the note: who sent each, why it didn't apply, and what it would change, line by line as the service found it. Apply and Dismiss are its presses (`proposal.apply id=`, `proposal.dismiss id=`) |
 | Look back, and go back | The Revisions tile lists the texts the note had. A press on an earlier one opens what changed since under its row (`list.pick id=<its number> tile=revisions`); Restore puts that text in the editor, to save or drop (`revision.restore revision=`) |
@@ -97,6 +102,11 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 
 **The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
 keycap on a button, the bar's rows and `actions` over the control socket all read the row. The defaults:
+
+A key's place is where the keys are when it holds: `selection` is a reader with the keys while words of its note are
+picked there, and its keys are the door's for a selection (`a` then a letter: `a` `c` comments). The door's own
+comment on the whole note is `C`; here that is the comment's chord with nothing picked. Plain letters are bound
+nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 
 <!-- keys: the key table, as keys.rs reads it from the rows (a test keeps this true) -->
 | Chord | Act line | Where | Does |
@@ -121,6 +131,7 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `up` | `complete.move by=-1` | complete | the row before |
 | `escape` | `complete.dismiss` | said | put the list away |
 | `mod+shift+m` | `comment` | everywhere | comment on the selected words, or on the note |
+| `a then c` | `comment` | selection | comment on the selected words |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |
@@ -555,6 +566,10 @@ model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the sam
 reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here;
 F2's are in `lists.rs` and `shell.rs`: a fold's mark only on a row the service says opens onto notes, and a reader
 told no note drawn as empty in its kind's own words), and
+`margin.rs` has a comment in place (picked words found as whole words by the service, the comment's field under the
+part its words are in with both in view, the words a thread is on marked and its card beside them, opened by a press
+on either, the person's send bringing the comments forward and an agent's moving no tab, the door's keys for picked
+words), and
 `review.rs` has what is about a note (the tiles
 that follow the reader, a comment written on words selected in the window across a link, bold text and two
 paragraphs, words drawn twice told apart by their part, a reply and a thread resolved by the
@@ -663,7 +678,9 @@ same groups; and a note written in place, with a name begun and an agent's edit 
 behind it, a comment thread on words of it and an agent's proposed edit beside it; and a note with a header image,
 pictures it draws into the folder, an svg fence and a mermaid fence), and `quote` (a note the same seed writes, its
 words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
-and one begun on words picked as a selection says them). `--act <file>` runs any file of them before the
+and one begun on words picked as a selection says them), and `margin` (a note the same seed writes with two comment
+threads on words of it: the passages marked, the first thread opened beside its words; draw it wide, `--size 1760x900 --at 0.5`,
+for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
@@ -671,7 +688,7 @@ first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `
 a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<group>`,
 `tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), in a
 block being written `tile/reader/source` (its field), `tile/reader/save`, `tile/reader/done` or `tile/reader/discard`,
-`tile/reader/told` (who changed it), `tile/reader/held`, `tile/reader/on` (what a comment or a reply is on) and `tile/reader/complete-option-<n>` (a row of the list at the caret); in a
+`tile/reader/told` (who changed it), `tile/reader/held`, `tile/reader/on` (what a comment or a reply is on), `tile/reader/on-problem` (why its words are no passage of the note), `tile/reader/editor` (the field's frame, where it stands in the page), `tile/reader/picked/<act line>` (an action of the words picked, by them), `tile/reader/mark/<thread>/<part's line>/<n>` (the words a thread is on, a line of them), `tile/reader/card/<thread>` (the thread beside them; its line `tile/reader/margin/<thread>` folded and `…/head` whole, its own presses `…/press/<n>`) and `tile/reader/complete-option-<n>` (a row of the list at the caret); in a
 list whose rows hold more than a line `tile/<name>/row/<id>/head` (the row's own line), `tile/<name>/row/<id>/press/<n>` (a press of its own) and
 `tile/<name>/row/<id>/view` (what it shows under itself: a change's lines are `…/view/line/<n>`), in a terminal `tile/<name>/screen` (its screen), `tile/<name>/row/<n>` (a row; its pieces `…/at/<column>`, its grounds `…/ground/<column>`, the cursor `…/cursor`), `tile/<name>/kept` (what keeps its program), `tile/<name>/report` (what it reports of itself) and `tile/<name>/do/<act line>` (its buttons); a
 toolbar button is
@@ -724,7 +741,16 @@ toolbar button is
   selection is in, not where in it), so such a comment is refused with why until a few more words are selected; and
   words a part shows that the note's text doesn't hold (a figure's numbers, a list's rows, another note's text
   embedded) are no passage of it. A drag that starts on a link's label selects nothing (the press is the link's):
-  a selection across a link starts beside it. No mark is drawn in the note where a thread is anchored; a posted comment isn't edited here, nor a thread marked seen or kept; highlights and
+  a selection across a link starts beside it. A press in the gutter left of a line starts no selection either (Rune's
+  text is selected from a press on it), which is why a selection is asked of the service as whole words. A thread on
+  words of the note's first line (its title, its chips) is marked nowhere on the page, and one on a figure's own
+  lines marks the figure whole; a press on marked words is asked of the box each line of the mark was last drawn
+  in, so the unmarked start of a marked line that wraps opens it too. A thread's card stands beside the top of
+  the part its words are in (under the part in a narrow reader), not beside the words themselves: in a run of prose
+  longer than the reader the card of a thread far down it is out of view until the page is scrolled to the part's
+  top (its end, when narrow), and the Comments tile is where it is read meanwhile. The actions offered by a selection are this
+  window's own rows (Comment): an extension's actions for a passage (Marginalia's highlight, define, cite: the door's
+  `a` then `h`, `d`, `k`) are not offered or bound here yet. A posted comment isn't edited here, nor a thread marked seen or kept; highlights and
   the agent that answers in threads have no press. A reply is written in the reader, not in the list.
 - Proposals: a proposal that also makes or moves notes says how many such changes it holds and doesn't list them;
   "resolve against the note now" (the outline agent's) has no press here.

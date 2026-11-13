@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::support::*;
 use crate::actions::{self, Actor, App, Tone};
-use crate::draft::{Quoted, Writes};
+use crate::draft::Writes;
 use crate::keys::{self, Layer};
 
 /// The last thing the window asked of the host by this action.
@@ -71,7 +71,12 @@ fn a_comment_is_written_on_the_words_selected_and_sent_by_the_key_that_saves() {
     assert_eq!(rt.selected_text().as_deref(), Some("Sow the early peas in March, before the last frost.\n\nWater the beds at dusk."));
     let picked = rt.state.ui("reader").passage.clone().expect("the selection was told to the window");
     let part = quotes()["quotedNote"]["parts"][0]["span"].clone();
-    assert_eq!(picked, Quoted::drawn(rt.selected_text().unwrap(), Some((part["start"].as_u64().unwrap() as usize, part["end"].as_u64().unwrap() as usize))), "the words as drawn, within the part's span of the note's text");
+    let span = (part["start"].as_u64().unwrap() as usize, part["end"].as_u64().unwrap() as usize);
+    assert_eq!((picked.words.clone(), picked.drawn, picked.within), (rt.selected_text().unwrap(), true, Some(span)), "the words as drawn, within the part's span of the note's text");
+    // Where they are is asked as they are picked (`passages.find`, as whole words): the service's answer is kept with them.
+    let find = sent(&asked, "passages.find").expect("the service was asked where the picked words are");
+    assert_eq!((find["blockId"].as_str(), &find["passage"], find["whole"].as_str()), (Some(SOWING), &json!({ "quote": picked.words, "drawn": true, "within": part }), Some("words")));
+    assert_eq!(picked.found, Some(Ok(span)), "a part selected whole is the whole part");
     assert!(rt.state.steps.iter().any(|step| step.action == "passage.select" && step.by == Actor::Person && step.ok));
     // The comment's chord opens it over the note, which stays as it reads; the keys are the draft's.
     chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
@@ -79,7 +84,7 @@ fn a_comment_is_written_on_the_words_selected_and_sent_by_the_key_that_saves() {
     assert_eq!((&draft.writes, draft.note.as_str(), draft.hold_id()), (&Writes::Comment { on: Some(picked.clone()) }, SOWING, None), "a comment is held by nobody");
     assert_eq!(rt.state.person().layer, Layer::Draft);
     assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/part/0").is_some() && rt.find("tile/reader/title").is_some(), "the field stands over the note: {:?}", keyed(&rt, "tile/reader/"));
-    assert_eq!(says(&rt, "tile/reader/on"), [format!("On “{}”", picked.words)]);
+    assert_eq!(says(&rt, "tile/reader/on"), ["On “Sow the early peas in March, before the last frost. Water the beds at dusk.”"], "the words on one line, as they read");
     assert!(sent(&asked, "drafts.hold").is_none(), "nothing is held on the service for a comment");
     // Typed in the same field, completed by the same list.
     typed(&mut rt, "Which frost? See [[sh");
@@ -130,7 +135,9 @@ fn words_the_note_draws_twice_are_the_ones_in_the_part_they_were_selected_in() {
     press(&mut rt, "tile/reader/discard");
     // Picked as drawn with no part said (the act, typed): drawn twice, refused the same way.
     assert!(line(&mut rt, "passage.select quote=\"Water the beds at dusk\"").ok);
-    assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn("Water the beds at dusk", None)));
+    let twice = rt.state.ui("reader").passage.clone().expect("the words are picked");
+    assert_eq!((twice.words.as_str(), twice.drawn, twice.within), ("Water the beds at dusk", true, None));
+    assert!(twice.refused().is_some_and(|why| why.contains("Comment quote is ambiguous")), "the service says so as they are picked: {twice:?}");
     assert!(line(&mut rt, "comment").ok);
     typed(&mut rt, "Which one?");
     chord(&mut rt, Key::Command('s'), primary());
@@ -141,7 +148,9 @@ fn words_the_note_draws_twice_are_the_ones_in_the_part_they_were_selected_in() {
     assert!(line(&mut rt, "open id=plot").ok);
     rt.update(|_, tx| tx.select_all_text("tile/reader/part/0"));
     rest(&mut rt);
-    assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn("Before the rain. See the shed and seeds.", Some((19, 35)))));
+    let drawn = rt.state.ui("reader").passage.clone().expect("the words are picked");
+    assert_eq!((drawn.words.as_str(), drawn.drawn, drawn.within), ("Before the rain. See the shed and seeds.", true, Some((19, 35))));
+    assert!(drawn.refused().is_some_and(|why| why.contains("Comment quote or context was not found")), "{drawn:?}");
     assert!(line(&mut rt, "comment").ok);
     typed(&mut rt, "Which shed?");
     chord(&mut rt, Key::Command('s'), primary());

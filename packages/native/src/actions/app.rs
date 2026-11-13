@@ -29,7 +29,8 @@ pub struct TileUi {
     pub note: Option<String>,
     /// The notes a reader showed before, oldest first: where `back` goes.
     pub history: Vec<String>,
-    /// The folders a list has unfolded, when it is a tree.
+    /// The rows a list has unfolded (a tree's folders, a revision's change); in a reader, the things attached to
+    /// its note's words that are shown whole beside them (a comment's card, by its thread).
     pub unfolded: BTreeSet<String>,
     /// The note whose way from the top a tree unfolded when its page first came (once: a folder folded by hand stays folded).
     pub revealed: Option<String>,
@@ -611,6 +612,25 @@ impl App {
         })
     }
 
+    /// The list a thing attached to a reader's words is a row of (`parts::Mark.from`, the service's word), asked of
+    /// that reader's note: the same ask a tile that lists it makes, so the two share one answer.
+    pub fn beside_ask(&self, tile: &str, from: &str) -> Option<Ask> {
+        let note = self.note_of(tile)?;
+        self.ask_of(from, true, |name| (name == OF).then(|| json!(note)))
+    }
+    /// The lists the things attached to the words of a reader's page are rows of, one ask a list.
+    pub fn beside_asks(&self, tile: &str) -> Vec<Ask> {
+        let mut from: Vec<String> = self.page_of(tile).into_iter().flat_map(|page| page.parts.iter()).flat_map(crate::parts::marks_under).filter_map(|mark| mark.from).collect();
+        from.sort();
+        from.dedup();
+        from.iter().filter_map(|from| self.beside_ask(tile, from)).collect()
+    }
+    /// The row a thing attached to a reader's words is, in the list it names: what stands beside the words.
+    pub fn attached_row(&self, tile: &str, mark: &crate::parts::Mark) -> Option<&ListRow> {
+        let ask = self.beside_ask(tile, mark.from.as_deref()?)?;
+        self.store.read::<ListAnswer>(&ask)?.list.rows.iter().find(|row| row.id == mark.id)
+    }
+
     /// A list tile's answer: the one for what it asks now, else the last it showed while that is on its way.
     pub fn list_of(&self, tile: &str) -> Option<&ListAnswer> { self.list_ask(tile).and_then(|ask| self.store.read::<ListAnswer>(&ask)).or_else(|| self.store.last::<ListAnswer>(tile, "list")) }
     /// A list tile's rows, in the order they are listed.
@@ -965,8 +985,12 @@ impl App {
     /// This window wrote: what it shows of the notes its readers have open and of these folders is read now, not
     /// when the watch says.
     pub(in crate::actions) fn wrote(&mut self, parents: &[Option<String>]) {
-        let readers: Vec<String> = self.shown_tiles().into_iter().filter(|tile| self.reads_notes(tile)).filter_map(|tile| self.note_of(&tile)).collect();
-        for note in readers { let ask = self.page_ask(&note); self.store.refresh(&ask) }
+        let readers: Vec<String> = self.shown_tiles().into_iter().filter(|tile| self.reads_notes(tile)).filter(|tile| self.note_of(tile).is_some()).collect();
+        // (A reader's page, and the lists of what is attached to its words: a comment's card beside them.)
+        for tile in readers {
+            let asks: Vec<Ask> = self.note_of(&tile).map(|note| self.page_ask(&note)).into_iter().chain(self.beside_asks(&tile)).collect();
+            for ask in asks { self.store.refresh(&ask) }
+        }
         // A list that shows a folder written under, or lists no folders at all (a question's matches), is read again.
         let mut seen: HashSet<AskKey> = HashSet::new();
         for tile in self.shown_tiles() {

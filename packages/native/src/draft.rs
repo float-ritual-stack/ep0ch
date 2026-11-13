@@ -88,13 +88,37 @@ pub struct Quoted {
     pub within: Option<(usize, usize)>,
     /// Among repeats, the ones nearest this UTF-16 offset of the note's text.
     pub near: Option<usize>,
+    /// The service's word on where they are, once it has said (`passages.find`, asked when words are picked): the
+    /// span of the note's text they are, or why they are no passage of it. Its to say, and never kept between runs.
+    pub found: Option<Result<(usize, usize), String>>,
+    /// The words as they were picked, when the service answered wider ones: picked again, they are these still.
+    pub asked: Option<String>,
+    /// Where they are in what the reader drew, when the service said (`passages.find`, asked with the part they end
+    /// in): that part, and the range of the text its view is drawn from. What is written about them stands there,
+    /// inside a part as long as its run of prose. The service's, as a page's marks are, and never kept between runs.
+    pub at: Option<crate::parts::Anchor>,
 }
 
 impl Quoted {
     /// Words as the note's text has them (an act's `quote=`), nearest `near` among repeats.
     pub fn written(words: impl Into<String>, near: Option<usize>) -> Quoted { Quoted { words: words.into(), near, ..Quoted::default() } }
     /// Words selected in what a reader drew, within a span of the note's text when the reader knows one.
-    pub fn drawn(words: impl Into<String>, within: Option<(usize, usize)>) -> Quoted { Quoted { words: words.into(), drawn: true, within, near: None } }
+    pub fn drawn(words: impl Into<String>, within: Option<(usize, usize)>) -> Quoted { Quoted { words: words.into(), drawn: true, within, ..Quoted::default() } }
+
+    /// The service found them: the span of the note's text they are, and the quote to send for it (their words as
+    /// picked when those are the passage whole; the whole words, when the selection began or ended inside one).
+    pub fn found(&mut self, span: (usize, usize), quote: &str) { self.words = quote.to_string(); self.found = Some(Ok(span)); }
+
+    /// Where in the note's text they end, as far as anybody has said: where the service found them, else the end
+    /// of the span they were drawn within. What is written about them stands under the part that holds it.
+    pub fn ends_at(&self) -> Option<usize> { self.found.as_ref().and_then(|found| found.as_ref().ok()).map(|span| span.1).or(self.within.map(|within| within.1)) }
+
+    /// The place in a part's own drawn text the service found them at (`Quoted::at`), by the part's line and the
+    /// offset they end at there (UTF-16): where in that part what is written about them stands.
+    pub fn stands_at(&self) -> Option<(u64, usize)> { self.at.as_ref().and_then(|at| at.range.map(|range| (at.part, range.1))) }
+
+    /// Why they are no passage of the note, when the service said so.
+    pub fn refused(&self) -> Option<&str> { self.found.as_ref().and_then(|found| found.as_ref().err()).map(String::as_str) }
 
     /// The passage as the service takes it (`BlockCommentPassage`).
     pub fn passage(&self) -> Value {
@@ -107,8 +131,24 @@ impl Quoted {
 
     fn read(kept: &Value) -> Option<Quoted> {
         let span = |v: &Value| Some((v["start"].as_u64()? as usize, v["end"].as_u64()? as usize));
-        Some(Quoted { words: kept["quote"].as_str()?.to_string(), drawn: kept["drawn"] == true, within: span(&kept["within"]), near: kept["near"].as_u64().map(|at| at as usize) })
+        Some(Quoted { words: kept["quote"].as_str()?.to_string(), drawn: kept["drawn"] == true, within: span(&kept["within"]), near: kept["near"].as_u64().map(|at| at as usize), found: None, asked: None, at: None })
     }
+}
+
+/// The most of a quote said over the field of what is written about it, in characters: a line or two.
+const QUOTE_SHOWN: usize = 140;
+
+/// Words quoted, as one or two lines say them: every run of blanks one space (a selection across list items and
+/// paragraphs is lines of them), and a long one its start and its end with an ellipsis between, each cut at a word.
+pub fn shortened(words: &str) -> String {
+    let one: Vec<char> = words.split_whitespace().collect::<Vec<_>>().join(" ").chars().collect();
+    if one.len() <= QUOTE_SHOWN { return one.into_iter().collect() }
+    let (head, tail) = (QUOTE_SHOWN * 3 / 5, QUOTE_SHOWN * 2 / 5 - 3);
+    // (Cut at the blank nearest the cut, when one is near: no word is left in half.)
+    let start = (head.saturating_sub(16)..=head).rev().find(|at| one[*at] == ' ').unwrap_or(head);
+    let from = one.len() - tail;
+    let end = (from..from + 16).find(|at| one[*at] == ' ').map_or(from, |at| at + 1);
+    format!("{} … {}", one[..start].iter().collect::<String>(), one[end..].iter().collect::<String>())
 }
 
 /// What a draft writes when it is saved.
@@ -141,12 +181,26 @@ impl Writes {
     pub fn on(&self) -> Option<String> {
         match self {
             Writes::Block => None,
-            Writes::Comment { on: Some(quoted) } => Some(format!("On “{}”", quoted.words)),
+            Writes::Comment { on: Some(quoted) } => Some(format!("On “{}”", shortened(&quoted.words))),
             Writes::Comment { on: None } => Some("On the whole note".to_string()),
             Writes::Reply { to, .. } if to.is_empty() => Some("In reply".to_string()),
             Writes::Reply { to, .. } => Some(format!("In reply to “{to}”")),
         }
     }
+
+    /// Where in the note's text the words a comment is on end, as far as anybody has said (`Quoted::ends_at`): what
+    /// is written stands under the part of the page that holds it. None: a comment on the whole note, or anything else.
+    pub fn ends_at(&self) -> Option<usize> { self.quoted().and_then(Quoted::ends_at) }
+
+    /// Where in a part's own drawn text the words a comment is on end (`Quoted::stands_at`): the part by its line,
+    /// and the offset there. None: nobody has said, and what is written stands under the part whole.
+    pub fn stands_at(&self) -> Option<(u64, usize)> { self.quoted().and_then(Quoted::stands_at) }
+
+    /// The thing a reply answers (its thread), by id: what is written stands under the part that carries its mark.
+    pub fn answers(&self) -> Option<&str> { match self { Writes::Reply { thread, .. } => Some(thread.as_str()), _ => None } }
+
+    /// The words a comment is on, whole: what `on` says shortened.
+    pub fn quoted(&self) -> Option<&Quoted> { match self { Writes::Comment { on } => on.as_ref(), _ => None } }
 
     /// As the wire and `peek` name it.
     pub fn kind(&self) -> &'static str { match self { Writes::Block => "block", Writes::Comment { .. } => "comment", Writes::Reply { .. } => "reply" } }
