@@ -56,11 +56,12 @@ export class Passage {
 
   /**
    * Select an exact quote of the source text, the way an agent picks a passage: the occurrence nearest
-   * `near` (an offset), or the first. Returns why not when the words aren't there, or match only blanks.
+   * `near` (an offset), or the first; only within `[from, to)` of the text when a span is given. Returns why not
+   * when the words aren't there, or match only blanks.
    */
-  selectText(quote: string, near?: number): string | null {
-    // The one quote lookup (outline-core passage.ts): the first place, or the one nearest `near`.
-    const at = findPassage(this.text, quote, { near: near ?? 0 });
+  selectText(quote: string, near?: number, from?: number, to?: number): string | null {
+    // The one quote lookup (outline-core passage.ts): the first place, or the one nearest `near`, in the span given.
+    const at = findPassage(this.text, quote, { near: near ?? from ?? 0, ...(from === undefined ? {} : { lower: Math.max(0, from) }), ...(to === undefined ? {} : { upper: Math.min(this.text.length, to) }) });
     if (isMiss(at) && !quote.trim()) return at.why;
     if (isMiss(at)) return at.count ? missMessage(at) : `"${ellipsize(quote, 40)}" isn't in the note's current text${at.nearest ? ` (nearest: "${ellipsize(at.nearest.text, 40)}")` : ""}`;
     this.from = at.start; this.to = at.end;

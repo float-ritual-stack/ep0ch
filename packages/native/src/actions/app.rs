@@ -42,8 +42,9 @@ pub struct TileUi {
     pub subject: Option<String>,
     /// What a press in this tile last did, said on the part that was pressed.
     pub said: Option<Said>,
-    /// The words selected in a reader, as it shows them: what a comment made here is on.
-    pub passage: Option<String>,
+    /// The words selected in a reader, as it shows them, and the span of the note's text they were drawn within:
+    /// what a comment made here is on.
+    pub passage: Option<crate::draft::Quoted>,
 }
 
 /// What a press did, and where it was pressed: the note and the line of the part.

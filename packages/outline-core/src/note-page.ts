@@ -2,7 +2,7 @@
 // chips, then its body in order, each part prose or a component with the service's answer in it. A client that can't
 // run this package (a native window, a web view, a chat app) reads Blockdown through this and parses nothing: the
 // service finds the components, asks their questions (`site.answer`) and says what each holds. Pure: no I/O.
-import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, type CalloutRegistry } from "./callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, calloutLead, quoteDepth, type CalloutRegistry } from "./callouts";
 import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
 import type { SourceRange } from "./code-ranges";
@@ -227,8 +227,8 @@ export function proseMarkdown(text: string, titles: ReadonlyMap<string, string>,
   }
   const lines = (out + text.slice(at)).split("\n");
   for (const c of calloutBlocks(lines)) {
-    const type = callouts.style(c.type), line = lines[c.line]!;
-    lines[c.line] = `${line.slice(0, line.length - quoteDepth(line).content.length)}**${type.icon} ${c.title || type.title}**`;
+    const line = lines[c.line]!;
+    lines[c.line] = `${line.slice(0, line.length - quoteDepth(line).content.length)}**${calloutLead(c, callouts)}**`;
   }
   const code = new Set(noteCodeFences(lines).flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, i) => f.start + i)));
   return lines.map((line, i) => !code.has(i) && !code.has(i + 1) && line.trim() && lines[i + 1]?.trim() && !line.endsWith("  ") ? `${line}  ` : line).join("\n");

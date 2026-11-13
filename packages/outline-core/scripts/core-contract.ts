@@ -11,10 +11,19 @@
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
+//   quoted     a note's text, a quote as a client sends it with a comment → the span of the source it is, or the
+//              refusal the service sends (findQuoted, quoteRefusal). `quotedNote` is the made-up note most of them
+//              are about, as a page: a stand-in host serves it and answers a comment from these rows, so it refuses
+//              what the service refuses.
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
+import { sourceLines } from "../src/code-ranges";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
+import { findQuoted, quoteRefusal, type QuotedPassage } from "../src/drawn-passage";
+import { noteMediaLines } from "../src/media-line";
+import { pagePicture, proseMarkdown } from "../src/note-page";
+import { isMiss } from "../src/passage";
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, LINK_GROUPS, linkGroupsNamed } from "../src/link-blocks";
 import { listSections, type ListGroup, type ListRow } from "../src/list-row";
 import { selectionQuery, type Clause } from "../src/query-clauses";
@@ -121,6 +130,51 @@ const OFFSETS = [0, 2, 3, 4, 5, 8, 10, 12, 13, 20, 21, 26, 30, 31, 40, 41, 42, 4
  */
 const KEY_NAMES: string[] = [...new Set([...Object.values(NAMED_KEYS).filter(name => !MOUSE_KEYS.has(name) && name !== "hover"), "l", "L", ",", "?", "/", "+", "1", "alt+c", "alt+L", "alt+,", "ctrl+l", "ctrl+,", "ctrl+L", "super+k", "hyper+h", "mod+l", "escape", "pageup", "ctrl+w q", "click", ""])];
 
+/**
+ * A made-up note with a link, bold, two paragraphs, and the same words in two of its parts; and where its parts are
+ * written, as `notes.page` frames them (the outliner's test holds these to what the service answers for this text):
+ * a run of prose as the Markdown a client draws, a picture where its line is.
+ */
+const QUOTED_TEXT = [
+  "Sowing plan [type::plan]",
+  "Sow the [early peas](https://seeds.example/peas) in March, **before** the last frost.",
+  "",
+  "Water the beds at dusk.",
+  "",
+  "[img::pictures/beds.svg]",
+  "",
+  "Water the beds at dusk, and again at dawn.",
+].join("\n");
+const QUOTED_PARTS: { kind: "prose" | "picture"; from: number; to: number }[] = [{ kind: "prose", from: 1, to: 3 }, { kind: "picture", from: 5, to: 5 }, { kind: "prose", from: 7, to: 7 }];
+function quotedNote() {
+  const lines = QUOTED_TEXT.split("\n"), offsets = sourceLines(QUOTED_TEXT), media = noteMediaLines(QUOTED_TEXT);
+  const parts = QUOTED_PARTS.map(p => ({
+    type: "part", kind: p.kind, block: "sowing", span: { start: offsets[p.from]!.start, end: offsets[p.to]!.contentEnd }, line: p.from,
+    view: p.kind === "prose" ? { type: "markdown", text: proseMarkdown(lines.slice(p.from, p.to + 1).join("\n"), new Map()) } : { type: "picture", ...pagePicture(media.get(p.from)!) },
+  }));
+  return { id: "sowing", title: "Sowing plan", revision: 3, text: QUOTED_TEXT, chips: [{ key: "type", value: "plan" }], parts };
+}
+/** The text every other note of the stand-in garden has, by its title. */
+const PLOT_TEXT = "Plot [type::chore]\nBefore the rain.";
+const within = (part: number) => quotedNote().parts[part]!.span;
+/** Quotes as clients send them: a selection as a Markdown view copies it (said as drawn, within the part it was made in), an act's `quote=`. */
+const QUOTED: { name: string; text: string; passage: QuotedPassage }[] = [
+  { name: "a part selected whole, across a link, bold and two paragraphs: the source it was drawn from", text: QUOTED_TEXT,
+    passage: { quote: "Sow the early peas in March, before the last frost.\n\nWater the beds at dusk.", drawn: true, within: within(0) } },
+  { name: "words drawn in two parts, selected in the second: the part's span says which", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk, and again at dawn.", drawn: true, within: within(2) } },
+  { name: "words drawn in two parts, selected in the first", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk", drawn: true, within: within(0) } },
+  { name: "the same words with no part said: drawn twice, refused as a source quote's repeats are", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk", drawn: true } },
+  { name: "the same words as an act's quote=: in the source twice", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk" } },
+  { name: "and nearest an offset among them", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk", near: QUOTED_TEXT.length } },
+  { name: "an act's quote= of words as they read: not in the source as written, found as drawn", text: QUOTED_TEXT, passage: { quote: "Sow the early peas in March" } },
+  { name: "a quote of the source as written", text: QUOTED_TEXT, passage: { quote: "**before** the last frost." } },
+  { name: "words that are not in the note: refused with the nearest there are", text: QUOTED_TEXT, passage: { quote: "Sow the late peas in May", drawn: true, within: within(0) } },
+  { name: "the garden's other notes: words of the note", text: PLOT_TEXT, passage: { quote: "Before the rain." } },
+  { name: "words nobody wrote", text: PLOT_TEXT, passage: { quote: "words nobody wrote" } },
+  { name: "a stand-in page that draws more than its note's text holds: the words are not in the note", text: PLOT_TEXT,
+    passage: { quote: "Before the rain. See the shed and seeds.", drawn: true, within: { start: 19, end: 35 } } },
+];
+
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */
 function table(head: Record<string, unknown>, lists: Record<string, readonly unknown[]>): string {
   const lines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
@@ -130,9 +184,10 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), and whether a word is a key's one name, as a screen's keys name one (isKeyName). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
+    quotedNote: quotedNote(),
   }, {
     written: WRITTEN.map(request => ({ request, line: actionLine(request) })),
     sections: SECTIONS.map(c => ({ name: c.name, list: { rows: c.rows, ...(c.groups ? { groups: c.groups } : {}) }, sections: listSections({ rows: c.rows, ...(c.groups ? { groups: c.groups } : {}) }).map(s => ({ head: s.head, rows: s.rows.map(r => r.id) })) })),
@@ -142,6 +197,12 @@ export function coreContract(): string {
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
+    // (A row about `quotedNote` leaves its text out: it is the note's.)
+    quoted: QUOTED.map(c => {
+      const found = findQuoted(c.text, c.passage), row = { name: c.name, ...(c.text === QUOTED_TEXT ? {} : { text: c.text }), passage: c.passage };
+      if (isMiss(found)) { const refusal = quoteRefusal(found); return { ...row, refused: { kind: refusal.kind, error: refusal.message } }; }
+      return { ...row, found: { ...found, exact: c.text.slice(found.start, found.end) } };
+    }),
   });
 }
 

@@ -35,7 +35,34 @@ impl Link for Standin {
 /// A made-up picture, as `media.read` hands one over.
 pub const SUN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20" fill="#234"/><circle cx="20" cy="10" r="6" fill="#fc6"/></svg>"##;
 
+/// Where a quote sent with a comment is in a note's text, as the service itself answered: outline-core's
+/// `core-contract.json` (`quoted`: each row made by `findQuoted` and `quoteRefusal`, and held to the running service
+/// by the outliner's own test). The stand-in host anchors nothing and has no reading of its own: it answers a comment
+/// from these rows, so it refuses what the service refuses.
+pub fn quotes() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/core-contract.json")).expect("the core contract is JSON") }
+
+/// The made-up note those rows are about, as the page the service answers for its text (`quotedNote`): a link, bold
+/// and two paragraphs in its first part, a picture, and the first part's last words again in its third.
+pub const SOWING: &str = "sowing";
+fn sowing() -> Value {
+    let note = quotes()["quotedNote"].clone();
+    json!({ "blockId": note["id"], "revision": note["revision"], "title": note["title"], "text": note["text"], "chips": note["chips"], "ancestors": [], "parts": note["parts"], "children": [] })
+}
+
+/// What the service does with `passage` of a note whose text is `text`: the thread, or its refusal. A quote no row
+/// has is refused in the stand-in's own words, which name where the row is added: nothing is accepted unasked.
+pub fn quoted(text: &str, passage: &Value, body: &Value) -> Result<Value, (&'static str, String)> {
+    let table = quotes();
+    let row = table["quoted"].as_array().into_iter().flatten().find(|row| row.get("text").unwrap_or(&table["quotedNote"]["text"]) == text && &row["passage"] == passage);
+    match row {
+        Some(row) if row["found"].is_object() => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": body, "originalTarget": { "anchor": { "kind": "text-quote", "start": row["found"]["start"], "end": row["found"]["end"], "exact": row["found"]["exact"] } } }], "deduplicated": false })),
+        Some(row) => Err((if row["refused"]["kind"] == "ambiguous" { "ambiguous" } else { "not-found" }, row["refused"]["error"].as_str().unwrap_or_default().to_string())),
+        None => Err(("failed", format!("the stand-in host has no answer on record for this quote of this text: add it to QUOTED in packages/outline-core/scripts/core-contract.ts and write the table again (passage {passage}, text {text:?})"))),
+    }
+}
+
 fn page(id: &str, title: &str, revision: u64, text: &str) -> Value {
+    if id == SOWING { return sowing() }
     let mut page = plain_page(id, title, revision, text);
     // The shed's page has pictures: a header image, a file, a fence's own text, and one the host can't read.
     if id == "shed" {
@@ -56,13 +83,24 @@ pub fn part(note: &str, kind: &str, line: u64, frame: Value, view: Value) -> Val
     part
 }
 
+/// A prose part on a note's second line, with that line's span of the text (UTF-16), as the service frames one.
+fn prose(note: &str, text: &str, view: Value) -> Value {
+    let mut part = part(note, "prose", 1, json!({}), view);
+    let units = |s: &str| s.encode_utf16().count();
+    let start = text.find('\n').map_or(units(text), |at| units(&text[..=at]));
+    part["span"] = json!({ "start": start, "end": start + units(text.split('\n').nth(1).unwrap_or("")) });
+    part
+}
+
 fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     let ancestors = match id { "onions" | "beans" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }]), "fork" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }, { "id": "onions", "title": "Lift the onions", "hasChildren": true }]), _ => json!([]) };
     json!({
         "blockId": id, "revision": revision, "title": title, "text": text,
         "chips": [{ "key": "type", "value": "chore" }], "ancestors": ancestors,
         "parts": [
-            part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
+            // (Its span is the note's second line: where the words a comment may quote are written. The part draws
+            // more than that line holds, so a selection of all of it is words the note doesn't have.)
+            prose(id, text, json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
             part(id, "links", 3, json!({ "name": "links", "title": "On the plot", "query": "type=chore", "status": "live · 1 match" }),
               json!({ "type": "list", "groups": [{ "name": "Matches", "label": "Matches", "count": 1 }], "rows": [{ "id": "beans", "label": "Water the beans", "group": "Matches", "do": { "open": "beans" }, "act": opens("beans") }] })),
             part(id, "figure", 6, json!({ "name": "graph-stat", "figure": "stat", "title": "Chores", "status": "live" }),
@@ -420,10 +458,16 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             "completion.picked" => Ok(json!({})),
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.
-            "annotations.batch" => match ask["operations"][0]["input"]["passage"]["quote"].as_str() {
-                Some("words nobody wrote") => Err(("not-found", "Comment quote or context was not found; read the current source and select it again (nearest: Before the rain.)".into())),
-                _ => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": ask["operations"][0]["input"]["body"] }], "deduplicated": false })),
-            },
+            // (A comment on words is answered as the service answered that quote of that text: `quoted`.)
+            "annotations.batch" => {
+                let input = &ask["operations"][0]["input"];
+                let on = input["blockId"].as_str().unwrap_or("").to_string();
+                let text = if on == SOWING { sowing()["text"].as_str().unwrap_or_default().to_string() } else { texts.borrow().get(&on).map(|(_, text)| text.clone()).unwrap_or_else(|| format!("{} [type::chore]\nBefore the rain.", titled(&on))) };
+                match input.get("passage").filter(|passage| passage.is_object()) {
+                    Some(passage) => quoted(&text, passage, &input["body"]),
+                    None => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": input["body"] }], "deduplicated": false })),
+                }
+            }
             "annotations.reply" => Ok(json!({ "annotations": [{ "block": { "id": "reply-new" }, "body": ask["input"]["body"] }], "deduplicated": false })),
             "annotations.lifecycle" => Ok(json!({ "block": { "id": ask["input"]["annotationId"] }, "lifecycle": ask["input"]["lifecycle"] })),
             "draft.proposal.apply" => match ask["proposalId"].as_str() {

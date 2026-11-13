@@ -4,6 +4,8 @@
 //
 // - "Bean rows": a note with a history (three texts), a comment thread on words of it with a reply, and an edit an
 //   agent proposed beside it. What the comments, proposals and revisions tiles list of it is the service's.
+// - "Sowing plan": a note whose words cross a link, a reference and bold text, with a comment made on words of it as
+//   a reader draws them (said as drawn): the service anchored it to the source they were drawn from (the `quote` scene).
 // - "Seed list": a screen saved as a note, with keys of its own and the list of the keys beside its reader.
 // - "Two beds": a screen saved as a note, two readers with the first's opens wired to the second (the `heir` scene).
 // - "The plot in June" (with a folder): a header image, two pictures (one nobody took), an svg fence and a mermaid
@@ -32,6 +34,13 @@ const made = await ask<{ annotations: { block: { id: string } }[] }>({ action: "
 await ask({ action: "annotations.reply", requestId: "about-seed-reply", author: "agent", provenance: { actorId: TIDY.actorId }, input: { annotationId: made.annotations[0]!.block.id, body: "The last frost in the log is May 19. I have proposed the change beside the note.", source: "agent" } });
 // An edit an agent proposed beside it: listed with its change until it is applied or dismissed.
 await ask({ action: "draft.patch", propose: true, blockId: beans.id, revision: beans.revision, patches: [{ observed: "The beans go in May, once the soil is warm.", replacement: "The beans go in June, once the last frost is past." }], mutation: TIDY });
+
+// A note whose words cross a link, a reference and bold text; and a comment on words of it as they read. The quote is
+// what a reader draws and selects, said as drawn: where it is in the note's text is the service's to find.
+const sowing = await create(["Sowing plan [type::plan] [season::spring]", `Sow the [early peas](https://seeds.example/peas) in March, **before** the last frost, in the ((${beans.id}|bean rows)) of last year.`, "", "Water the beds at dusk, and never at *noon*."].join("\n"));
+await ask({ action: "annotations.batch", requestId: "about-seed-drawn", author: "user", operations: [
+  { operationId: "1", type: "block-comment", input: { blockId: sowing.id, expectedRevision: sowing.revision, body: "Under glass first, then out.", source: "user", passage: { quote: "the early peas in March, before the last frost", drawn: true } } },
+] });
 
 if (pictures) {
   mkdirSync(pictures, { recursive: true });
