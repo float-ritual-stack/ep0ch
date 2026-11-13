@@ -701,7 +701,8 @@ fn live_waiting_is_installed_used_configured_and_removed_and_the_window_switches
 }
 
 /// F1's sentence against a real outline host: words selected in the reader as it drew them, across a link (in each
-/// form one is written), a reference drawn as its note's title, bold text and two paragraphs, are commented on, and
+/// form one is written), a reference drawn as its note's title (one with marks of its own too), bold text, two
+/// paragraphs and a rule between two, are commented on, and
 /// each comment lands on the source those words were drawn from. The window sends the words as drawn, said as drawn,
 /// with the span the service gave the part; where they are in the note is the service's to find. Words that are not
 /// in the note are refused with why, and the comment keeps its words. `cargo test -- --ignored live` (it needs bun).
@@ -721,18 +722,48 @@ fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_l
         }
         fn line(rt: &mut Runtime<App>, line: &str) { let line = line.to_string(); rt.update(move |s, _| { let done = s.act(&line, crate::actions::Actor::Person); assert!(done.ok, "{line}: {}", done.said); }); rest(rt); }
         let peas = ask(json!({ "id": "p", "action": "create", "outline": "scratch", "parentId": null, "text": "Early peas [type::crop]\nSown under glass.", "author": "user" }))["id"].as_str().unwrap().to_string();
+        let seeds = ask(json!({ "id": "s", "action": "create", "outline": "scratch", "parentId": null, "text": "`seed_list` notes [type::list]\nWhat was bought.", "author": "user" }))["id"].as_str().unwrap().to_string();
         // Each note's body is one part of its page: all of it selected is a selection across what the case names.
         // (The title, the body as written, the body as the reader draws and copies it.)
         let cases: Vec<(&str, String, &str)> = vec![
             ("North bed", format!("Sow the [early peas](https://seeds.example/peas) in March, then the (({peas}|maincrop)) and what the [[seed list]] says."), "Sow the early peas in March, then the maincrop and what the seed list says."),
             ("South bed", format!("The (({peas})) come up in ten days."), "The Early peas come up in ten days."),
             ("West bed", "Water **before dusk**, never at *noon*.".to_string(), "Water before dusk, never at noon."),
+            // A rule between two paragraphs is drawn as a line with no words, and a reference as its note's title
+            // through Markdown (the title's code ticks are marks): neither is in the words selected as written.
+            ("Far bed", "Peas go in first.\n\n---\n\nThe beans go in May.".to_string(), "Peas go in first.\n\nThe beans go in May."),
+            ("Low bed", format!("See the (({seeds})) first."), "See the seed_list notes first."),
             ("East bed", "Peas go in first.\n\nThe beans go in May.".to_string(), "Peas go in first.\n\nThe beans go in May."),
         ];
         let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
         app.start();
         opened(&mut app);
         let mut rt = window(app);
+        // With the mouse, as a person selects: a drag from inside one paragraph, across a link and bold text, into
+        // the next. The words between are told as drawn, and the comment lands on the source they were drawn from.
+        let body = "Sow the [early peas](https://seeds.example/peas) in March, **before** the last frost, in the long bed.\n\nWater the beds at dusk, and never at *noon*.";
+        let id = ask(json!({ "id": "d", "action": "create", "outline": "scratch", "parentId": null, "text": format!("Long bed [type::bed]\n{body}"), "author": "user" }))["id"].as_str().unwrap().to_string();
+        line(&mut rt, &format!("open id={id}"));
+        until(&mut rt, "the note's page", |s| s.page().is_some_and(|page| page.title == "Long bed"));
+        let drawn_at = |rt: &Runtime<App>, words: &str| rt.elements().into_iter().find(|e| e.text.as_deref().is_some_and(|text| text.starts_with(words))).map(|e| e.rect).unwrap_or_else(|| panic!("no text drawn starts with {words}"));
+        let (first, second) = (drawn_at(&rt, "Sow the early peas"), drawn_at(&rt, "Water the beds"));
+        let (from, to) = ((first[0] + 30.0, first[1] + first[3] / 2.0), (second[0] + 120.0, second[1] + second[3] / 2.0));
+        rt.pointer_move(from.0, from.1);
+        rt.pointer_down(from.0, from.1);
+        rt.frame(1.0 / 60.0);
+        for step in 1..=8 { let t = step as f32 / 8.0; rt.pointer_move(from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t); rt.frame(1.0 / 60.0); }
+        rt.pointer_up(to.0, to.1);
+        rest(&mut rt);
+        let picked = rt.state.ui("reader").passage.clone().expect("the drag's selection was told to the window");
+        assert_eq!(rt.selected_text().as_deref(), Some(picked.words.as_str()));
+        assert!(picked.drawn && picked.words.contains("the early peas in March, before the last frost, in the long bed.\n\nWater the beds") && !picked.words.contains("Sow the") && !picked.words.contains("noon"), "some of each paragraph, as drawn: {picked:?}");
+        chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
+        typed(&mut rt, "Here.");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the comment sent", |s| s.drafts.is_empty());
+        let threads = ask(json!({ "id": "td", "action": "annotations.list", "outline": "scratch", "query": { "subject": { "kind": "block", "blockId": id } } }));
+        let exact = threads[0]["originalTarget"]["anchor"]["exact"].as_str().unwrap_or_default().to_string();
+        assert!(body.contains(&exact) && exact.contains("the [early peas](https://seeds.example/peas) in March, **before** the last frost, in the long bed.\n\nWater the beds") && !exact.starts_with("Sow") && !exact.contains("noon"), "the source those words were drawn from, and no more: {threads}");
         for (n, (title, body, drawn)) in cases.iter().enumerate() {
             let head = format!("{title} [type::bed]\n");
             let id = ask(json!({ "id": format!("c{n}"), "action": "create", "outline": "scratch", "parentId": null, "text": format!("{head}{body}"), "author": "user" }))["id"].as_str().unwrap().to_string();
