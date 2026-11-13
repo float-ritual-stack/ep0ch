@@ -4,7 +4,7 @@
 // from it: a caret that opens onto nothing is the bug this file holds off. Over a scratch service in a temp folder;
 // every note is made up (a garden's beds).
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ListAnswer } from "@ep0ch/outline-core/list-row";
@@ -124,3 +124,18 @@ test("a question's matches and a note's page say the same of each row: folds, an
   expect((await page(row.id)).ancestors.map(a => [a.title, a.hasChildren ?? false])).toEqual([["Beds", true], ["West bed", true]]);
   expect((await page(parent.id)).children).toEqual([{ id: row.id, title: "First row" }]);
 });
+
+// One owner each (the source, scanned): what is under a block is read in notes-under.ts and nowhere else, and no
+// list of notes asks the any-block answer to draw a fold.
+test("what is under a block is read in one module, and a list of notes never folds by the any-block answer", () => {
+  const src = join(import.meta.dir, "..", "src");
+  const code = (file: string) => readFileSync(join(src, file), "utf8");
+  for (const file of ["list-producers.ts", "list-producer.ts", "about-producers.ts", "list-extensions.ts", "note-page.ts"]) {
+    expect([file, code(file).includes('"hasChildren"')]).toEqual([file, false]);
+  }
+  expect(code("list-producers.ts")).toContain('const NOTE_FIELDS = ["title", "hasNotes"] as const;');
+  const reads = readdirSync(src).filter(file => file.endsWith(".ts")).filter(file => /child\.parent_id = block\.id|notesUnder\(|isNoteUnder\(row\.type\)/.test(code(file)));
+  expect(reads.sort()).toEqual(["notes-under.ts", "store.ts"]);
+  expect(code("store.ts")).not.toContain("child.parent_id = block.id");
+});
+
