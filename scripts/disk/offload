@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# offload v3
+# offload v4
 # offload: move cold folders or files from this machine to the storage box, and back (PIE-1787).
 #   offload <path>...        copy to <box>:archive/<host>/<path under ~> (a path outside ~: archive/<host>/root/<path>),
 #                            check by content, then remove here each file that hasn't changed since, and leave
@@ -54,17 +54,28 @@ guard() { # refuse live data
       echo "offload: $1 is live or config; refusing" >&2; return 2 ;;
   esac
 }
-# Lines of rsync's itemized dry run that mean a file or link would still have to travel: the copy differs.
-contents() { grep -E '^([<>]|c)[fL]' || true; }
+# Lines of rsync's itemized dry run that mean a file, link or folder would still have to travel: the copy differs.
+contents() { grep -E '^([<>]|c)[fLd]' || true; }
 count0() { tr -cd '\0' < "$1" | wc -c; }
-# A file's size and time, to see whether it changed since it was listed (a link's own, never its target's).
-stamp() { (cd "$1" && find "./$2" -maxdepth 0 -printf '%s:%T@' 2>/dev/null) || true; }
+# A file's size, times and inode, to see whether it changed since it was listed (a link's own, never its target's): a
+# replacement that keeps the size and the time still changes the inode (a rename) or the ctime (a rewrite). Left open:
+# a write in the instant between the last stamp and its rm (these files are a week old; no writer coordination).
+stamp() { (cd "$1" && find "./$2" -maxdepth 0 -printf '%s:%T@:%C@:%i' 2>/dev/null) || true; }
+# The group a listed path belongs to: a session's transcript and folder are one (<project>/<session>); else itself.
+group_of() {
+  case "$GROUPING:$1" in
+    session:.claude/projects/*) local rest=${1#.claude/projects/} s; s=${rest#*/}; s=${s%%/*}; printf '%s/%s' "${rest%%/*}" "${s%.jsonl}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+GROUPING=""
 
 MOVED=0 KEPT=0
-# move <base> <dest on the box> <list>: the NUL-separated paths under <base>, copied, checked by content, and each
-# removed here only if it hasn't changed since it was listed. Nothing is removed unless every copy matched.
+# move <base> <dest on the box> <list>: the NUL-separated paths under <base> (folders too, so an empty one makes the
+# trip), copied, checked by content, and each file removed here only if neither it nor anything of its group changed
+# since it was listed; then the listed folders it emptied. Nothing is removed unless every copy matched.
 move() {
-  local base=$1 dest=$2 list=$3 p was now
+  local base=$1 dest=$2 list=$3 p was now g
   MOVED=0 KEPT=0
   : > "$WORK/stamps"
   while IFS= read -r -d '' p; do printf '%s\0%s\0' "$(stamp "$base" "$p")" "$p" >> "$WORK/stamps"; done < "$list"
@@ -85,12 +96,22 @@ move() {
       return 4
     fi
   fi
-  : > "$WORK/moved"
+  # First every group with a member that changed (a session resumed keeps its tool results too), then the removal.
+  local -A changed=()
   while IFS= read -r -d '' was && IFS= read -r -d '' p; do
-    now=$(stamp "$base" "$p")
-    if [ -n "$now" ] && [ "$now" = "$was" ]; then rm -f -- "$base/$p"; MOVED=$((MOVED + 1)); printf '%s\0' "$p" >> "$WORK/moved"
+    [ -d "$base/$p" ] && [ ! -L "$base/$p" ] && continue
+    now=$(stamp "$base" "$p"); { [ -n "$now" ] && [ "$now" = "$was" ]; } || changed["$(group_of "$p")"]=1
+  done < "$WORK/stamps"
+  : > "$WORK/moved"
+  local dirs=()
+  while IFS= read -r -d '' was && IFS= read -r -d '' p; do
+    if [ -d "$base/$p" ] && [ ! -L "$base/$p" ]; then dirs+=("$p"); continue; fi
+    g=$(group_of "$p"); now=$(stamp "$base" "$p")
+    if [ -z "${changed[$g]:-}" ] && [ -n "$now" ] && [ "$now" = "$was" ]; then rm -f -- "$base/$p"; MOVED=$((MOVED + 1)); printf '%s\0' "$p" >> "$WORK/moved"
     else KEPT=$((KEPT + 1)); fi
   done < "$WORK/stamps"
+  # Listed folders, deepest first (find lists a folder before what's in it): each goes only if it's empty now.
+  local i; for ((i = ${#dirs[@]} - 1; i >= 0; i--)); do rmdir -- "$base/${dirs[i]}" 2>/dev/null || true; done
 }
 
 one() {
@@ -102,11 +123,10 @@ one() {
   case "$r" in root/*) base=/; dest="$HOSTDIR/root"; rel=${src#/} ;; *) base=$HOME; dest=$HOSTDIR; rel=$r ;; esac
   box mkdir -p "$dest" >/dev/null || { echo "offload: $BOX didn't answer; $src stays here" >&2; return 3; }
   kind=file; [ -d "$src" ] && [ ! -L "$src" ] && kind=dir
-  (cd "$base" && find "./$rel" ! -type d -print0 | sed -z 's#^\./##') > "$WORK/list"
+  (cd "$base" && find "./$rel" -print0 | sed -z 's#^\./##') > "$WORK/list"
   size=$(du -sh -- "$src" | cut -f1)
   move "$base" "$dest" "$WORK/list" || code=$?
   [ "$code" -eq 0 ] || return "$code"
-  if [ "$kind" = dir ]; then find "$src" -depth -type d -empty -delete 2>/dev/null || true; fi
   {
     if [ -e "$src" ]; then printf 'Offloaded part of %s (%s) on %s to %s:%s/%s: %s files changed or made during the move stay here\n' "$r" "$size" "$(date -u +%F)" "$BOX" "$dest" "$rel" "$(find "$src" ! -type d -printf . | wc -c)"
     else printf 'Offloaded %s (%s) on %s to %s:%s/%s\n' "$r" "$size" "$(date -u +%F)" "$BOX" "$dest" "$rel"; fi
@@ -124,6 +144,13 @@ restore() {
   kind=$(sed -n 's/^Kind: //p' "$src.offloaded" 2>/dev/null | head -1)
   # An older marker says no kind: the box's listing does (rsync, so the name never meets a shell).
   [ -n "$kind" ] || kind=$(rsync --list-only -e "$RSH" "$BOX:$dest" 2>/dev/null | head -1 | cut -c1 | sed 's/^d$/dir/; s/^-$/file/')
+  # Something of the other kind here now: putting it back would nest one inside the other.
+  if [ "$kind" = dir ] && { [ -e "$src" ] || [ -L "$src" ]; } && { [ ! -d "$src" ] || [ -L "$src" ]; }; then
+    echo "offload: $src was a folder and is a file here now; move it away, then offload --restore again (the marker stays)" >&2; return 2
+  fi
+  if [ "$kind" != dir ] && [ -d "$src" ] && [ ! -L "$src" ]; then
+    echo "offload: $src was a file and is a folder here now; move it away, then offload --restore again (the marker stays)" >&2; return 2
+  fi
   if [ "$kind" = dir ]; then
     mkdir -p -- "$src"; rsync -a --ignore-existing -e "$RSH" "$BOX:$dest/" "$src/" || return 3
   else
@@ -141,7 +168,7 @@ sessions() { # every file of each session with nothing newer than 7 days: <proje
     while IFS= read -r -d '' s; do
       local parts=(); [ -e "$p$s.jsonl" ] && parts+=("$p$s.jsonl"); [ -d "$p$s" ] && parts+=("$p$s")
       [ -z "$(find "${parts[@]}" ! -type d -mmin -$((7 * DAY)) -print -quit 2>/dev/null)" ] || continue
-      find "${parts[@]}" ! -type d -printf '%p\0' 2>/dev/null | sed -z "s#^$HOME/##"
+      find "${parts[@]}" -printf '%p\0' 2>/dev/null | sed -z "s#^$HOME/##"
     done < <(find "$p" -mindepth 1 -maxdepth 1 \( \( -type f -name '*.jsonl' \) -o \( -type d -regextype posix-extended -regex '.*/[0-9a-f-]{36}' \) \) -printf '%f\0' | sed -z 's/\.jsonl$//' | sort -zu)
   done
 }
@@ -155,7 +182,7 @@ remote() { # Claude Desktop runs ccd-cli/<version> and srv/<hash>/server: one no
     while IFS= read -r -d '' e; do
       [ "$(basename -- "$e")" != "$newest" ] || continue
       [ -z "$(find "$e" ! -type d \( -mmin -$((30 * DAY)) -o -amin -$((30 * DAY)) \) -print -quit)" ] || continue
-      find "$e" ! -type d -printf '%p\0' | sed -z "s#^$HOME/##"
+      find "$e" -printf '%p\0' | sed -z "s#^$HOME/##"
     done < <(find "$HOME/$d" -mindepth 1 -maxdepth 1 -print0)
   done
 }
@@ -194,11 +221,9 @@ sweep() {
   box mkdir -p "$HOSTDIR" >/dev/null || { echo "offload: $BOX didn't answer; nothing moved" >&2; return 3; }
   local worst=0 code
   note() { [ "$1" -eq 0 ] || [ "$worst" -eq 4 ] || worst=$1; }
-  code=0; batch transcript "$HOME/.claude/projects/OFFLOADED.txt" "$WORK/transcript" || code=$?; note $code
-  find "$HOME/.claude/projects" -mindepth 2 -depth -type d -empty -regextype posix-extended -regex '.*/[0-9a-f-]{36}(/.*)?' -delete 2>/dev/null || true
+  code=0; GROUPING=session batch transcript "$HOME/.claude/projects/OFFLOADED.txt" "$WORK/transcript" || code=$?; note $code
   code=0; batch upload "$HOME/.claude/OFFLOADED.txt" "$WORK/upload" || code=$?; note $code
   code=0; batch remote "$HOME/.claude/OFFLOADED.txt" "$WORK/remote" || code=$?; note $code
-  find "$HOME/.claude/uploads" "$HOME/.claude/remote/srv" -mindepth 1 -depth -type d -empty -delete 2>/dev/null || true
   local p; while IFS= read -r -d '' p; do code=0; one "$p" || code=$?; note $code; done < "$WORK/recon"
   return "$worst"
 }

@@ -264,3 +264,53 @@ describe("the keeper's own run", () => {
     expect(existsSync(join(root, "state/backup/disk.json"))).toBe(false);
   }, 30_000);
 });
+
+// Codex's recheck of 6674319c: four more, each red before its fix.
+describe("offload keeps what changed, even by stealth, and what it can't put back", () => {
+  const offload = (...args: string[]) => Bun.spawnSync([env.EP0CH_OFFLOAD!, ...args], { env, stdout: "pipe", stderr: "pipe" });
+  const afterVerify = (script: string) => {
+    const bin = join(root, "bin");
+    writeFileSync(join(root, "after-verify.sh"), script);
+    const real = Bun.which("rsync", { PATH: process.env.PATH! })!;
+    writeFileSync(join(bin, "rsync"), `#!/bin/sh\n'${real}' "$@"; code=$?\ncase " $* " in *" --dry-run "*) . '${join(root, "after-verify.sh")}' ;; esac\nexit $code\n`, { mode: 0o755 });
+  };
+
+  test("a replacement with the same size and time, in place or by rename, stays", () => {
+    const a = file("proj/a.txt", 2, 30), b = file("proj/b.txt", 2, 30, "b");
+    afterVerify(`printf '%2048s' '' | tr ' ' Z > '${a}.new'; touch -r '${a}' '${a}.new'; mv '${a}.new' '${a}'
+t=$(stat -c %Y '${b}'); printf '%2048s' '' | tr ' ' Y > '${b}'; touch -d @$t '${b}'
+`);
+    expect(offload(join(home, "proj")).exitCode).toBe(0);
+    expect(readFileSync(a, "utf8")).toBe("Z".repeat(2048));
+    expect(readFileSync(b, "utf8")).toBe("Y".repeat(2048));
+  });
+
+  test("a session resumed after the check stays whole: its transcript and its tool results", () => {
+    const t = file(`${project}/${session}.jsonl`, 2, 10);
+    const r = file(`${project}/${session}/tool-results/out.txt`, 2, 10, "r");
+    afterVerify(`printf more >> '${t}'\n`);
+    expect(offload("--sweep", "--yes").exitCode).toBe(0);
+    expect(existsSync(t) && existsSync(r)).toBe(true);
+  });
+
+  test("an empty folder makes the round trip", () => {
+    file("proj/f.txt", 1, 30);
+    mkdirSync(join(home, "proj/empty/deeper"), { recursive: true });
+    expect(offload(join(home, "proj")).exitCode).toBe(0);
+    expect(existsSync(join(home, "proj"))).toBe(false);
+    expect(offload("--restore", join(home, "proj")).exitCode).toBe(0);
+    expect(existsSync(join(home, "proj/empty/deeper"))).toBe(true);
+    expect(existsSync(join(home, "proj/f.txt"))).toBe(true);
+  });
+
+  test("a restore onto something of another kind is refused, and the marker stays", () => {
+    file("item.txt", 1, 30);
+    expect(offload(join(home, "item.txt")).exitCode).toBe(0);
+    mkdirSync(join(home, "item.txt"));
+    const r = offload("--restore", join(home, "item.txt"));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr.toString()).toContain("is a folder here");
+    expect(existsSync(join(home, "item.txt/item.txt"))).toBe(false);
+    expect(existsSync(join(home, "item.txt.offloaded"))).toBe(true);
+  });
+});

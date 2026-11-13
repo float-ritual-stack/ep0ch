@@ -46,14 +46,18 @@ The sweep never takes `memory/` or any other file under `~/.claude/projects` tha
 ## offload
 
 - **What it removes:** only files it listed before the copy, whose copies matched by content, and that haven't changed
-  since (size and time, checked again just before each one goes). A file written during the move, or made after the
-  copy, stays here; a folder is never removed whole, only its emptied folders.
+  since (size, mtime, ctime and inode, checked again just before each one goes, so a same-size replacement counts). A
+  file written during the move, or made after the copy, stays here, and so does the rest of its session. A folder is
+  never removed whole: listed folders (empty ones too, which make the trip) go only once they're empty.
+- **Left open on purpose:** a write in the instant between a file's last check and its removal. These files are a
+  week old or more; nothing coordinates with writers.
 - **Names:** every list is NUL-separated, so a name with a newline or a space is one name; rsync quotes the paths it
   sends, so no path but `archive/<host>` meets the box's shell.
 - `offload <path>…`: copy, verify by checksum, remove what's verified, leave `<path>.offloaded` with the way back (and,
   when some stayed, how many). A path outside home goes to `archive/<host>/root/<path>` (a volume's folder:
   `offload /mnt/HC_Volume_107103370/evan/claude-archive`). Refused (exit 2): home itself, `/`, and the live folders below.
-- `offload --restore <path>` never writes over a file that's here; `offload --list`, `offload --sweep` (lists what's cold), `--sweep --yes` (moves it).
+- `offload --restore <path>` never writes over a file that's here, and refuses (exit 2, the marker kept) when a file
+  came back as a folder or the other way round; `offload --list`, `offload --sweep` (lists what's cold), `--sweep --yes` (moves it).
 - A sweep's batch is copied, then compared by content; any difference leaves every file of it here, the list in
   `~/.local/state/offload-differs.txt`, and `offload --sweep --yes --checksum` copies again by content.
 - Swept files are listed in `~/.claude/projects/OFFLOADED.txt` (transcripts) and `~/.claude/OFFLOADED.txt` (uploads,
