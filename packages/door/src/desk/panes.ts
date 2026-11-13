@@ -1,3 +1,4 @@
+import { ResourceNoteWatch, resourceShown } from "../projection";
 import type { EscRead } from "../esc-rule";
 import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
@@ -779,7 +780,10 @@ export class ReaderPane implements Pane, AttachedOwner {
     if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
+  /** A re-read of the Resource note shown (an open Jira card), stored since this read it: it reads it again as it draws (PIE-1796). */
+  private readonly resourceWatch = new ResourceNoteWatch(() => resourceShown(this.surface.msg));
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
+    if (desk && this.resourceWatch.due()) this.surface.reread(this.host(desk));
     const v = this.surface.render(w, h, desk && this.host(desk));
     if (this.msg || this.surface.draft || h < 3) return v;
     // An empty reader (^W o d) says what it's for, and offers a note to write in it: ctrl+n here makes one and opens it in this tile.

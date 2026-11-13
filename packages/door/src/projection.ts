@@ -13,6 +13,7 @@
 // extra is drawn.
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subject, type Msg } from "./board";
+import { RESOURCE_NOTE } from "./authored";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";
 import type { LinkTarget } from "./refs";
@@ -420,7 +421,36 @@ export function resourceChanged(resourceId: string | null, blockId?: string): bo
   rtick++; rAnyAt = rtick;
   if (resourceId === null || rChangedAt.size > 5000) { rAllAt = rtick; rChangedAt.clear(); }
   else rChangedAt.set(resourceId, rtick);
-  return shown.some(resourceStale);
+  return shown.some(resourceStale) || resourceNoteShows(resourceId);
+}
+
+// ── a Resource note on screen (PIE-1796): a reader showing `resource:<id>` hears that Resource's re-read ──
+// The same clock the projections read: the event marks the Resource changed, the door redraws, and the reader
+// showing it reads it again as it draws (NoteSurface.render), so an open Jira card follows its ticket's poll.
+const resourceNotes = new Set<WeakRef<ResourceNoteWatch>>();
+/** The Resource note `m` is (`resource:<id>`): its Resource's id, or undefined for any other note. */
+export const resourceShown = (m: Msg | null | undefined): string | undefined => (m?.resource && m.id.startsWith(RESOURCE_NOTE) ? m.resource.id : undefined);
+/** Whether a reader on screen shows Resource `id` (null: any). */
+function resourceNoteShows(id: string | null): boolean {
+  for (const ref of resourceNotes) {
+    const w = ref.deref();
+    if (!w) { resourceNotes.delete(ref); continue; }
+    const shown = w.shown();
+    if (shown && (id === null || shown === id)) return true;
+  }
+  return false;
+}
+/** A reader's watch on the Resource note it shows: `due` once a re-read of that Resource was stored since it last read it. */
+export class ResourceNoteWatch {
+  private at = rtick;
+  constructor(readonly shown: () => string | undefined) { resourceNotes.add(new WeakRef(this)); }
+  /** Whether to read the note again now (then it counts as read). */
+  due(): boolean {
+    const id = this.shown();
+    if (!id || (rAllAt <= this.at && (rChangedAt.get(id) ?? 0) <= this.at)) return false;
+    this.at = rtick;
+    return true;
+  }
 }
 
 /** Tests: stop tracking every connection's answers seen so far, so an event only reaches readers created after. */

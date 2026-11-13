@@ -63,6 +63,8 @@ export class TallyDoors {
         const r = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), "act", ...args, "--as", "walker"], { env, stdout: "pipe", stderr: "pipe" });
         return { ok: r.exitCode === 0, out: r.stdout.toString() + r.stderr.toString() };
       },
+      /** Every byte the door writes from now, appended to `file` (tmux pipe-pane): a frame shorter than a capture's poll shows there. */
+      record: (file: string) => { tmux("pipe-pane", "-t", "door", "-o", `cat >> ${JSON.stringify(file)}`); },
       close: () => { tmux("kill-session", "-t", "door"); },
     };
   }
