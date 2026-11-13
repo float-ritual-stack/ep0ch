@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::actline::Args;
 use crate::layout::{self, Destination, Refusal, Request, TileSpec};
 
-static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open a note: the layout says in which tile (the tile it comes from when that reads notes, else where its opens land, else the first reader), and makes a new reader beside one a block is being written in. The reader remembers where from; the tree unfolds to it. An agent's lands without taking the person's keys")
+pub(super) static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open a note: the layout says in which tile (the tile it comes from when that reads notes, else where its opens land, else the first reader), and makes a new reader beside one a block is being written in. The reader remembers where from; the tree unfolds to it. An agent's lands without taking the person's keys")
     .args(&[("id", ArgSpec::text("the block id").kind("note"))])
     .typing()
     .keys(&[KeyRow::via("a press on a note in the tree, a row or a link"), KeyRow::via("a note picked in the bar")])

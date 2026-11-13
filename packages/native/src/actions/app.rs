@@ -200,6 +200,8 @@ pub struct State {
     pub out_of: Option<Id>,
     /// The tile a paste was asked into with no words of its own, until the clipboard is read for it.
     pub pasting: Option<Id>,
+    /// Words an extension's action handed back for the person's clipboard, until the window's hands copy them.
+    pub copying: Option<String>,
     /// What the run's programs had shown when the window last looked (`Store::programs_moved`).
     pub programs_seen: u64,
     /// The terminal tile being closed with its program left running (`terminal.detach`): a close of it ends nothing.
@@ -315,6 +317,7 @@ impl App {
                 parked: HashMap::new(),
                 out_of: None,
                 pasting: None,
+                copying: None,
                 programs_seen: 0,
                 detaching: None,
                 closing: false,
