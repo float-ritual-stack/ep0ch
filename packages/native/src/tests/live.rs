@@ -263,7 +263,10 @@ fn live_a_button_runs_here_and_one_with_steps_is_run_by_the_service_and_answered
         let (words, ok) = said(&app).unwrap();
         assert!(ok && words.starts_with("Open the shed ran, as you"), "{words}");
         let step = app.steps.iter().rev().find(|step| step.action == "open").unwrap();
-        assert!(step.ok && step.by == Actor::Person, "the person's press is the run's consent: its act is theirs");
+        // The act is the script's, recorded so. It came from the tile the press was made in, which only the press's
+        // invitation says: the service carried it with the run's act, and this window knew it for its own.
+        assert!(step.ok && matches!(&step.by, Actor::Agent(script) if script.starts_with("script:")), "a pressed script's act is the script's: {:?}", step.by);
+        assert_eq!(step.tile.as_deref(), Some("reader"), "the run's act came from the press's tile, on its invitation: {}", step.line());
     });
     let _ = host.kill();
     let _ = host.wait();
