@@ -181,8 +181,8 @@ export interface Ctx<I = number> {
   screenHost?: HostMode;
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
-  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close). */
-  empties?: boolean;
+  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close); `goes`: a group's desk, whose last tile may leave whole for the drawer or another group, the group going with it (PIE-1775). */
+  empties?: boolean; goes?: boolean;
   beside?: ReadonlyMap<I, I>;
   /** A mount with no reader: the tile holding it, where an open naming no tile hops out. */ outward?: string;
   /** The drawer's hand-off (PIE-1522): the screen shown's tile taking what the drawer doesn't keep; null when it has none (refused). */ screen?: string | null;
@@ -494,12 +494,10 @@ export const isFloat = <I>(s: Pick<LayoutState<I>, "floats">, id: I) => s.floats
 export const allTiles = <I>(s: Pick<LayoutState<I>, "tree" | "floats">): I[] => [...leaves(s.tree), ...s.floats.map(f => f.id)];
 /** The tile named `name`, if there is one. */
 export const named = <I>(s: Pick<LayoutState<I>, "names">, name: string): I | undefined => [...s.names].find(([, n]) => n === name)?.[0];
+/** `base`, else `base2`, `base3` …: the first name `taken` doesn't hold. The one rule for a tile's name, made here or arriving. */
+export function freeName(taken: Iterable<string>, base: string): string { const all = new Set(taken); let n = base; for (let i = 2; all.has(n); i++) n = `${base}${i}`; return n; }
 /** A name for a new tile of `kind`: the kind, else the kind and the first number free (reader2). */
-export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, other: readonly string[] = []): string {
-  const taken = new Set([...s.names.values(), ...other]);
-  if (!taken.has(kind)) return kind;
-  for (let n = 2; ; n++) if (!taken.has(`${kind}${n}`)) return `${kind}${n}`;
-}
+export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, other: readonly string[] = []): string { return freeName([...s.names.values(), ...other], kind); }
 
 export interface PlacementRequest<I = number> {
   where?: ListOpenWhere; verb?: "hover";
@@ -903,6 +901,7 @@ class Step<I> {
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   /** Why an agent leaves the tile with the person's keys alone, in the one wording (keysIn): typing in it, or only focused there. */
   private theirs(id: I, what: string) { return keysIn(this.name(id), what, this.ctx.person.typingIn === id); }
+  private leaveTheirs(id: I, what: string) { if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, what)); }   // the one place a step refuses an agent the tile the person's keys are on
   /** This layout as the person reads about it: the screen, or your drawer. */
   private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
@@ -1315,7 +1314,7 @@ class Step<I> {
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
       if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "close it"));
+      this.leaveTheirs(id, "close it");
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
     const heir = gone || !asksHeir || f.clearsOnClose ? undefined : closeHeir(this.d, id, this.all(), this.ctx); if (!f.clearsOnClose) this.lift(id);   // asked while its wires are there (PIE-1772)
@@ -1372,8 +1371,8 @@ class Step<I> {
     const e = this.policyAt(id), f = this.facts(id);
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-    if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
-    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "take it away"));
+    if (!heir && !this.ctx.empties && !this.ctx.goes && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
+    this.leaveTheirs(id, "take it away");
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);
       const float = this.d.floats.find(x => x.id === id);
@@ -1407,7 +1406,7 @@ class Step<I> {
       const e = this.policyAt(t), f = this.facts(t);
       if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(this.theirs(t, "gather it into a group"));
+      this.leaveTheirs(t, "gather it into a group");
     }
     // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.
     if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
@@ -1433,7 +1432,7 @@ class Step<I> {
     this.notFloat(op.tile, `spilling ${name}`);
     this.shape(op.tile, `spilling ${name}`);
     this.guard(op.tile, "spill");
-    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(this.theirs(op.tile, "spill it"));
+    this.leaveTheirs(op.tile, "spill it");
     const fresh = leaves(op.tree);
     if (!fresh.length) refuse(`${name} holds no tiles`);
     for (const t of fresh) if (this.all().includes(t)) refuse(`${this.name(t)} is in the layout already`);

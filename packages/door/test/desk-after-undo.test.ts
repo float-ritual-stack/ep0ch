@@ -350,7 +350,7 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         await d.press(ctrl("w"), char("e"));
         expect((d.desk.pane("hob") as any).inside).toBe(true);
         await d.press(ctrl("w"), char("G"));
-        expect(d.said()).toContain("this tile or the whole split");
+        expect(d.said()).toContain("this tile or a spill of the group");   // the whole group gathered again would be the group (PIE-1775)
         expect(d.names()).toContain("hob");
         await d.press({ kind: "esc" } as Key);
         await d.press(ctrl("w"), char("e"));

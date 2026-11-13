@@ -163,7 +163,8 @@ export class EditRecoveryRepository {
   private save(record:EditRecovery,expectedRevision:number):EditRecovery {
     const next={...record,revision:expectedRevision+1,updatedAt:new Date().toISOString()};
     const result=this.store.database.query("UPDATE edit_recovery SET revision=?,state=?,payload=?,updated_at=? WHERE id=? AND revision=?").run(next.revision,next.state,JSON.stringify(next),next.updatedAt,next.id,expectedRevision);
-    if(result.changes!==1)throw Error("Recovery changed in another view");
+    // `changes` counts the change log's trigger rows too (ADR 0009): none changed is the refusal.
+    if(result.changes===0)throw Error("Recovery changed in another view");
     return next;
   }
 }

@@ -1015,12 +1015,12 @@
     },
     {
       "id": "door.backup", "name": "The backup job", "group": "door", "chapter": "backup", "ladder": "provisional", "dependsOn": ["kept.sqlite", "door.state", "door.setup"],
-      "does": "Every machine runs the same job every 15 minutes (PIE-607): each outline here whose change feed moved is snapshotted into this machine's restic repository, other machines' read-only mirrors are refreshed from theirs, and how fresh it all is gets checked. A restore drill runs monthly. ep0ch install writes the timer; ep0ch backup run, snapshot, mirror and restore are the parts.",
-      "built": "backup/jobs.ts: snapshot (a consistent VACUUM INTO copy, integrity-checked, restic --stdin tagged ep0ch-outline), mirror, drill, watch and runAll behind a lock; config.ts reads the settings (EP0CH_BACKUP_*); restic.ts runs restic through with-secrets so the keys reach only restic. Every part stands alone: a gap or a failed upload leaves nothing to repair.",
+      "does": "Every machine runs the same job every 15 minutes (PIE-607, ADR 0009): each outline's change log since its archive is written as a new segment and the archive uploaded to this machine's restic repository, and how fresh it all is gets checked. A restore drill replays the archives monthly. ep0ch install writes the timer (and ep0ch-follow, which follows other machines' outlines); ep0ch backup run, snapshot, follow and restore are the parts.",
+      "built": "backup/jobs.ts: snapshot (the host's log.range since the archive, a segment by the outliner's log-archive.ts, restic backup of the folder tagged ep0ch-outline), drill (a replay), watch and runAll behind a lock; config.ts reads the settings (EP0CH_BACKUP_*); restic.ts runs restic through with-secrets so the keys reach only restic. Every part stands alone: a gap or a failed upload leaves nothing to repair.",
       "refs": [
-        { "r": "door", "p": "src/backup/jobs.ts", "l": 102, "m": "export async function snapshot" },
-        { "r": "door", "p": "src/backup/jobs.ts", "l": 448, "m": "export async function runAll" },
-        { "r": "door", "p": "src/backup/config.ts", "l": 34, "m": "export const DEFAULT_REPO" },
+        { "r": "door", "p": "src/backup/jobs.ts", "l": 112, "m": "export async function snapshot" },
+        { "r": "door", "p": "src/backup/jobs.ts", "l": 300, "m": "export async function runAll" },
+        { "r": "door", "p": "src/backup/config.ts", "l": 35, "m": "export const DEFAULT_REPO" },
         { "r": "door", "p": "src/backup/restic.ts", "l": 1, "m": "with-secrets" }
       ]
     },
@@ -1030,18 +1030,18 @@
       "built": "Pure over the job's state and alert: alert.ts incidents decides what is stale (a backup over 2 hours behind while its outline changed), verdict.ts decides how it reads, plain.ts turns restic's, a fetch's and ssh's raw reasons into words. The raw text stays in --verbose and --json.",
       "refs": [
         { "r": "door", "p": "src/backup/verdict.ts", "l": 52, "m": "export function verdict" },
-        { "r": "door", "p": "src/backup/alert.ts", "l": 129, "m": "export function incidents" },
+        { "r": "door", "p": "src/backup/alert.ts", "l": 110, "m": "export function incidents" },
         { "r": "door", "p": "src/backup/plain.ts", "l": 14, "m": "export function plainReason" }
       ]
     },
     {
       "id": "door.relay", "name": "Backup relay", "group": "door", "chapter": "backup", "ladder": "provisional", "dependsOn": ["door.backup"],
-      "does": "A machine that can't reach the restic repository (the laptop on a work VPN that blocks the object store) hands each snapshot to the hub over the ssh path netmail uses (PIE-645). The hub verifies it, installs it as its mirror of that machine (never an older schema or change) and uploads it to that machine's repository on its behalf.",
-      "built": "relay.ts: relay sends, receive verifies and installs (a lock, a sha256, the schema and change checks), unreachable probes the repository first. The hub is EP0CH_MCP_HUB.",
+      "does": "A machine that can't reach the restic repository (the laptop on a work VPN that blocks the object store) hands each outline's archived log to the hub over the ssh path netmail uses (PIE-645). The hub adds what its archive of that outline lacks (never over a log that differs) and uploads it to that machine's repository on its behalf.",
+      "built": "relay.ts: relay sends, receive verifies and archives (a lock, a sha256, one log meeting the archive), unreachable probes the repository first. The hub is EP0CH_MCP_HUB.",
       "refs": [
-        { "r": "door", "p": "src/backup/relay.ts", "l": 43, "m": "export async function relay" },
-        { "r": "door", "p": "src/backup/relay.ts", "l": 89, "m": "export async function receive" },
-        { "r": "door", "p": "src/backup/relay.ts", "l": 33, "m": "export async function unreachable" }
+        { "r": "door", "p": "src/backup/relay.ts", "l": 44, "m": "export async function relay" },
+        { "r": "door", "p": "src/backup/relay.ts", "l": 90, "m": "export async function receive" },
+        { "r": "door", "p": "src/backup/relay.ts", "l": 34, "m": "export async function unreachable" }
       ]
     },
     {
@@ -1078,11 +1078,11 @@
     },
     {
       "id": "cli.mcpmirror", "name": "Mirrors and the live route", "group": "clients", "chapter": "mcp", "ladder": "provisional", "dependsOn": ["cli.mcpgateway", "door.backup"],
-      "does": "An outline whose home is another machine (float-hub on a laptop that sleeps) is read from a copy on the gateway's machine, kept current from the outline's own backups, and never writes to it (PIE-562). When that machine answers over ssh, the gateway asks its host first (PIE-661) and falls back to the mirror only when it doesn't.",
-      "built": "mcp-mirror.ts: OutlineMirror (the outliner's outline-mirror.ts, which the web client reads other machines' copies through too) reads the Litestream-followed or restic-restored copy, migrates a copy at an older schema with the migration scripts, and says how stale it is. mcp-live.ts: LiveMachines uses the shared ssh forward (outline-core's ensureForward) with a time budget and a backoff; the board it returns is the same SocketBoard.",
+      "does": "An outline whose home is another machine (float-hub on a laptop that sleeps) is read from a copy on the gateway's machine, applied from the outline's own change log from its cursor (ADR 0009), and never written by anything else (PIE-562). When that machine answers over ssh, the gateway asks its host first (PIE-661) and falls back to the mirror only when it doesn't.",
+      "built": "mcp-mirror.ts: OutlineFollower (the outliner's outline-follower.ts, which the web client reads other machines' copies through too) applies the home's log.range ranges into one read-only host per machine folder, rebuilds from a genesis when the log is another, migrates a copy at an older schema with the migration scripts, and says how stale it is. mcp-live.ts: LiveMachines uses the shared ssh forward (outline-core's ensureForward) with a time budget and a backoff; the board it returns is the same SocketBoard.",
       "refs": [
-        { "r": "door", "p": "src/mcp-mirror.ts", "l": 81, "m": "export class OutlineMirror" },
-        { "r": "outliner", "p": "src/outline-mirror.ts", "l": 53, "m": "export function mirrorsConfig" },
+        { "r": "door", "p": "src/mcp-mirror.ts", "l": 64, "m": "export class OutlineFollower" },
+        { "r": "outliner", "p": "src/outline-follower.ts", "l": 50, "m": "export function mirrorsConfig" },
         { "r": "door", "p": "src/mcp-live.ts", "l": 58, "m": "export class LiveMachines" }
       ]
     },
@@ -1103,8 +1103,8 @@
       "built": "mcp-netmail.ts: the Netmail store (queue, take, settle) and `ep0ch mcp queue`; backup/netmail.ts is the home machine's side, in the 15-minute job: pull over ssh, apply with the same applyWrite, keep a ledger so a cut-off pull applies nothing twice. ssh is the trust the machines already share; no inbound path to the laptop.",
       "refs": [
         { "r": "door", "p": "src/mcp-netmail.ts", "l": 116, "m": "export class Netmail" },
-        { "r": "door", "p": "src/backup/netmail.ts", "l": 31, "m": "export async function pull" },
-        { "r": "door", "p": "src/backup/netmail.ts", "l": 41, "m": "export async function netmailStep" }
+        { "r": "door", "p": "src/backup/netmail.ts", "l": 25, "m": "export async function pull" },
+        { "r": "door", "p": "src/backup/netmail.ts", "l": 35, "m": "export async function netmailStep" }
       ]
     },
     {

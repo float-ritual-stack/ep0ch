@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { closeSync, existsSync, mkdirSync, openSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { openSchema, OUTLINE_INSTANCE_ID_KEY } from "./schema";
+import { openSchema, OUTLINE_INSTANCE_ID_KEY, SCHEMA_VERSION } from "./schema";
+import { startFreshLog } from "./change-log";
 import { MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, OutlinerStore } from "./store";
 import { OUTLINE_OPEN_TOKEN_KEY } from "./outline-instance";
 
@@ -52,6 +53,8 @@ const SKIPPED_TABLES: Readonly<Record<string, string>> = {
   navigation_history: "the person's place in the old outline",
   working_selections: "a client's temporary selection",
   change_feed: "the old outline's change history",
+  change_log: "the old outline's change log: the new one starts its own (ADR 0009)",
+  log_state: "the old outline's log identity (a follower's copy included): the new one is a home of its own",
 };
 
 /** Metadata keys the new file must not inherit. */
@@ -162,6 +165,9 @@ function importClaimed(source: string, target: string): ImportReport {
     }
     // The store's first open parses every block's properties and reconciles work ids.
     new OutlinerStore(target).close();
+    // Then its log starts over (ADR 0009): a home of its own, with a genesis of what it holds now.
+    const fresh = new Database(target);
+    try { startFreshLog(fresh, SCHEMA_VERSION); } finally { fresh.close(); }
     const result = new Database(target, { readonly: true });
     try {
       const tables: Record<string, number> = {};

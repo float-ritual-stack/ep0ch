@@ -37,7 +37,7 @@
         "packages/door/src/desk/desk.ts:9ae2937fbec32139",
         "packages/door/src/desk/desk.ts:a9028a6d64c95306",
         "packages/door/src/desk/desk.ts:9d616d5772f0cfe6",
-        "packages/door/src/desk/desk.ts:a84dfa28b7147a1",
+        "packages/door/src/desk/desk.ts:523c1cf25b13181c",
         "packages/door/src/desk/desk.ts:d1cf8276b2a3a77f",
         "packages/door/src/desk/drop.ts:a5fa4e7cd6ea0ef1",
         "packages/door/src/desk/flow.ts:512a07c0309db400",
@@ -349,8 +349,8 @@
   },
   "files": {
     "packages/claude-mod/hooks/register.ts": 2896,
-    "packages/door/src/desk/desk.ts": 8469,
-    "packages/door/src/desk/screen-layout.ts": 2324,
+    "packages/door/src/desk/desk.ts": 8313,
+    "packages/door/src/desk/screen-layout.ts": 2323,
     "packages/door/src/screens.ts": 2230,
     "packages/door/src/showcase/showcase.ts": 2134,
     "packages/door/src/surface/note.ts": 9027,
@@ -361,7 +361,7 @@
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4286,
-    "packages/outliner/src/server.ts": 4267,
+    "packages/outliner/src/server.ts": 4258,
     "packages/outliner/src/store.ts": 6114,
     "packages/outliner/src/tree-controller.ts": 3180,
     "packages/outliner/src/types.ts": 2708

@@ -15,6 +15,7 @@ import { groupValue } from "../src/extension-secrets";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerChange, OutlinerEvent } from "../src/types";
+import { entriesFor, followedSince } from "./log-follows";
 
 const REPO_EXTENSIONS = join(import.meta.dir, "..", "extensions");
 const LOKI = { author: "agent" as const, actorId: "loki-test" };
@@ -217,8 +218,13 @@ test("over its connection an extension stamps a property by key, as ext:<id>, wi
   await install("heron", { actions: [{ id: "count", label: "Count", on: "outline", effects: "write" }] }, `${CALL}
 const block = await call({ action: "properties.patch", blockId: input.args.note, operations: [{ op: "add", key: "visits", by: 1 }, { op: "set", key: "seen", value: "2026-11-12" }] });
 say({ message: "counted to revision " + block.revision });`);
+  const uncounted = store.log.cursor().lsn;
   const said = (await client.request<{ message: string }>({ action: "extensions.act", extension: "heron", extensionAction: "count", args: { note: note.id } })).message;
   expect(said).toBe("counted to revision 2");
+  // An extension's write is the store's like any other: logged, so a machine following the log has the count (PIE-1751).
+  const logged = followedSince(store, uncounted);
+  expect(entriesFor(logged, "blocks", note.id).map(e => e.op)).toEqual(["u"]);
+  expect(entriesFor(logged, "block_properties", note.id).some(e => e.row?.includes('"visits"') && e.row.includes('"3"'))).toBe(true);
   expect(store.get(note.id)).toMatchObject({ text: "Pond notes\n[visits::3] [seen::2026-11-12]\nThe heron came back on Tuesday.", revision: 2 });
   expect(feed().filter(change => change.blockId === note.id).at(-1)).toMatchObject({ action: "ext.heron.count", actor: { author: "agent", actorId: "ext:heron" } });
 });

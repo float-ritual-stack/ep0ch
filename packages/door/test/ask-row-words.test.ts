@@ -42,4 +42,14 @@ describe("an ask's row and the one answer tile", () => {
     d.askStatus("@tally bed 4", Infinity, lines.indexOf("@tally bed 4"));
     expect(asked).toBe(3);
   });
+
+  test("narrow, a twin whose answer went into the note keeps its side word and drops its block count first (PIE-1775)", () => {
+    const d = new Draft("n1", 1, ["Twin asks", "two beds", ask, ""].join("\n"));
+    d.answerAt = () => ({ side: "right", ask, row: 2 });
+    d.progress({ line: ask, state: "answered", warning: "answer in the note", blocks: 1 });
+    expect(d.askStatus(ask, Infinity, 2)).toBe(" · answer in the note · 1 block · beside ▸");
+    // At the room a 61-column edit leaves the row it lost `beside ▸` while the count stayed.
+    expect(d.askStatus(ask, 33, 2)).toBe(" · answer in the note · beside ▸");
+    expect(d.askStatus(ask, 22, 2)).toBe(" · answer in the note");
+  });
 });

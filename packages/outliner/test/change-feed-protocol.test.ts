@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { applyRange, canonicalDump } from "../src/change-log";
+import { openFollowerSchema, SCHEMA_VERSION } from "../src/schema";
 import type { Block, ChangeFeedPage, OutlinerChange, OutlinerEvent, VirtualBranchOrder, VirtualOccurrenceMoveInput } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -495,6 +497,17 @@ test("every content mutation family is covered by the feed and matches its live 
     expect(event.sequence).toBe(event.change!.sequence);
     if (event.change!.blockId) expect(event.blockId).toBe(event.change!.blockId);
   }
+  // And the change log holds every family (ADR 0009): a copy built from it alone is the outline, a mark too.
+  await request({ action: "marks.add", input: { blockId: alpha.id, reason: "look again" } });
+  const copy = new Database(":memory:");
+  openFollowerSchema(copy, store.log.cursor().logId);
+  for (let at = 0; ;) {
+    const range = store.log.range(at, 100);
+    applyRange(copy, range, SCHEMA_VERSION);
+    at = range.entries.at(-1)?.lsn ?? at;
+    if (range.complete) break;
+  }
+  expect(canonicalDump(copy)).toBe(canonicalDump(store.database));
 });
 
 test("annotations.batch records and publishes one change per affected block", async () => {

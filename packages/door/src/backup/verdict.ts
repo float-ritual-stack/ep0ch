@@ -72,16 +72,6 @@ export function verdict(s: BackupState, a: Alert | null, now: number, c: Verdict
     if (covered.has(i.key)) continue;
     problems.push({ level: "bad", text: `${i.title}: ${i.detail}`, fix: firstCommand(i.fix) });
   }
-  for (const [key, m] of Object.entries(s.mirrors).sort()) {
-    if (m.error && !(a?.incidents ?? []).some(i => i.key === `mirror:${key}` || i.key === `pending:${key}`)) {
-      problems.push({ level: "warn", text: `mirror ${key}: ${plainReason(m.error, opts)}`, fix: "ep0ch backup mirror" });
-    }
-  }
-  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
-    if (x.error && !x.missing && !(a?.incidents ?? []).some(i => i.key === `source:${from}`)) {
-      problems.push({ level: "warn", text: `can't read ${from}'s backups: ${plainReason(x.error, opts)}`, fix: "ep0ch backup mirror" });
-    }
-  }
   const mark = alertMark(a, now);
   if (mark && mark.text === "? backup") problems.push({ level: "warn", text: mark.say.replace(/ · .*$/, ""), fix: "ep0ch doctor" });
   if (!problems.length && s.lastRun && !s.lastRun.ok) {
@@ -133,13 +123,6 @@ export function renderStatus(o: {
     }
     out.push(...columns(rows, o.visible).map(l => `  ${l}`));
   } else out.push(s.lastRun ? "  no outlines here" : "  the job hasn't run here yet (ep0ch backup run)");
-  const mirrors = Object.entries(s.mirrors).sort();
-  if (mirrors.length) {
-    out.push("", "mirrors");
-    const rows = mirrors.map(([key, m]) => [key, m.at ? moment(m.at) : "none yet", m.at ? o.age(now - Date.parse(m.at)) : "–", m.source ?? "–",
-      m.error ? tint("warn", plainReason(m.error, { repo: o.repo, hub: o.hub })) : m.pendingSince ? tint("warn", `its machine changed ${moment(m.pendingSince)}`) : tint("ok", "ok")]);
-    out.push(...columns(rows, o.visible).map(l => `  ${l}`));
-  }
   // History: what happened, not what is wrong.
   const hist: string[] = [];
   if (s.lastRun) hist.push(`last run ${moment(s.lastRun.at)} (${o.age(now - Date.parse(s.lastRun.at))} ago): ${s.lastRun.ok ? "ok" : "failed"}, ${s.lastRun.detail}`);
@@ -165,11 +148,10 @@ export function renderStatus(o: {
       const x = s.outlines[name]!;
       if (x.error) out.push(`  ${name} error: ${x.error}`);
       if (x.relayed) out.push(`  ${name} relayed via ${x.relayed.via} at ${hhmm(x.relayed.at)}; the repository said: ${x.relayed.why}${x.relayed.uploadError ? `; ${x.relayed.via} said: ${x.relayed.uploadError}` : ""}`);
-      if (x.seq !== undefined) out.push(`  ${name} change ${x.seq ?? "?"}${x.pendingSince ? `, changes waiting since ${hhmm(x.pendingSince)}` : ""}`);
+      if (x.seq !== undefined) out.push(`  ${name} log entry ${x.seq ?? "?"}${x.pendingSince ? `, changes waiting since ${hhmm(x.pendingSince)}` : ""}`);
     }
-    for (const [key, m] of mirrors) out.push(`  mirror ${key}: ${m.folder ?? "?"}${m.error ? `; ${m.error}` : ""}`);
     if (s.drill) for (const d of s.drill.detail.split("; ")) out.push(`  drill: ${d}`);
-    if (!names.length && !mirrors.length && !s.drill) out.push("  (nothing recorded)");
+    if (!names.length && !s.drill) out.push("  (nothing recorded)");
   }
   const mark = o.a ? alertMark(o.a, now) : null;
   if (!o.a) out.push("", tint("dim", "the job hasn't checked yet"));

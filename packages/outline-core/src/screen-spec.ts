@@ -380,7 +380,7 @@ export interface ScreenSpec {
    * before they leave the screen, and the keys land there when the dock they were in shuts.
    */
   home?: string;
-  /** Where an agent's open naming no tile lands (`ep0ch open <id>`): a tile, by name, that takes the note its way. */
+  /** Where an agent's open naming no tile lands (`ep0ch open <id>`): a tile, by name, that takes the note its way (or a container's key); when neither is on the screen now (closed, gathered, in the drawer), the reader its opens land in (PIE-1775). */
   lands?: string;
   /** What an "open fresh" (alt+⏎, a ctrl- or alt-click) from its tiles runs, with `id`: an action's name. */
   fresh?: string;

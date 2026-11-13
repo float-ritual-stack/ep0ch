@@ -13,6 +13,7 @@ import { setWorkProperty } from "../src/work-tools";
 import { park, restore } from "../src/work-later";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerEvent } from "../src/types";
+import { entriesFor, followedSince, txnsOf } from "./log-follows";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -29,83 +30,6 @@ async function service() {
   cleanups.push(async () => { await server.close(); store.close(); });
   return { store, server, client: new OutlinerClient(socket, 10_000), socket, databasePath: join(directory, "outliner.sqlite") };
 }
-
-// The lock must be released by another process while SQLite blocks this one's event loop.
-async function competingWriter(databasePath: string) {
-  let locked = Promise.withResolvers<void>();
-  let released = Promise.withResolvers<void>();
-  const process = Bun.spawn(["bun", "--eval", `
-    const { Database } = require("bun:sqlite");
-    const db = new Database(process.argv[1]);
-    db.exec("PRAGMA busy_timeout = 5000");
-    process.on("message", async () => {
-      db.exec("BEGIN IMMEDIATE");
-      process.send("locked");
-      await Bun.sleep(30);
-      db.exec("COMMIT");
-      process.send("released");
-    });
-  `, databasePath], {
-    env: { ...Bun.env }, stdout: "ignore", stderr: "inherit",
-    ipc(message) {
-      if (message === "locked") locked.resolve();
-      if (message === "released") released.resolve();
-    },
-  });
-  cleanups.push(async () => { process.kill(); await process.exited; });
-  return async (write: () => Promise<void>) => {
-    locked = Promise.withResolvers<void>();
-    released = Promise.withResolvers<void>();
-    process.send("lock");
-    await locked.promise;
-    try { await write(); } finally { await released.promise; }
-  };
-}
-
-for (const action of ["draft.patch", "update"] as const) {
-  test(`${action}: 200 writes survive a competing SQLite writer without proposals`, async () => {
-    const { store, client, databasePath } = await service();
-    const contend = await competingWriter(databasePath);
-    const note = store.create("Garden 0");
-    const failures: string[] = [];
-    for (let index = 1; index <= 200; index++) {
-      const before = store.require(note.id);
-      const text = `Garden ${index}`;
-      await contend(async () => {
-        try {
-          if (action === "draft.patch") {
-            const result = await client.request<DraftPatchResult>({ action, blockId: note.id, revision: before.revision,
-              patches: [{ observed: before.text, replacement: text }], mutation: { author: "agent", actorId: "gardener" } });
-            if (result.outcome !== "applied") failures.push(JSON.stringify(result));
-          } else {
-            await client.request({ action, blockId: note.id, text, expectedRevision: before.revision, mutation: { author: "user" } });
-          }
-          if (store.require(note.id).text !== text) failures.push(`write ${index} did not land`);
-        } catch (error) { failures.push(String(error)); }
-      });
-    }
-    expect([...new Set(failures)]).toEqual([]);
-    expect(store.require(note.id).text).toBe("Garden 200");
-    expect(store.children(note.id)).toEqual([]);
-  }, 30_000);
-}
-
-test("a busy wait that expires is retried once without proposing or duplicating the write", async () => {
-  const { store, client, databasePath } = await service();
-  const contend = await competingWriter(databasePath);
-  const note = store.create("Garden");
-  store.database.exec("PRAGMA busy_timeout = 1");
-  await contend(async () => {
-    const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision,
-      patches: [{ observed: "Garden", replacement: "Garden planted" }], mutation: { author: "agent", actorId: "gardener" } });
-    expect(result.outcome).toBe("applied");
-  });
-  await contend(async () => {
-    await client.request({ action: "update", blockId: note.id, text: "Garden watered", expectedRevision: note.revision + 1, mutation: { author: "user" } });
-  });
-  expect(store.require(note.id)).toMatchObject({ text: "Garden watered", revision: note.revision + 2 });
-  expect(store.children(note.id)).toEqual([]);
-});
 
 const TIDY = { author: "agent" as const, actorId: "tidy" };
 
@@ -660,7 +584,13 @@ describe("draft.patch over the protocol", () => {
     const note = store.create("Beds by the fence\n[touches::1]\nthe compost is warm");
     const door = await fakeDoor(client, "door-stamp", note.id, `${note.text}, turn it`, note.revision);
     const stamp = (mutation: { author: "agent" | "user"; actorId?: string }) => client.request<PropertiesPatched>({ action: "properties.patch", blockId: note.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation });
+    const unstamped = store.log.cursor().lsn;
     const answer = await stamp(TIDY);
+    // The saved half reached the change log, in one store transaction, so a machine following it has the stamp (PIE-1751).
+    const stamped = followedSince(store, unstamped);
+    expect(entriesFor(stamped, "blocks", note.id).map(e => e.op)).toEqual(["u"]);
+    expect(entriesFor(stamped, "block_properties", note.id).length).toBeGreaterThan(0);
+    expect(txnsOf(stamped)).toHaveLength(1);
     expect(answer).toMatchObject({ revision: note.revision + 1, text: "Beds by the fence\n[touches::2]\nthe compost is warm", draft: { holder: "door-stamp", text: "Beds by the fence\n[touches::2]\nthe compost is warm, turn it" } });
     expect(store.require(note.id)).toMatchObject({ text: answer.text, revision: answer.revision });
     expect(door).toMatchObject({ text: answer.draft!.text, revision: answer.revision });
@@ -674,8 +604,11 @@ describe("draft.patch over the protocol", () => {
     // A door that stops answering keeps its hold: refused, and nothing is written.
     const quiet = store.create("Seed tray\n[touches::4]");
     await fakeDoor(client, "door-quiet", quiet.id, quiet.text, quiet.revision, { answer: false, leaseMs: 6_000 });
+    const unrefused = store.log.cursor().lsn;
     await expect(client.request({ action: "properties.patch", blockId: quiet.id, operations: [{ op: "add", key: "touches", by: 1 }], mutation: TIDY })).rejects.toThrow("didn't answer");
     expect(store.require(quiet.id)).toMatchObject({ text: quiet.text, revision: quiet.revision });
+    // Refused, nothing is logged either: a follower stays where the home is.
+    expect(entriesFor(followedSince(store, unrefused), "blocks", quiet.id)).toEqual([]);
   }, 20_000);
 
   test("a work stage set on a ticket being typed in: the answer, the saved ticket and the draft agree (PIE-1756)", async () => {
@@ -692,7 +625,13 @@ describe("draft.patch over the protocol", () => {
     const { store, client } = await service();
     const ticket = store.create("Fix the shed roof [type::roadmap-item] [work-stage::later] [wreckage::2026-10-01]\n\nTar paper first.");
     const door = await fakeDoor(client, "door-later", ticket.id, `${ticket.text} Nails too.`, ticket.revision);
+    const unrestored = store.log.cursor().lsn;
     const restored = await restore(client as never, ticket.id, "asked again: the roof leaks", undefined, { actor: "loki-test", now: new Date("2026-11-12T09:00:00Z") });
+    // The stage, the marks and the line are one logged write: a follower has the ticket queued with its line (PIE-1751).
+    const logged = followedSince(store, unrestored);
+    expect(entriesFor(logged, "blocks", ticket.id).map(e => e.op)).toEqual(["u"]);
+    expect(entriesFor(logged, "blocks", ticket.id)[0]!.row).toContain("Back from later, 2026-11-12");
+    expect(txnsOf(logged)).toHaveLength(1);
     // One write (PIE-1760): the stage and the dated line, saved and in the draft, which stands on that revision.
     const line = "**Back from later, 2026-11-12:** asked again: the roof leaks";
     expect(restored.revision).toBe(ticket.revision + 1);

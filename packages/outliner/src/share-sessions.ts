@@ -9,7 +9,7 @@
 // Also here: what a reader of the web client has in front of them (`reader.report` / `reader.view`), presence kept in
 // memory, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 //
-// A read-only copy of another machine's outline (outline-mirror.ts) keeps both in files beside the mirror instead
+// A read-only copy of another machine's outline (outline-follower.ts) keeps both in files beside the mirror instead
 // (`fileStorage`): the gateway and the web client each serve the copy from a host of their own, and a snapshot link the
 // gateway mints, or a page the web client reports, is the same session or reader to both (PIE-1091).
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";

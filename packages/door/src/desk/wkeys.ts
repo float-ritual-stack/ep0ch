@@ -43,15 +43,14 @@ export interface WKey {
   sticky?: true;
   /** About the tile holding this desk rather than the tile inside it: `mount` whenever there is one, `group` on a group the keys aren't inside (its resize keys size the whole group, its tiles keeping their shares: PIE-1771; ^W e goes in to size one of them). */
   holder?: "mount" | "group";
+  /** Its label where it acts on the group holding the desk (`holdingDesk`): the panel, the ^W popup and the hint row say it there (PIE-1773). */
+  forGroup?: { label: string };
 }
 
 /**
  * ^W reached this desk through the mount holding it: a key about the mount itself goes to the desk holding that mount (PIE-1574),
  * so `^W e` is never asked of the tile inside. Null: the key is this desk's.
  */
-/** The hint row's part on a group's desk (PIE-1771): its resize keys size the whole group, so ^W > grows it. */
-export const GROUP_GROW_PART: HintPart = { action: "tile.resize", key: "ctrl+w >", label: "wider group", args: { by: 1, axis: "row", group: true } };
-
 export function holdingDesk<D>(e: WKey, holder: { tile: object; desk(): D | null } | null): D | null {
   const mount = holder?.tile as { group?: boolean; inside?: boolean } | undefined;
   return holder && (e.holder === "mount" || (e.holder === "group" && mount?.group && !mount.inside)) ? holder.desk() : null;
@@ -74,10 +73,10 @@ const W_TABLE = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true, holder: "group" },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true, holder: "group" },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true, holder: "group" },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true, holder: "group" },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true, holder: "group", forGroup: { label: "narrower group" } },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true, holder: "group", forGroup: { label: "wider group" } },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true, holder: "group", forGroup: { label: "shorter group" } },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true, holder: "group", forGroup: { label: "taller group" } },
   { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
   { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }) },
   { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }) },
@@ -129,6 +128,9 @@ const W_TABLE = [
 ] as const satisfies readonly WKey[];
 export const W_KEYS = keyTable("^W", "the desk's window keys, after ^W", W_TABLE, "ctrl+w ") as typeof W_TABLE;
 
+/** The hint row's part on a group's desk (PIE-1771): its resize keys size the whole group, so ^W > grows it, in that key's own group words. */
+export const GROUP_GROW_PART: HintPart = { action: "tile.resize", key: "ctrl+w >", label: W_KEYS.find(e => e.key === ">")!.forGroup.label, args: { by: 1, axis: "row", group: true } };
+
 type Entry = (typeof W_TABLE)[number];
 /** The keys the desk handles itself: it must have a handler for each (Desk's `WSPECIAL`, typed by this). */
 export type WSpecialKey = Extract<Entry, { how: { k: "special" } }>["key"];
@@ -166,7 +168,7 @@ export interface WRow {
  * screen's dispatcher). The label is the table's where it has one, else the tile menu's row for `ctrl+w <key>`, else
  * the summary's first clause; the same def the menu and `actions` read.
  */
-export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined): WRow[] {
+export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined, onGroup: (e: WKey) => boolean = () => false): WRow[] {
   return wNow().map(e => {
     const def = defOf(e.action), chord = `ctrl+w ${e.key === " " ? "space" : e.key}`;
     const entries = def?.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu];
@@ -174,7 +176,8 @@ export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined
     const args = e.how.k === "run" ? e.how.args ?? {} : {};
     return {
       key: e.key, group: e.group, action: e.action, chord, how: e.how.k, args,
-      label: e.label ?? menu?.label ?? (def ? clause(def.summary) : e.action),
+      // On a group the keys aren't inside, a key about the group says so (PIE-1773: `>` is "wider group" there).
+      label: (e.forGroup && onGroup(e) ? e.forGroup.label : undefined) ?? e.label ?? menu?.label ?? (def ? clause(def.summary) : e.action),
       // Where the table words the key itself, the action's summary is about the action, not this key: left out.
       summary: def && !e.label ? clause(def.summary) : "",
     };

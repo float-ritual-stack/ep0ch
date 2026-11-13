@@ -536,7 +536,7 @@ export class ResourceCatalog {
         invocationId,
         input.expectedVersion,
       );
-      if (update.changes !== 1) {
+      if (update.changes === 0) { // `changes` counts the change log's trigger rows too (ADR 0009)
         throw new ResourceCatalogError(
           "version-conflict",
           "Computed invocation changed during revision",
@@ -2375,7 +2375,7 @@ export class ResourceCatalog {
           current.id,
           current.version,
         );
-        if (updated.changes !== 1) {
+        if (updated.changes === 0) {
           throw new ResourceCatalogError(
             "version-conflict",
             "Remote entity locator changed concurrently",
@@ -2506,7 +2506,7 @@ export class ResourceCatalog {
         refreshed.id,
         initial.generation,
       );
-      if (stateUpdate.changes !== 1) {
+      if (stateUpdate.changes === 0) {
         throw new ResourceCatalogError(
           "version-conflict",
           "Remote entity refresh was superseded",

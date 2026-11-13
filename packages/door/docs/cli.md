@@ -231,10 +231,9 @@ ep0ch doctor [--backups] [--json]
 
 every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
 in Herdr, the outlines folder and its host and unit, which outline this folder
-opens, the backups (each Litestream unit, its log's errors, how far each replica
-or mirror trails), Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing,
-with the command that fixes each. Read-only; --backups also restores each newest
-snapshot into a temp folder and runs integrity_check
+opens, the backup job and each outline's newest archive, Herdr's keys, the Claude
+mod): ✓ current, ! behind, ✗ missing, with the command that fixes each. Read-only;
+--backups also checks the machine itself
 
 ## backup
 

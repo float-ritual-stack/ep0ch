@@ -48,11 +48,11 @@ import {
   type OutlinerServiceStatus,
 } from "./types";
 import { probeSocket } from "./socket-probe";
+import type { LogRange } from "./change-log";
 import { answerWebSessions, WebSessions } from "./web-sessions";
 import { copyAnswers, isHostAction } from "./actions";
 import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
-import { metaDir, withLitestreamPaused } from "./litestream-guard";
 import { DEFAULT_WEB_ORIGIN } from "./artifact-grants";
 
 /*
@@ -107,8 +107,11 @@ export interface OutlineHostOptions {
    * (`copyAnswers` in actions.ts: `outlines.list` among them). It never creates, imports or deletes an outline.
    */
   readOnly?: boolean;
-  /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
-  copy?: { address: string; state: string };
+  /**
+   * Read-only copies of another machine's outlines (the followers' folder, ADR 0009): each outline here is
+   * `<name>@<machine>`, its shares and readers kept in `<state>/<name>/` (its OutlinerServer's `copy`, PIE-1091).
+   */
+  copy?: { machine: string; state: string };
   /** Which absolute paths are on this machine's disk: all, unless a test's two machines share one disk (PIE-1644). */
   filesHere?: (path: string) => boolean;
   /** How long an `@name` line waits for quiet before it's asked (the service's 1.5 s when left out; a test's host, shorter). */
@@ -289,6 +292,7 @@ export class OutlineHost {
       listener.on("error", error => (this.options.onListenerError ?? (fault => this.log(`Outline host listener failed: ${fault.message}`)))(error));
       this.listener = listener;
       if (this.options.warmRecent) this.warmRecent();
+      if (!this.options.readOnly) { this.compactSweep = setInterval(() => { for (const o of this.opened.values()) this.compact(o); }, 3_600_000); this.compactSweep.unref?.(); }
     } catch (error) {
       await this.close().catch(() => undefined);
       throw error;
@@ -314,6 +318,13 @@ export class OutlineHost {
    * after that. An extension's own process goes straight through. One outline's failure is that outline's: its first
    * request says why, as ever.
    */
+  private compactSweep: ReturnType<typeof setInterval> | undefined;
+  private compact(outline: HostedOutline): void {
+    if (this.options.readOnly) return;
+    try { if (outline.store.log.compact()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
+    catch (error) { this.log(`Outline "${outline.name}": compacting its change log failed: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
   private warmRecent(): void {
     const queue = this.recentNames();
     for (const name of queue) this.warming.set(name, Promise.withResolvers<void>());
@@ -384,6 +395,7 @@ export class OutlineHost {
 
   async close(): Promise<void> {
     this.closing = true;
+    if (this.compactSweep) clearInterval(this.compactSweep);
     const listener = this.listener;
     this.listener = null;
     const listenerClosed = Promise.withResolvers<void>();
@@ -533,24 +545,10 @@ export class OutlineHost {
     return database;
   }
 
-  /**
-   * Removes what a failed create or import made: the claimed file and its SQLite side files, with Litestream paused
-   * (litestream-guard.ts: its meta folder kept). Never the lock file.
-   */
+  /** Removes what a failed create or import made: the claimed file and its SQLite side files. Never the lock file. */
   private async unclaim(name: string): Promise<void> {
     const database = this.layout.database(name);
-    await withLitestreamPaused([database], `removing the half-made outline ${name}`, () => {
-      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
-    });
-  }
-
-  /**
-   * A change that makes `name`'s file again where one was before (Litestream's meta folder for it is still there, from
-   * an outline deleted under that name): made with Litestream paused. A name never used is made as it is.
-   */
-  private remade<T>(name: string, what: string, change: () => Promise<T>): Promise<T> {
-    const database = this.layout.database(name);
-    return existsSync(metaDir(database)) ? withLitestreamPaused([database], what, change) : change();
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
   }
 
   /**
@@ -561,17 +559,15 @@ export class OutlineHost {
     const name = requireName(nameInput);
     const about = aboutInput === undefined ? undefined : requireAbout(aboutInput);
     this.refuseTaken(name);
-    return this.remade(name, `creating the outline ${name}`, async () => {
-      this.claim(name);
-      try {
-        const opened = await this.open(name);
-        if (about) this.introduce(opened, about);
-      } catch (error) {
-        await this.unclaim(name);
-        throw error;
-      }
-      return this.summary(name);
-    });
+    this.claim(name);
+    try {
+      const opened = await this.open(name);
+      if (about) this.introduce(opened, about);
+    } catch (error) {
+      await this.unclaim(name);
+      throw error;
+    }
+    return this.summary(name);
   }
 
   /**
@@ -607,9 +603,7 @@ export class OutlineHost {
       if (refusalKindOf(error) !== "conflict") throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
-    let started = false;
-    try { return await this.remade(name, `importing ${real} as ${name}`, () => { started = true; return this.importAs(real, name, release); }); }
-    finally { if (!started) release(); }
+    return this.importAs(real, name, release);
   }
 
   private async importAs(real: string, name: string, release: () => void): Promise<HostedOutlineSummary & { imported: ImportReport }> {
@@ -659,6 +653,29 @@ export class OutlineHost {
    * Stops serving one outline and releases its database. It is not a lock: its next request opens it again, and
    * live panes reconnect at once. Close the panes first to keep it closed.
    */
+  /**
+   * A follower's copy here takes a range of its home's log (outline-follower.ts, ADR 0009), through the store that
+   * answers its reads: nothing else opens the file. Refused (RangeRefused) unless the range follows the copy's cursor.
+   */
+  async applyLog(name: string, range: LogRange): Promise<number> {
+    return (await this.open(name)).store.log.apply(range);
+  }
+
+  /**
+   * A follower's copy replaced by one rebuilt beside it (outline-follower.ts): marked busy so no open lands meanwhile,
+   * the served one closed (a close that fails leaves it as it was), then the rebuilt file renamed in.
+   */
+  async replaceCopy(name: string, file: string): Promise<void> {
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is already being changed`);
+    this.busy.add(name);
+    try {
+      await this.closeOutline(name);
+      const database = this.layout.database(name);
+      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
+      renameSync(file, database);
+    } finally { this.busy.delete(name); }
+  }
+
   async closeOutline(nameInput: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
     await this.opening.get(name)?.catch(() => undefined);
@@ -692,9 +709,7 @@ export class OutlineHost {
       let release: () => void;
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
       catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then delete it again`, { cause: error }); }
-      // With Litestream paused (litestream-guard.ts): its meta folder stays, so an outline made again under this name
-      // continues the replica's history instead of colliding with it.
-      try { return await withLitestreamPaused([database], `deleting the outline ${name}`, () => {
+      try {
         const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
         mkdirSync(movedTo, { recursive: true });
         for (const suffix of ["", "-wal", "-shm"]) {
@@ -703,7 +718,7 @@ export class OutlineHost {
         if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
         for (const file of lock.files) rmSync(file, { force: true });
         return { name, movedTo };
-      }); } finally {
+      } finally {
         release();
       }
     } finally {
@@ -728,7 +743,7 @@ export class OutlineHost {
     return this.relocate(name, this.layout.archived(name), this.layout.root, false);
   }
 
-  /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed, owner-locked, Litestream paused. */
+  /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed and owner-locked. */
   private async relocate(name: string, from: string, to: string, archived: boolean): Promise<HostedOutlineArchival> {
     const database = join(from, `${name}.sqlite`);
     if (!lstatOrUndefined(database)) throw new Error(archived ? `No outline named "${name}" in ${this.outlinesFolder}` : `No archived outline named "${name}"; ep0ch outline list --archived shows them`);
@@ -744,7 +759,7 @@ export class OutlineHost {
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
       catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then try again`, { cause: error }); }
       try {
-        return await withLitestreamPaused([database, join(to, `${name}.sqlite`)], `${archived ? "archiving" : "restoring"} the outline ${name}`, () => {
+        {
           mkdirSync(to, { recursive: true });
           const moved: [string, string][] = [];
           try {
@@ -763,7 +778,7 @@ export class OutlineHost {
           for (const file of lock.files) rmSync(file, { force: true });
           if (!archived) rmSync(from, { recursive: true, force: true });
           return { name, archived, movedTo: archived ? to : join(to, `${name}.sqlite`) };
-        });
+        }
       } finally { release(); }
     } finally { this.busy.delete(name); }
   }
@@ -835,7 +850,7 @@ export class OutlineHost {
       await this.giveWay();
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}), ...(this.options.agentRequestQuietMs !== undefined ? { agentRequestQuietMs: this.options.agentRequestQuietMs } : {}) });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: { address: `${name}@${this.options.copy.machine}`, state: join(this.options.copy.state, name) } } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}), ...(this.options.agentRequestQuietMs !== undefined ? { agentRequestQuietMs: this.options.agentRequestQuietMs } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.extensionPages.giveWay = this.giveWay;
@@ -852,6 +867,8 @@ export class OutlineHost {
       if (this.closing) throw new Error("The outline host is stopping");
       const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server, settled };
       this.opened.set(name, outline);
+      // The change log kept in proportion (ADR 0009): on open, then hourly (start's sweep).
+      this.compact(outline);
       try { await this.options.onOpen?.(outline); }
       catch (error) { this.log(`Outline "${name}": ${error instanceof Error ? error.message : String(error)}`); }
       return outline;

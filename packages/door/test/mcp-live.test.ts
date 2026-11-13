@@ -3,7 +3,6 @@
 // shared ssh forward (outline-core's ensureForward), over the fake ssh (packages/outliner/test/fake-ssh.ts). "The
 // laptop goes away" is the fake ssh refusing connections (FAKE_SSH_DOWN) with the forward killed. Fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
@@ -12,7 +11,7 @@ import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { forwardFor } from "@ep0ch/outliner/machine-forward";
 import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
 import { LiveMachines } from "../src/mcp-live";
-import { OutlineMirror } from "../src/mcp-mirror";
+import { OutlineFollower } from "../src/mcp-mirror";
 import { drainNetmail, Netmail, pullNetmail, queueCommand } from "../src/mcp-netmail";
 import { type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
@@ -41,11 +40,14 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     boards.push(b);
     return b;
   };
-  const follow = (name: string) => {
-    const target = join(mirrors, FAR, `${name}.sqlite`);
-    rmSync(target, { force: true });
-    const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
-    try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
+  /**
+   * The copy here follows the laptop's log through the same forward; in this file it follows once, at the start, and
+   * then not at all (`copyFollows`), so the copy is the one from before whatever the laptop writes later.
+   */
+  let copyFollows = true;
+  const reach = async (m: string) => {
+    if (!copyFollows) throw new Error("this test's copy doesn't follow after the start");
+    return (await forwardFor(m, here.outlines, forwardEnv as NodeJS.ProcessEnv)).socket;
   };
   const token = async () => new SignJWT({ client_id: CLIENT, scope: "profile" })
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE)
@@ -86,7 +88,6 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     dir = scratchDir("ep0ch-mcpl-");
     mirrors = join(dir, "mirrors");
     mkdirSync(join(mirrors, FAR), { recursive: true });
-    follow("attic-notes");
     for (const d of ["bin", "bin-far", "hub-home", "hub-outlines", "far-home", "gw-home"]) mkdirSync(join(dir, d));
     const ssh = `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test", "fake-ssh.ts")} "$@"\n`;
     writeFileSync(join(dir, "bin", "ssh"), ssh);
@@ -109,7 +110,9 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
+    const mirror = new OutlineFollower("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, { reach });
+    await mirror.pull();
+    copyFollows = false;
     // The gateway's own tries (its drain's timer) are off here, so the backoff's counts are the calls'; the drain test starts its own.
     const outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local outlines" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), live, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
     closeOutlines = outlines.close;
@@ -242,7 +245,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
 
   test("a write rides out a link restart (a deploy's): it waits a few seconds for the laptop instead of queueing", async () => {
     const own = new LiveMachines({ forward: m => forwardFor(m, here.outlines, forwardEnv as NodeJS.ProcessEnv), now: () => clock, budgetMs: 30_000, backoffMs: 45_000 });
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const mirror = new OutlineFollower("attic-notes", FAR, mirrors, () => {}, Date.now, { reach });
     const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), own, undefined, { drainEveryMs: 0, writeWaitMs: 10_000 });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);
@@ -259,7 +262,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
 
   test("with no call and no pull, the gateway drains a laptop's queued writes within seconds of its link coming back", async () => {
     const own = new LiveMachines({ forward: m => forwardFor(m, here.outlines, forwardEnv as NodeJS.ProcessEnv), now: () => clock, budgetMs: 30_000, backoffMs: 45_000 });
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const mirror = new OutlineFollower("attic-notes", FAR, mirrors, () => {}, Date.now, { reach });
     const quiet: string[] = [];
     const outlines = machineOutlines(undefined, line => quiet.push(line), async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), own, undefined, { drainEveryMs: 150, writeWaitMs: 0 });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
@@ -316,7 +319,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     });
     await new Promise<void>(r => server.listen(proxy, r));
     const lossy = new LiveMachines({ forward: async () => ({ socket: proxy }), now: () => clock, budgetMs: 10_000, backoffMs: 45_000, requestTimeoutMs: 1500 });
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const mirror = new OutlineFollower("attic-notes", FAR, mirrors, () => {}, Date.now, { reach });
     const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), lossy, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);
@@ -366,7 +369,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
       expect(old.route(FAR, "attic-notes")).toMatchObject({ via: "mirror", command: "ep0ch install --apply" });
       old.close();
       // And through the gateway: the same, with the mirror's answer.
-      const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
+      const mirror = new OutlineFollower("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, { reach });
       const stale = new LiveMachines({ forward: async () => ({ socket: sock }), now: () => clock, budgetMs: 5000 });
       const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), stale);
       const second = startGateway({ config: gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON }) as any, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
@@ -414,7 +417,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     laptopAway(); clock += 50_000;
     const fallback = (await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" })).json;
     expect(fallback.reachability.source).toBe("mirror");
-    // The mirror is the copy from before (follow() ran once, at the start): the write is shown over it, and said to be missing from it.
+    // The copy is the one from before (it followed once, at the start): the write is shown over it, and said to be missing from it.
     expect(fallback.pending.spans).toContainEqual(expect.objectContaining({ observed: "Lamp list", replacement: "Lamp inventory", shown: true }));
     expect(fallback.staleSince.revision).toBeGreaterThan(fallback.record.revision);
     expect(fallback.staleSince.said).toContain("newer than this answer");
@@ -454,7 +457,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     await new Promise<void>(r => server.listen(proxy, r));
     let proxyDown = false;
     const named = new LiveMachines({ forward: async () => { if (proxyDown) throw new Error("no route to host"); return { socket: proxy }; }, now: () => clock, budgetMs: 10_000 });
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const mirror = new OutlineFollower("attic-notes", FAR, mirrors, () => {}, Date.now, { reach });
     const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), named, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);

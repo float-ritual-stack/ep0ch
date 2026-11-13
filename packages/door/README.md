@@ -540,29 +540,21 @@ and `ep0ch install --apply` to run again. systemd reloads its definitions and re
 A machine with no local outline databases skips hosting and backups without asking for bucket keys.
 Deploy records use the local host's configured default outline when the invoking folder names none.
 
-Its `backups` group reads each Litestream unit (`litestream replicate`, and float-2's mirror followers,
-`litestream restore -f`): ✓ while it runs (pid, up since), ✗ for ERROR lines its log has had in the last hour since
-it started (a lost file of its local state gets the fresh-start commands: its state moved aside and the replica's old
-history deleted, since Litestream 0.5 keeps no generations), and per outline how far the replica trails the
-database: ✗ "stale since" once a write has waited more than 10 minutes, and ✗ when the replica holds a later txid than
-the database (its state was reset under it, so a restore would bring back the old copy). A mirror is compared with
-the replica it follows the same way, and the remote MCP gateway's `list_outlines` and reads say `stale` (since when)
-for it. The replica is listed with `litestream ltx`, run the way the unit runs Litestream (its `with-secrets` or
-EnvironmentFile), so the keys reach only that process and are never printed.
-
-**The restic backups (PIE-607)** replace Litestream where a machine isn't always online, and back up the rest twice.
-`ep0ch install --apply` writes the job's units from `scripts/backup/` (`ep0ch-backup.timer` on Linux, the launchd
-agent `io.ep0ch.backup` on macOS) and `~/.config/ep0ch/backup.env` naming the machine, and loads them; every 15
-minutes `ep0ch backup run` snapshots each outline whose change feed moved (VACUUM INTO, integrity-checked, `restic
-backup --stdin` into `s3:…/ep0ch/restic/<machine>`; an unchanged outline isn't snapshotted, and each run stands alone,
-so an offline night leaves nothing to repair), refreshes the mirrors of other machines' outlines from their newest
-snapshots (`EP0CH_BACKUP_MIRRORS`), restores every outline's newest snapshot into a temp folder once a month (the
-drill), and checks freshness: changes waiting more than 2 hours are an incident, marked `✗ backup` on the door's status
-bar until they clear (a click, or `backups.alert`, says what and the command that fixes it), announced once through
-`herdr notification` and ntfy (a secrets group `ntfy` with `NTFY_URL`), and listed by doctor with each outline's newest
-snapshot. `ep0ch backup status`, `list <outline>` and `restore <outline> [--machine <m>] [--at <time>] --to <path>`
-read them back. [scripts/backup/README.md](../../scripts/backup/README.md) has the settings, the setup on each
-machine and the retirement of the Litestream units.
+**The backups (PIE-607, ADR 0009) are each outline's change log, archived.** `ep0ch install --apply` writes the
+job's units from `scripts/backup/` (`ep0ch-backup.timer` on Linux, the launchd agent `io.ep0ch.backup` on macOS) and
+`~/.config/ep0ch/backup.env` naming the machine, and loads them; every 15 minutes `ep0ch backup run` asks the host for
+each outline's log entries since its archive (`log.range`), writes them as one new segment in
+`~/.local/state/ep0ch-door/backup/log/<machine>/<outline>/`, and uploads the outline's archive folder with restic into
+`s3:…/ep0ch/restic/<machine>` (only new segments travel; an outline whose log didn't move isn't uploaded, and each run
+stands alone, so an offline night leaves nothing to repair). Once a month it replays every outline's newest archive
+into a temp folder and checks it (the drill), and it checks freshness: changes waiting more than 2 hours are an
+incident, marked `✗ backup` on the door's status bar until they clear (a click, or `backups.alert`, says what and the
+command that fixes it), announced once through `herdr notification` and ntfy (a secrets group `ntfy` with `NTFY_URL`),
+and listed by doctor with each outline's newest archive. `ep0ch backup status`, `list <outline>` and `restore <outline>
+[--machine <m>] [--at <time>] --to <path>` (a replay of the archive up to that moment, into a new outline of its own)
+read them back. Another machine's outlines are followed, not copied: `ep0ch backup follow` (the `ep0ch-follow` unit,
+written when `EP0CH_MCP_MIRRORS` names some) applies their logs within seconds. [scripts/backup/README.md](../../scripts/backup/README.md)
+has the settings, the setup on each machine and Litestream's retirement.
 
 `doctor` marks each piece ✓ current, ! behind, ✗ missing, ? couldn't be checked (a `git fetch` that failed
 or timed out after 90s, or a source `git ls-remote` couldn't reach: never ✓ on an old fetch, and doctor
@@ -852,20 +844,22 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
   refused, naming the default and the maximum.
   Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
-- **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
-  the work VPN) is read from a read-only copy on this machine whenever that machine doesn't answer (it is tried first, [below](#remote-mcp-gateway-claudeai)), so a closed lid never stalls
-  or refuses a read. The copy comes from the outline's own backups: the backup job (`ep0ch backup run`, PIE-607)
-  replaces `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite` with the laptop's newest restic snapshot when there's a
-  newer one (an atomic rename), and its staleness alert is what a read says. Until the Litestream follower below is
-  retired, it writes there instead and the job's copy waits in `<mirrors>/.restic/<machine>/`. The gateway snapshots that file when it changes (checked at most every 15 seconds) and serves the
-  snapshot from an outline host of its own opened read-only (`OutlineHost` with `readOnly`: only the reads MCP makes
-  are answered; the followed file is never opened to write). Every answer says where it came from:
-  `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or the
-  newest change the copy holds (the home machine's clock: a quiet outline's copy can be fresh and its `asOf` old), a
-  mirror's `copy` names the file served and when it last changed here, and its `note` names its home. While both
-  copies exist, the one holding the newer change is served (the follower's on a tie). The access setting is the one the copy
-  carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the mirror with its next change. A
-  mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. A mirror is
+- **Mirrors (PIE-562, ADR 0009).** An outline whose home is another machine (float-hub on the laptop, often asleep or
+  behind the work VPN) is read from a read-only copy on this machine whenever that machine doesn't answer (it is tried
+  first, [below](#remote-mcp-gateway-claudeai)), so a closed lid never stalls or refuses a read. The copy follows the
+  outline's change log (`OutlineFollower`, packages/outliner/src/outline-follower.ts): `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite`
+  takes each range of the home's log from its cursor, asked through the shared forward whenever the home's events say
+  something changed and every 10 seconds, so a change on the laptop is here within seconds while its link is up. One
+  process serves a machine's copies (the first that needs them starts a read-only outline host on the folder; the
+  gateway, the web client and `ep0ch backup follow` attach to it), so nothing else opens the file. A range that doesn't
+  follow the copy's cursor is refused: another log (the outline restored or made again) rebuilds the copy from the
+  home's genesis; another schema leaves it as it is, stale, saying which machine to update. Every answer says where it
+  came from: `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or
+  the newest change the copy holds (the home machine's clock: a quiet outline's copy can be fresh and its `asOf` old), a
+  mirror's `copy` names the file served, when a range last landed here and its `cursor`, and its `note` names its home.
+  The access setting is the one the copy carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the
+  mirror with its next change. A mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are
+  refused, saying so. A mirror is
   never written: its outline's writes queue ([netmail](#netmail-writes-to-another-machines-outline)).
 - **Live when the machine answers (PIE-661).** A mirror is the fallback, not the first choice. For an outline mirrored
   from a machine, the gateway first asks that machine's own host through the shared ssh forward every client keeps
@@ -884,9 +878,8 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   (a note changed live since becomes a proposal), before that call's own write; a live read lays any still waiting over
   the note as `pending`. `list_outlines` gives each mirrored outline's `route` (`via`: `live` or `mirror`, when it was
   last `checkedAt`, `why`). `EP0CH_MCP_LIVE=0` turns the live route off.
-  **One identity per outline.** A mirrored copy is its source's instance: the private host that serves it keeps the
-  instance id the copy carries (`adoptOutlineInstance`, outliner `src/outline-instance.ts`), where it used to mint a fresh
-  one, so `outlineInstanceId` is the same whether the answer is live, from the mirror or from the laptop's own stdio
+  **One identity per outline.** A mirrored copy is its source's instance: the instance id is replicated with the log, and
+  a follower's copy keeps it (`openOutlineInstance`, outliner `src/outline-instance.ts`) where an open would mint one, so `outlineInstanceId` is the same whether the answer is live, from the mirror or from the laptop's own stdio
   server. The outline's name in answers is the machine's own name for itself, as its host reports it (`laptop`'s is
   `Evans-MacBook-Pro.local`), learned the first time it answers live and kept in `<EP0CH_MCP_MIRROR_DIR>/.home/`; until
   then, and as an accepted alias always, the ssh name. A URI with either name reaches the same outline (`list_outlines`
@@ -1133,7 +1126,7 @@ mirrors and forwards use it), so the gateway has no second credential and no way
   A new block and a comment don't conflict; a comment whose passage changed lands on the whole note, quoting it.
 - A pull cut off after applying and before the hub heard keeps a ledger (`<door state>/backup/netmail-applied.json`),
   so the next pull tells the hub again and applies nothing twice.
-- The mirror shows a write once it has been applied and the next snapshot has refreshed the copy.
+- The mirror shows a write once it has been applied and the next range of the home's log has reached the copy.
 - `ep0ch mcp queue status` on the hub, `ep0ch backup status` and `ep0ch doctor` on either side show the queue
   depth, the oldest write and the last pull per machine. A queue that has waited a day while its machine was seen
   online (a newer snapshot, an ssh answer) is an alert on the door's status bar, announced once, with the fix.
@@ -1167,44 +1160,8 @@ UMask=0077
 WantedBy=default.target
 ```
 
-The mirror's Litestream follower (being retired, PIE-607) is a template unit,
-`~/.config/systemd/user/litestream-mirror@.service`, one instance per outline (`litestream-mirror@float-hub`); the
-bucket keys come from `hetzner-s3.env`, and the copies stay outside `~/outlines`, so this machine's own Litestream
-doesn't replicate them back and its host never serves them. It restores fresh on every start: Litestream 0.5.17
-refuses to resume a follow whose saved txid is past the newest snapshot (upstream #1385, a crash loop), and doctor
-says when a follower lacks the `ExecStartPre` that removes the old copy:
-
-```ini
-[Unit]
-Description=Litestream follow: read-only mirror of laptop outline %i in ~/outline-mirrors/laptop, for the MCP gateway
-After=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=%h/.config/secrets/hetzner-s3.env
-ExecStartPre=/bin/mkdir -p %h/outline-mirrors/laptop
-ExecStartPre=/bin/rm -f %h/outline-mirrors/laptop/%i.sqlite %h/outline-mirrors/laptop/%i.sqlite-txid %h/outline-mirrors/laptop/%i.sqlite-wal %h/outline-mirrors/laptop/%i.sqlite-shm
-ExecStart=%h/.local/bin/litestream restore -f -follow-interval 10s -config %h/.config/litestream/mirrors.yml %h/outline-mirrors/laptop/%i.sqlite
-Restart=always
-RestartSec=10
-UMask=0077
-
-[Install]
-WantedBy=default.target
-```
-
-with `~/.config/litestream/mirrors.yml` naming the laptop's replica:
-
-```yaml
-dbs:
-  - path: /home/evan/outline-mirrors/laptop/float-hub.sqlite
-    replica:
-      type: s3
-      bucket: ep0ch
-      path: laptop/outlines/float-hub.sqlite
-      endpoint: https://hel1.your-objectstorage.com
-      region: hel1
-```
+The copies are followed by whichever of the gateway, the web client and `ep0ch backup follow` needs them first (ADR
+0009); no unit of its own is needed on float-2, and nothing there replicates them.
 
 Caddy, beside `pie.ep0ch.sh` (the `*.ep0ch.sh` record already points at the machine):
 

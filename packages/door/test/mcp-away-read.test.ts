@@ -1,8 +1,8 @@
 // An outline away on another machine, read through the MCP gateway from this machine's read-only copy (PIE-1091):
 // outline_snapshot mints a link this machine's web client serves, reader_view says what its pages of the copy show,
 // and a share is refused with why and what to do. Every answer says how fresh the copy is. "The other machine" is a
-// scratch host whose database Litestream's follow leaves in the mirrors folder (a VACUUM INTO); the web client is the
-// outliner's own OutlinePublishers with a RemoteOutline whose forward never answers, so it reads the same copy.
+// scratch host whose change log the copy here follows (outliner outline-follower.ts); the web client is the outliner's
+// own OutlinePublishers with a RemoteOutline whose forward never answers, so it reads the same copy.
 // Calls go over HTTP to the real gateway (startGateway) with tokens a test issuer signs. Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import type { McpOutlines } from "../src/mcp";
 import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
-import { OutlineMirror } from "../src/mcp-mirror";
+import { OutlineFollower } from "../src/mcp-mirror";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
 
@@ -36,16 +36,13 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
   let gateway: Gateway, sign: () => Promise<string>;
   let web: Web, home: Started;
   let lantern = "";
-  let stale: { since: string; why: string } | null = null;
-  let clock = Date.now();
+  /** The far machine stops answering the copy's follower (its link down). */
+  let farAway = false;
+  /** The follower's clock: a home that wasn't reached is asked again only 15 s later on it, so the test moves it on. */
+  let skew = 0;
+  let mirror: OutlineFollower;
   const savedWebUrl = process.env.EP0CH_WEB_URL;
 
-  const follow = () => {
-    const target = join(mirrors, FAR, "garden-notes.sqlite");
-    rmSync(target, { force: true });
-    const source = new Database(join(far.outlines, "garden-notes.sqlite"), { readonly: true });
-    try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
-  };
   /** A tool call as claude.ai makes it: over HTTP to the gateway, with a token its issuer signed. */
   const tool = async (name: string, args: Record<string, unknown> = {}) => {
     const res = await fetch(gateway.url, {
@@ -68,10 +65,12 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     here = scratchDir("ep0ch-away-");
     mirrors = join(here, "mirrors");
     mkdirSync(join(mirrors, FAR), { recursive: true });
-    follow();
     process.env.EP0CH_WEB_URL = `https://${TAILNET}`;
     // The gateway: no outline of its own here, and the far machine's outline only from its copy (no live link).
-    const mirror = new OutlineMirror("garden-notes", FAR, mirrors, line => logs.push(line), () => clock, async () => stale);
+    mirror = new OutlineFollower("garden-notes", FAR, mirrors, line => logs.push(line), () => Date.now() + skew, {
+      reach: async () => { if (farAway) throw new Error(`${FAR} is asleep`); return far.sock; },
+    });
+    await mirror.pull();
     outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => []);
     const pair = await generateKeyPair("RS256", { extractable: true });
     const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: "test-key", alg: "RS256" }] });
@@ -134,14 +133,17 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
   }, 30_000);
 
   test("a stale copy says it is stale in the snapshot's answer, never silently", async () => {
-    stale = { since: "2026-03-14T08:00:00.000Z", why: "the mirror is at txid 3, the replica at 5" };
+    farAway = true;
     try {
-      // The mirror asks its follower's health at most once a minute.
-      clock += 61_000;
+      // The follower asks the far machine and gets no answer: the copy stays, stale since its last range landed.
+      await mirror.pull();
       const snapshot = JSON.parse((await tool("outline_snapshot", { outline: "garden-notes" })).text);
-      expect(snapshot.stale).toEqual(stale);
-      expect(snapshot.said).toContain("stale since 2026-03-14T08:00:00.000Z");
-    } finally { stale = null; }
+      expect(snapshot.stale).toEqual({ since: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), why: expect.stringContaining(`${FAR} doesn't answer`) });
+      expect(snapshot.said).toContain(`stale since ${snapshot.stale.since}`);
+    } finally { farAway = false; }
+    skew += 16_000;
+    await mirror.pull();
+    expect(JSON.parse((await tool("outline_snapshot", { outline: "garden-notes" })).text).stale).toBeUndefined();
   }, 30_000);
 
   test("reader_view says what this machine's web pages of the copy show, with the copy's freshness", async () => {
