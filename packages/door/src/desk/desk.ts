@@ -44,6 +44,8 @@ import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { agentRefusal as draftRefusal } from "../draft-session";
+import { whyNot, type Way } from "@ep0ch/outline-core/way-out";
+import { refusalSaid } from "../surface/way-out";
 import { retitle, titleWords } from "@ep0ch/outline-core/header-line";
 import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
@@ -904,7 +906,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : this.inGroup() ? { goes: true } : {}), self: this.layoutSelf(),
       beside: this.memory.beside, opened: this.memory.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
-      actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
+      actor, says: why => refusalSaid(why, actor), standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -2246,7 +2248,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") {
-      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(dest.reason);
+      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(refusalSaid(whyNot(dest.reason, ...(dest.ways ?? [])), by));
       return null;
     }
     if (dest.kind === "across") {
@@ -2925,7 +2927,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ],
       tiles: () => d.tiles(),
       resolveTile: (sel: string, o?: ResolveOpts) => d.resolveTile(sel, o),
-      revision: (expected: unknown) => revisionRefusal(d.layout, expected),
+      revision: (expected: unknown, actor: Actor) => { const why = revisionRefusal(d.layout, expected); return why && refusalSaid(why, actor); },
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
         return p instanceof ReaderPane ? { board: d.ctx ? p.context(d).board : undefined, blockId: p.msg?.id ?? null, session: p.surface.draftSession() } : null;
@@ -5504,16 +5506,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What an agent may do to tile `sel` (PIE-639), for its menu row. */
   agentNow(sel: string | undefined): { level: AgentLevel; by: string } { return this.agentOf(this.tile(sel).id); }
   /** Why an agent may not do `what` to tile `id` (PIE-639), in the layout's words, or null. */
-  private agentNo(id: number, what: string): string | null {
-    const a = this.agentOf(id);
-    return a.level === "free" ? null : agentRefusal(a.level, this.nameOf(id), what, { by: a.by });
+  private agentNo(id: number, what: string, by: Actor): string | null {
+    const a = this.agentOf(id), why = a.level === "free" ? null : agentRefusal(a.level, this.nameOf(id), what, { by: a.by });
+    return why && refusalSaid(why, by);
   }
   /** Pane `p` is a tile the screen limits for agents (edit only or hands off). */
   private limitedFor(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.agentOf(id).level !== "free"; }
   /** Tile `p` is kept from `by`'s opens: `by` is an agent and the screen limits it there (PIE-639). Where an open may land asks this. */
   private keptFrom(p: Pane, by: Actor): boolean { return this.limitedFor(p) && !this.dispatch.standing(by); }   // the cheap question first: where the person is costs a pass over the screen
   /** An open by `by` into tile `p` that doesn't go through `openIntoPane` (a screen's own landing tile): the same guard, refused with why. */
-  private mayOpen(p: Pane, by: Actor) { if (this.keptFrom(p, by)) throw new ActionRefused(this.agentNo(this.idOf(p)!, "opening a note in it")!); }
+  private mayOpen(p: Pane, by: Actor) { if (this.keptFrom(p, by)) throw new ActionRefused(this.agentNo(this.idOf(p)!, "opening a note in it", by)!); }
   /** What an agent may do to tile `id` (PIE-639), and which layer said so ("tile", "screen" or a container's id). */
   agentOf(id: number): { level: AgentLevel; by: string } { return agentLevel(this.layout, id, this.kindFacts(id)); }
   private policyAt(id: number): Effective { return policyOver(this.layout, id, this.kindFacts(id)); }
@@ -5641,7 +5643,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(id, actor);
     if (t.note) { const m = await readNote(this.ctx, t.note); if (m) this.applyPlacement(m, { from: base.id, to: id, note: m.id }, actor, "shown"); }
     this.save(); this.redraw();
-    const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
+    const why = typeof r.answer.why === "string" ? refusalSaid(whyNot(r.answer.why, ...(Array.isArray(r.answer.ways) ? r.answer.ways as Way[] : [])), actor) : undefined;
     return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : typeof r.answer.where === "string" ? r.answer.where : typeof where === "string" ? where : "right", ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 

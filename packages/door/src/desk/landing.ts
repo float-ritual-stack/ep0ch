@@ -2,6 +2,7 @@ import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import type { Rect } from "../canvas";
 import { leaves, MIN_ROWS, node, splitAxis, type AltRule, type Dir, type Place } from "./layout";
 import { flowHolding, named, OPEN_READS, policyAt, rects, type Ctx, type LayoutState, type Op, type TileFacts } from "./screen-layout";
+import { way, whyNot, type Why } from "@ep0ch/outline-core/way-out";
 
 /**
  * Where tile `id`'s opens land (PIE-794: every open from a tile asks this, and only this): its own link (when that tile
@@ -111,21 +112,21 @@ const whereWord = <I>(p: Place<I>): string => (p.kind === "edge" ? `edge-${p.dir
  * `needs` is taken. The answer says where it went (`where`) and, when that wasn't the first choice, why.
  */
 export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "policy"> & { answer: Record<string, unknown> }>(
-  s: LayoutState<I>, op: Extract<Op<I>, { op: "open"; at: unknown }>, b: Beside<I>, ctx: Ctx<I>, attempt: (s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>) => D | string,
-): D | string {
+  s: LayoutState<I>, op: Extract<Op<I>, { op: "open"; at: unknown }>, b: Beside<I>, ctx: Ctx<I>, attempt: (s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>) => D | Why,
+): D | Why {
   const needs = { cols: b.needs?.cols ?? OPEN_READS.cols, rows: b.needs?.rows ?? OPEN_READS.rows };
   const holds = (id: I) => !!ctx.tile(id).holds;
   const name = s.names.get(b.target) ?? String(b.target);
   // The target as it's drawn (zoomed, it has the screen): what the person sees is what the sides are weighed by.
   const order = besideOrder(b, rects(s, ctx.area, holds).get(b.target)), was = rects({ ...s, zoom: null }, ctx.area, holds).get(b.target);
-  let refused: string | null = null, first: { d: D; at: Place<I>; why: string } | null = null;
+  let refused: Why | null = null, first: { d: D; at: Place<I>; why: string } | null = null;
   let tried = 0, squeezes = 0, best: { d: D; at: Place<I>; fit: number; short: boolean } | null = null;
   for (const at of order) {
     // A tab behind the target is for keeping it room (`keeps`): taken when every place beside it would cut the target under
     // what it keeps, or under what it has when that is less (PIE-1757: a 44×10 edit split to 24 columns or 5 rows).
     if (at.kind === "tabs" && b.tab && (!tried || squeezes < tried)) continue;
     const d = attempt(s, { ...op, at }, ctx);
-    if (typeof d === "string") { refused ??= d; continue; }
+    if ("reason" in d) { refused ??= d; continue; }
     const placed = rects({ ...d, zoom: null }, ctx.area, holds), size = placed.get(op.tile), kept = placed.get(b.target);
     // A float, a tab or a container's own room isn't measured: only a split or an edge is beside.
     // The target keeps what it reads at too, when it says (an edit beside its answer, PIE-1757), or what it had when that
@@ -142,22 +143,23 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
     if (!best || (best.short && !short) || (best.short === short && fit > best.fit)) best = { d, at, fit, short };
     first ??= { d, at, why: short ? `${name} would keep ${kept!.cols}×${kept!.rows}, under the ${keeps.cols}×${keeps.rows} it reads at` : narrowWhy(name, size, needs) };
   }
-  const floats = (why: string): D | string => {
+  const floats = (why: string): D | Why => {
     const d = attempt(s, { ...op, at: { kind: "float" } }, ctx);
-    if (typeof d !== "string") d.answer = { ...d.answer, where: "float", why: `${why}, so it floats (layout.move tile=<it> to=<a tile> places it)` };
+    // (How it is placed after is a way, an act the asker's door words: `ways` beside the answer's `why`.)
+    if (!("reason" in d)) d.answer = { ...d.answer, where: "float", why: `${why}, so it floats`, ways: [way("layout.move", "places it (to=<a tile>)")] };
     return d;
   };
   if (!first) {
-    const why = refused ?? `there's no place beside ${name}`;
+    const why = refused ?? whyNot(`there's no place beside ${name}`);
     // An open that named no place, with no place beside its target that takes it (a board's lanes take only their own
     // kind): it floats, as when there's no room; refused there too, the first refusal says why.
     // Beside the tile the person types in, a float would cover their edit: the refusal (the typing guard's) stands.
     if (b.prefers !== "beside" || ctx.protectTyping && b.target === ctx.person.typingIn) return why;
-    const d = floats(`beside ${name}: ${why}`);
-    return typeof d === "string" ? why : d;
+    const d = floats(`beside ${name}: ${why.reason}`);
+    return "reason" in d ? why : d;
   }
   const narrow = first.why;
-  if (b.strict) return narrow;
+  if (b.strict) return whyNot(narrow);
   const took = best ?? first;
   const place = took.at.kind === "split" ? `${PLACE_WORDS[took.at.dir]} ${name}` : `along the screen's ${(took.at as { dir: Dir }).dir} edge`;
   if (b.prefers === "beside") {

@@ -6,7 +6,7 @@
 //   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the seven tables to packages/outline-core/fixtures/
 //   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check    write nothing; exit 1 naming each table that is stale
 //
-//   layout-contract.json   { layout, tiles, actor, person, op }      → the layout after, or the refusal   (apply)
+//   layout-contract.json   { layout, tiles, actor, person, op }      → the layout after, or the refusal: its reason and its ways out, each an act   (apply)
 //   place-contract.json    { layout, tiles, actor, person, request } → where the open lands, and why      (placement)
 //   act-lines.json         an act line → its words, the request, and its arguments typed by the action    (lineWords, actRequestOf, coerceActionArgs)
 //                          a `tile=` → the address it is                                                  (parseTileAddress)
@@ -30,7 +30,7 @@ import { actionRow, actRequestOf, allActionSets, coerceActionArgs, lineWords, ty
 import { isAgentLevel, type AgentLevel } from "../src/surface/agent-level";
 import { actorRule, layoutStanding } from "../src/surface/dispatch";
 import { INVITES } from "../src/surface/invite";
-import type { Whereabouts } from "../src/whereabouts";
+import { MARK_THEM, type Whereabouts } from "../src/whereabouts";
 import { visible } from "../src/style";
 import {
   apply, init, leaves, node, placement, policyOf, reviveTree, serialize,
@@ -199,7 +199,7 @@ const USER: Actor = { kind: "user" };
 function layoutRow(c: LayoutCase) {
   const { state, facts, ctx, asked } = start(c, { ...brought(c.op), ...c.brings });
   const r = apply(state, c.op, ctx);
-  return { ...asked, op: c.op, result: r.ok ? { ok: true, layout: saved(r.state, r.focus, facts.of), changed: r.changed, answer: r.answer } : { ok: false, refused: r.refused } };
+  return { ...asked, op: c.op, result: r.ok ? { ok: true, layout: saved(r.state, r.focus, facts.of), changed: r.changed, answer: r.answer } : { ok: false, refusal: r.why } };
 }
 
 /** The new tile an open in the place table makes, when its landing asks for one. */
@@ -219,10 +219,10 @@ function placeRow(c: PlaceCase) {
     ...asked, request: c.request,
     lands: {
       tile, kind: dest.kind, why: plan.why ?? (dest.kind === "none" ? dest.reason : null),
-      ...(dest.kind === "new" && tile !== null ? { new: true } : {}), ...(dest.kind === "swap" && made !== undefined ? { keeps: made } : {}), ...(r && !r.ok ? { refused: r.refused } : {}),
+      ...(dest.kind === "new" && tile !== null ? { new: true } : {}), ...(dest.kind === "swap" && made !== undefined ? { keeps: made } : {}), ...(r && !r.ok ? { refusal: r.why } : {}),
     },
     placement: plan,
-    ...(r ? { after: r.ok ? { ok: true, layout: saved(r.state, r.focus, facts.of) } : { ok: false, refused: r.refused } } : {}),
+    ...(r ? { after: r.ok ? { ok: true, layout: saved(r.state, r.focus, facts.of) } : { ok: false, refusal: r.why } } : {}),
   };
 }
 
@@ -335,8 +335,8 @@ export function contractTables(): Record<string, string> {
     return { name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(drawn ? { drawn: ["hint"] } : {}), spec };
   });
   return {
-    "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal. Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA, kinds: kindsAsked() }, { cases: layout }),
-    "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA, kinds: kindsAsked() }, { cases: place }),
+    "layout-contract.json": table({ about: "A layout, an operation and who asks: the layout after, or the refusal (its reason, and each way out as an act: an action, its arguments and what it does; never a key, which is each door's own to say). Made by the door's apply(); never edited by hand.", by: BY, reading: READING, area: AREA, kinds: kindsAsked(), attention: MARK_THEM }, { cases: layout }),
+    "place-contract.json": table({ about: "A layout and an open: the tile the note lands in and why (lands), the door's whole answer (placement), and the layout the open leaves (after). Made by the door's placement() and apply(); never edited by hand.", by: BY, reading: [...READING, `lands.tile is the tile the note is read in; an open that needs a new tile makes one with the id ${SPROUT} (a reader), and lands.keeps names it when it is the spine an old note stays in.`], area: AREA, kinds: kindsAsked(), attention: MARK_THEM }, { cases: place }),
     "act-lines.json": table({ about: "An act line: its words, the request it is, and (typed) its arguments as the action's row types them. A tile= is one of five kinds of address. Made by lineWords(), actRequestOf(), the door's coerceActionArgs() and parseTileAddress(); never edited by hand.", by: BY }, { lines: ACT_LINES.map(c => actLine(c, specs)), addresses: TILE_ADDRESSES.map(tile => ({ tile, address: parseTileAddress(tile) })) }),
     "address-contract.json": table({ about: "Which tile an address names (tile=, to=, a follower's source) among the tiles a window has: the one tile, why none has it (none), or the refusal when several do (refused). A plain name is the caller's own to read after these (name). Made by outline-core's parseTileAddress(), resolveAddress(), resolveRelative() and whyNone(), in the order the door's desk asks them; never edited by hand.", by: BY }, { tiles: ADDRESS_TILES, cases: ADDRESS_CASES.map(addressRow) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
@@ -356,6 +356,8 @@ const READING = [
   "A layout in a result holds what the layout module holds of a tile (kind, name, fold, agent level, wires), and under also what no saved layout does (zoom, lift, locks, touched, foldedBy, openedFrom, remembered, rev).",
   "A share is the number the door computed (an IEEE double): compare shares to within 1e-9.",
   "kinds is the tile kinds every row was asked with: all of them, and the ones that take notes (a refusal that lists kinds lists these).",
+  "A refusal is { reason, ways } (outline-core's way-out.ts): a way names an act (act, args, tile) and what it does; at is where the person's keys are for a key to mean it, on a control drawn on screen that does the same, then that it follows the way before it, theirs that only the person takes it. Each door says a way in its own words: its key for the person, the act line for an agent, nothing for an action it hasn't.",
+  "attention is the act an agent held back for the person is told gets their attention: the asker's own (the door marks the block; another window says its own act to its layout), so a row's refusal names the one its table was asked with.",
 ];
 
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */

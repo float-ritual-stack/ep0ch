@@ -169,6 +169,20 @@ pub fn bind_of(line: &str) -> Option<&'static Bind> {
     table().iter().find(|bind| bind.line == line).or_else(|| table().iter().find(|bind| bind.action == line && bind.line == bind.action))
 }
 
+/// The keycap of the key that runs an act whole: the row of `action` whose arguments the act has (the most
+/// particular one, the first of those), as its chord reads here. What a refusal's way out is said by (`actions::says`):
+/// the key a refusal names is the key the table binds.
+pub fn cap_of(action: &str, args: &[(String, Value)]) -> Option<String> {
+    let said = |v: &Value| match v { Value::String(s) => s.clone(), other => other.to_string() };
+    let mut best: Option<(usize, &Bind)> = None;
+    for bind in table().iter().filter(|bind| bind.action == action) {
+        let Ok(req) = actline::parse(&bind.line) else { continue };
+        if !req.args.iter().all(|(k, v)| args.iter().any(|(key, value)| key == k && said(value) == said(v))) { continue }
+        if best.is_none_or(|(n, _)| req.args.len() > n) { best = Some((req.args.len(), bind)) }
+    }
+    best.map(|(_, bind)| bind.cap())
+}
+
 /// The keycap of a line: how its chord reads here.
 pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 

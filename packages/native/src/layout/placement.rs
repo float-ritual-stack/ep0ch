@@ -5,7 +5,7 @@ use serde_json::{Map, Value, json};
 
 use super::step::{put_at, spine_weights};
 use super::tree::{self, Axis, Cover, Dir, Id, Layer, Node, Rect, Target, TileSpec, chain_of, effective, flow_holding, node_by_key, parent_of};
-use super::{Applied, At, Beside, Ctx, Fold, Layout, MARK_THEM, Op, Refusal, apply, attempt, holds_edit, typing_in};
+use super::{Applied, At, Beside, Ctx, Fold, Layout, Op, Refusal, Way, apply, attempt, holds_edit, typing_in};
 
 /// The size a tile opened beside another reads at.
 pub const OPEN_READS: (f64, f64) = (28.0, 6.0);
@@ -74,7 +74,8 @@ pub enum Destination {
     Across { target: String, rule: String, source: bool, screen: bool },
     /// The screen runs an action of its own for it.
     Action { action: String },
-    None { reason: String, refused: bool },
+    /// Nowhere: why, and the ways out, each an act.
+    None { reason: String, ways: Vec<Way>, refused: bool },
 }
 
 impl Destination {
@@ -87,7 +88,7 @@ impl Destination {
             Destination::New { at } => { out.insert("at".into(), at.json()); }
             Destination::Across { target, rule, source, screen } => { out.insert("target".into(), json!(target)); out.insert("rule".into(), json!(rule)); if *source { out.insert("source".into(), json!(true)); } if *screen { out.insert("screen".into(), json!(true)); } }
             Destination::Action { action } => { out.insert("action".into(), json!(action)); }
-            Destination::None { reason, refused } => { out.insert("reason".into(), json!(reason)); if *refused { out.insert("refused".into(), json!(true)); } }
+            Destination::None { reason, ways, refused } => { out.insert("reason".into(), json!(reason)); if !ways.is_empty() { out.insert("ways".into(), json!(ways.iter().map(Way::json).collect::<Vec<_>>())); } if *refused { out.insert("refused".into(), json!(true)); } }
         }
         Value::Object(out)
     }
@@ -236,7 +237,7 @@ fn spine_fits(s: &Layout, keep: &(Id, At), area: Rect) -> bool {
 }
 
 fn hand_out(screen: &Option<String>) -> Destination {
-    match screen { None => Destination::None { reason: "this screen has no tiles to open it in · q goes back to one".into(), refused: true }, Some(screen) => Destination::Across { target: screen.clone(), rule: "tile".into(), source: true, screen: true } }
+    match screen { None => Destination::None { reason: "this screen has no tiles to open it in".into(), ways: vec![Way::new("screen.back", "goes back to one")], refused: true }, Some(screen) => Destination::Across { target: screen.clone(), rule: "tile".into(), source: true, screen: true } }
 }
 
 /// Where an open lands, as the door decides it.
@@ -276,7 +277,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     }
     let keys = ctx.keys;
     let from_tile = to.is_none() && !request.act && !request.default && request.container.is_none() && request.at.is_none() && request.new_note.is_none() && !request.history && verb != "hover";
-    let base = |route: &Option<Route>| Placement { destination: Destination::None { reason: "no reader takes this open".into(), refused: false }, keep: None, merge: None, reuse: None, why: None, reveal: false, route: route.clone(), keys: None, next_from: None, give_new_keys: false, beside_of: None, no_spine: false };
+    let base = |route: &Option<Route>| Placement { destination: Destination::None { reason: "no reader takes this open".into(), ways: Vec::new(), refused: false }, keep: None, merge: None, reuse: None, why: None, reveal: false, route: route.clone(), keys: None, next_from: None, give_new_keys: false, beside_of: None, no_spine: false };
     if from_tile && fresh && let Some(action) = &ctx.fresh_action { return Placement { destination: Destination::Action { action: action.clone() }, ..base(&route) } }
     let routed = if fresh { wire.is_some() || open_wire.is_some() || s.wires.iter().any(|w| w.from == *from && (w.verb == "alt" || w.verb == "open")) || landing(s, from, "open", ctx, None).is_some() } else { route.is_some() };
     if from_tile && !routed && let Some(screen) = &ctx.screen && facts(from).opens_out { return Placement { destination: hand_out(screen), ..base(&route) } }
@@ -324,7 +325,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     if let Some(container) = &request.container && node_by_key(s.tree(), container).is_none() {
         let why = format!("the {container} row is gone (its tiles were moved out of it): opening a detail needs it · the screen comes back whole when it's opened again");
         let target = if ctx.standing { s.tree().visible().into_iter().find(|id| { let f = facts(id); f.notes && f.editing.is_none() && !f.holds && f.available != Some(false) }) } else { None };
-        let Some(target) = target else { return Placement { destination: Destination::None { reason: why, refused: false }, ..result } };
+        let Some(target) = target else { return Placement { destination: Destination::None { reason: why, ways: Vec::new(), refused: false }, ..result } };
         return Placement { why: Some(why), ..placement(s, &Request { container: None, at: None, to: Some(target), ..request.clone() }, ctx) };
     }
     if let Some(at) = &request.at { result.destination = Destination::New { at: at.clone() }; result.give_new_keys = keys && request.keys != Some(false); return result }
@@ -333,7 +334,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     match &route {
         Some(Route::Across { target, rule }) => result.destination = Destination::Across { target: target.clone(), rule: rule.clone(), source: inward, screen: false },
         Some(Route::Into(key)) => {
-            let Some(container) = node_by_key(s.tree(), key).and_then(|p| s.tree().at(&p)) else { result.destination = Destination::None { reason: format!("no container {key} takes this open"), refused: false }; return result };
+            let Some(container) = node_by_key(s.tree(), key).and_then(|p| s.tree().at(&p)) else { result.destination = Destination::None { reason: format!("no container {key} takes this open"), ways: Vec::new(), refused: false }; return result };
             let ids = container.leaves();
             if container.is_flow() {
                 if let Some(source) = if ids.contains(from) { Some(from.clone()) } else { ids.last().cloned() } {
@@ -394,14 +395,15 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
             }
             if to.is_none() && !fresh && f.follower { result.give_new_keys = false }
             if f.editing.is_some() || f.holds {
-                if to.is_some() && !request.default && !ctx.standing { result.destination = Destination::None { reason: holds_edit(&s.name(&target)), refused: false }; return result }
+                if to.is_some() && !request.default && !ctx.standing { result.destination = Destination::None { reason: holds_edit(&s.name(&target)), ways: Vec::new(), refused: false }; return result }
                 let beside = if fresh { None } else { ctx.beside.iter().find(|(from, _)| *from == target).map(|(_, to)| to.clone()) };
                 if let Some(beside) = beside && s.names.has(&beside) && { let b = facts(&beside); b.editing.is_none() && !b.holds && b.available != Some(false) } { return again_with(Request { keys: quiet(&result), default: false, to: Some(beside), ..request.clone() }, &route) }
                 if ctx.protect_typing && ctx.typing_in.as_ref() == Some(&target) {
                     let shown: Vec<Id> = s.tree().visible().into_iter().filter(|id| *id != target && !s.collapsed.has(id) && facts(id).available != Some(false)).collect();
                     if let Some(reader) = shown.iter().find(|id| { let f = facts(id); f.notes && !f.follower && !f.lists && f.editing.is_none() && !f.holds && !f.pinned && !f.deliberate }) { return again_with(Request { keys: Some(false), default: false, to: Some(reader.clone()), ..request.clone() }, &route) }
                     let Some(other) = shown.iter().find(|id| { let f = facts(id); f.editing.is_none() && !f.holds }) else {
-                        result.destination = Destination::None { reason: typing_in(&s.name(&target), "open beside it", Some(&format!("make room with tile.open to=<another tile>, or {MARK_THEM}"))), refused: false };
+                        let held = typing_in(&s.name(&target), "open beside it", std::iter::once(Way::new("tile.open", "makes room beside another tile (to=)")).chain(ctx.mark_them()).collect());
+                        result.destination = Destination::None { reason: held.reason, ways: held.ways, refused: false };
                         return result;
                     };
                     result.destination = Destination::New { at: At::Split { target: other.clone(), dir: Dir::Right, pair: false, weight: None } };
@@ -518,7 +520,7 @@ fn where_word(at: &At) -> String { match at { At::Edge { dir } => format!("edge-
 
 /// A tile opened "beside" another: each place in the order its preference says, the first where both read.
 pub(super) fn beside_attempt(s: &Layout, op: &Op, b: &Beside, ctx: &Ctx) -> Result<Applied, Refusal> {
-    let Op::Open { tile, .. } = op else { return Err(Refusal("a beside open is an open".into())) };
+    let Op::Open { tile, .. } = op else { return Err(Refusal::new("a beside open is an open")) };
     let needs = (b.needs.0.unwrap_or(OPEN_READS.0), b.needs.1.unwrap_or(OPEN_READS.1));
     let holds = |id: &str| (ctx.facts)(id).holds;
     let name = s.name(&b.target);
@@ -526,11 +528,11 @@ pub(super) fn beside_attempt(s: &Layout, op: &Op, b: &Beside, ctx: &Ctx) -> Resu
     let order = beside_order(b, find(&s.rects(ctx.area, &holds), &b.target));
     let was = find(&s.unzoomed().rects(ctx.area, &holds), &b.target);
     let with_at = |at: &At| -> Op { let mut op = op.clone(); if let Op::Open { at: slot, .. } = &mut op { *slot = at.clone() } op };
-    let (mut refused, mut first, mut best): (Option<String>, Option<(Applied, At, String)>, Option<(Applied, At, f64)>) = (None, None, None);
+    let (mut refused, mut first, mut best): (Option<Refusal>, Option<(Applied, At, String)>, Option<(Applied, At, f64)>) = (None, None, None);
     let mut squeezed = false;
     for at in &order {
         if matches!(at, At::Tabs { .. }) && b.tab && !squeezed { continue }
-        let mut d = match attempt(s, &with_at(at), ctx) { Ok(d) => d, Err(Refusal(why)) => { refused.get_or_insert(why); continue } };
+        let mut d = match attempt(s, &with_at(at), ctx) { Ok(d) => d, Err(why) => { refused.get_or_insert(why); continue } };
         let placed = d.layout.unzoomed().rects(ctx.area, &holds);
         let (size, kept) = (find(&placed, &tile.id), find(&placed, &b.target));
         let keeps = (b.keeps.0.unwrap_or(0.0).min(was.map_or(f64::INFINITY, |w| w.cols)), b.keeps.1.unwrap_or(0.0).min(was.map_or(f64::INFINITY, |w| w.rows)));
@@ -554,16 +556,18 @@ pub(super) fn beside_attempt(s: &Layout, op: &Op, b: &Beside, ctx: &Ctx) -> Resu
     let floats = |why: &str| -> Result<Applied, Refusal> {
         let mut d = attempt(s, &with_at(&At::Float { rect: None, near: None }), ctx)?;
         d.answer.insert("where".into(), json!("float"));
-        d.answer.insert("why".into(), json!(format!("{why}, so it floats (layout.move tile=<it> to=<a tile> places it)")));
+        d.answer.insert("why".into(), json!(format!("{why}, so it floats")));
+        // (How it is placed after is a way, an act the asker's door words: `ways` beside the answer's `why`.)
+        d.answer.insert("ways".into(), json!([Way::new("layout.move", "places it (to=<a tile>)").json()]));
         Ok(d)
     };
     let typing_there = ctx.protect_typing && ctx.typing_in.as_ref() == Some(&b.target);
     let Some((first_d, first_at, narrow)) = first else {
-        let why = refused.unwrap_or_else(|| format!("there's no place beside {name}"));
-        if b.prefers != "beside" || typing_there { return Err(Refusal(why)) }
-        return floats(&format!("beside {name}: {why}")).map_err(|_| Refusal(why));
+        let why = refused.unwrap_or_else(|| Refusal::new(format!("there's no place beside {name}")));
+        if b.prefers != "beside" || typing_there { return Err(why) }
+        return floats(&format!("beside {name}: {}", why.reason)).map_err(|_| why);
     };
-    if b.strict { return Err(Refusal(narrow)) }
+    if b.strict { return Err(Refusal::new(narrow)) }
     let (mut took, took_at) = match best { Some((d, at, _)) => (d, at), None => (first_d, first_at) };
     let place = match &took_at { At::Split { dir, .. } => format!("{} {name}", place_words(*dir)), At::Edge { dir } => format!("along the screen's {} edge", dir.word()), _ => String::new() };
     if b.prefers == "beside" {

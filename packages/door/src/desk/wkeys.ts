@@ -143,6 +143,24 @@ export const wKey = (key: string): WKey | undefined => wNow().find(e => e.key ==
  */
 export const wNow = (): readonly WKey[] => effective(W_KEYS as readonly WKey[], "ctrl+w ", (e, key) => W_KEYS.some(w => w.action === e.action && w.how.k !== "run") ? null : { key, group: "layouts & more", action: e.action, how: run(e.action, e.args), label: undefined } as WKey);
 
+/**
+ * The ^W key that runs an act whole, by its chord's name (`ctrl+w x`), with the keymap applied: the row that runs the
+ * action with arguments the act has (the most particular: `tile.float to=glass` is U, `tile.float` is f), else the key
+ * the desk handles itself for it (the policy panel's, the one that takes a tab out). A key that waits for another
+ * (m, t, o) or means its own direction (h j k l, H J K L) is no key for an act. What a refusal's way out is said by.
+ */
+export function wChordOf(action: string, args: Readonly<Record<string, unknown>> = {}): string | undefined {
+  let best: { key: string; n: number } | undefined;
+  for (const e of wNow()) {
+    if (e.action !== action || (e.how.k !== "run" && e.how.k !== "special")) continue;
+    const runs = e.how.k === "run" ? Object.entries(e.how.args ?? {}) : [];
+    // An argument the key gives its run is one the act has; a key that asks (`ask: true`) runs it for the person alone.
+    if (!runs.every(([k, v]) => String(args[k]) === String(v))) continue;
+    if (!best || runs.length > best.n) best = { key: e.key, n: runs.length };
+  }
+  return best && `ctrl+w ${best.key === " " ? "space" : best.key}`;
+}
+
 /** A key as it is shown after ^W. */
 export const wCaption = (key: string): string => `^W ${key === " " ? "space" : key}`;
 

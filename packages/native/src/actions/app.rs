@@ -155,6 +155,10 @@ pub struct State {
     /// The arrangements before each change, oldest first: what `layout.undo` goes back through. A step that opened
     /// another screen holds the screen it left, so undone it is that screen's arrangement again.
     pub journal: Vec<(Layout, Option<Screen>)>,
+    /// What placement remembers between opens (the door's `PlacementMemory`): the reader each tile's next open goes
+    /// beside, and what was opened into each keyed container. Told to the layout's rules by `App::asked`, written
+    /// where an open lands (`nav::land`), and let go of a tile when the arrangement loses it.
+    pub memory: crate::layout::memory::Memory,
     /// The tile the act being run is aimed at (`tile=`).
     pub aimed: Option<Id>,
     /// The tile the act being run is about, as the dispatcher found it (`App::target` with what the action wants).
@@ -275,7 +279,7 @@ impl App {
                 tiles: HashMap::new(),
                 asked_screen: None,
                 area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
-                journal: Vec::new(),
+                journal: Vec::new(), memory: Default::default(),
                 aimed: None,
                 about: None,
                 invited: false,

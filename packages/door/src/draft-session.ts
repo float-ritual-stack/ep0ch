@@ -28,6 +28,8 @@ import { locateSpans, markStart } from "@ep0ch/outline-core/draft-patch-compare"
 import { patchDid } from "@ep0ch/outline-core/draft-patch-place";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
 import { heldBack, MARK_THEM } from "./whereabouts";
+import { way } from "@ep0ch/outline-core/way-out";
+import { refusalSaid } from "./surface/way-out";
 import { textAt } from "./desk/what-changed";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
@@ -808,6 +810,8 @@ export function recordAs(d: Draft, saver: Actor): Actor {
  *   their draft instead (`draft.patch`, which reaches it through the hold). `except`: the agent's own session.
  * The person is never refused here. Null: allowed.
  */
+/** What an agent does to a draft someone is typing in: an act, said by the door's one sayer. */
+const PATCH_IT = way("draft.patch", "lands in an edit");
 export function agentRefusal(actor: Actor, on: DraftSession | { board?: object | null; blockId: string; except?: DraftSession }, how: { op?: "type" | "leave"; invitation?: string } = {}): string | null {
   if (actor.kind !== "agent") return null;
   const op = how.op ?? "type";
@@ -821,9 +825,9 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
     if (!sameParty(on.openedBy, actor)) {
       // Another agent's draft is its own; the person's is theirs while they're in it.
       const why = on.openedBy.kind === "agent" ? `${actorName(actorIdOf(on.openedBy))} has this ${op === "leave" ? "edit or comment" : "draft"} open` : `the person is typing in this ${op === "leave" ? "edit or comment" : "draft"}`;
-      return op === "leave" ? heldBack(why, "save or close it") : heldBack(why, "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
+      return refusalSaid(op === "leave" ? heldBack(why, "save or close it") : heldBack(why, "type in it", [PATCH_IT, MARK_THEM]), actor);
     }
-    if (on.draft.writers.some(w => !sameParty(w, actor))) return heldBack("someone else is typing in this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
+    if (on.draft.writers.some(w => !sameParty(w, actor))) return refusalSaid(heldBack("someone else is typing in this draft", "type in it", [PATCH_IT, MARK_THEM]), actor);
     return null;
   }
   const theirs = [...registry(on.board)].find(s => s !== on.except && s.target.blockId === on.blockId && !(sameParty(s.openedBy, actor) && s.draft.writers.every(w => sameParty(w, actor))));

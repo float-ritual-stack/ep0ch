@@ -7,7 +7,7 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::{self, Node};
-use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op, Refusal};
+use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op};
 use crate::tiles;
 use crate::screen::{From, Screen};
 
@@ -23,8 +23,13 @@ static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a
     ])
     .examples(&[Example { act: "dock.toggle side=right", does: "shows or hides the dock on the right", safe: Some(true) }]);
 
-static RESIZE: ActionRow = ActionRow::new("layout.resize", Touches::Shape, "move the border between two tiles of a split: share is the part of the two the first one gets. The split is named by its id (peek gives each one's)")
-    .args(&[("split", ArgSpec::text("the split's id, as peek gives it (s2)")), ("border", ArgSpec::number("which border, from 0")), ("share", ArgSpec::number("the first side's part of the two, 0.08 to 0.92"))])
+/// The read that names every container. One namer of a split's id: `layout.resize`'s row points here, and so does
+/// the layout's refusal about a split nothing has (its way out is this act, by this row's name).
+static GET: ActionRow = ActionRow::new("layout.get", Touches::Nothing, "the arrangement as data: its revision (rev), and the tile tree in the saved form, each split, tab set and dock with its id (s2, g3, d1) and each tile by its name. Nothing changes")
+    .examples(&[Example { act: "layout.get", does: "answers the arrangement: each container's id, each tile's name and kind, and the revision", safe: Some(true) }]);
+
+static RESIZE: ActionRow = ActionRow::new("layout.resize", Touches::Shape, "move the border between two tiles of a split: share is the part of the two the first one gets. The split is named by its id (layout.get gives each one's)")
+    .args(&[("split", ArgSpec::text("the split's id, as layout.get gives it (s2)")), ("border", ArgSpec::number("which border, from 0")), ("share", ArgSpec::number("the first side's part of the two, 0.08 to 0.92"))])
     .keys(&[KeyRow::via("a drag on the border between two tiles; Escape while it is held puts the border back where it was")])
     .examples(&[Example { act: "layout.resize border=0 share=0.3 split=s1", does: "gives the first tile of split s1 three tenths of it and its neighbour", safe: Some(true) }]);
 
@@ -35,7 +40,7 @@ static UNDO: ActionRow = ActionRow::new("layout.undo", Touches::Shape, "put the 
 /// The action a border's drag is a run of.
 pub(super) fn resizes(row: &ActionRow) -> bool { std::ptr::eq(row, &RESIZE) }
 
-pub static ACTIONS: &[Action] = &[Action { row: &DOCK, run: dock, about: About::Nothing }, Action { row: &RESIZE, run: resize, about: About::Nothing }, Action { row: &UNDO, run: undo, about: About::Nothing }];
+pub static ACTIONS: &[Action] = &[Action { row: &DOCK, run: dock, about: About::Nothing }, Action { row: &GET, run: get, about: About::Nothing }, Action { row: &RESIZE, run: resize, about: About::Nothing }, Action { row: &UNDO, run: undo, about: About::Nothing }];
 
 /// Two arrangements sit alike: the same tiles in the same places, with shares as near as a pointer can say them.
 pub(super) fn same_shape(a: &Layout, b: &Layout) -> bool {
@@ -68,7 +73,22 @@ impl App {
         };
         ctx.typing_in = person.typing_in.as_deref().and_then(|name| self.layout.named(name));
         ctx.busy = person.busy;
-        ctx.lands = self.spec_now().and_then(|spec| spec.lands()).map(str::to_string);
+        // A window has one arrangement and the person's keys are on it, or in the bar over it: they are never away
+        // from it on another layout (the door's drawer, a mount), so the guards about their tile always hold here.
+        ctx.here = Some(true);
+        // How this arrangement is named in a refusal: the screen it is of, by its title (several windows each have
+        // one). No lock chip is drawn here, and nothing covers a layout: the way out of a lock is said by its act.
+        ctx.own = (!self.screen.is_nowhere()).then(|| (format!("the {} screen", self.screen.title), None, None));
+        let spec = self.spec_now();
+        ctx.lands = spec.as_ref().and_then(|spec| spec.lands()).map(str::to_string);
+        // Where the keys go back to when their tile goes: the screen's `home`, a tile by its name or the first tile
+        // of the container keyed so (`Layout::lands` reads either word).
+        ctx.home = spec.as_ref().and_then(|spec| spec.home()).and_then(|home| match self.layout.lands(home)? { layout::Lands::Tile(tile) => Some(tile), layout::Lands::Container(key) => self.layout.within(&key).into_iter().next() });
+        // What placement remembers: the reader each tile opened beside itself, and what was opened into a container.
+        ctx.beside = self.memory.beside.clone();
+        ctx.opened = self.memory.opened_said();
+        // What an agent does here to get the person's attention, where a rule holds it back: this window's own act.
+        ctx.attention = Some(super::attention());
         // The kinds there are, by every name the layout's rules may meet one by: the kind a tile carries (the row's
         // own) and the names the service says that kind serves, which a policy and a tile's role are written with.
         let names = |row: &crate::screen::KindRow| std::iter::once(row.kind.clone()).chain(row.serves.iter().cloned()).collect::<Vec<_>>();
@@ -82,7 +102,7 @@ impl App {
     pub(super) fn reshape(&mut self, op: &Op, by: &Actor) -> Outcome {
         match self.asked(by, |ctx| layout::apply(&self.layout, op, ctx)) {
             Ok(done) => { self.arranged(done.layout, done.changed); Outcome::answer(Value::Object(done.answer)) }
-            Err(Refusal(why)) => Outcome::refused(why),
+            Err(why) => Outcome::refused(super::says(&why, by)),
         }
     }
 
@@ -91,7 +111,7 @@ impl App {
     /// answered, for whoever keeps the way back; why not, in the layout's words.
     pub(super) fn replace(&mut self, with: &str, to: Layout, keys: bool, by: &Actor) -> Result<Layout, String> {
         let op = Op::Load { name: with.to_string(), to: Some(Box::new(to)), keys };
-        let done = self.asked(by, |ctx| layout::apply(&self.layout, &op, ctx)).map_err(|Refusal(why)| why)?;
+        let done = self.asked(by, |ctx| layout::apply(&self.layout, &op, ctx)).map_err(|why| super::says(&why, by))?;
         let before = std::mem::replace(&mut self.st.layout, done.layout);
         self.settled();
         Ok(before)
@@ -120,6 +140,11 @@ impl App {
     fn settled(&mut self) {
         let here = self.st.layout.all();
         self.st.tiles.retain(|tile, _| here.contains(tile));
+        // A tile that left is named by nothing placement remembers; a tile opened into a container that has the
+        // keys is where the next open there lands (the door's desk notes the same as focus moves).
+        self.st.memory.keep_only(&here);
+        let focus = self.st.layout.focus.clone();
+        if !self.st.layout.is_float(&focus) && let Some(key) = self.st.memory.into_of(&focus).map(str::to_string) { self.st.memory.opened_into(&key).active = Some(focus) }
         self.end_gone(&here);
         let focus = self.st.layout.focus.clone();
         for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
@@ -181,9 +206,14 @@ impl App {
 fn dock(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(side) = args.text("side").and_then(Dir::read) else { return Outcome::refused("a dock is on the left, right, up or down edge") };
     let found = tree::docks(app.layout.tree()).into_iter().filter_map(|path| app.layout.tree().at(&path).cloned()).find(|dock| matches!(dock, Node::Dock { side: s, .. } if *s == side));
-    let Some(dock) = found else { return Outcome::refused(format!("this screen has no dock on the {} edge · tile.dock edge={} puts a tile in one", side.word(), side.word())) };
+    let Some(dock) = found else { return Outcome::refused(super::says(&layout::Refusal::new(format!("this screen has no dock on the {} edge", side.word())).way(layout::Way::new("tile.dock", "puts a tile in one").arg("edge", side.word())), by)) };
     let Some(tile) = dock.leaves().into_iter().next() else { return Outcome::refused("that dock holds no tile") };
     app.reshape(&Op::Slide { tile, open: None, container: dock.id().map(str::to_string), beside: false }, by)
+}
+
+/// A read: the arrangement as it stands, in the form a screen saves, with the revision an agent may hand back.
+fn get(app: &mut App, _: &Args, _: &Actor) -> Outcome {
+    Outcome::answer(json!({ "rev": app.layout.rev, "screen": app.screen.name, "layout": app.layout.save() }))
 }
 
 fn resize(app: &mut App, args: &Args, by: &Actor) -> Outcome {
