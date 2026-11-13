@@ -1,0 +1,1 @@
+- **The schema 12 step meets Litestream's tables (PIE-1751):** a file Litestream once watched keeps `_litestream_seq` and `_litestream_lock`. The change log now leaves them out, as it leaves out SQLite's own, so 0012 migrates float-2's outlines instead of refusing.

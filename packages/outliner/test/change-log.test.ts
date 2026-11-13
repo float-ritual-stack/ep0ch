@@ -56,6 +56,23 @@ test("every table the schema makes is classified for the log, replicated or loca
   expect(tables).toEqual(Object.keys(LOG_TABLES).sort());
 });
 
+test("Litestream's own tables in a file it once replicated are its, never the log's: the file opens and follows", () => {
+  const dir = root();
+  const { home } = busyHome(dir);
+  home.close();
+  // What Litestream leaves in every file it has watched (float-2's outlines had both when 0012 met them).
+  const raw = new Database(join(dir, "home.sqlite"));
+  raw.exec("CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER); CREATE TABLE _litestream_lock (id INTEGER);");
+  raw.close();
+  const reopened = new OutlinerStore(join(dir, "home.sqlite"));
+  reopened.create("Sack of flour");
+  const follower = follow(reopened, join(dir, "follower.sqlite"));
+  follower.catchUp();
+  expect(canonicalDump(follower.db)).toBe(dumpOf(join(dir, "home.sqlite")));
+  follower.db.close();
+  reopened.close();
+});
+
 test("a follower built only from the log equals its home, and catches up after a gap", () => {
   const dir = root();
   const { home, jar } = busyHome(dir);

@@ -73,9 +73,13 @@ const q = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const lit = (text: string) => `'${text.replaceAll("'", "''")}'`;
 const isBlob = (c: Column) => /BLOB/i.test(c.type);
 
-/** The replicated tables as the database has them now, in a stable order (their columns, their declared key). */
+/**
+ * The replicated tables as the database has them now, in a stable order (their columns, their declared key). SQLite's
+ * own tables and Litestream's (`_litestream_seq`, `_litestream_lock`, left in every file it once watched) are neither
+ * the schema's nor the log's.
+ */
 export function replicatedTables(database: Database): TableShape[] {
-  const names = (database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map(r => r.name);
+  const names = (database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_litestream_*' ORDER BY name").all() as { name: string }[]).map(r => r.name);
   const unclassified = names.filter(n => !(n in LOG_TABLES));
   if (unclassified.length) throw new Error(`change-log.ts LOG_TABLES doesn't classify ${unclassified.join(", ")}: name each replicated or local`);
   return names.filter(n => LOG_TABLES[n] === "replicated").map(name => {
