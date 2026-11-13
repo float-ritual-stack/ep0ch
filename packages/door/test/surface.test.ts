@@ -265,6 +265,23 @@ describe("the surface without a service", () => {
     expect(s.session.composer!.text).toBe("Mine: daily?");
   }));
 
+  test("passage.select picks the words within a span of the note's text when they are there more than once", () => withState(async () => {
+    const text = "Water\nwater the ferns at dusk\n\nwater the ferns at dawn";
+    const h = host();
+    Object.assign(h.ctx.board, { get: async () => note(text) });
+    const s = new NoteSurface();
+    s.show(note(text), h);
+    const act = async (args: Record<string, unknown>) => s.act("passage.select", args, h, AGENT) as Promise<{ quote: string; start: number }>;
+    // With no span and no offset to be nearest it is the first place, as it was.
+    expect(await act({ quote: "water the ferns" })).toMatchObject({ quote: "water the ferns", start: 6 });
+    // from= and to= are the span the words are within: the place in it, wherever it is among the others.
+    const second = text.lastIndexOf("water the ferns");
+    expect(await act({ quote: "water the ferns", from: second - 1, to: text.length })).toMatchObject({ quote: "water the ferns", start: second });
+    expect(await act({ quote: "water the ferns", from: 0, to: 30 })).toMatchObject({ start: 6 });
+    // Words that are in the note, but not in that span, are not picked.
+    await expect(act({ quote: "at dusk", from: second, to: text.length })).rejects.toThrow("isn't in the note's current text");
+  }));
+
   test("an agent's own comment in a reader on its own, step by step: its to write until the person types in it", () => withState(async () => {
     const h = host();
     Object.assign(h.ctx.board, { get: async () => note("Water\nwater the ferns") });

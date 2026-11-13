@@ -29,19 +29,22 @@ const sentAtOnce = (arg: string): RecordStep<any> => s => (typeof s.args[arg] ==
 
 export const COMMENT_DEFS = {
   "passage.select": def({
-    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: [{ keys: "C", does: "on selected words" }, { via: "an agent: quote=" }],
+    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text; from= and to=: only within that span of the text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: [{ keys: "C", does: "on selected words" }, { via: "an agent: quote=" }],
     touches: "draft", draft: "type", replay: "ask", record: () => null,
     // The menu's way to it is the person's words selected (PIE-846): with none, the menu offers the whole note instead.
     menu: noteRow("comment on the selected words", "C", { busy: true, now: on => (on.surface.selection ? null : { hide: true }) }),
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
+      from: { type: "number", optional: true, about: "the words are within a span of the note's text: where it starts (an offset)" },
+      to: { type: "number", optional: true, about: "where that span ends" },
     },
     examples: [
       { act: 'passage.select quote="mulch the beds"', does: "picks those words of the note to write a comment on" },
       { act: "passage.select quote=beds near=120", does: "picks the occurrence of beds nearest offset 120 to comment on" },
+      { act: "passage.select quote=beds from=200 to=340", does: "picks beds where it is between offsets 200 and 340" },
     ],
-    async run({ quote, near }, { surface, host }, actor) {
+    async run({ quote, near, from, to }, { surface, host }, actor) {
       // The person's C starts from their selected text (the quote) and their put-aside comment; an agent's never.
       const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select", actor);
       // From the passage toolbar (Comment, Ask): already writing on the selected words.
@@ -49,7 +52,7 @@ export const COMMENT_DEFS = {
       // Picking reads the note again; when that fails the session stays where it was, with the reason.
       const p = s.mode === "select" ? s.passage : null;
       if (!p) throw new ActionRefused(s.error ?? "the passage couldn't be picked: the note's current text wasn't read");
-      if (quote !== undefined) { const why = p.selectText(quote, near); if (why) { p.note = why; host.redraw(); throw new ActionRefused(why); } }
+      if (quote !== undefined) { const why = p.selectText(quote, near, from, to); if (why) { p.note = why; host.redraw(); throw new ActionRefused(why); } }
       surface.noteAgent(actor, "is quoting a passage");
       host.redraw();
       return { revision: s.msg.revision, quote: p.quote, start: p.from };
