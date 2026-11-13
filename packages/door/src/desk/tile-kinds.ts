@@ -144,6 +144,8 @@ export interface TileKind {
   takesQuery?(p: Pane, query: string, desk: DeskApi, actor: Actor): Promise<{ query: string; notes: { id: string; title: string }[] }>;
   /** In the drawer, opens without a wire use the screen shown. Local and cross-edge wires take precedence. */
   readonly opensOnScreen?: true;
+  /** A list whose open (⏎) gives the reader it lands in the person's keys when nothing routes it (the tree); placement decides it. */
+  readonly handsKeys?: true;
   /**
    * Its home (PIE-794): the reader it belongs to (the links tile's: the reader it was opened beside). Its opens land
    * there when no link or container says otherwise: ⏎ on a row replaces that reader's note, alt+⏎ opens a new detail

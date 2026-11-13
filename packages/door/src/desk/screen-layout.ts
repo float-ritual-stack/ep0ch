@@ -1,5 +1,5 @@
 import { wrapReturn, type ReturnShell } from "./return-place";
-import { besideAttempt, closeHeir, landing } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
+import { besideAttempt, closeHeir, landing, personsTile, readerTakes } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
@@ -143,7 +143,7 @@ export interface TileFacts {
   /** Its kind shows what a tile it follows picks (a preview): a link to it is a preview unless said otherwise. */ follower?: boolean;
   /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */ home?: string;
   /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */ placeholder?: boolean;
-  /** It holds work (a draft): in a flow, its column resists compression. */ holds?: boolean;
+  /** It holds work (a draft): in a flow, its column resists compression. */ holds?: boolean; /** A list whose unrouted open gives the reader its keys (TileKind.handsKeys). */ handsKeys?: boolean;
 }
 
 /** Where the person is: their keys, the tile they're typing in (an edit, a comment, a terminal), whether they're busy. */
@@ -500,7 +500,7 @@ export function freeName(taken: Iterable<string>, base: string): string { const 
 export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, other: readonly string[] = []): string { return freeName([...s.names.values(), ...other], kind); }
 
 export interface PlacementRequest<I = number> {
-  where?: ListOpenWhere; verb?: "hover";
+  where?: ListOpenWhere; verb?: "hover"; /** The person's open handed in (the power bar, `ep0ch open`), not a list's own: its reader takes the keys. */ handsKeys?: true;
   /** How it was opened, for the one door.open it emits: left out, the action's own (`openMethod`). */ method?: "link" | "alt";
   /** An act's `from=` (a program naming its tile): the tile's wires and the screen's rule, never its kind's hand-off or the screen's fresh action. */ act?: true;
   from: I;
@@ -557,7 +557,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     : openWire ? { across: openWire.to, rule: "beside" as const }
     : landing(s, from, verb, ctx.tile(from), ctx.tile, fresh ? undefined : request.where);
   if (to !== undefined && request.rule && request.rule !== "tile") {
-    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.pinned && !f.editing && !f.holds && !f.follower; }) : undefined;
+    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => takesOpen(s, ctx, id)) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
   route = request.container ? { into: request.container } : request.history ? null : route;
@@ -581,7 +581,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
   const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
   if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && (!ctx.person.busy && (to !== undefined || !!request.handsKeys || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
   if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
     const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];
@@ -810,11 +810,8 @@ function spineFits<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | 
   });
 }
 
-/** Tile `id` is a reader that can take an open now: shown, not a list or preview, not pinned, edited or holding work. */
-function takesOpen<I>(s: Pick<LayoutState<I>, "collapsed">, ctx: Ctx<I>, id: I): boolean {
-  const f = ctx.tile(id);
-  return !s.collapsed.has(id) && !!f.notes && !f.follower && !f.lists && !f.pinned && !f.editing && !f.holds && f.available !== false;
-}
+/** Tile `id` takes an open now: landing.ts's readerTakes, the one answer. */
+function takesOpen<I>(s: Pick<LayoutState<I>, "collapsed">, ctx: Ctx<I>, id: I): boolean { return readerTakes(s, ctx.tile(id), id); }
 
 /** The flow tile `id` is a column of (the nearest one over it), and its column there. */
 export function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | null {
@@ -901,7 +898,7 @@ class Step<I> {
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   /** Why an agent leaves the tile with the person's keys alone, in the one wording (keysIn): typing in it, or only focused there. */
   private theirs(id: I, what: string) { return keysIn(this.name(id), what, this.ctx.person.typingIn === id); }
-  private leaveTheirs(id: I, what: string) { if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, what)); }   // the one place a step refuses an agent the tile the person's keys are on
+  private leaveTheirs(id: I, what: string) { if (personsTile(this.ctx, id, this.d.focus)) refuse(this.theirs(id, what)); }   // the one place a step refuses an agent the tile the person's keys are on
   /** This layout as the person reads about it: the screen, or your drawer. */
   private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
@@ -1051,7 +1048,7 @@ class Step<I> {
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
         if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(typingIn(this.name(op.tile), "float it"));
-        if (this.agent && op.tile === this.d.focus) refuse(this.theirs(op.tile, "float it"));
+        this.leaveTheirs(op.tile, "float it");
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -2096,7 +2093,7 @@ class Step<I> {
       // what-changed); an agent's lift never puts away the tab the person is in to get it there.
       const front = want ? tabsOf(this.d.tree, id) : null, shown = front?.ids[front.active];
       if (front && shown !== undefined && shown !== id) {
-        if (this.agent && ((this.ctx.person.here !== false && shown === this.d.focus) || shown === this.ctx.person.typingIn)) refuse(`lifting ${this.name(id)} would hide tile ${this.name(shown)}, which has the person's keys`);
+        if (personsTile(this.ctx, shown, this.d.focus) || (this.agent && shown === this.ctx.person.typingIn)) refuse(`lifting ${this.name(id)} would hide tile ${this.name(shown)}, which has the person's keys`);
         activate(this.d.tree, id);
         // The keys on the tab it hid move with it, as a tab's switch moves them: the person's, or a desk's no one is in.
         if (shown === this.d.focus && (!this.agent || this.ctx.person.here === false)) this.d.focus = id;

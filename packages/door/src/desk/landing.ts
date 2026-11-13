@@ -9,7 +9,7 @@ import { flowHolding, named, OPEN_READS, policyAt, rects, type Ctx, type LayoutS
  * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), the tile itself (`self`), or none (a reader is its own
  * home: the note replaces its own; anything else lands in the first reader that isn't pinned).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt" | "hover", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "collapsed">, id: I, verb: "open" | "alt" | "hover", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts, tile);
@@ -18,7 +18,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
     const rule = wire?.rule ?? (wire ? "tile" : altOpens ?? "beside");
     const target = wire?.to ?? (open && "to" in open ? open.to : id);
     if (rule === "first-unheld") {
-      const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.pinned && !f.editing && !f.holds; });
+      const available = leaves(s.tree).find(t => readerTakes(s, tile?.(t), t));
       if (available !== undefined) return { to: available };
     }
     if (!wire && open && "across" in open) return { across: open.across, rule };
@@ -176,7 +176,7 @@ const narrowWhy = (name: string, r: Rect, needs: { cols: number; rows: number })
  * desk's, by the wire's path, as an open finds it; that desk asks `heirTakes` of it). screen-layout's close answers it,
  * the desk shows it there.
  */
-export function closeHeir<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across">, id: I, tiles: readonly I[], ctx: Pick<Ctx<I>, "tile" | "standing" | "person">): { to: I } | { across: string } | undefined {
+export function closeHeir<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed">, id: I, tiles: readonly I[], ctx: Pick<Ctx<I>, "tile" | "standing" | "person">): { to: I } | { across: string } | undefined {
   const f = ctx.tile(id), note = f.showing;
   if (!f.notes || !note || tiles.some(x => x !== id && ctx.tile(x).showing === note)) return undefined;
   const across = s.across.find(w => w.from === id && w.verb === "open");
@@ -190,6 +190,19 @@ export function closeHeir<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
  * person's keys are (their remembered focus in a desk they're not in is no one's).
  */
 export function heirTakes<I>(to: I, ctx: Pick<Ctx<I>, "tile" | "standing" | "person">): boolean {
-  const g = ctx.tile(to), theirs = !ctx.standing && ctx.person.here !== false && ctx.person.focus === to;
+  const g = ctx.tile(to), theirs = personsTile(ctx, to, ctx.person.focus);
   return !theirs && !!g.notes && !g.showing && !g.pinned && !g.editing && !g.holds && !g.follower && g.available !== false;
+}
+/**
+ * The one place that decides an agent leaves tile `id` alone because the person's keys are on it: it acts without
+ * standing, the person is in this layout (`here`: their remembered focus in a desk they're not in is no one's), and
+ * `id` is its focus (`focus`: the step's, or the desk's as it stands).
+ */
+export function personsTile<I>(ctx: Pick<Ctx<I>, "standing" | "person">, id: I, focus: I): boolean { return !ctx.standing && ctx.person.here !== false && id === focus; }
+/**
+ * The one place that decides whether tile `id` takes an open now: a reader that takes notes and is shown (not folded),
+ * not a list or a preview, not pinned, holding no edit or work, and one the actor may open into (`available`).
+ */
+export function readerTakes<I>(s: Pick<LayoutState<I>, "collapsed">, f: TileFacts | undefined, id: I): boolean {
+  return !!f && !s.collapsed.has(id) && !!f.notes && !f.follower && !f.lists && !f.pinned && !f.editing && !f.holds && f.available !== false;
 }

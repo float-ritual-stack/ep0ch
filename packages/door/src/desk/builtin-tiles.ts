@@ -103,7 +103,7 @@ export const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
 const builtins = (): TileKind[] => [
   SETTINGS_TILE,
   {
-    kind: "tree", previews: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
+    kind: "tree", previews: true, handsKeys: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
     make: () => new TreePane(), actions: TREE_ACTIONS,
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
