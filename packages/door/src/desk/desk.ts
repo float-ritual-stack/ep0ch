@@ -1001,7 +1001,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
    * is moving.
    */
-
   /** Whether a change is drawing its way (a test and the status line ask). */
   get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
   /** Snap to the settled layout (the first key or click, a peek, a snapshot) and draw it: no tick asks for that frame now (PIE-1769). True when something was in flight. */
@@ -1026,6 +1025,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
    * between them kept by identity (`Adopt`), and saved. An agent's undo, ^W B and a carry's leave the person's keys where they are (`keepFocus`), unless their tile went; on one that moved between layouts they go with it (`carriesUndone`).
    */
+  undoNewest(actor: Actor) { return this.steps.newestDesk(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true); }   // `layout.undo anywhere=true`, ^W B: which desk takes it back is the desk's to decide
   private undoAcross(entries: LayoutEntry<Desk>[], actor: Actor, keepFocus = false): { steps: number; kept: string[] } {
     const { sides: asked, txns } = this.steps.stepOf(this, entries, this.relatives());
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }

@@ -15,7 +15,6 @@ import { TXN } from "../surface/txn";
 import { RECORDED_AS, USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { requesterOf } from "../socket";
-import { partyOf } from "../steps";
 import { AGENT_WORDS, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
@@ -996,7 +995,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: { anywhere: { type: "boolean", optional: true, about: "the newest change on any of the person's layouts (the screen, the drawer, a group), not only this one" } },
     examples: [{ act: "layout.undo", does: "takes back the newest change to this layout" }, { act: "layout.undo anywhere=true", does: "takes back the newest change on the screen, the drawer or a group, wherever the keys are" }],
-    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.steps.newestDesk(d.relatives(), d, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true) : (d.steps.deskHolding(TXN.getStore()?.txn, d, () => d.relatives())).undoLayout(actor, TXN.getStore()?.txn)),
+    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.undoNewest(actor) : (d.steps.deskHolding(TXN.getStore()?.txn, d, () => d.relatives())).undoLayout(actor, TXN.getStore()?.txn)),
   }),
   "layout.stop": def({
     summary: "stop the script run that is rearranging this screen (a dance in flight): scripts.stop on it, and the layout it changed is put back, as far as nobody changed it since. The person's Esc does this while a run is moving the screen, and only then (a draft, an overlay, a ^W command or a drag keep their Esc)",
