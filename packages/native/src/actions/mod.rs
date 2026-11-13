@@ -232,14 +232,14 @@ impl App {
     /// Runs a request that comes from a tile and may name none: a button pressed in a note, a row picked in a list, a
     /// script's call, a press a drawer drew. A tile it names itself is the one it runs in (`act_request` holds it to
     /// that). Naming none, it is about the tile it comes from when its action acts in a tile of that sort (a note's
-    /// button that edits, a tree's row that opens); about the reader that tile follows when it acts on a note and
-    /// the tile is a list about one; else it names none, and is about the tile the one rule finds
+    /// button that edits, a tree's row that opens); about the reader that tile speaks for when it acts on a note and
+    /// the tile reads none itself; else it names none, and is about the tile the one rule finds
     /// (`App::target`), as the same line typed in the bar would be: where a press happened is no name for a tile.
     pub fn act_from(&mut self, mut req: actline::Request, from: &str, by: Actor) -> Outcome {
         let about = match (find(&req.action), self.layout.named(from)) {
             (Some(action), Some(tile)) if req.tile.is_none() && self.is_a(&tile, action.about) => Some(from.to_string()),
-            // A list about the note another tile shows speaks for that note: a press in it that acts on a note (a
-            // reply, a revision put back) is about the reader it follows, as its rows' opens land there.
+            // A list speaks for one reader (`App::home_of`, the one answer): a press in it that acts on a note (a
+            // reply, a revision put back) is about that reader, as its rows' opens land there.
             (Some(action), Some(tile)) if req.tile.is_none() && action.about == About::Notes => self.home_of(&tile).map(|home| self.layout.name(&home)),
             _ => None,
         };

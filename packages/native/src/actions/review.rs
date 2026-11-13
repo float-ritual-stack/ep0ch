@@ -65,7 +65,10 @@ static DISMISS: ActionRow = ActionRow::new("proposal.dismiss", Touches::Nothing,
 
 static RESTORE: ActionRow = ActionRow::new("revision.restore", Touches::Draft, "go back to an earlier text of the note a reader shows: revision= its number, as the list of revisions gives it (left out: the one before the note now). The editor opens, or the open one is used, and that text goes in as one step its own way back takes out; nothing is written until it is saved")
     .person(EDITOR)
-    .args(&[("revision", ArgSpec::number("the revision; left out, the one before the note now").optional())])
+    .args(&[
+        ("revision", ArgSpec::number("the revision; left out, the one before the note now").optional()),
+        ("of", ArgSpec::text("the note the revision is of (a block id), as the row of a list of revisions names it: refused when the reader shows another note").optional().kind("note")),
+    ])
     .keys(&[KeyRow::via("Restore on a revision, in the list of a note's revisions")])
     .examples(&[Example { act: "revision.restore revision=2", does: "puts revision 2's text in the editor, to save or drop", safe: None }]);
 
@@ -237,6 +240,9 @@ fn decided(app: &mut App, reply: Reply) {
 
 fn restore(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (tile, note, now) = match read(app) { Ok(read) => read, Err(no) => return no };
+    // The note a list's row is of is the row's to say (the service writes it into the press): a list that kept its
+    // note while the reader moved on puts none of that note's texts into another's editor.
+    if let Some(of) = args.text("of").filter(|of| *of != note) { return Outcome::refused(format!("{} shows another note ({note}), not {of}: open it there first", app.layout.name(&tile))) }
     // Something else being written there (a comment) keeps the tile; the block's own draft is what the text goes into.
     if app.draft_on(&tile).is_some_and(|draft| !draft.is_block()) && let Err(no) = free(app, &tile) { return no }
     let revision = match args.number("revision") { Some(n) if n >= 1.0 => n as u64, Some(_) => return Outcome::refused("revision= is a revision's number, from 1"), None if now > 1 => now - 1, None => return Outcome::refused("this note has no earlier text: it is at its first revision") };

@@ -15,6 +15,8 @@
 //! - `one_owner.rs`: the source itself, scanned for a second place that decides.
 //! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
 //! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
+//! - `sweep3.rs`: the third sweep's: who a script's act runs as, which reader a list speaks for, what a close leaves
+//!   of its note, what a refusal says the way out is.
 //! - `drafts.rs`: a block written in place, as a person works: typed in, completed from the service's list, saved;
 //!   held on the service, read and patched under the caret; kept as typed and found back after the window ended.
 //! - `ext.rs`: extensions and outlines: one installed from the bar's row, used, configured by its form and removed;
@@ -40,4 +42,5 @@ mod shell;
 mod store;
 mod support;
 mod sweep2;
+mod sweep3;
 mod window;

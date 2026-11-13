@@ -96,7 +96,8 @@ test("revisions: the texts a note had, newest first; an open one carries its cha
   expect(folded.list.rows[0]!.detail).toContain("by tidy-agent");
   expect(folded.list.rows[1]!.detail).toContain("North bed");
   expect(folded.list.rows.every(r => r.view === undefined)).toBe(true);
-  expect(cellsOf(folded.list.rows[1]!.cells)).toEqual([["Restore", `revision.restore revision="${bed.revision}"`]]);
+  // The press names the note the text is of: a client that shows the list beside another note guesses nothing.
+  expect(cellsOf(folded.list.rows[1]!.cells)).toEqual([["Restore", `revision.restore of="${bed.id}" revision="${bed.revision}"`]]);
   // Named in `open`, the earlier one carries what was there and what came since; the one the note is at never folds.
   const opened = await list("revisions", { of: bed.id, open: [String(bed.revision), String(second.revision)] });
   expect(opened.open).toEqual([String(bed.revision)]);

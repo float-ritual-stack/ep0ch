@@ -250,7 +250,7 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
         }
         "revisions" => {
             let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-            let mut earlier = json!({ "id": "2", "label": "Revision 2", "detail": "2031-03-30 18:00 by tidy-agent · 2 lines · Take the fork", "folds": true, "cells": [{ "text": "Restore", "act": "revision.restore revision=\"2\"" }] });
+            let mut earlier = json!({ "id": "2", "label": "Revision 2", "detail": "2031-03-30 18:00 by tidy-agent · 2 lines · Take the fork", "folds": true, "cells": [{ "text": "Restore", "act": format!("revision.restore of=\"{}\" revision=\"2\"", ask["of"].as_str().unwrap()) }] });
             if open.contains(&"2") {
                 earlier["open"] = json!(true);
                 earlier["view"] = json!({ "type": "diff", "from": "revision 2", "to": "the note now (revision 3)", "added": 1, "removed": 1, "lines": [{ "op": "same", "text": "Take the fork [type::chore]" }, { "op": "del", "text": "After the rain." }, { "op": "add", "text": "Before the rain." }] });
