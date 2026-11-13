@@ -45,29 +45,39 @@ async function setup() {
 }
 
 const PROGRAMS: ProgramSaid[] = [
-  { key: "garden-1", name: "Shell", cwd: "/plots/north", backend: "tmux", keeps: true, state: "running", tile: "shell" },
-  { key: "garden-2", name: "Agent", command: "seedbot --plan beds", backend: "tmux", keeps: true, state: "running", tile: "agent", window: "second" },
-  { key: "garden-3", name: "Shell", command: "tail -f watering.log", backend: "pty", keeps: false, state: "exited" },
+  { key: "garden-1", name: "Shell", cwd: "/plots/north", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", tile: "shell" },
+  { key: "garden-2", name: "Agent", command: "seedbot --plan beds", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", status: "working", says: "planning the beds", tile: "agent", window: "second" },
+  { key: "garden-3", name: "Agent", command: "seedbot --order seeds", by: "agent:compost-agent", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", status: "blocked", says: "may it order the leeks?" },
+  { key: "garden-4", name: "Shell", command: "tail -f watering.log", backend: "pty", keeps: false, kept: "pty: it ends with this window", state: "exited" },
+  { key: "", name: "compost", command: "tail -f compost.log", backend: "herdr-core", keeps: true, state: "running", status: "idle", mine: false, address: "t4" },
 ];
 
-test("programs: the asker's own, a row each with the jump as its pick, the ones no tile shows after", async () => {
+test("programs: the asker's own, a row each with the jump as its pick, then what else their keeper runs, with no pick", async () => {
   const { client, list } = await setup();
   const source = (await list("sources")).sources!.find(s => s.from === "programs")!;
   // It says what it reads, so a client hands its programs over by the parameter's name, and a bar lists it.
   expect(source).toMatchObject({ about: "Programs", bar: {}, params: [{ name: "programs", required: true }, { name: "query" }] });
 
   const all = await list("programs", { programs: PROGRAMS });
-  expect(all.list).toMatchObject({ type: "list", arrange: "rows", title: "Programs · 2 running" });
-  expect(all.list.rows.map(r => [r.id, r.label, r.detail ?? null, r.mark, r.group, r.cells, r.act])).toEqual([
-    ["garden-1", "Shell", "/plots/north", "running", "In a tile", ["tmux · outlives the window", "shell"], 'terminal.jump key="garden-1"'],
-    ["garden-2", "Agent", "seedbot --plan beds", "running", "In a tile", ["tmux · outlives the window", "agent · window second"], 'terminal.jump key="garden-2"'],
-    ["garden-3", "Shell", "tail -f watering.log", "exited", "Running, in no tile", ["pty · ends with the window"], 'terminal.jump key="garden-3"'],
+  // Only the asker's own are counted: what else runs beside them is somebody else's.
+  expect(all.list).toMatchObject({ type: "list", arrange: "rows", title: "Programs · 3 running" });
+  // A row's mark is what the program reports of itself, where it reports; else how it stands.
+  expect(all.list.rows.map(r => [r.id, r.label, r.detail ?? null, r.mark, r.tone ?? null, r.group, r.cells, r.act ?? null])).toEqual([
+    ["garden-1", "Shell", "/plots/north", "running", null, "In a tile", ["herdr-core keeps it: it outlives this window", "shell"], 'terminal.jump key="garden-1"'],
+    ["garden-2", "Agent", "seedbot --plan beds · planning the beds", "working", null, "In a tile", ["herdr-core keeps it: it outlives this window", "agent · window second"], 'terminal.jump key="garden-2"'],
+    ["garden-3", "Agent", "seedbot --order seeds · may it order the leeks? · started by compost-agent", "blocked", "warn", "Running, in no tile", ["herdr-core keeps it: it outlives this window"], 'terminal.jump key="garden-3"'],
+    ["garden-4", "Shell", "tail -f watering.log", "exited", null, "Running, in no tile", ["pty: it ends with this window"], 'terminal.jump key="garden-4"'],
+    // What the asker did not start is listed by its keeper's name for it, and nothing is offered to do to it.
+    ["theirs:t4", "compost", "tail -f compost.log", "idle", null, "Not this window's", ["herdr-core", "t4"], null],
   ]);
-  expect(all.list.groups).toEqual([{ name: "In a tile", label: "In a tile", count: 2 }, { name: "Running, in no tile", label: "Running, in no tile", count: 1 }]);
+  expect(all.list.groups).toEqual([{ name: "In a tile", label: "In a tile", count: 2 }, { name: "Running, in no tile", label: "Running, in no tile", count: 2 }, { name: "Not this window's", label: "Not this window's", count: 1 }]);
 
-  // Words narrow it, by what a row says: the line that started it, what keeps it, how it stands.
-  expect((await list("programs", { programs: PROGRAMS, query: "seedbot" })).list.rows.map(r => r.id)).toEqual(["garden-2"]);
-  expect((await list("programs", { programs: PROGRAMS, query: "exited" })).list.rows.map(r => r.id)).toEqual(["garden-3"]);
+  // Words narrow it, by what a row says: the line that started it, what keeps it, what it reports.
+  expect((await list("programs", { programs: PROGRAMS, query: "plan" })).list.rows.map(r => r.id)).toEqual(["garden-2"]);
+  expect((await list("programs", { programs: PROGRAMS, query: "blocked" })).list.rows.map(r => r.id)).toEqual(["garden-3"]);
+  expect((await list("programs", { programs: PROGRAMS, query: "exited" })).list.rows.map(r => r.id)).toEqual(["garden-4"]);
+  // A door that says no more than what runs a program and whether that outlives it is worded here.
+  expect((await list("programs", { programs: [{ key: "bed-1", name: "Shell", backend: "tmux", keeps: true, state: "running" }] })).list.rows[0]!.cells).toEqual(["tmux · outlives the window"]);
   // One group has no header to draw.
   expect((await list("programs", { programs: PROGRAMS.slice(0, 1) })).list.groups).toBeUndefined();
   // None running says how one starts; the service keeps no programs of its own, and says so when handed none.
@@ -90,7 +100,7 @@ test("the terminal extension: installed as a person does, its kinds are rows a t
   const served = (await screens(["list", "page", "pty"])).kinds.filter(k => k.extension === "terminal");
   expect(served.map(k => [k.kind, k.name, k.drawer, k.fields ?? null, k.about])).toEqual(MANIFEST.tiles.map(t => [`terminal.${t.kind}`, t.name, t.drawer, t.fields ?? null, t.description]) as never);
   expect(served.map(k => k.drawer)).toEqual(["pty", "pty"]);
-  expect(served.find(k => k.kind === "terminal.agent")!.fields).toEqual({ command: "claude" });
+  expect(served.find(k => k.kind === "terminal.agent")!.fields).toEqual(MANIFEST.tiles.find(t => t.kind === "agent")!.fields as never);
   // What a door built without its terminal says of the tile is the row's: it says how the terminal is built in.
   for (const kind of served) expect(kind.about, kind.kind).toContain("cargo build --features pty");
 

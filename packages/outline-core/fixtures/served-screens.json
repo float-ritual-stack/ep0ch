@@ -788,7 +788,7 @@
       "kind": "screens.programs",
       "extension": "screens",
       "name": "Programs",
-      "about": "the programs this door runs in its terminal tiles, and the ones still running that no tile shows: what each is, what keeps it running and where it is; a row takes the keys to its program, in a tile beside the note when it has none",
+      "about": "the programs this door runs in its terminal tiles, and the ones still running that no tile shows: what each is, what it reports of itself, what keeps it running and where it is; a row takes the keys to its program, in a tile beside the note when it has none. What their keeper runs that this door never started is listed after them",
       "drawer": "list",
       "fields": {
         "from": "programs"

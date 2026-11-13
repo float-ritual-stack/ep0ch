@@ -16,13 +16,16 @@ terminal drawer as the line that starts it, the folder it starts in and the mach
 (`screens.list`'s `kinds`), so the drawer draws it with no code for that program.
 
 **Which door draws it.** The native window, when it is built with its terminal (`cargo build --features pty`, see
-`packages/native/README.md`); built without, a tile of these kinds says so, in the row's own words. The door has
-terminal tiles of its own (its `pty` kind) and no `pty` drawer for these rows: a tile of them there says that. The
-two doors don't share a program yet (the door's terminal host has one client).
+`packages/native/README.md`): on herdr-core where the machine has `hc`, which keeps a program running when the
+window goes, else tmux, else a plain pty. Built without, a tile of these kinds says so, in the row's own words. The
+door has terminal tiles of its own (its `pty` kind) and no `pty` drawer for these rows: a tile of them there says
+that. The two doors don't share a program yet (the door's terminal host has one client).
 
 **The list.** `lists.read from=programs` lists the programs a door hands over, a row each with the jump as its pick
-(`terminal.jump key=`). The `programs` tile kind over it is the screens extension's, beside its other lists, and the
-kitchen screen has it with the buttons that open a shell and an agent.
+(`terminal.jump key=`): what each is, what it reports of itself, what keeps it and where it shows. What its keeper
+runs that the door never started is listed after them, with no pick. The `programs` tile kind over it is the
+screens extension's, beside its other lists, and the kitchen screen has it with the buttons that open a shell and
+an agent.
 
 It is on wherever the service runs. Uninstalled, a tile of its kinds says the kind is gone;
 `extensions.install id=terminal` brings it back.
