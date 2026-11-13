@@ -99,8 +99,11 @@ export class AgentPointers {
   }
 }
 
-/** How long the person has to have been away from the keys and the mouse before an agent moves what they see. */
-export const SHELL_IDLE_MS = 2000;
+/**
+ * How long the person has to have been away from the keys and the mouse before an agent moves what they see: 2 s, or a
+ * test's shorter EP0CH_SHELL_IDLE_MS (as EP0CH_DRAFT_TOUCH_MS), so a test pane waits it out sooner (PIE-1788).
+ */
+export const SHELL_IDLE_MS = ((ms) => (process.env.EP0CH_SHELL_IDLE_MS && Number.isFinite(ms) && ms >= 0 ? ms : 2000))(Number(process.env.EP0CH_SHELL_IDLE_MS));
 
 /** Nobody at the keys: a screen with no person (a test's, a screen built for a snapshot). */
 export const NOBODY: Whereabouts = { focus: null, typingIn: null, busy: false, keys: "screen", screen: null, idle: Infinity, away: null };

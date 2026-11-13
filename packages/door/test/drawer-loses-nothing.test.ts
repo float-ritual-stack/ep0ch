@@ -3,7 +3,7 @@
 // act on the same door. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { beanDesk, TallyDoors, type Pane } from "./tally-pane";
+import { beanDesk, TallyDoors, type Pane, idle } from "./tally-pane";
 
 type Tile = { tile: string; name: string; kind: string; focused: boolean; showing?: { title: string } };
 const layers = (p: Pane) => JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; screen: string; tiles: Tile[] }[];
@@ -107,7 +107,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
     try {
       const drawer = () => layers(p).find(l => l.drawer)!;
       p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
-      await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
+      await idle();   // his keys idle, so an agent may lay the desk out
       expect([p.act("tile.open", "kind=reader")].map(r => [r.ok, r.out])[0]).toEqual([true, expect.any(String)]);   // the screen keeps a tile
       await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 3, "a third tile");
       expect([p.act("tile.focus", "tile=reader")].map(r => [r.ok, r.out])[0]).toEqual([true, expect.any(String)]);
@@ -160,10 +160,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
     try {
       p.keys("Escape");
       await until(() => !p.capture().includes("editing"), "out of the edit");
-      await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
+      await idle();   // his keys idle, so an agent may lay the desk out
       expect(p.act("tile.focus", "tile=detail2").ok).toBe(true);   // his keys off the tiles it gathers
       await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "detail2", "his keys on detail2");
-      await Bun.sleep(2200);
+      await idle();
       const r = p.act("tile.group", "tile=detail3", "with=detail");
       expect([r.ok, r.out]).toEqual([false, expect.stringContaining("its answer")]);
       expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer", "detail/detail3"]));
@@ -177,7 +177,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
     try {
       const drawer = () => layers(p).find(l => l.drawer)!;
       p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
-      await Bun.sleep(2200);
+      await idle();
       expect(p.act("tile.open", "kind=reader").ok).toBe(true);
       await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 3, "a third tile");
       expect(p.act("tile.focus", "tile=reader").ok).toBe(true);
