@@ -4,6 +4,7 @@
 //
 // - "Bean rows": a note with a history (three texts), a comment thread on words of it with a reply, and an edit an
 //   agent proposed beside it. What the comments, proposals and revisions tiles list of it is the service's.
+// - "Seed list": a screen saved as a note, with keys of its own and the list of the keys beside its reader.
 // - "The plot in June" (with a folder): a header image, two pictures (one nobody took), an svg fence and a mermaid
 //   fence. The pictures are drawn here and written into the folder, so the scratch host has files to read.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -61,5 +62,16 @@ if (pictures) {
     "```",
   ].join("\n"));
 }
+// A screen with keys of its own, saved as a note: a reader beside the list of the keys, which puts that screen's first.
+await ask({ action: "screens.save", mutation: { author: "user" }, spec: {
+  name: "seed-list", title: "Seed list", lands: "reader",
+  toolbar: ["back", "bar.open", "bar.open scope=screens", "screen.reset"],
+  layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.4, 0.6], kids: [{ t: "leaf", kind: "reader", name: "reader" }, { t: "leaf", kind: "keymap", name: "keys" }] } },
+  keys: [
+    { key: "ctrl+l", action: "bar.open", args: { scope: "screens" }, says: "open the bar on the screens" },
+    { key: "K", action: "tile.focus", tile: "keys", only: ["reader"], says: "the keys to the list of keys" },
+    { key: "B", action: "open", args: { id: beans.id }, says: "open the bean rows" },
+  ],
+} });
 console.log(beans.id);
 process.exit(0);

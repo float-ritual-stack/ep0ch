@@ -491,6 +491,15 @@ Three things turned up on the way, each fixed:
   the theme switches.
 - **A press on a row with something drawn under it** landed on what was under it: the row's own line is keyed
   `…/row/<id>/head`, which is what a test, a script and an agent press once a row is open.
+- **A comment was listed as a note under the note it is on.** A comment is a block under its note, and `notes.page`
+  listed every block there. A mark is no row of its note (outline-core's `isMarkType`, as the published page reads
+  it): `notes.page` leaves comments out of `children` and `under`, and the threads list has them.
+
+**A screen's keys are named as the door names keys, and read as chords here.** A screen's `keys` name a key by the
+door's one name for it (`isKeyName`: `l`, `L`, `,`, `ctrl+l`, `esc`, `pgup`). Rune's `Chord::parse` reads most of
+them as written; what differs is small and in one function (`keys::chord_named`): a capital is Shift with its letter
+(Rune reads a chord's letters in either case), and the two pages are `pageup` and `pagedown`. A modifier alone and
+Hyper have no chord. `core-contract.json`'s `keyNames` lists every name there is, and a cargo test reads each.
 
 ## The contract tables
 

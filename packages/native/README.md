@@ -14,6 +14,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 
 ![About a note, on the kitchen screen: a comment being written on words of it, its thread with a reply, an agent's proposed edit as the lines the service found, and an earlier revision opened to what changed since, dark](docs/about-dark.png)
 ![The keys screen: every way to press an action, a list made from the actions' own rows, dark](docs/keys-dark.png)
+![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
 ![The library: the components under their groups, one picked with its own example as written and as drawn, dark](docs/library-dark.png)
 
 ![A note with a query-backed component, dark](docs/note-dark.png)
@@ -117,6 +118,11 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
 <!-- /keys -->
+
+A screen adds its own (its spec's `keys`, as a screen note or an extension writes them: `ctrl+l`, `L`, `esc`, the
+names screens give keys). While that screen is open and a tile has the keys they are tried first, each running its
+action as the person, in the tile it names, over the kinds of tile it says; the keys list on that screen
+(`kind: keymap`) puts them first, under "this screen".
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
@@ -276,8 +282,10 @@ src/ (Rust, Rune)                                      the outline host
 - **A press in a list about a note is about the reader it follows** (`App::act_from`): Reply and Restore act in
   the reader whose note the list is of, as the list's opens land there.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
-  list is asked, `App::ask_of`) and the service answers them as rows, the line each key runs written by
-  outline-core's one writer. The key table and the screen are read from the same rows.
+  list is asked, `App::ask_of`) and the name of the screen it has open, and the service answers them as rows, the
+  line each key runs written by outline-core's one writer: that screen's own keys first (the service's spec, the
+  one the key table reads through `App::screen_keys`), then the actions'. The key table and the list are read from
+  the same rows, and a test holds them equal against a real service.
 - **It holds no grammar and names no property, kind or screen.** A tile's body is `rune-kit`'s `Markdown`, `Badge` and `Button`;
   `bar.rs` is its `Dialog` over the one list; every field is `keys.rs`'s; the toolbar is the screen's own list of
   act lines, each button labelled from its action's row. No drawer matches a figure's kind or a component's name:
@@ -400,7 +408,7 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 ![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
-`navigator`, `lastcall`, `table`, `keys`, `library`, and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
+`navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
 title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
 box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
@@ -456,7 +464,7 @@ toolbar button is
   "resolve against the note now" (the outline agent's) has no press here.
 - Revisions: one is opened against the note as it is now, never against the one after it; the list isn't walked by
   keys (older, newer), and a change opens under its row rather than beside the note.
-- The keys screen lists the rows' own keys: nothing is rebound there. The library draws each component's one
+- The keys screen lists the rows' own keys and the open screen's: nothing is rebound there. The library draws each component's one
   example, not its properties one value at a time, its grids or every combination.
 - The window draws no list of agent sessions: the service keeps none to list (the door reads them off its own
   terminal tiles).
@@ -474,8 +482,9 @@ toolbar button is
 - Switching outlines from inside the window; the outline is named when it starts.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
-- Keys are the rows' defaults: a screen's own keys and the person's `keybindings.json` aren't read yet, so the
-  keys screen lists neither.
+- Keys are the rows' defaults and the open screen's own: the person's `keybindings.json` isn't read yet, so nothing
+  is rebound and the keys screen lists no key of theirs. A screen's key named with Hyper is listed and has no chord
+  here.
 - Extensions aren't installed or uninstalled from this window's bar yet (the door's bar and `ep0ch act
   extensions.install id=screens` do it); with the screens extension uninstalled the window says there is no screen
   to open on, and opens when it is back.
