@@ -67,14 +67,32 @@ export const jobPath = (bun: string, home: string) =>
   // (A folder with a space is left out: systemd's Environment= line can't quote one inside the value.)
   [...new Set([dirname(bun), join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].filter(d => !/\s/.test(d)).join(":");
 
-export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env; follow?: boolean }): UnitFile[] {
-  const vars = { BUN: o.bun, MAIN: o.main, PATH: jobPath(o.bun, o.home), HOME: o.home };
-  const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
-  const templates = join(o.repoRoot, "scripts/backup");
-  if (o.platform === "linux") {
-    const dir = join(o.env.XDG_CONFIG_HOME || join(o.home, ".config"), "systemd/user");
-    return [...SYSTEMD_UNITS, ...(o.follow ? [FOLLOW_UNIT] : [])].map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
+const readText = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
+/** The variables a unit template names: bun, the door's main.ts, the job's PATH, home. */
+export const unitVars = (o: { bun: string; main: string; home: string }) => ({ BUN: o.bun, MAIN: o.main, PATH: jobPath(o.bun, o.home), HOME: o.home });
+
+/** Install's systemd user units from a folder of templates in the checkout: each as it should be, and as it is. */
+export function systemdUnitFiles(o: { templates: string; names: readonly string[]; home: string; env: Env; vars: Record<string, string> }): UnitFile[] {
+  const dir = join(o.env.XDG_CONFIG_HOME || join(o.home, ".config"), "systemd/user");
+  return o.names.map(n => ({ path: join(dir, n), want: fill(readText(join(o.templates, n)) ?? "", o.vars, systemdValue), have: readText(join(dir, n)) }));
+}
+
+/** The units to write (changed, and install's own), and the ones a person wrote (no UNIT_MARK), left alone. */
+export function unitWrites(units: readonly UnitFile[]): { writes: { path: string; text: string }[]; foreign: string[] } {
+  const writes: { path: string; text: string }[] = [], foreign: string[] = [];
+  for (const u of units) {
+    if (u.have === u.want) continue;
+    if (u.have !== null && !u.have.includes(UNIT_MARK)) { foreign.push(u.path); continue; }
+    writes.push({ path: u.path, text: u.want });
   }
+  return { writes, foreign };
+}
+
+export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env; follow?: boolean }): UnitFile[] {
+  const vars = unitVars(o);
+  const read = readText;
+  const templates = join(o.repoRoot, "scripts/backup");
+  if (o.platform === "linux") return systemdUnitFiles({ templates, names: [...SYSTEMD_UNITS, ...(o.follow ? [FOLLOW_UNIT] : [])], home: o.home, env: o.env, vars });
   if (o.platform === "macos") {
     const path = join(o.home, "Library/LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     return [{ path, want: fill(read(join(templates, `${LAUNCHD_LABEL}.plist`)) ?? "", vars, xmlValue), have: read(path) }];
@@ -155,13 +173,7 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
         : `the secrets group ${g} (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY for the bucket): ~/.config/secrets/${g}.env, mode 600`);
     }
   }
-  const writes: BackupPlan["writes"] = [];
-  const foreign: string[] = [];
-  for (const u of f.units) {
-    if (u.have === u.want) continue;
-    if (u.have !== null && !u.have.includes(UNIT_MARK)) { foreign.push(u.path); continue; }
-    writes.push({ path: u.path, text: u.want });
-  }
+  const { writes, foreign } = unitWrites(f.units);
   // The settings file: made with the machine's name, or brought up to what this run was given (a renamed machine:
   // the timer's job reads the file, never the shell install ran in, so a name only in the shell would change nothing).
   // A Mac pulls the remote MCP gateway's queued writes for its outlines (PIE-615) from float-2, unless its file says
@@ -187,8 +199,8 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
  * one added. `changed` says what moved in a file that was there (`EP0CH_BACKUP_MACHINE evans-macbook-pro → laptop`);
  * `existing` null: no file yet.
  */
-export function settingsText(existing: string | null, set: Record<string, string>): { text: string; changed: string[] } {
-  const lines = existing?.trim() ? existing.replace(/\n$/, "").split("\n") : ["# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them."];
+export function settingsText(existing: string | null, set: Record<string, string>, header = "# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them."): { text: string; changed: string[] } {
+  const lines = existing?.trim() ? existing.replace(/\n$/, "").split("\n") : [header];
   const changed: string[] = [];
   for (const [k, v] of Object.entries(set)) {
     const at = lines.findIndex(l => new RegExp(`^\\s*(?:export\\s+)?${k}\\s*=`).test(l));
