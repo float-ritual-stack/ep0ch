@@ -157,7 +157,7 @@ export function projectionLayout(p: ResourceProjection): ProjectionLayout {
   // Detail's layout ends with the status; the door adds what's running, and why a fetch failed (not for an
   // extension's line, whose reason already says it).
   if (p.fetching && !p.output) add("note", "  fetching…");
-  else if (p.fetchError && !p.kind) add("reason", `  can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}`);
+  else if (p.fetchError && !p.kind) add("reason", `  ${fetchFailedWords(p)}`);
   // Detail's words: a ticket kept as a block draws its comments from its blocks instead (ticketRegion).
   if (p.options.comments !== undefined && !p.record) add("note", "  Comments are not stored yet; --comments shows them once the provider returns them.");
   for (const option of p.options.unknown) add("note", `  unknown option ${drawnInline(option)}`);
@@ -232,9 +232,17 @@ function ageLine(p: ResourceProjection, now: number): { text: string; bad: boole
   const when = p.fetchedAt ?? p.record?.syncedAt;
   const age = when ? `fetched ${ageSince(when, now, "ago")}` : "";
   if (p.fetching && !when) return { text: "fetching…", bad: false };
-  const failed = p.fetchError && drawnInline(p.fetchError.replace(/^Resource extension: /, ""));
-  if (failed) return { text: `${when ? `kept the copy from ${ageSince(when, now, "ago")}` : "no copy yet"} · couldn't fetch: ${failed} · the next poll tries again, ${runAgainKey()} now`, bad: true };
+  if (p.fetchError) return { text: `${when ? `kept the copy from ${ageSince(when, now, "ago")}` : "no copy yet"} · ${fetchFailedWords(p)}`, bad: true };
   return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · ${runAgainKey()} refresh`, bad: false };
+}
+
+/**
+ * A failed fetch in the words every place says it (the card, its age line, r's toast, PIE-1801): what failed, and who
+ * tries again, as the service says (`fetchRetry`): the next poll and r, or only r (the provider has no such item).
+ */
+export function fetchFailedWords(p: Pick<ResourceProjection, "fetchError" | "fetchRetry">): string {
+  const failed = drawnInline((p.fetchError ?? "").replace(/^Resource extension: /, ""));
+  return `couldn't fetch: ${failed} · ${p.fetchRetry === "r" ? `${runAgainKey()} tries again` : `the next poll tries again, ${runAgainKey()} now`}`;
 }
 
 /**

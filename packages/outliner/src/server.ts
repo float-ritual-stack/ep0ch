@@ -1332,7 +1332,7 @@ export class OutlinerServer {
         return {
           ...projection,
           ...(fetching ? { fetching: true } : {}),
-          ...(state?.error ? { fetchError: state.error } : {}),
+          ...(state?.error ? { fetchError: state.error, ...(state.retry ? { fetchRetry: state.retry } : {}) } : {}),
           ...(row ? { record: { blockId: row.blockId, pageBlockId: row.parentBlockId, syncedAt: row.syncedAt, commentBlockIds: comments } } : {}),
         };
       }),

@@ -1,7 +1,7 @@
 import { commentBlockText, extensionActorId, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import { readResourceProjections, type ResourceProjection } from "./resource-projection";
 import { mayHaveResourceProjections } from "./resource-references";
-import type { ExtensionDescription } from "./resource-extensions";
+import { NOT_FOUND_MESSAGE, type ExtensionDescription } from "./resource-extensions";
 import { extensionProvider, providerLabel, type ExtensionProvider, type RemoteEntityDocument, type Resource } from "./resources";
 import type { OutlinerStore } from "./store";
 import { readAuthoredLinks } from "./authored-links";
@@ -52,6 +52,8 @@ export interface ExtensionSyncOptions {
 export interface ExtensionSyncState {
   readonly fetching: boolean;
   readonly error?: string;
+  /** Who tries a failed fetch again: the next poll (and r), or only r (the provider has no such item, PIE-1801). */
+  readonly retry?: "poll" | "r";
 }
 
 const DEFAULT_POLL_MS = 12 * 60 * 1_000;
@@ -297,13 +299,21 @@ export class ExtensionSync {
         const refreshed = await this.store.resources.refreshRemoteEntity(resourceId, false);
         const error = refreshed.remoteStatus?.freshness === "failed" ? refreshed.remoteStatus.lastError ?? "the last fetch failed" : undefined;
         if (error) this.failed(error);
-        this.setState(key, error ? { fetching: false, error } : null);
+        this.setState(key, error ? this.failure(key, error) : null);
         this.options.resourceChanged?.(resourceId);
       } catch (error) {
         this.failed(message(error));
-        this.setState(key, { fetching: false, error: message(error) });
+        this.setState(key, this.failure(key, message(error)));
       }
     }));
+  }
+
+  /**
+   * A failed fetch as the card says it (PIE-1801): an item the provider doesn't have, plainly, tried again only by r
+   * (no poll mends it); any other failure, tried again by the next poll.
+   */
+  private failure(key: string, error: string): ExtensionSyncState {
+    return error.includes(NOT_FOUND_MESSAGE) ? { fetching: false, error: `${this.label} has no ${key}`, retry: "r" } : { fetching: false, error, retry: "poll" };
   }
 
   /** Runs one key's bookkeeping; a failure is that key's to show, not the pass's. */
@@ -311,7 +321,7 @@ export class ExtensionSync {
     try {
       work();
     } catch (error) {
-      this.setState(key, { fetching: false, error: message(error) });
+      this.setState(key, this.failure(key, message(error)));
     }
   }
 
@@ -401,7 +411,7 @@ export class ExtensionSync {
         this.setState(key, null);
         if (!comments || record.comments) this.commentsWritten.set(key, comments);
       } catch (error) {
-        this.setState(key, { fetching: false, error: message(error) });
+        this.setState(key, this.failure(key, message(error)));
       }
     }
     this.options.resourceChanged?.(resource.id);
@@ -505,7 +515,17 @@ export class ExtensionSync {
         searchFailed = true;
       }
     }
-    // A failed ticket stays failed (the next open retries it); a failed search keeps its window.
+    // A ticket whose first fetch failed has no Resource for a search to name: it's fetched again through a note that asks
+    // for it (PIE-1801). One the provider said it doesn't have waits for r.
+    for (const [key, state] of [...this.state]) {
+      if (state.retry !== "poll" || this.paused() || this.store.resources.resolveAuthoredReference({ kind: this.provider, key }).kind === "ready") continue;
+      const asker = this.store.extensionAskers(this.extensionId, key)[0];
+      if (!asker) continue;
+      checked += 1;
+      await this.materialize(asker.blockId).catch(() => {});
+      if (!this.state.get(key)?.error) changed += 1;
+    }
+    // A failed search keeps its window.
     if (!searchFailed) this.lastPoll = started;
     this.lastPollResult = { at: new Date(started).toISOString(), checked, changed, ...(failure ? { error: failure } : {}) };
     return { checked, changed };

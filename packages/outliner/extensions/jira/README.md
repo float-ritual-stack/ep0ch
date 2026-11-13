@@ -80,6 +80,7 @@ Done in Jira, not here [type::virtual-branch] [query::child:jira.status=Done NOT
   - If Jira refuses a `key in` search for a deleted key, that batch is answered from one project search.
   - A search that fails keeps its window, so the next poll looks back far enough.
 - **A read that fails** keeps the last copy on the card: "kept the copy from 20m ago · couldn't fetch: … · the next poll tries again, R now". The next poll or `R` tries again; the card's own redraws don't.
+- **A ticket that never fetched** says why the same way, and the next poll fetches it again through the note that names it. A ticket Jira doesn't have reads "couldn't fetch: Jira has no PC-9 · R tries again": no poll asks about it, `R` does.
 - **Credentials refused (401, 403, or none):** automatic fetches pause for 15 minutes.
 - **Rate limited (429):** they pause from one minute, doubling up to 30.
 - **While paused,** the ticket says `paused, r tries now`; `r` always tries at once, and the first answer that works ends the pause.
