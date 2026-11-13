@@ -88,7 +88,8 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const c = backupConfig(env);
   const file = configFileOf(env);
   const fileText = existsSync(file) ? (() => { try { return readFileSync(file, "utf8"); } catch { return ""; } })() : "";
-  const follow = !!(env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim());
+  const following = (env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim() || "").split(",").map(x => x.trim()).filter(Boolean);
+  const follow = following.length > 0;
   const units = o.bun ? unitFiles({ ...o, bun: o.bun, env, follow }) : [];
   const loaded = o.platform === "linux"
     ? await o.run(["systemctl", "--user", "is-active", "ep0ch-backup.timer"], { env, timeoutMs: 5000 }).then(async r => r.code === 0 && (await o.run(["systemctl", "--user", "is-enabled", "ep0ch-backup.timer"], { env, timeoutMs: 5000 })).code === 0, () => null)
@@ -112,8 +113,8 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
     alert: "error" in c ? null : readAlert(c.state),
     stateDir: "error" in c ? "" : c.state,
     ...(follow ? { follow } : {}),
-    followed: "error" in c ? [] : followedCopies(c.mirrorsDir),
-    following: (env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim() || "").split(",").map(x => x.trim()).filter(Boolean),
+    followed: "error" in c ? [] : followedCopies(c.mirrorsDir, following),
+    following,
   };
 }
 
