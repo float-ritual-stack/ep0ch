@@ -487,10 +487,11 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
     none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
     none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
-    // What an agent the dispatcher holds back does instead is an action this window has, named from its row. The
-    // door's own way (`block.mark`) is spelled nowhere but in the layout's sentences, which are the door's by contract
-    // (sweep 3's debt: the layout names a way out in the door's words and keys, where it should name the act as data).
-    none("the door's way to get the person's attention named in this window's own words", strays("block.mark", |path| path.starts_with("layout")));
+    // What an agent the dispatcher holds back does instead is an action this window has, named from its row
+    // (`actions::attention`, the one namer: the actor rule says it and the layout's rules are told it). The door's own
+    // way (`block.mark`) is spelled nowhere in this window: the layout names the act whoever asks it says (wave F3).
+    none("the door's way to get the person's attention named in this window", strays("block.mark", |_| false));
+    none("what gets the person's attention named outside the dispatcher (`actions::attention`)", strays("ATTENTION", |path| path == "actions/mod.rs" || path == "actions/review.rs"));
     // What a close leaves of the closed reader's note is the layout's to say (`close_heir`, beside the rule for where
     // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
     none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
@@ -589,4 +590,91 @@ fn a_window_an_outline_and_an_extension_each_have_one_owner() {
     let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("app.rs").1;
     let field = app.split("pub struct FormField {").nth(1).and_then(|rest| rest.split('}').next()).expect("FormField");
     assert!(!field.contains("description") && !field.contains("choices") && !field.contains("default"), "a form's field keeps no copy of its schema: {field}");
+}
+
+// ── wave F3: a way out is an act, said in one place ───────────────────────────────────────────────────────────
+
+/// The text of each string literal on the code lines of a source: what a sentence would be written in.
+fn literals(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines().filter(|line| !line.trim_start().starts_with("//")) {
+        let (mut inside, mut escaped, mut word) = (false, false, String::new());
+        for c in line.chars() {
+            match (inside, escaped, c) {
+                (true, true, _) => { word.push(c); escaped = false }
+                (true, false, '\\') => escaped = true,
+                (true, false, '"') => { out.push(std::mem::take(&mut word)); inside = false }
+                (true, false, _) => word.push(c),
+                (false, _, '"') => inside = true,
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// A key spelled out: a chord after `^`, a modifier with its key, a keycap's glyph.
+fn spells_a_key(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let caret = chars.windows(2).enumerate().any(|(i, pair)| pair[0] == '^' && pair[1].is_ascii_uppercase() && chars.get(i + 2).is_none_or(|next| !next.is_ascii_alphanumeric()));
+    let held = ["ctrl+", "alt+", "shift+", "super+", "hyper+", "cmd+", "mod+"].iter().any(|held| text.match_indices(held).any(|(at, _)| text[at + held.len()..].chars().next().is_some_and(|next| !next.is_whitespace())));
+    // A key that is one letter (the door's `p`, `q`, `e`) is spelled where a way would start: a clause that begins
+    // with a word of one character, after the reason's separator or a way before it ("· p in bed unpins it").
+    let bare = [" · ", ", or ", ", then ", "(or "].iter().any(|lead| text.match_indices(lead).any(|(at, _)| {
+        let mut rest = text[at + lead.len()..].chars();
+        matches!((rest.next(), rest.next()), (Some(key), Some(' ')) if (key.is_ascii_alphabetic() && !"aAI".contains(key)) || "?!".contains(key))
+    }));
+    caret || held || bare || text.chars().any(|c| "⏎⌫✦⌘⌥⌃⇧".contains(c))
+}
+
+/// The actions a sentence spells: every dotted name in it that is an action of this window's or of the door's.
+fn spells_an_action(text: &str, actions: &[String]) -> bool {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')).map(|word| word.trim_matches('.')).any(|word| word.contains('.') && actions.iter().any(|id| id == word))
+}
+
+/// Every action there is to spell, by its dotted name: this window's rows and the door's (`action-rows.json`). A
+/// name of one word (`open`, `edit`) is a word like any other and isn't scanned.
+fn dotted_actions() -> Vec<String> {
+    let door: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../outline-core/fixtures/action-rows.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    crate::actions::all().map(|action| action.row.id.to_string()).chain(door["rows"].as_array().unwrap().iter().filter_map(|row| row["id"].as_str().map(str::to_string))).filter(|id| id.contains('.')).collect()
+}
+
+/// A refusal of the layout's names its way out as an act (`Way::new(<action>, <what it does>)`): no sentence in the
+/// layout's files spells a key (a key is a door's own, read from its table when the refusal is said) or an action
+/// (so a window without the action says nothing of it, and none is named that is no row).
+#[test]
+fn no_sentence_in_the_layout_spells_a_key_or_an_action() {
+    let actions = dotted_actions();
+    let spelled: Vec<String> = sources().iter().filter(|(path, _)| path == "layout.rs" || path.starts_with("layout/")).flat_map(|(path, text)| {
+        literals(text).into_iter().filter(|text| text.contains(char::is_whitespace) && (spells_a_key(text) || spells_an_action(text, &actions))).map(|text| format!("{path}: {}", text.chars().take(90).collect::<String>())).collect::<Vec<_>>()
+    }).collect();
+    none("a sentence in the layout that names a key or spells an action: name the way out as an act", spelled);
+    // The scan finds what it is for, and passes what a reason and an act are.
+    for sentence in ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "mod+i shows the dock", "no split s7; layout.get gives each split's id", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"] {
+        assert!(spells_a_key(sentence) || spells_an_action(sentence, &actions), "the scan misses: {sentence}");
+    }
+    for fine in ["reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "no container s9 in the layout (s<n> is a split, g<n> a tab set)", "{} is a float: {what} needs a tile in the layout", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"] {
+        assert!(!spells_a_key(fine) && !spells_an_action(fine, &actions), "the scan takes a reason for a way: {fine}");
+    }
+    assert_eq!(literals("let x = no(format!(\"a \\\"b\\\" c\"), \"d\");\n    // \"a comment's words\""), ["a \"b\" c", "d"], "a literal is read whole, escapes and all; a comment's line is no code");
+}
+
+/// How a way out is said is the dispatcher's alone (`actions::says`): the key is read from the key table in one
+/// place, the ways are joined in one, and the layout is told who asks, and what it remembers, in one.
+#[test]
+fn a_way_out_is_said_in_one_place_and_the_layout_is_told_what_it_asks_in_one() {
+    none("a way's key read outside the one sayer (`actions::way_said`)", calls("cap_of", |path| path == "actions/mod.rs" || path == "keys.rs"));
+    none("a way out worded outside the one sayer", ["way_said", "ways_said"].iter().flat_map(|name| calls(name, |path| path == "actions/mod.rs")).collect());
+    // A refusal of the layout's reaches the person and an agent through `says`, never by its reason alone.
+    none("a layout refusal shown by its reason alone: say it with `actions::says`", strays("why.reason", |path| path == "layout.rs" || path.starts_with("layout/") || path == "actions/mod.rs"));
+    // What the layout's rules are told beside the layout (who asks, where the person is, how this arrangement is
+    // named, its home, what placement remembers, what gets the person's attention) is `App::asked`'s to say.
+    none("the layout's rules told something outside `App::asked`", ["ctx.own", "ctx.home", "ctx.here", "ctx.beside", "ctx.opened", "ctx.attention", "ctx.lands"].iter().flat_map(|field| strays(&format!("{field} ="), |path| path == "actions/layout.rs")).collect());
+    let asked = sources().into_iter().find(|(path, _)| path == "actions/layout.rs").expect("actions/layout.rs").1;
+    for field in ["ctx.own =", "ctx.home =", "ctx.here =", "ctx.beside =", "ctx.opened =", "ctx.attention ="] { assert!(asked.contains(field), "`App::asked` tells the layout's rules {field}") }
+    // What placement remembers is written where an open lands and let go where the arrangement settles.
+    none("what placement remembers written outside the open's own file and the arrangement's", ["memory.go_beside(", "memory.opened_into(", "memory.keep_only("].iter().flat_map(|call| strays(call, |path| path == "actions/nav.rs" || path == "actions/layout.rs")).collect());
+    // One namer of a split's id: the read `layout.get`, which the resize's row and the layout's refusal both point at.
+    let layout_actions = sources().into_iter().find(|(path, _)| path == "actions/layout.rs").expect("actions/layout.rs").1;
+    assert!(layout_actions.contains("ActionRow::new(\"layout.get\"") && !layout_actions.contains("peek gives"), "layout.resize's row names the read that gives a split's id, as the refusal's way out does");
 }

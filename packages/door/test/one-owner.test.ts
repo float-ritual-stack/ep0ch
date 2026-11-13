@@ -59,6 +59,16 @@ const FAMILIES: Family[] = [
     },
   },
   {
+    question: "how a refusal's way out is said: the key from the door's own tables for the person, the act line for an agent",
+    // The layout's rules and the rules about the person's keys name a way out as an act (outline-core's way-out.ts);
+    // one module words it, and nothing else reads a key for a refusal or joins ways into a sentence.
+    pattern: /\bwhySaid\(|\bwaysSaid\(|\bwayKey\(|\bwChordOf\(/g,
+    allowed: {
+      "surface/way-out.ts": { n: 5, why: "the owner: refusalSaid and waysOutSaid, wayKey (its definition and its one use), and the ^W table asked for the chord" },
+      "desk/wkeys.ts": { n: 1, why: "the ^W table answering which of its keys runs an act whole (wChordOf's definition)" },
+    },
+  },
+  {
     question: "what the notes under a note are (a comment on it and an edit proposed beside it are none)",
     // outline-core's isNoteUnder is the one answer, the service's lists and pages ask it too (its tree, a page's own
     // list, CHILDREN_QUERY). A list of a note's children filtered by another reading lists a block the others leave out.
@@ -314,6 +324,38 @@ describe("one owner for each decision about a layout (native W0: the contract bo
       "desk/carry.ts": ["apply"],
       "drawer.ts": ["apply", "hostLayer"],
     });
+  });
+});
+
+/**
+ * The files whose refusals name a way out as an act: the layout's rules, and the rules about the person's keys and
+ * about what an agent may do to a tile, which the layout's guards word their refusals with.
+ */
+const WAY_FILES = ["desk/screen-layout.ts", "desk/layout-refusal.ts", "desk/landing.ts", "whereabouts.ts", "surface/agent-level.ts"];
+/** A key spelled out: a ^W chord, a modifier with its key, a keycap's glyph. */
+// (A key of one letter, the door's `p`, `q`, `e`, is spelled where a way would start: a clause that begins with a word
+// of one character after the reason's separator or a way before it, "· p in bed unpins it".)
+const CHORD = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]|(?: · |, or |, then |\(or )(?:(?![aAI])[A-Za-z]|[?!]) /u;
+/** The string literals of a line of code: quoted and template text, as written. */
+const literals = (line: string) => [...line.matchAll(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g)].map(m => m[0].slice(1, -1));
+
+describe("a way out is an act: the layout spells no key and no action in a sentence", () => {
+  // Every action the door has, by its dotted name (a one-word name, `open`, is a word like any other and isn't scanned).
+  const actions = (JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/action-rows.json"), "utf8")) as { rows: { id: string }[] }).rows.map(r => r.id).filter(id => id.includes("."));
+  const named = new RegExp(`(?<![\\w.-])(?:${[...new Set(actions)].sort((a, b) => b.length - a.length).map(id => id.replace(/[.\-]/g, "\\$&")).join("|")})(?![\\w.-])`);
+  /** A sentence (a literal with a space in it) that names a key or an action: what a refusal's reason must not hold. */
+  const spelled = (file: string) => codeOf(readFileSync(join(SRC, file), "utf8")).flatMap(line => literals(line).filter(text => /\s/.test(text) && (CHORD.test(text) || named.test(text))).map(text => `${file}: ${text.slice(0, 90)}`));
+
+  test("no sentence in the layout's files names a key or spells an action: a way out is `way(<action>, <what it does>)`, said by surface/way-out.ts", () => {
+    // A key is the door's own, read from its key tables when the refusal is said, so a rebound key is the key named; an
+    // action is named as the way's act (a literal of its own, the id alone), so a door without it says nothing.
+    expect(WAY_FILES.flatMap(spelled)).toEqual([]);
+  });
+
+  test("the scan finds what it is for", () => {
+    const hits = (text: string) => /\s/.test(text) && (CHORD.test(text) || named.test(text));
+    for (const sentence of ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "alt+a puts your drawer away", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"]) expect(hits(sentence), sentence).toBe(true);
+    for (const fine of ["layout.policy", "reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"]) expect(hits(fine), fine).toBe(false);
   });
 });
 

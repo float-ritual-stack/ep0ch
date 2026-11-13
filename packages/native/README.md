@@ -394,9 +394,15 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
   the person's (a selection, the editor) and say so on their rows. `peek` lists each list's rows with their own
   presses (`cells`, each with its `act`) and what they show (`shows`).
 - **An agent arranges by the layout's rules.** `tile.split`, `tile.move`, `tile.close`, `tile.dock`,
-  `layout.resize` are refused in the door's words when they would take the tile with the person's keys, resize
+  `layout.resize` are refused for the door's reasons when they would take the tile with the person's keys, resize
   the tile they type in, or undo a lock of theirs. A tile is addressed by name (`tile=reader2`); `peek` lists
-  each with its kind, what it asks and what its drawer says of it, and the layout with every container's id.
+  each with its kind, what it asks and what its drawer says of it. `layout.get` answers the arrangement with every
+  container's id and its revision: the read a refusal about a split points at.
+- **A refusal names a way out that is here.** The layout names a way out as an act (an action, its arguments, what
+  it does), never a key. The window says it: to the person by the key its own table binds to that act (`Ctrl+E
+  enters it`), to an agent as the act line (`comment body="…" on the note gets their attention`), and not at all
+  for an action this window hasn't. One function words it (`actions::says`), for the layout's refusals and the
+  actor rule's own.
 - **An agent's `bar.open` lists the actions** for its words and opens nothing. A served source's rows (the
   notes, a query's matches, the screens) are the service's answer, which an act can't wait for: it is answered
   the rows the store holds now, whether that is an answer yet, and the `lists.read` request that lists them, so
@@ -502,11 +508,14 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A fold's mark opens onto notes: the bean rows, with only a comment and a proposed edit under them, have none, and the folder the open note is in is unfolded; the reader told no note is empty, in its kind's own words](docs/caret-dark.png)
 
+![A close the layout refuses: the notice names the way out by this window's own key](docs/ways-dark.png)
+
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
 outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
+`ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
@@ -542,9 +551,10 @@ toolbar button is
   between lanes, and `grid` is drawn as rows. A tree lists at most a thousand rows and says when there are more.
 - The board here is the matches of one question in lanes; the door's own board (a hub's views as lanes) and its
   desk (its named layouts) are still the door's, under the same names.
-- A refusal of the layout's is the door's sentence: it names the door's keys and actions as the way out (`^W P`,
-  `tile.collapse`, `block.mark`), which this window has none of. The reason is right; the way is not yet this
-  window's to word.
+- A refusal of the layout's names its way out as an act, and the window says it in its own keys (`Ctrl+E enters
+  it`, `layout.get gives each split's id`). But most ways the layout names are actions this window hasn't yet (a
+  container's policy, a lock, folding, floating, docking by key): those refusals read as their reason alone,
+  since no way is named that is no row here.
 - A dock that slides over the layout is drawn where the layout says, without the door's tab strip along its edge;
   a drag shows no hint of where a tile will drop.
 - A press inside a tile's body doesn't give it the keys by itself (its title, its tab or `tile.focus` does): Rune's

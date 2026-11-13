@@ -4,7 +4,7 @@ use super::{Action, Actor, App, Notice, Outcome, About};
 use serde_json::json;
 
 use crate::actline::Args;
-use crate::layout::{self, Refusal, Request, TileSpec};
+use crate::layout::{self, Destination, Refusal, Request, TileSpec};
 
 static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open a note: the layout says in which tile (the tile it comes from when that reads notes, else where its opens land, else the first reader), and makes a new reader beside one a block is being written in. The reader remembers where from; the tree unfolds to it. An agent's lands without taking the person's keys")
     .args(&[("id", ArgSpec::text("the block id").kind("note"))])
@@ -48,17 +48,37 @@ pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) 
     let (name, why) = (landing.tile.clone(), landing.why.clone());
     let done = match landing.after {
         Some(Ok(done)) => done,
-        Some(Err(Refusal(why))) => { if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
-        None => return Outcome::refused(why.unwrap_or_else(|| "no reader takes this open".into())),
+        Some(Err(why)) => { let why = super::says(&why, by); if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
+        // It lands nowhere: the layout's reason, with the ways out it names.
+        None => return Outcome::refused(match &landing.placement.destination { Destination::None { reason, ways, .. } => super::says(&Refusal::new(why.unwrap_or_else(|| reason.clone())).ways(ways.clone()), by), _ => why.unwrap_or_else(|| "no reader takes this open".into()) }),
     };
     let Some(tile) = name.as_ref().and_then(|name| done.layout.named(name)) else { return Outcome::refused(why.unwrap_or_else(|| "no reader takes this open".into())) };
+    // What placement remembers of this open, as the door's desk notes it: the tile made in a keyed container is
+    // one of that container's and where its next open lands; a reader made beside one that is written in, or
+    // beside one the layout says takes its opens beside it, takes the next open aimed there too.
+    let plan = &landing.placement;
+    // The tile made for this open: the one the note is read in, or the spine a reader's old note stays in.
+    let spine = landing.keeps.as_ref().and_then(|keeps| done.layout.named(keeps));
+    let made = if landing.new { Some(tile.clone()) } else { spine.clone() };
+    let prior = spine.as_ref().and_then(|_| app.ui(&tile).note.clone());
+    let aimed = request.to.clone().unwrap_or_else(|| request.from.clone());
+    let editing = landing.new && app.facts(&aimed).editing.is_some();
+    let into = request.container.clone().or_else(|| match &plan.destination { Destination::New { at: layout::At::In { key, .. } } => Some(key.clone()), _ => None }).or_else(|| plan.keep.as_ref().and_then(|(kept, _)| app.memory.into_of(kept).map(str::to_string)));
+    if let (Some(made), Some(key)) = (&made, &into) { app.st.memory.opened_into(key).ids.push(made.clone()) }
+    if let (Some(made), Destination::New { at: layout::At::In { key, .. } }) = (&made, &plan.destination) { app.st.memory.opened_into(key).active = Some(made.clone()) }
+    if editing { app.st.memory.go_beside(&aimed, &tile) }
+    if let Some(beside) = &plan.beside_of { app.st.memory.go_beside(beside, &tile) }
     app.arranged(done.layout, done.changed);
+    // A reader's old note stays in the spine made for it: the spine is told that note (it would show none).
+    if let (Some(spine), Some(prior)) = (&spine, &prior) { app.show(spine, prior, false) }
     // (A tile a block is being written in is never where this lands: the layout's rule puts the open beside it.)
     app.show(&tile, &id, remember);
     app.keep();
     // The person's open puts the bar away; an agent's never closes what the person has open.
     if app.stands(by) { app.st.bar.open = false }
-    // Why it landed where it did, when that isn't where it was aimed, is said.
+    // Why it landed where it did, when that isn't where it was aimed, is said, with the way to undo the reason
+    // where the layout names one and this window has it (`says`).
+    let why = why.map(|why| super::says(&Refusal::new(why).ways(landing.placement.ways.clone()), by));
     if let (Some(why), true) = (&why, app.stands(by)) { app.st.notice = Some(Notice::info(why.clone())) }
     Outcome { said: why.clone().unwrap_or_default(), ..Outcome::answer(json!({ "tile": name, "why": why })) }
 }

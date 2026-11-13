@@ -3,6 +3,7 @@
 // (packages/door/scripts/layout-contract.ts makes them, the door's test/layout-contract.test.ts keeps them true). This
 // suite is the half a client without the door can run: every table reads through outline-core's own shapes and checks.
 import { describe, expect, test } from "bun:test";
+import { way, waysSaid, whyNot, whySaid, type Why } from "../src/way-out";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { actRequestOf, lineWords } from "../src/action-line";
@@ -15,7 +16,7 @@ import {
 
 const table = <T>(file: string): T => JSON.parse(readFileSync(join(import.meta.dir, "../fixtures", file), "utf8")) as T;
 const screens = table<{ screens: { name: string; target?: string; spec: ScreenSpec }[] }>("screens.json").screens;
-const layoutCases = table<{ cases: { name: string; layout: LayoutSpec; result: { ok: boolean; layout?: LayoutSpec; refused?: string } }[] }>("layout-contract.json").cases;
+const layoutCases = table<{ cases: { name: string; layout: LayoutSpec; result: { ok: boolean; layout?: LayoutSpec; refusal?: Why } }[] }>("layout-contract.json").cases;
 const placeCases = table<{ cases: { name: string; layout: LayoutSpec; lands: { tile: string | null; kind: string }; after?: { ok: boolean; layout?: LayoutSpec } }[] }>("place-contract.json").cases;
 const everyLayout = [...layoutCases.flatMap(c => [c.layout, ...(c.result.layout ? [c.result.layout] : [])]), ...placeCases.flatMap(c => [c.layout, ...(c.after?.layout ? [c.after.layout] : [])])];
 
@@ -167,6 +168,29 @@ describe("the tile address", () => {
 
 describe("an action's row, and the line that runs it", () => {
   const rows = table<{ rows: (ActionRow & { scope: string })[] }>("action-rows.json").rows;
+
+  test("a refusal in the layout table is a reason and its ways out, each an act that is a row: no key, no sentence with an action in it", () => {
+    const refusals = layoutCases.flatMap(c => (c.result.refusal ? [c.result.refusal] : []));
+    expect(refusals.length).toBeGreaterThan(100);
+    const ids = new Set(rows.map(r => r.id));
+    const dotted = [...ids].filter(id => id.includes("."));
+    const spelled = new RegExp(`(?<![\\w.-])(?:${dotted.sort((a, b) => b.length - a.length).map(id => id.replace(/[.\-]/g, "\\$&")).join("|")})(?![\\w.-])`);
+    const key = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]/u;
+    for (const r of refusals) {
+      expect(typeof r.reason === "string" && r.reason.length > 0 && Array.isArray(r.ways)).toBe(true);
+      // The reason names no key and spells no action: a way out is data beside it.
+      expect(key.test(r.reason) || spelled.test(r.reason) ? r.reason : null).toBeNull();
+      for (const w of r.ways) {
+        expect(ids.has(w.act) ? null : w.act).toBeNull();   // a way's act is an action the door has
+        expect(typeof w.does === "string" && w.does.length > 0).toBe(true);
+        expect(key.test(w.does) || key.test(w.at ?? "") ? w : null).toBeNull();
+        // Said by any door's words, it reads as one sentence after the reason.
+        expect(whySaid(r, each => `${each.act} ${each.does}`).startsWith(`${r.reason} · `)).toBe(true);
+      }
+    }
+    expect(whySaid(whyNot("frost"), () => "never asked")).toBe("frost");
+    expect(waysSaid([way("tile.close", "closes it"), way("layout.lock", "unlocks it", { then: true }), way("layout.get", "reads it")], w => (w.act === "tile.close" ? null : `${w.act} ${w.does}`))).toBe("layout.lock unlocks it, or layout.get reads it");
+  });
 
   test("every row the door has is a row: made again from itself, it is the same", () => {
     expect(rows.length).toBeGreaterThan(500);

@@ -1,14 +1,21 @@
 //! One operation on a layout, done: the door's `Step` (desk/screen-layout.ts), method for method. Each refusal is
-//! the door's sentence, so a person reads the same words in both doors and the contract table can hold them.
+//! the door's reason and the door's ways out, each way an act (`Refusal`, `Way`): the contract table holds both to
+//! them, and no sentence here names a key or spells an action (`tests/one_owner.rs` scans for one).
 use serde_json::{Map, Value, json};
 
 use super::placement::{self, Destination, Heir, Route, covers_of};
 use super::tree::{self, Axis, Cover, Dir, Effective, Id, Layer, Node, Path, Place, Policy, Rect, SPINE, Target, TileSpec, chain_of, effective, flow_holding, node_by_id, node_by_key, normalise, parent_of, tabs_of};
-use super::{At, By, Ctx, Facts, Float, Fold, Layout, Lift, MARK_THEM, Op, OpenedFrom, Wire, agent_refusal, held_back, keys_in, typing_in};
+use super::{At, By, Ctx, Facts, Float, Fold, Layout, Lift, Op, OpenedFrom, Refusal, Way, Wire, agent_refusal, held_back, keys_in, typing_in};
 
-type Done = Result<(), String>;
+type Done = Result<(), Refusal>;
 
-fn no<T>(why: impl Into<String>) -> Result<T, String> { Err(why.into()) }
+fn no<T>(why: impl Into<Refusal>) -> Result<T, Refusal> { Err(why.into()) }
+/// A refusal with ways out: the reason, then each way as an act.
+fn why(reason: impl Into<String>) -> Refusal { Refusal::new(reason) }
+/// The way out of a policy that says no: its flag turned on at the layer that says it.
+fn turns_on(flag: &str, by: Option<&str>) -> Way { Way::new("layout.policy", format!("turns {flag} on")).node(by).arg(flag, true).at("there") }
+/// The read that names every container: what a refusal about an id nothing has points at.
+fn ids(does: &str) -> Way { Way::new("layout.get", does) }
 
 /// The smallest a float is, and what a new one is sized to read at.
 const FLOAT_MIN: (f64, f64) = (20.0, 5.0);
@@ -74,7 +81,7 @@ impl Step<'_, '_> {
     fn takes_keys(&self) -> bool { self.ctx.keys }
     fn yolo(&self) -> bool { matches!(self.ctx.by, By::Agent(_)) && self.ctx.yolo }
     fn name(&self, id: &str) -> String { self.d.name(id) }
-    fn theirs(&self, id: &str, what: &str) -> String { keys_in(&self.name(id), what, self.ctx.typing_in.as_deref() == Some(id)) }
+    fn theirs(&self, id: &str, what: &str) -> Refusal { keys_in(&self.name(id), what, self.ctx.typing_in.as_deref() == Some(id), self.ctx.mark_them()) }
     fn own_name(&self) -> String { self.ctx.own.as_ref().map_or("the screen".into(), |(name, ..)| name.clone()) }
     fn facts(&self, id: &str) -> Facts { (self.ctx.facts)(id) }
     fn tree(&self) -> &Node { self.d.tree() }
@@ -86,27 +93,28 @@ impl Step<'_, '_> {
     /// The new tile's spec, wherever it now is.
     fn spec(&self, id: &str) -> TileSpec { self.d.spec(id).cloned().unwrap_or_else(|| TileSpec::new(id, self.facts(id).kind)) }
 
-    /// How the person unlocks this layout.
-    fn unlock_how(&self) -> String {
+    /// How the person unlocks this layout: the ways out of every refusal its lock causes.
+    fn unlock_ways(&self) -> Vec<Way> {
         let (name, chip, covered) = self.ctx.own.clone().unwrap_or_else(|| ("the screen".into(), Some("screen".into()), None));
         let said = format!("▣ {} locked", chip.clone().unwrap_or_else(|| name.clone()));
+        let unlock = || Way::new("layout.lock", "unlocks it").arg("on", false);
         match (chip.is_some(), covered.as_deref()) {
-            (true, Some("drawer")) => format!("alt+a puts your drawer away, then a click on {said} unlocks it (or ^W P with the keys in {name})"),
-            (true, Some("lift")) => format!("✦a (agent.lift) drops the lifted tile, then a click on {said} unlocks it"),
-            (true, _) => format!("a click on {said} (or ^W P) unlocks it"),
-            _ => format!("^W P in it, or the power bar's \"unlock {name}\", unlocks it"),
+            (true, Some("drawer")) => vec![Way::new("host.toggle", "puts the drawer away").arg("open", false), unlock().at(format!("with the keys in {name}")).on(said).then()],
+            (true, Some("lift")) => vec![Way::new("agent.lift", "drops the lifted tile").arg("on", false), unlock().at(format!("with the keys in {name}")).on(said).then()],
+            (true, _) => vec![unlock().on(said)],
+            _ => vec![unlock().at("in it")],
         }
     }
-    fn locked_why(&self, e: &Effective, what: &str) -> String {
+    fn locked_why(&self, e: &Effective, what: &str) -> Refusal {
         match e.by("locked") {
-            Some("screen") => format!("{} is locked: {what} is refused · {}", self.own_name(), self.unlock_how()),
-            by => { let by = by.unwrap_or("undefined"); format!("{by} is locked: {what} is refused · ^W P (or layout.policy node={by} locked=false) unlocks it") }
+            Some("screen") => why(format!("{} is locked: {what} is refused", self.own_name())).ways(self.unlock_ways()),
+            by => why(format!("{} is locked: {what} is refused", by.unwrap_or("undefined"))).way(Way::new("layout.policy", "unlocks it").node(by).arg("locked", false)),
         }
     }
     /// A kind that says why its tiles stay is believed over the general sentence.
-    fn kept(&self, id: &str, by: Option<&str>, said: String) -> String {
+    fn kept(&self, id: &str, by: Option<&str>, said: Refusal) -> Refusal {
         let f = self.facts(id);
-        match f.stays { Some(stays) if by == Some(format!("{} tiles", f.kind).as_str()) => stays, _ => said }
+        match f.stays { Some(stays) if by == Some(format!("{} tiles", f.kind).as_str()) => why(stays), _ => said }
     }
     fn whose(&self, by: Option<&str>) -> String {
         match by {
@@ -117,10 +125,10 @@ impl Step<'_, '_> {
     }
     fn shape(&self, id: &str, what: &str) -> Done { let e = self.policy_at(id); if e.locked && !self.yolo() { no(self.locked_why(&e, what)) } else { Ok(()) } }
     fn not_float(&self, id: &str, what: &str) -> Done {
-        if self.d.is_float(id) { no(format!("{} is a float: {what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ puts it back first", self.name(id))) } else { Ok(()) }
+        if self.d.is_float(id) { no(why(format!("{} is a float: {what} needs a tile in the layout", self.name(id))).way(Way::new("tile.float", "puts it back first").arg("on", false).tile(&self.name(id)).on("its ⧉"))) } else { Ok(()) }
     }
     fn guard(&self, id: &str, what: &str) -> Done {
-        if self.ctx.protect_typing && self.ctx.typing_in.as_deref() == Some(id) { no(typing_in(&self.name(id), &format!("{what} it"), Some(MARK_THEM))) } else { Ok(()) }
+        if self.ctx.protect_typing && self.ctx.typing_in.as_deref() == Some(id) { no(typing_in(&self.name(id), &format!("{what} it"), self.ctx.mark_them())) } else { Ok(()) }
     }
     fn present(&self, id: &str) -> Done { if self.all().iter().any(|x| x == id) { Ok(()) } else { no(format!("no tile {} in the layout", self.name(id))) } }
 
@@ -142,16 +150,16 @@ impl Step<'_, '_> {
         let before = self.share_of(&t);
         step(self)?;
         let after = self.share_of(&t);
-        if (after.0 - before.0).abs() > 1e-9 || (after.1 - before.1).abs() > 1e-9 { return no(typing_in(&self.name(&t), "resize it", Some(MARK_THEM))) }
+        if (after.0 - before.0).abs() > 1e-9 || (after.1 - before.1).abs() > 1e-9 { return no(typing_in(&self.name(&t), "resize it", self.ctx.mark_them())) }
         Ok(())
     }
     fn may_move_keys(&self, what: &str) -> Done {
-        if self.ctx.protect_typing && self.ctx.busy { no(held_back("the person is typing", what, Some(MARK_THEM))) } else { Ok(()) }
+        if self.ctx.protect_typing && self.ctx.busy { no(held_back("the person is typing", what, self.ctx.mark_them())) } else { Ok(()) }
     }
     fn drag(&self, id: &str) -> Done {
         let e = self.policy_at(id);
         if e.locked && !self.yolo() { return no(self.locked_why(&e, &format!("moving {}", self.name(id)))) }
-        if !e.draggable { return no(self.kept(id, e.by("draggable"), format!("{} stays where it is: {} keeps its tiles in place · ^W P there turns draggable on", self.name(id), self.whose(e.by("draggable"))))) }
+        if !e.draggable { return no(self.kept(id, e.by("draggable"), why(format!("{} stays where it is: {} keeps its tiles in place", self.name(id), self.whose(e.by("draggable")))).way(turns_on("draggable", e.by("draggable"))))) }
         Ok(())
     }
     fn screen_layer(&self) -> Layer<'_> { Layer { by: "screen".into(), policy: Some(&self.d.policy), flow: false } }
@@ -189,7 +197,7 @@ impl Step<'_, '_> {
         };
         if e.locked && !self.yolo() { return no(self.locked_why(&e, &format!("putting {label} by {there}"))) }
         if matches!(to, At::Float { .. }) { return Ok(()) }
-        if !e.droppable { return no(format!("{} takes no drops: {label} can't go by {there} · ^W P there turns droppable on", self.whose(e.by("droppable")))) }
+        if !e.droppable { return no(why(format!("{} takes no drops: {label} can't go by {there}", self.whose(e.by("droppable")))).way(turns_on("droppable", e.by("droppable")))) }
         if let Some(accepts) = &e.accepts && !accepts.iter().any(|k| k == kind) { return no(format!("{} takes only {}: not {label} ({kind})", self.whose(e.by("accepts")), if accepts.is_empty() { "nothing".to_string() } else { accepts.join(", ") })) }
         if let At::Tabs { target, .. } = to {
             let t = self.facts(target);
@@ -199,16 +207,16 @@ impl Step<'_, '_> {
     }
 
     /// Why the line at `path` keeps its sizes.
-    fn resize_why(&self, path: &[usize], border: Option<usize>) -> Option<String> {
+    fn resize_why(&self, path: &[usize], border: Option<usize>) -> Option<Refusal> {
         let e = self.d.policy_of_node(path);
         let n = self.tree().at(path)?;
         if e.locked && !self.yolo() { return Some(self.locked_why(&e, "resizing")) }
-        if !e.resizable { return Some(format!("{} keeps its sizes · ^W P there turns resizable on", self.whose(e.by("resizable")))) }
-        if n.is_flow() { return Some(format!("{} sizes its columns itself: ^W W (tile.widen) gives one the wide place", n.id().unwrap_or("the flow"))) }
+        if !e.resizable { return Some(why(format!("{} keeps its sizes", self.whose(e.by("resizable")))).way(turns_on("resizable", e.by("resizable")))) }
+        if n.is_flow() { return Some(why(format!("{} sizes its columns itself", n.id().unwrap_or("the flow"))).way(Way::new("tile.widen", "gives one the wide place"))) }
         if let (true, Some(border)) = (n.is_line(), border) {
             let sides: Vec<&Node> = [n.kids().get(border), n.kids().get(border + 1)].into_iter().flatten().filter(|k| !k.is_leaf()).collect();
-            for k in &sides { if k.policy().and_then(|p| p.flag("resizable")) == Some(false) { return Some(format!("{} keeps its size · ^W P there turns resizable on", k.id_or_t())) } }
-            for k in &sides { if let Some(fixed) = k.policy().and_then(|p| p.0.get("fixed")) { return Some(format!("{} is fixed at {fixed} cells: layout.policy node={} clear=fixed frees it (or ⏎ on its fixed size in ^W P)", k.id_or_t(), k.id().unwrap_or("undefined"))) } }
+            for k in &sides { if k.policy().and_then(|p| p.flag("resizable")) == Some(false) { return Some(why(format!("{} keeps its size", k.id_or_t())).way(turns_on("resizable", k.id()))) } }
+            for k in &sides { if let Some(fixed) = k.policy().and_then(|p| p.0.get("fixed")) { return Some(why(format!("{} is fixed at {fixed} cells", k.id_or_t())).way(Way::new("layout.policy", "frees it").node(k.id()).arg("clear", "fixed"))) } }
         }
         None
     }
@@ -254,7 +262,7 @@ impl Step<'_, '_> {
             Op::Move { tile, to } => self.move_(tile, to),
             Op::Swap { tile, with } => self.swap(tile, with),
             Op::Float { tile, at } => {
-                if self.ctx.protect_typing && self.ctx.typing_in.as_ref() == Some(tile) { return no(typing_in(&self.name(tile), "float it", Some(MARK_THEM))) }
+                if self.ctx.protect_typing && self.ctx.typing_in.as_ref() == Some(tile) { return no(typing_in(&self.name(tile), "float it", self.ctx.mark_them())) }
                 if self.agent() && *tile == self.d.focus { return no(self.theirs(tile, "float it")) }
                 if self.d.is_float(tile) { self.land(tile, at.as_ref()) } else { self.float(tile) }
             }
@@ -303,7 +311,7 @@ impl Step<'_, '_> {
             Op::Load { name, to, keys } => self.load(name, to.as_deref(), *keys),
             Op::Fill { .. } => self.fill(op),
             Op::Source { container, source } => {
-                if self.agent() { return no("where a columns container's tiles come from is the screen's (the board's hub: board.hub)") }
+                if self.agent() { return no(why("where a columns container's tiles come from is the screen's").way(Way::new("board.hub", "says which hub fills it"))) }
                 let Some(path) = node_by_id(self.tree(), container).filter(|p| matches!(self.tree().at(p), Some(Node::Columns { .. }))) else { return no(format!("no columns {container} in the layout")) };
                 if let Some(Node::Columns { source: slot, .. }) = self.d.tree_mut().at_mut(&path) { *slot = Some(source.clone()) }
                 Ok(())
@@ -400,7 +408,7 @@ impl Step<'_, '_> {
                 let own_now = match &c { None => self.d.policy.text("agents"), Some(path) => self.tree().at(path).and_then(Node::policy).and_then(|p| p.text("agents")) };
                 let (was, now) = (level(own_now), level(set.get("agents").and_then(Value::as_str)));
                 let by = match &c { None => "screen".to_string(), Some(path) => self.tree().at(path).map_or_else(String::new, Node::id_or_t) };
-                if order(&now) < order(&was) && let Some(why) = agent_refusal(&was, if by == "screen" { "the screen" } else { &by }, "loosening its default", &by, Some(&format!("^W P, or layout.policy node={by} agents=free"))) { return no(why) }
+                if order(&now) < order(&was) && let Some(why) = agent_refusal(&was, if by == "screen" { "the screen" } else { &by }, "loosening its default", &by, Some(Way::new("layout.policy", "loosens it").node(Some(&by)).arg("agents", "free").theirs())) { return no(why) }
                 Ok(())
             }
             _ => Ok(()),
@@ -454,7 +462,7 @@ impl Step<'_, '_> {
     fn open(&mut self, op: &Op, automatic: bool) -> Done {
         if let Op::OpenNote { request, tile, name } = op {
             let plan = placement::placement(&self.d, request, self.ctx);
-            if let Destination::None { reason, .. } = &plan.destination { return no(reason.clone()) }
+            if let Destination::None { reason, ways, .. } = &plan.destination { return no(why(reason.clone()).ways(ways.clone())) }
             let open_at = |at: &At, kind: &str, keys: bool| Op::Open { tile: TileSpec { kind: kind.to_string(), ..tile.clone() }, name: name.clone(), loose: false, alt: false, deliberate: None, at: at.clone(), keys, link: None, verb: None, select_from: Vec::new() };
             if let Some((kept, at)) = &plan.keep {
                 // The reader's old note stays in a spine beside it.
@@ -566,13 +574,13 @@ impl Step<'_, '_> {
         if !gone {
             self.shape(id, &format!("closing {name}"))?;
             let e = self.policy_at(id);
-            let fold = if e.collapsible { " · tile.collapse folds it to a spine" } else { "" };
-            if let Some(editing) = &f.editing { return no(format!("not closed: it holds {editing} · e or ⏎ enters it")) }
+            let fold = e.collapsible.then(|| Way::new("tile.collapse", "folds it to a spine").arg("on", true).tile(&name));
+            if let Some(editing) = &f.editing { return no(why(format!("not closed: it holds {editing}")).way(Way::new("edit", "enters it").tile(&name).theirs())) }
             let own = chain_of(self.tree(), id).into_iter().filter_map(|p| self.tree().at(&p)).find(|c| c.id() == e.by("closable") && matches!(c, Node::Tabs { kids, .. } if kids.len() == 1)).and_then(Node::id).map(str::to_string);
             if !e.closable && !(f.clears_on_close && e.by("closable") == Some(format!("{} tiles", f.kind).as_str())) {
-                return no(match own { Some(own) => format!("{name} stays: its place ({own}) keeps it{fold} · ^W P there turns closable on"), None => self.kept(id, e.by("closable"), format!("{name} stays: {} keeps its tiles{fold} · ^W P there turns closable on", self.whose(e.by("closable")))) });
+                return no(match own { Some(own) => why(format!("{name} stays: its place ({own}) keeps it")).ways(fold).way(turns_on("closable", Some(&own))), None => self.kept(id, e.by("closable"), why(format!("{name} stays: {} keeps its tiles", self.whose(e.by("closable")))).ways(fold).way(turns_on("closable", e.by("closable")))) });
             }
-            if let Some(keeps) = &f.keeps { return no(format!("{name} stays: {keeps}{fold}")) }
+            if let Some(keeps) = &f.keeps { return no(why(format!("{name} stays: {keeps}")).ways(fold)) }
             if self.agent() && self.here() && id == self.d.focus { return no(self.theirs(id, "close it")) }
             if self.agent() && let Some(running) = &f.running { return no(format!("{name} is running {running}; an agent doesn't end it")) }
         }
@@ -598,12 +606,12 @@ impl Step<'_, '_> {
         if self.all().contains(&with.id) { return no(format!("{} is in the layout already", self.name(&with.id))) }
         let (name, f) = (self.name(id), self.facts(id));
         self.shape(id, &format!("replacing {name}"))?;
-        if let Some(editing) = &f.editing { return no(format!("{name} holds {editing} · e or ⏎ enters it")) }
-        if let Some(running) = &f.running { return no(format!("{name} is running {running}: ^W x ends it first")) }
-        if f.holds { return no(format!("{name} holds work: ^W x closes it first")) }
+        if let Some(editing) = &f.editing { return no(why(format!("{name} holds {editing}")).way(Way::new("edit", "enters it").tile(&name).theirs())) }
+        if let Some(running) = &f.running { return no(why(format!("{name} is running {running}")).way(Way::new("tile.close", "ends it first").tile(&name))) }
+        if f.holds { return no(why(format!("{name} holds work")).way(Way::new("tile.close", "closes it first").tile(&name))) }
         if let Some(keeps) = &f.keeps { return no(format!("{name} stays: {keeps}")) }
         let e = self.policy_at(id);
-        if !e.closable { return no(self.kept(id, e.by("closable"), format!("{name} stays: {} keeps its tiles · ^W P there turns closable on", self.whose(e.by("closable"))))) }
+        if !e.closable { return no(self.kept(id, e.by("closable"), why(format!("{name} stays: {} keeps its tiles", self.whose(e.by("closable")))).way(turns_on("closable", e.by("closable"))))) }
         if let Some(accepts) = &e.accepts && !accepts.contains(&with.kind) { return no(format!("{} takes only {}: not a {} tile", self.whose(e.by("accepts")), if accepts.is_empty() { "nothing".to_string() } else { accepts.join(", ") }, with.kind)) }
         if self.agent() && *id == self.d.focus && !f.placeholder { return no(self.theirs(id, "replace it")) }
         self.guard(id, "replace")?;
@@ -632,7 +640,7 @@ impl Step<'_, '_> {
         self.guard(id, "move")?;
         self.drag(id)?;
         let (e, f) = (self.policy_at(id), self.facts(id));
-        if !e.closable && !(f.stays.is_some() && e.by("closable") == Some(format!("{} tiles", f.kind).as_str())) { return no(format!("{name} stays: {} keeps it · ^W P there turns closable on", self.whose(e.by("closable")))) }
+        if !e.closable && !(f.stays.is_some() && e.by("closable") == Some(format!("{} tiles", f.kind).as_str())) { return no(why(format!("{name} stays: {} keeps it", self.whose(e.by("closable")))).way(turns_on("closable", e.by("closable")))) }
         if let Some(keeps) = &f.keeps { return no(format!("{name} stays: {keeps}")) }
         if heir.is_none() && !self.ctx.empties && !self.d.is_float(id) && self.tree().leaves().len() <= 1 { return no(format!("{name} is the screen's last tile: it stays (the screen is never blank)")) }
         if self.agent() && self.here() && id == self.d.focus { return no(self.theirs(id, "take it away")) }
@@ -671,11 +679,11 @@ impl Step<'_, '_> {
             self.guard(t, "move")?;
             self.drag(t)?;
             let (e, f) = (self.policy_at(t), self.facts(t));
-            if !e.closable && !(f.stays.is_some() && e.by("closable") == Some(format!("{} tiles", f.kind).as_str())) { return no(format!("{name} stays: {} keeps it · ^W P there turns closable on", self.whose(e.by("closable")))) }
+            if !e.closable && !(f.stays.is_some() && e.by("closable") == Some(format!("{} tiles", f.kind).as_str())) { return no(why(format!("{name} stays: {} keeps it", self.whose(e.by("closable")))).way(turns_on("closable", e.by("closable")))) }
             if let Some(keeps) = &f.keeps { return no(format!("{name} stays: {keeps}")) }
             if self.agent() && self.here() && *t == self.d.focus { return no(self.theirs(t, "gather it into a group")) }
         }
-        if let Some(Node::Columns { source: Some(source), .. }) = target.as_ref().and_then(|p| self.tree().at(p)) { return no(format!("{} is filled from {source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)", node.as_deref().unwrap_or(""))) }
+        if let Some(Node::Columns { source: Some(source), .. }) = target.as_ref().and_then(|p| self.tree().at(p)) { return no(why(format!("{} is filled from {source}: its tiles come and go with the data, so it isn't gathered", node.as_deref().unwrap_or(""))).way(Way::new("tile.open", "mounts the screen's part instead (part=)").arg("kind", "screen"))) }
         let had = all.contains(&self.d.focus);
         // The container is found again by one of its tiles once the extra ones have gone.
         let anchor = inside.first().cloned();
@@ -721,7 +729,7 @@ impl Step<'_, '_> {
         fn strip(n: &mut Node) { if let Some(meta) = n.meta_mut() { meta.id = None } for k in n.kids_mut() { strip(k) } }
         strip(&mut spilled);
         let had = self.d.focus == *tile;
-        if tabs_of(self.tree(), tile).is_some() && !spilled.is_leaf() { return no(format!("{name} is a tab: a tab holds one tile or a group, so it stays a group there · move it out of the tab set first (^W T)")) }
+        if tabs_of(self.tree(), tile).is_some() && !spilled.is_leaf() { return no(why(format!("{name} is a tab: a tab holds one tile or a group, so it stays a group there")).way(Way::new("layout.move", "moves it out of the tab set first").arg("to", name.as_str()).arg("where", "right").tile(&name))) }
         match &spilled {
             Node::Leaf(spec) => { tree::swap_leaf(self.d.tree_mut(), tile, spec); }
             _ => { let path = leaf_path(self.tree(), tile); match path { Some(path) if !path.is_empty() => tree::replace_at(self.d.tree_mut(), &path, spilled.clone()), _ => *self.d.tree_mut() = spilled.clone() } }
@@ -881,14 +889,14 @@ impl Step<'_, '_> {
         let e = effective(&[self.screen_layer()]);
         if e.locked && !self.yolo() { return no(self.locked_why(&e, &format!("putting {} back", self.name(id)))) }
         let (kind, name, spec) = (self.facts(id).kind, self.name(id), self.spec(id));
-        let why = |next: &Node| -> Option<String> {
-            if !next.has(id) { return Some(format!("there's no place for {name} in the layout")) }
+        let why_not = |next: &Node| -> Option<Refusal> {
+            if !next.has(id) { return Some(why(format!("there's no place for {name} in the layout"))) }
             let mut layers = vec![self.screen_layer()];
             layers.extend(chain_of(next, id).iter().filter_map(|p| next.at(p)).map(|c| Layer { by: c.id_or_t(), policy: c.policy(), flow: false }));
             let e = effective(&layers);
             if e.locked && !self.yolo() { return Some(self.locked_why(&e, &format!("putting {name} back"))) }
-            if !e.droppable { return Some(format!("{} takes no drops: {name} doesn't land there · ^W P there turns droppable on", self.whose(e.by("droppable")))) }
-            if let Some(accepts) = &e.accepts && !accepts.contains(&kind) { return Some(format!("{} takes only {}: not {name} ({kind})", self.whose(e.by("accepts")), if accepts.is_empty() { "nothing".to_string() } else { accepts.join(", ") })) }
+            if !e.droppable { return Some(why(format!("{} takes no drops: {name} doesn't land there", self.whose(e.by("droppable")))).way(turns_on("droppable", e.by("droppable")))) }
+            if let Some(accepts) = &e.accepts && !accepts.contains(&kind) { return Some(why(format!("{} takes only {}: not {name} ({kind})", self.whose(e.by("accepts")), if accepts.is_empty() { "nothing".to_string() } else { accepts.join(", ") }))) }
             None
         };
         let try_at = |to: &At| put_at(self.tree().clone(), spec.clone(), to);
@@ -896,14 +904,14 @@ impl Step<'_, '_> {
         let base = if self.d.is_float(&focus) || focus == id || !self.tree().has(&focus) { tree::pinned_tiles(self.tree()).pop().or_else(|| self.tree().leaves().pop()) } else { Some(focus) };
         let default = match &base { Some(base) => At::Split { target: base.clone(), dir: Dir::Right, pair: false, weight: None }, None => At::Edge { dir: Dir::Right } };
         let first = try_at(at.unwrap_or(&default));
-        let refused = why(&first);
-        if let (Some(At::Split { .. }), Some(refused)) = (at, &refused) { return no(format!("{refused} · tile.float on=false puts it back where it was opened")) }
+        let refused = why_not(&first);
+        if let (Some(At::Split { .. }), Some(refused)) = (at, &refused) { return no(refused.clone().way(Way::new("tile.float", "puts it back where it was opened").arg("on", false).tile(&name))) }
         let mut next = if refused.is_none() { Some(first) } else { None };
         if next.is_none() {
             let tries: Vec<At> = tree::pinned_tiles(self.tree()).into_iter().map(|t| At::Split { target: t, dir: Dir::Right, pair: false, weight: None }).chain([Dir::Right, Dir::Down, Dir::Left, Dir::Up].into_iter().map(|dir| At::Edge { dir })).collect();
-            next = tries.iter().map(try_at).find(|n| why(n).is_none());
+            next = tries.iter().map(try_at).find(|n| why_not(n).is_none());
         }
-        let Some(next) = next else { return no(refused.unwrap_or_default()) };
+        let Some(next) = next else { return no(refused.unwrap_or_else(|| why(""))) };
         *self.d.tree_mut() = next;
         if let Some(At::Split { target, .. }) = at && self.d.floats.iter().find(|f| f.spec.id == id).and_then(|f| f.peek_of.as_ref()) == Some(target) { self.d.wires.retain(|w| w.to != id || w.verb != "select") }
         self.d.floats.retain(|f| f.spec.id != id);
@@ -915,7 +923,7 @@ impl Step<'_, '_> {
         let Op::Nudge { tile, dx, dy, col, row, cols, rows } = op else { return Ok(()) };
         let focus = self.d.focus.clone();
         let id = tile.clone().or_else(|| self.d.is_float(&focus).then_some(focus)).or_else(|| self.d.floats.last().map(|f| f.spec.id.clone()));
-        let Some(id) = id.filter(|id| self.d.is_float(id)) else { return no(format!("{} isn't a float; tile.float (o on the board) pops a tile out as one", tile.as_ref().map_or("no tile".to_string(), |t| self.name(t)))) };
+        let Some(id) = id.filter(|id| self.d.is_float(id)) else { return no(why(format!("{} isn't a float", tile.as_ref().map_or("no tile".to_string(), |t| self.name(t)))).way(Way::new("tile.float", "pops a tile out as one"))) };
         self.guard(&id, "move")?;
         self.shape(&id, &format!("moving {}", self.name(&id)))?;
         let area = self.ctx.area;
@@ -955,14 +963,14 @@ impl Step<'_, '_> {
         self.present(id)?;
         if self.d.is_float(id) {
             if self.agent() && id == self.d.focus { return no(self.theirs(id, "move it")) }
-            if container.is_some() { return no(format!("{} is a float: no container holds it · tile.dock without container= puts it in a dock of its own", self.name(id))) }
+            if container.is_some() { return no(why(format!("{} is a float: no container holds it", self.name(id))).way(Way::new("tile.dock", "puts it in a dock of its own").tile(&self.name(id)))) }
             self.land(id, None)?;
             if on == Some(true) { self.answer = obj(json!({ "pinned": true, "floated": false })); return Ok(()) }
             on = Some(false);
         }
         let (name, focus) = (self.name(id), self.d.focus.clone());
         if let (Some(container), true) = (container, on != Some(true)) {
-            let Some(c) = node_by_id(self.tree(), container).filter(|p| !self.tree().at(p).is_some_and(Node::is_dock)) else { return no(format!("no container {container} to put in a dock; layout.get gives each one's id")) };
+            let Some(c) = node_by_id(self.tree(), container).filter(|p| !self.tree().at(p).is_some_and(Node::is_dock)) else { return no(why(format!("no container {container} to put in a dock")).way(ids("gives each one's id"))) };
             let inside = self.tree().at(&c).map(Node::leaves).unwrap_or_default();
             if !inside.iter().any(|x| x == id) { return no(format!("{container} doesn't hold {name}")) }
             if inside.contains(&focus) { self.guard(&focus, "move")? }
@@ -1026,20 +1034,20 @@ impl Step<'_, '_> {
         let nd = container.and_then(|c| node_by_id(self.tree(), c));
         let nd_dock = nd.as_ref().filter(|p| self.tree().at(p).is_some_and(Node::is_dock));
         if let Some(container) = container && !nd_dock.is_some_and(|p| self.tree().at(p).is_some_and(|d| d.has(id))) {
-            return no(if nd_dock.is_some() { format!("{name} isn't in dock {container}: tile.slide container={container} open=true slides that dock's own tile") } else { format!("no dock {container} in the layout; layout.get gives each dock's id (d<n>)") });
+            return no(if nd_dock.is_some() { why(format!("{name} isn't in dock {container}")).way(Way::new("tile.slide", "slides that dock's own tile").arg("container", container.to_string()).arg("open", true)) } else { why(format!("no dock {container} in the layout")).way(ids("gives each dock's id (d<n>)")) });
         }
-        let Some(dr) = nd_dock.cloned().or_else(|| tree::dock_of(self.tree(), id)) else { return no(format!("{name} isn't docked · tile.dock (^W p) docks it")) };
+        let Some(dr) = nd_dock.cloned().or_else(|| tree::dock_of(self.tree(), id)) else { return no(why(format!("{name} isn't docked")).way(Way::new("tile.dock", "docks it").tile(&name))) };
         let dock = self.tree().at(&dr).cloned().unwrap_or_else(super::nothing);
         let Node::Dock { open: is_open, side, .. } = &dock else { return Ok(()) };
         let dock_id = dock.id().unwrap_or("the dock").to_string();
         let want = open.unwrap_or(!(*is_open && dock.visible().iter().any(|x| x == id)));
         if want && self.ctx.screen_host.as_deref() == Some("none") && self.tree().has("screen") { return no("the screen shown keeps the whole screen (its host policy is none): the host layer comes back on another screen") }
-        if !want && !self.d.policy_of_node(&dr).collapsible { return no(format!("{dock_id} stays open: it doesn't slide shut · ^W P there turns collapsible on")) }
+        if !want && !self.d.policy_of_node(&dr).collapsible { return no(why(format!("{dock_id} stays open: it doesn't slide shut")).way(turns_on("collapsible", Some(&dock_id)))) }
         if dock.has(&self.d.focus) && (!want || (!beside && id != self.d.focus)) { self.may_move_keys(if want { "swap the dock they have" } else { "shut the dock they have" })? }
         if !want && *is_open {
             let mut shut = self.tree().clone();
             if let Some(Node::Dock { open, .. }) = shut.at_mut(&dr) { *open = false }
-            if shut.visible().is_empty() { return no(format!("{dock_id} is all the screen shows: shut, nothing would be left · ^W p on a tile in it undocks it")) }
+            if shut.visible().is_empty() { return no(why(format!("{dock_id} is all the screen shows: shut, nothing would be left")).way(Way::new("tile.dock", "undocks it").arg("on", false).at("on a tile in it"))) }
         }
         if want && !beside {
             for other in tree::docks(self.tree()).into_iter().filter(|p| *p != dr) {
@@ -1080,7 +1088,7 @@ impl Step<'_, '_> {
         self.present(id)?;
         let (name, was) = (self.name(id), self.d.collapsed.get(id).cloned());
         let want = on.unwrap_or(was.is_none());
-        if let Some(dir) = dir.filter(|d| *d != "v" && *d != "h") { return no(format!("tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not {dir}")) }
+        if let Some(dir) = dir.filter(|d| *d != "v" && *d != "h") { return no(format!("dir is v (a vertical spine) or h (a horizontal one), not {dir}")) }
         if !want && was.is_none() { self.changed = false; self.answer = obj(json!({ "collapsed": false, "changed": false })); return Ok(()) }
         let column = self.flow_column(id);
         if !want {
@@ -1104,13 +1112,13 @@ impl Step<'_, '_> {
         if let Some(column) = column { return self.fold_column(id, column) }
         let fold = Fold { by: None, flat };
         if !has_parent || in_flow || !fold.fits(axis) {
-            return no(if in_flow { format!("{name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)") }
-                else if !has_parent { format!("{name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine") }
+            if in_flow { return no(why(format!("{name} is a column of a flow: it squeezes to a spine by itself as it recedes")).way(Way::new("tile.widen", "widens it").tile(&name))) }
+            return no(if !has_parent { format!("{name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine") }
                 else if flat { format!("{name} isn't stacked with other tiles: a horizontal spine needs a tile above or below it (dir=v folds it to a vertical one)") }
                 else { format!("{name} isn't side by side with other tiles: a vertical spine needs a tile beside it (dir=h folds it to a horizontal one)") });
         }
         let e = self.policy_at(id);
-        if !e.collapsible { return no(format!("{name} stays open: {} doesn't fold · ^W P there turns collapsible on", e.by("collapsible").unwrap_or("undefined"))) }
+        if !e.collapsible { return no(why(format!("{name} stays open: {} doesn't fold", e.by("collapsible").unwrap_or("undefined"))).way(turns_on("collapsible", e.by("collapsible")))) }
         if self.agent() && self.fold_set(id).contains(&self.d.focus) { return no(self.theirs(&self.d.focus, "fold it")) }
         let by = Fold { flat, ..self.ctx.by.fold() };
         for t in self.fold_set(id) { self.d.collapsed.set(&t, by.clone()) }
@@ -1120,14 +1128,14 @@ impl Step<'_, '_> {
 
     fn fold_column(&mut self, id: &str, (path, ci): (Path, usize)) -> Done {
         let e = self.policy_at(id);
-        if !e.collapsible { return no(format!("{} stays open: {} doesn't fold · ^W P there turns collapsible on", self.name(id), e.by("collapsible").unwrap_or("undefined"))) }
+        if !e.collapsible { return no(why(format!("{} stays open: {} doesn't fold", self.name(id), e.by("collapsible").unwrap_or("undefined"))).way(turns_on("collapsible", e.by("collapsible")))) }
         if self.agent() && self.fold_set(id).contains(&self.d.focus) { return no(self.theirs(&self.d.focus, "fold it")) }
         let Some(flow @ Node::Flow { memory, .. }) = self.tree().at(&path) else { return Ok(()) };
         if tree::column_of(flow, memory.anchor.as_deref()) == Some(ci) {
             let open = |i: usize| flow.kids()[i].leaves().iter().any(|t| !self.d.collapsed.has(t));
             let mut others: Vec<usize> = (0..flow.kids().len()).filter(|i| *i != ci && open(*i)).collect();
             others.sort_by_key(|i| ((*i as i64 - ci as i64).abs(), *i));
-            let Some(to) = others.first() else { return no(format!("{} is the only open column of its flow: open another first (^W W widens one)", self.name(id))) };
+            let Some(to) = others.first() else { return no(why(format!("{} is the only open column of its flow: open another first", self.name(id))).way(Way::new("tile.widen", "widens one"))) };
             let anchor = tree::tile_of_column(flow, *to);
             if let Some(Node::Flow { memory, .. }) = self.d.tree_mut().at_mut(&path) { memory.anchor = anchor }
         }
@@ -1287,9 +1295,9 @@ impl Step<'_, '_> {
 
     fn resize_border(&mut self, op: &Op) -> Done {
         let Op::Resize { split, path, border, share } = op else { return Ok(()) };
-        if path.is_none() == split.is_none() { return no("layout.resize names its split by split=<id> (layout.get gives each one), or by path=<p>") }
+        if path.is_none() == split.is_none() { return no(why("a split is named by split=<id>, or by path=<p>").way(ids("gives each split's id"))) }
         let found = match split { Some(id) => node_by_id(self.tree(), id), None => read_path(path.as_deref().unwrap_or("")) }.filter(|p| self.tree().at(p).is_some_and(Node::is_line));
-        let Some(at) = found else { return no(match split { Some(id) => format!("no split {id} in the layout (it's gone: its tiles were moved or closed); layout.get gives each split's id"), None => format!("no split at path {}; layout.get gives each split's path", json!(path)) }) };
+        let Some(at) = found else { return no(match split { Some(id) => why(format!("no split {id} in the layout (it's gone: its tiles were moved or closed)")).way(ids("gives each split's id")), None => why(format!("no split at path {}", json!(path))).way(ids("gives each split's path")) }) };
         let n = self.tree().at(&at).cloned().unwrap_or_else(super::nothing);
         let count = n.kids().len();
         if border.fract() != 0.0 || *border < 0.0 || *border >= count as f64 - 1.0 { return no(format!("split {} has borders 0-{}", n.id().unwrap_or("undefined"), count as i64 - 2)) }
@@ -1316,7 +1324,7 @@ impl Step<'_, '_> {
     }
 
     fn shares(&mut self, split: &str, shares: &[f64]) -> Done {
-        let Some(at) = node_by_id(self.tree(), split).filter(|p| self.tree().at(p).is_some_and(|n| n.is_line() && !n.is_flow())) else { return no(format!("no split {split} in the layout; layout.get gives each split's id")) };
+        let Some(at) = node_by_id(self.tree(), split).filter(|p| self.tree().at(p).is_some_and(|n| n.is_line() && !n.is_flow())) else { return no(why(format!("no split {split} in the layout")).way(ids("gives each split's id"))) };
         let count = self.tree().at(&at).map_or(0, |n| n.kids().len());
         if shares.len() != count || !shares.iter().all(|x| x.is_finite() && *x > 0.0) { return no(format!("split {split} has {count} kids: shares are that many positive numbers")) }
         if let Some(why) = self.resize_why(&at, None) { return no(why) }
@@ -1334,7 +1342,7 @@ impl Step<'_, '_> {
     }
 
     fn even(&mut self) -> Done {
-        if self.d.policy.flag("locked") == Some(true) && !self.yolo() { return no(format!("{} is locked: evening it out is refused · {}", self.own_name(), self.unlock_how())) }
+        if self.d.policy.flag("locked") == Some(true) && !self.yolo() { return no(why(format!("{} is locked: evening it out is refused", self.own_name())).ways(self.unlock_ways())) }
         let mut tree = self.tree().clone();
         tree::even(&mut tree, &mut Vec::new(), &|path| self.resize_why(path, None).is_some());
         *self.d.tree_mut() = tree;
@@ -1343,7 +1351,7 @@ impl Step<'_, '_> {
 
     /// An agent's lock is an agent's to undo; the person's is theirs alone.
     fn locked_by(&mut self, key: &str, lock: bool) -> Done {
-        if self.agent() && !lock && !self.d.locks.iter().any(|k| k == key) { return no(format!("{} was locked by the person; an agent doesn't unlock it (block.mark gets their attention)", if key == "screen" { self.own_name() } else { key.to_string() })) }
+        if self.agent() && !lock && !self.d.locks.iter().any(|k| k == key) { return no(why(format!("{} was locked by the person; an agent doesn't unlock it", if key == "screen" { self.own_name() } else { key.to_string() })).ways(self.ctx.mark_them())) }
         self.d.locks.retain(|k| k != key);
         if lock && self.agent() { self.d.locks.push(key.to_string()) }
         Ok(())
@@ -1356,15 +1364,15 @@ impl Step<'_, '_> {
         self.locked_by("screen", want)?;
         self.d.policy.0.remove("locked");
         if want { self.d.policy.0.insert("locked".into(), json!(true)); }
-        self.answer = obj(json!({ "locked": want, "changed": true, "layout": self.own_name(), "unlock": self.unlock_how() }));
+        self.answer = obj(json!({ "locked": want, "changed": true, "layout": self.own_name(), "unlock": self.unlock_ways().iter().map(Way::json).collect::<Vec<_>>() }));
         Ok(())
     }
 
     fn set_policy(&mut self, op: &Op) -> Done {
         let Op::Policy { tile, node, set, clear } = op else { return Ok(()) };
-        let Some(c) = self.policy_target(tile.as_deref(), node.as_deref()) else { return no(format!("no container {} in the layout; layout.get gives each one's id (s<n> a split, g<n> a tab set, d<n> a dock, f<n> a flow), or node=screen", node.as_deref().unwrap_or("undefined"))) };
+        let Some(c) = self.policy_target(tile.as_deref(), node.as_deref()) else { return no(why(format!("no container {} in the layout (s<n> is a split, g<n> a tab set, d<n> a dock, f<n> a flow; node=screen is the screen)", node.as_deref().unwrap_or("undefined"))).way(ids("gives each one's id"))) };
         let bad: Vec<&str> = clear.iter().map(String::as_str).filter(|k| !tree::POLICY_KEYS.contains(k)).collect();
-        if !bad.is_empty() { return no(format!("layout.policy: clear names {}, not {}", tree::POLICY_KEYS.join(", "), bad.join(", "))) }
+        if !bad.is_empty() { return no(format!("clear names {}, not {}", tree::POLICY_KEYS.join(", "), bad.join(", "))) }
         let name = match &c { None => "screen".to_string(), Some(path) => self.tree().at(path).map_or_else(String::new, Node::id_or_t) };
         let before = match &c { None => self.d.policy.clone(), Some(path) => self.tree().at(path).and_then(Node::policy).cloned().unwrap_or_default() };
         let e = match &c { None => effective(&[self.screen_layer()]), Some(path) => self.d.policy_of_node(path) };
@@ -1376,7 +1384,7 @@ impl Step<'_, '_> {
         }
         if let (Some(accepts), Some(kinds)) = (set.get("accepts").and_then(Value::as_array), &self.ctx.kinds) {
             let unknown: Vec<&str> = accepts.iter().filter_map(Value::as_str).filter(|k| !kinds.all.iter().any(|x| x == k)).collect();
-            if !unknown.is_empty() { return no(format!("layout.policy: accepts names tile kinds ({}), not {}", kinds.all.join(", "), unknown.join(", "))) }
+            if !unknown.is_empty() { return no(format!("accepts names tile kinds ({}), not {}", kinds.all.join(", "), unknown.join(", "))) }
         }
         let was_locked = before.flag("locked") == Some(true);
         let locking = if set.get("locked") == Some(&json!(true)) { Some(true) } else if (set.get("locked") == Some(&json!(false)) || clear.iter().any(|k| k == "locked")) && was_locked { Some(false) } else { None };
@@ -1512,12 +1520,12 @@ impl Step<'_, '_> {
     /// Whether another arrangement may take this one's place, and, given the arrangement, the load itself: every
     /// tile that would go is asked what a close asks (does it hold an edit, has it the person's keys).
     fn load(&mut self, name: &str, to: Option<&Layout>, keys: bool) -> Done {
-        if self.d.policy.flag("locked") == Some(true) { return no(format!("{} is locked: loading {name} would change its shape · {}", self.own_name(), self.unlock_how())) }
+        if self.d.policy.flag("locked") == Some(true) { return no(why(format!("{} is locked: loading {name} would change its shape", self.own_name())).ways(self.unlock_ways())) }
         if self.agent() {
             fn locks(n: &Node, out: &mut Vec<String>) { if n.is_leaf() { return } if n.policy().and_then(|p| p.flag("locked")) == Some(true) { out.push(n.id_or_t()) } for k in n.kids() { locks(k, out) } }
             let mut found = Vec::new();
             locks(self.tree(), &mut found);
-            if let Some(theirs) = found.iter().find(|k| !self.d.locks.contains(k)) { return no(format!("{theirs} was locked by the person; loading {name} would undo it, and an agent doesn't (block.mark gets their attention)")) }
+            if let Some(theirs) = found.iter().find(|k| !self.d.locks.contains(k)) { return no(why(format!("{theirs} was locked by the person; loading {name} would undo it, and an agent doesn't")).ways(self.ctx.mark_them())) }
         }
         self.may_move_keys("lay the desk out under them")?;
         let Some(to) = to else { self.changed = false; return Ok(()) };
@@ -1584,9 +1592,9 @@ impl Step<'_, '_> {
         Ok(())
     }
 
-    fn flow_of(&self, id: &str) -> Result<(Path, usize), String> {
+    fn flow_of(&self, id: &str) -> Result<(Path, usize), Refusal> {
         self.present(id)?;
-        flow_holding(self.tree(), id).ok_or_else(|| format!("{} isn't in a flow: a flow's columns widen, pin and go back and forward", self.name(id)))
+        flow_holding(self.tree(), id).ok_or_else(|| why(format!("{} isn't in a flow: a flow's columns widen, pin and go back and forward", self.name(id))))
     }
 
     fn widen(&mut self, id: &str) -> Done {
@@ -1594,7 +1602,7 @@ impl Step<'_, '_> {
         let e = self.d.policy_of_node(&path);
         if e.locked && !self.yolo() { return no(self.locked_why(&e, "widening")) }
         let flow = self.tree().at(&path).cloned().unwrap_or_else(super::nothing);
-        if let Some(typing) = self.ctx.typing_in.as_ref().filter(|t| self.ctx.protect_typing && t.as_str() != id && tree::column_of(&flow, Some(t)).is_some()) { return no(typing_in(&format!("{}, a column of this flow", self.name(typing)), "widen another column: it would squeeze theirs", Some(MARK_THEM))) }
+        if let Some(typing) = self.ctx.typing_in.as_ref().filter(|t| self.ctx.protect_typing && t.as_str() != id && tree::column_of(&flow, Some(t)).is_some()) { return no(typing_in(&format!("{}, a column of this flow", self.name(typing)), "widen another column: it would squeeze theirs", self.ctx.mark_them())) }
         let before = match &flow { Node::Flow { memory, .. } => memory.anchor.clone(), _ => None };
         let folded: Vec<Id> = flow.kids()[ci].leaves().into_iter().filter(|t| self.d.collapsed.has(t)).collect();
         self.remember_flow_sides(&path);
@@ -1608,7 +1616,7 @@ impl Step<'_, '_> {
     }
 
     fn travel(&mut self, id: &str, dir: i64) -> Done {
-        if self.agent() { return no("back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead") }
+        if self.agent() { return no(why("back and forward in a flow move the person's keys between columns; an agent opens beside instead").way(Way::new("open", "opens a note beside")).way(Way::new("link.follow", "follows a link beside"))) }
         let (path, ci) = self.flow_of(id)?;
         let flow = self.tree().at(&path).cloned().unwrap_or_else(super::nothing);
         let Some(to) = travel_target(&flow, ci, dir) else { return no(if dir < 0 { "nothing to go back to: this column wasn't opened from one still open" } else { "nothing ahead: go back first" }) };

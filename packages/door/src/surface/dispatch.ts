@@ -26,8 +26,10 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { heldBack, keysIn, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
+import { heldBack, keysIn, MARK_THEM, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
+import { way, type Why } from "@ep0ch/outline-core/way-out";
+import { refusalSaid } from "./way-out";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
@@ -243,7 +245,7 @@ export interface DispatchHost {
   tiles?(): TileRef[];
   resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
-  revision?(expected: unknown): string | null;
+  revision?(expected: unknown, actor: Actor): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
   draftOf?(t: TileRef): DraftAt | null;
   /** The shell's actions (screen.back) in another context (a frame's: a mounted board, the showcase's reader), as its q runs them there. */
@@ -278,12 +280,13 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
  * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
  * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null; says: (why: Why) => string } {
   const standing = standsAsPerson(actor, where, "shape");
   // Whether a step's opens take the person's keys: theirs, or an agent they invited for the shape. Yolo lifts every guard
   // but never this: an agent's open lands beside them and their focus stays (PIE-1444; an agent's tile.focus still moves it).
   const keys = pressedBy(actor, "shape");
-  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
+  // (`says`: how a refusal of the layout's is said to this actor: the door's one sayer, handed to the layout as `Ctx.says`.)
+  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, says: why => refusalSaid(why, actor), held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
@@ -312,7 +315,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   if (!standing && g && g.agents.level !== "free" && !def.ownGate) {
     const reads = def.touches === "nothing" && def.replay === "safe", edits = def.touches === "draft" || def.touches === "nothing";
     const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
-    if (no) return no;
+    if (no) return refusalSaid(no, actor);
   }
   // Yolo hands the door to agents (Evan, Oct 22: "yolo is 'just fix it and get it done even if some agents need to move
   // things' … and yes, that includes the keys"): focus, typing, idle and away guards all lift. Only the words the person is
@@ -325,9 +328,10 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // whose the draft is), unless they invited it (their `@name` line: the draft rule checks the invitation).
       const t = at.tile;
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
-        return typingIn(t.label ?? t.name, "replace their text", def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed");
+        return refusalSaid(def.draft === "replace" ? // (`draft.patch` is the service's, no action of this door: said as it is. The door's own ways are acts.)
+        typingIn(t.label ?? t.name, "replace their text · draft.patch lands in their draft", [way("comment", "on the note gets their attention"), MARK_THEM]) : typingIn(t.label ?? t.name, "replace their text until it's sent or closed"), actor);
       }
-      if (standing && t && where.typingIn === t.name) return typingIn(t.label ?? t.name, "change or close their draft");
+      if (standing && t && where.typingIn === t.name) return refusalSaid(typingIn(t.label ?? t.name, "change or close their draft"), actor);
       return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
@@ -337,18 +341,18 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       const typing = where.typingIn === t.name;
       const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
-      return def.way ? `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way}` : keysIn(label, "act there", typing);
+      return def.way ? `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way}` : refusalSaid(keysIn(label, "act there", typing), actor);
     }
     case "screen": {
       const what = at.what ?? "move the screen or their keys now";
-      if (where.away) return heldBack(where.away, what, null);
+      if (where.away) return refusalSaid(heldBack(where.away, what, []), actor);
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return heldBack(where.why ?? "the person is typing", what);
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return refusalSaid(heldBack(where.why ?? "the person is typing", what), actor);
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
@@ -824,7 +828,7 @@ export class Dispatcher {
     const r = this.owner(req, actor);
     // The desk that owns the addressed tile owns its layout revision too.
     if (r && "set" in r && this.host.revision && "expected" in args) {
-      const why = this.host.revision(args.expected);
+      const why = this.host.revision(args.expected, actor);
       if (why) throw new ActionRefused(why);
       delete args.expected;
     }

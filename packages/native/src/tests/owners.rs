@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::support::*;
 use crate::actions::{Actor, App, Outcome};
 
-fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
+pub(super) fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
 
 fn agent() -> Actor { Actor::Agent("seedling-agent".into()) }
 
@@ -21,7 +21,7 @@ fn ran(rt: &mut Runtime<App>, line: impl Into<String>, by: Actor) -> Outcome {
 fn names(app: &App) -> Vec<String> { app.layout.names.0.iter().map(|(_, name)| name.clone()).collect() }
 
 /// A window laid out as the screen `beds`, whose spec is `spec` (its layout and whatever else a screen says).
-fn laid(mut spec: Value) -> Garden {
+pub(super) fn laid(mut spec: Value) -> Garden {
     let mut g = garden(ok());
     spec["name"] = json!("beds");
     spec["title"] = json!("beds");

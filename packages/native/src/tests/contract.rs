@@ -4,7 +4,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::layout::tree::{self, Axis, Dir, Node, Place, Policy, Rect, TileSpec};
-use crate::layout::{self, At, By, Ctx, Facts, Fold, Kinds, Layout, Op, Request, Wire};
+use crate::layout::{self, At, By, Ctx, Facts, Fold, Kinds, Layout, Op, Request, Way, Wire};
 
 fn table(name: &str) -> Value {
     let path = format!("{}/../outline-core/fixtures/{name}.json", env!("CARGO_MANIFEST_DIR"));
@@ -83,7 +83,7 @@ fn op_of(v: &Value, kind_of: &dyn Fn(&str) -> String) -> Op {
 }
 
 /// The context a row is asked in: who acts and how they stand, where the person is, what each tile is.
-fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_person: bool, facts: &'a dyn Fn(&str) -> Facts, area: Rect, kinds: &Option<Kinds>) -> Ctx<'a> {
+fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_person: bool, facts: &'a dyn Fn(&str) -> Facts, area: Rect, (kinds, attention): &Asked) -> Ctx<'a> {
     let agent = actor["kind"] == "agent";
     let by = if agent { By::Agent(text(actor, "id").unwrap_or_default()) } else { By::Person };
     let stands = |k: &str, default: bool| standing.and_then(|s| flag(s, k)).unwrap_or(default);
@@ -99,6 +99,8 @@ fn ctx_of<'a>(case: &Value, actor: &Value, standing: Option<&Value>, default_per
         home: text(extra, "home"), screen: extra.get("screen").map(|s| s.as_str().map(str::to_string)), outward: text(extra, "outward"), fresh_action: text(extra, "freshAction"),
         // (The door's own: an open makes a `reader`.)
         sprout: Some("reader".into()),
+        // What gets the person's attention is the asker's own act: the table says the one its rows were asked with.
+        attention: attention.clone(),
     }
 }
 
@@ -130,26 +132,29 @@ fn differs(got: &Value, want: &Value, at: &str) -> Option<String> {
 }
 
 /// A row's scene as it starts: its layout read, its setup applied, the person's keys where the row says.
-fn start<'a>(case: &'a Value, area: Rect, kinds: &Option<Kinds>, facts: &dyn Fn(&str) -> Facts) -> Layout {
+fn start<'a>(case: &'a Value, area: Rect, kinds: &Asked, facts: &dyn Fn(&str) -> Facts) -> Layout {
     let mut l = Layout::read(&case["layout"]);
     for step in case.get("setup").and_then(Value::as_array).into_iter().flatten() {
         let actor = step.get("actor").cloned().unwrap_or_else(|| json!({ "kind": "user" }));
         let ctx = ctx_of(case, &actor, None, true, facts, area, kinds);
         let op = op_of(&step["op"], &|id| facts(id).kind);
-        l = layout::apply(&l, &op, &ctx).unwrap_or_else(|why| panic!("{}: its setup step was refused: {}", case["name"], why.0)).layout;
+        l = layout::apply(&l, &op, &ctx).unwrap_or_else(|why| panic!("{}: its setup step was refused: {}", case["name"], why.reason)).layout;
     }
     if let Some(focus) = text(&case["person"], "focus") { l.focus = l.named(&focus).unwrap_or(focus) }
     l
 }
 
 fn area_of(table: &Value, case: &Value) -> Rect { Rect::read(case.get("area").unwrap_or(&table["area"])).expect("an area") }
-fn kinds_of(table: &Value) -> Option<Kinds> { table.get("kinds").map(|k| Kinds { all: texts(k, "all"), notes: texts(k, "notes") }) }
+/// What every row of a table was asked with: the tile kinds there are, and the act that gets the person's attention.
+type Asked = (Option<Kinds>, Option<Way>);
+fn kinds_of(table: &Value) -> Asked { (table.get("kinds").map(|k| Kinds { all: texts(k, "all"), notes: texts(k, "notes") }), table.get("attention").and_then(Way::read)) }
 fn facts_of(case: &Value) -> impl Fn(&str) -> Facts + '_ { |id: &str| case["tiles"].get(id).map_or_else(|| Facts { kind: "tile".into(), ..Facts::default() }, Facts::read) }
 
 fn applied(r: &Result<layout::Applied, layout::Refusal>, with_answer: bool) -> Value {
     match r {
         Ok(done) => { let mut out = json!({ "ok": true, "layout": saved(&done.layout) }); if with_answer { out["changed"] = json!(done.changed); out["answer"] = Value::Object(done.answer.clone()); } out }
-        Err(why) => json!({ "ok": false, "refused": why.0 }),
+        // A refusal is its reason and its ways out, each an act: never a key, which is each door's own to say.
+        Err(why) => json!({ "ok": false, "refusal": why.json() }),
     }
 }
 
@@ -190,7 +195,7 @@ fn every_row_of_the_place_contract_lands_where_the_door_lands_it() {
         let mut lands = json!({ "tile": landing.tile, "kind": landing.kind, "why": landing.why });
         if landing.new { lands["new"] = json!(true) }
         if let Some(keeps) = &landing.keeps { lands["keeps"] = json!(keeps) }
-        if let Some(Err(why)) = &landing.after { lands["refused"] = json!(why.0) }
+        if let Some(Err(why)) = &landing.after { lands["refusal"] = why.json() }
         let mut got = json!({ "lands": lands, "placement": landing.placement.json() });
         if let Some(after) = &landing.after { got["after"] = applied(after, false) }
         let want: Value = Value::Object(["lands", "placement", "after"].iter().filter_map(|k| case.get(*k).map(|v| (k.to_string(), v.clone()))).collect());
@@ -330,6 +335,23 @@ fn a_caret_beside_a_placed_patch_goes_where_outline_core_s_map_cursor_puts_it() 
 /// A key a screen names (outline-core's `isKeyName`, the door's one name for a key) reads as a chord here: every
 /// name there is, a capital as Shift with its letter. The two this window has no chord for (a modifier alone, and
 /// Hyper, which no key here is) read as none, and such a key is listed and never pressed.
+/// A refusal said: the reason, then its ways joined as outline-core's `whySaid` joins them (", or" for another way,
+/// ", then" for one that follows, a way with no words left out). The window's `ways_said` is that rule by port.
+#[test]
+fn every_refusal_is_said_from_its_reason_and_its_ways_as_outline_core_says_it() {
+    let rows = table("core-contract")["ways"].as_array().unwrap().clone();
+    assert!(rows.len() >= 7);
+    for row in &rows {
+        let ways: Vec<Way> = row["why"]["ways"].as_array().unwrap().iter().map(|way| Way::read(way).expect("a way")).collect();
+        let said: Vec<Option<String>> = row["said"].as_array().unwrap().iter().map(|words| words.as_str().map(str::to_string)).collect();
+        // (Each way's own words are the table's: the window's are its keys and act lines, which `tests/ways.rs` asks.)
+        let joined = crate::actions::ways_said(&ways, |way| ways.iter().position(|each| std::ptr::eq(each, way)).and_then(|at| said.get(at).cloned().flatten()));
+        let reason = row["why"]["reason"].as_str().unwrap();
+        let whole = if joined.is_empty() { reason.to_string() } else { format!("{reason} · {joined}") };
+        assert_eq!(whole, row["whole"].as_str().unwrap(), "{}", row["name"]);
+    }
+}
+
 #[test]
 fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     use crate::keys::chord_named;

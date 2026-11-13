@@ -5,18 +5,24 @@
 //!   changes an arrangement, and only an action issues an `Op`.
 //! - **`place(layout, request, ctx)`** answers where an open lands and why. Only the `open` action asks it.
 //!
-//! Both are the door's (`desk/screen-layout.ts`, `desk/landing.ts`), rule for rule and word for word: the door's
-//! own answers are written down in `outline-core/fixtures/layout-contract.json` and `place-contract.json`, and
-//! `tests/contract.rs` runs every row of both against this file. A layout reads from and saves to the door's saved
-//! form (`Layout::read`, `Layout::save`), so a screen saved in one door opens in the other.
+//! Both are the door's (`desk/screen-layout.ts`, `desk/landing.ts`), rule for rule: the door's own answers are
+//! written down in `outline-core/fixtures/layout-contract.json` and `place-contract.json`, and `tests/contract.rs`
+//! runs every row of both against this file. A layout reads from and saves to the door's saved form
+//! (`Layout::read`, `Layout::save`), so a screen saved in one door opens in the other.
+//!
+//! A refusal is data (`Refusal`: outline-core's `way-out.ts`): the reason, and each way out as an act, an action
+//! with its arguments and what it does. No sentence here names a key or spells an action: a key is a door's own,
+//! and the window's dispatcher words a way by its own key table (`App::says`), or says nothing of an action it
+//! hasn't. The contract holds both doors to the same reason and the same acts.
 pub mod address;
+pub mod memory;
 mod placement;
 mod step;
 pub mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use placement::{Request, place};
+pub use placement::{Destination, Request, place};
 
 /// Where a screen's opens land: one tile, or whichever tile of a keyed container an open into it takes.
 #[derive(Clone, Debug, PartialEq)]
@@ -194,12 +200,15 @@ pub struct Ctx<'a> {
     /// `accepts` names): whoever asks says it. None: no kind reads notes there, and a container that takes only
     /// some kinds takes no tile made for an open.
     pub sprout: Option<String>,
+    /// What an agent does here to get the person's attention, where a rule holds it back for them: the asker's
+    /// own act (the door marks the block, this window comments on the note). None: the refusal names no such way.
+    pub attention: Option<Way>,
 }
 
 impl<'a> Ctx<'a> {
     /// The person at the keys, in an area.
     pub fn person(facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> {
-        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, lands: None, screen: None, outward: None, fresh_action: None, sprout: None }
+        Ctx { by: By::Person, standing: true, keys: true, protect_typing: false, typing_in: None, busy: false, yolo: false, here: None, facts, area, kinds: None, expected: None, screen_host: None, other_names: Vec::new(), empties: false, beside: Vec::new(), opened: Vec::new(), own: None, home: None, lands: None, screen: None, outward: None, fresh_action: None, sprout: None, attention: None }
     }
     /// A container that takes only `kinds` takes the tile an open makes.
     pub fn sprouts_into(&self, kinds: &[String]) -> bool { self.sprout.as_ref().is_some_and(|sprout| kinds.contains(sprout)) }
@@ -207,9 +216,69 @@ impl<'a> Ctx<'a> {
     pub fn agent(id: &str, facts: &'a dyn Fn(&str) -> Facts, area: Rect) -> Ctx<'a> { Ctx { by: By::Agent(id.to_string()), standing: false, keys: false, protect_typing: true, ..Ctx::person(facts, area) } }
 }
 
-/// Why an operation wasn't done, in the words the person or the agent reads.
+/// One way out of a refusal, named as an act (outline-core's `Way`): the action and its arguments, the tile it is
+/// run in, and what it does in the words that follow however a door says it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Way {
+    pub act: String,
+    pub args: Vec<(String, Value)>,
+    pub tile: Option<String>,
+    pub does: String,
+    /// Where the person's keys are for its key to mean this ("there"): said with a key, never with an act line.
+    pub at: Option<String>,
+    /// A control drawn on screen that does the same by a click, in the words on it: a door that draws it says so.
+    pub on: Option<String>,
+    /// It follows the way before it; else it is another way.
+    pub then: bool,
+    /// Only the person takes it.
+    pub theirs: bool,
+}
+
+impl Way {
+    pub fn new(act: &str, does: impl Into<String>) -> Way { Way { act: act.to_string(), does: does.into(), ..Way::default() } }
+    pub fn arg(mut self, key: &str, value: impl Into<Value>) -> Way { self.args.push((key.to_string(), value.into())); self }
+    /// The layer a policy is set at, as the act names it: the screen, or a container by its id. A kind's own default is no node.
+    fn node(self, by: Option<&str>) -> Way { match by.filter(|by| *by == "screen" || tree::stamped(by).is_some()) { Some(by) => self.arg("node", by), None => self } }
+    pub fn tile(mut self, tile: &str) -> Way { self.tile = Some(tile.to_string()); self }
+    pub fn at(mut self, at: impl Into<String>) -> Way { self.at = Some(at.into()); self }
+    pub fn on(mut self, on: impl Into<String>) -> Way { self.on = Some(on.into()); self }
+    pub fn then(mut self) -> Way { self.then = true; self }
+    pub fn theirs(mut self) -> Way { self.theirs = true; self }
+    /// As the contract tables write a way.
+    pub fn json(&self) -> Value {
+        let mut out = Map::new();
+        out.insert("act".into(), json!(self.act));
+        if !self.args.is_empty() { out.insert("args".into(), Value::Object(self.args.iter().cloned().collect())); }
+        if let Some(tile) = &self.tile { out.insert("tile".into(), json!(tile)); }
+        if let Some(at) = &self.at { out.insert("at".into(), json!(at)); }
+        if let Some(on) = &self.on { out.insert("on".into(), json!(on)); }
+        if self.then { out.insert("then".into(), json!(true)); }
+        if self.theirs { out.insert("theirs".into(), json!(true)); }
+        out.insert("does".into(), json!(self.does));
+        Value::Object(out)
+    }
+    /// A way as a table wrote it.
+    pub fn read(v: &Value) -> Option<Way> {
+        let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+        Some(Way { act: text("act")?, args: v.get("args").and_then(Value::as_object).map(|args| args.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(), tile: text("tile"), does: text("does")?, at: text("at"), on: text("on"), then: v.get("then") == Some(&json!(true)), theirs: v.get("theirs") == Some(&json!(true)) })
+    }
+}
+
+/// Why an operation wasn't done, and the ways out: the reason in plain words, each way an act. How it reads to
+/// whoever asked is the window's to say (`App::says`).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Refusal(pub String);
+pub struct Refusal { pub reason: String, pub ways: Vec<Way> }
+
+impl Refusal {
+    pub fn new(reason: impl Into<String>) -> Refusal { Refusal { reason: reason.into(), ways: Vec::new() } }
+    pub fn way(mut self, way: Way) -> Refusal { self.ways.push(way); self }
+    pub fn ways(mut self, ways: impl IntoIterator<Item = Way>) -> Refusal { self.ways.extend(ways); self }
+    /// As the contract tables write a refusal.
+    pub fn json(&self) -> Value { json!({ "reason": self.reason, "ways": self.ways.iter().map(Way::json).collect::<Vec<_>>() }) }
+}
+
+impl From<String> for Refusal { fn from(reason: String) -> Refusal { Refusal::new(reason) } }
+impl From<&str> for Refusal { fn from(reason: &str) -> Refusal { Refusal::new(reason) } }
 
 /// An operation done: the layout after, whether anything changed, and what it answers.
 #[derive(Clone, Debug, PartialEq)]
@@ -620,20 +689,26 @@ static NOTHING: Node = Node::Tabs { active: 0, kids: Vec::new(), meta: tree::Met
 
 // ── the refusals every guard words alike (the door's whereabouts.ts) ──────────────────────────────────────────
 
-pub(crate) const MARK_THEM: &str = "block.mark gets their attention";
-pub(crate) fn held_back(why: &str, what: &str, way: Option<&str>) -> String { format!("{why}; an agent doesn't {what}{}", way.map_or(String::new(), |way| format!(" · {way}"))) }
-pub(crate) fn typing_in(label: &str, what: &str, way: Option<&str>) -> String { held_back(&format!("the person is typing in {label}"), what, way) }
-pub(crate) fn keys_in(label: &str, what: &str, typing: bool) -> String { if typing { typing_in(label, what, Some(MARK_THEM)) } else { held_back(&format!("{label} has the person's keys"), what, Some(MARK_THEM)) } }
+/// Why an agent is held back by what the person is doing, with the ways out (the door's `heldBack`).
+pub(crate) fn held_back(reason: &str, what: &str, ways: Vec<Way>) -> Refusal { Refusal::new(format!("{reason}; an agent doesn't {what}")).ways(ways) }
+pub(crate) fn typing_in(label: &str, what: &str, ways: Vec<Way>) -> Refusal { held_back(&format!("the person is typing in {label}"), what, ways) }
+pub(crate) fn keys_in(label: &str, what: &str, typing: bool, ways: Vec<Way>) -> Refusal { if typing { typing_in(label, what, ways) } else { held_back(&format!("{label} has the person's keys"), what, ways) } }
 pub fn holds_edit(label: &str) -> String { format!("{label} holds an edit or a comment; it stays on its note until that's saved or closed") }
 
-/// Why an agent is refused by a tile's limit on agents (the door's `agentRefusal`).
-pub(crate) fn agent_refusal(level: &str, tile: &str, what: &str, by: &str, command: Option<&str>) -> Option<String> {
+impl Ctx<'_> {
+    /// The way an agent held back for the person gets their attention, as whoever asks says it (`attention`).
+    pub(crate) fn mark_them(&self) -> Vec<Way> { self.attention.iter().cloned().collect() }
+}
+
+/// Why an agent is refused by a tile's limit on agents (the door's `agentRefusal`): `command` is the act that
+/// loosens it where it isn't the tile's own level.
+pub(crate) fn agent_refusal(level: &str, tile: &str, what: &str, by: &str, command: Option<Way>) -> Option<Refusal> {
     if level == "free" { return None }
     let set = if by != "tile" { format!(" ({})", if by == "screen" { "the screen's default".to_string() } else { format!("{by}'s default") }) } else { String::new() };
     let says = if level == "edit" { "edit only for agents" } else { "hands off for agents" };
-    let way = if level == "edit" { "patching, commenting and setting properties on its note are allowed; its own new tiles go elsewhere" } else { "peek reads it" };
-    let command = command.map_or_else(|| format!("^W g, its ⋯ menu or a click on its chip, or tile.agent policy=free tile={tile}"), str::to_string);
-    Some(format!("{tile} is {says}{set}: {what} is refused · {way} · the person's command: {command}"))
+    let allows = if level == "edit" { "patching, commenting and setting properties on its note are allowed; its own new tiles go elsewhere" } else { "peek reads it" };
+    let command = command.unwrap_or_else(|| Way::new("tile.agent", "frees it").arg("policy", "free").tile(tile).on("its chip").theirs());
+    Some(Refusal::new(format!("{tile} is {says}{set}: {what} is refused · {allows}")).way(command))
 }
 
 // ── apply ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -667,21 +742,21 @@ pub fn apply(layout: &Layout, op: &Op, ctx: &Ctx) -> Result<Applied, Refusal> {
 
 fn attempt(s: &Layout, op: &Op, ctx: &Ctx) -> Result<Applied, Refusal> {
     if let Op::Open { at: At::Beside(b), .. } = op { return placement::beside_attempt(s, op, b, ctx) }
-    if let Some(expected) = &ctx.expected && let Some(why) = revision_refusal(s, expected) { return Err(Refusal(why)) }
+    if let Some(expected) = &ctx.expected && let Some(why) = revision_refusal(s, expected) { return Err(why) }
     let holds = |id: &str| (ctx.facts)(id).holds;
     let typing = ctx.typing_in.as_ref().filter(|t| ctx.protect_typing && s.tree().has(t));
     let before = typing.and_then(|t| s.unzoomed().rects(ctx.area, &holds).into_iter().find(|(id, _)| id == t).map(|(_, r)| r));
     let mut step = step::Step { d: s.clone(), ctx, changed: true, answer: Map::new(), went: None };
-    step.run(op).map_err(Refusal)?;
+    step.run(op)?;
     let step::Step { mut d, changed, answer, .. } = step;
     d.never_blank();
     wide_opens(&mut d);
-    if ctx.protect_typing && ctx.typing_in.is_some() && d.focus != s.focus { return Err(Refusal(held_back("the person is typing", "move their keys out of that tile", Some(MARK_THEM)))) }
+    if ctx.protect_typing && ctx.typing_in.is_some() && d.focus != s.focus { return Err(held_back("the person is typing", "move their keys out of that tile", ctx.mark_them())) }
     if let (Some(before), Some(typing)) = (before, typing) {
         let after = d.unzoomed().rects(ctx.area, &holds).into_iter().find(|(id, _)| id == typing).map(|(_, r)| r);
         if after.is_none_or(|after| (after.cols - before.cols).abs() > 1.0 || (after.rows - before.rows).abs() > 1.0) {
-            let way = if op.name() == "open" { format!("an open goes beside another tile (to=), or {MARK_THEM}") } else { MARK_THEM.to_string() };
-            return Err(Refusal(typing_in(&s.name(typing), "resize it", Some(&way))));
+            let beside = (op.name() == "open").then(|| Way::new("tile.open", "opens beside another tile (to=)"));
+            return Err(typing_in(&s.name(typing), "resize it", beside.into_iter().chain(ctx.mark_them()).collect()));
         }
     }
     Ok(Applied { layout: d, changed, answer })
@@ -699,8 +774,8 @@ fn wide_opens(d: &mut Layout) {
 }
 
 /// Why an agent's `expected` revision is refused.
-pub fn revision_refusal(s: &Layout, expected: &Value) -> Option<String> {
+pub fn revision_refusal(s: &Layout, expected: &Value) -> Option<Refusal> {
     let e = match expected { Value::Number(n) => n.as_f64().filter(|n| n.fract() == 0.0), Value::String(text) if !text.is_empty() && text.chars().all(|c| c.is_ascii_digit()) => text.parse::<f64>().ok(), _ => None };
-    let Some(e) = e else { return Some(format!("expected is the revision layout.get gave (a number), not {expected}")) };
-    (e != s.rev as f64).then(|| format!("the layout changed since revision {e} (it is {} now): nothing was done; read layout.get again, or name splits and tiles by id", s.rev))
+    let Some(e) = e else { return Some(Refusal::new(format!("expected is the revision the layout was read at (a number), not {expected}")).way(Way::new("layout.get", "gives it"))) };
+    (e != s.rev as f64).then(|| Refusal::new(format!("the layout changed since revision {e} (it is {} now): nothing was done; an act that names splits and tiles by id needs no revision", s.rev)).way(Way::new("layout.get", "reads it again")))
 }

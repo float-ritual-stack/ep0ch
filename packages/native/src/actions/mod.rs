@@ -36,6 +36,7 @@ pub use row::ActionRow;
 use crate::actline::{self, Args};
 pub use crate::actline::word;
 use crate::keys::Whereabouts;
+use crate::layout::{Refusal, Way, held_back};
 use crate::store::Reply;
 use row::{Touches, While};
 
@@ -151,27 +152,68 @@ pub(crate) fn rule(row: &ActionRow, by: &Actor, standing: bool, person: &Whereab
     let Actor::Agent(_) = by else { return Ok(()) };
     if standing { return Ok(()) }
     if let Some(theirs) = row.person { return Err(theirs.to_string()) }
-    // What it does instead, by an action this window has (its row names it): a comment on the note is how an agent
-    // gets the person's attention here.
-    let way = format!("a {} on the note gets their attention ({} body=…)", review::ATTENTION.id, review::ATTENTION.id);
+    // What it does instead is an act (`attention`), worded by the one sayer as every way out is.
+    let held = |reason: &str, what: &str| Err(says(&held_back(reason, what, vec![attention()]), by));
     match row.touches {
         Touches::Nothing | Touches::Shape => Ok(()),
         Touches::Tile => {
             let typing = person.typing_in.as_deref() == Some(tile);
-            let held = if row.while_ == Some(While::Typing) { typing } else { person.focus == tile || typing };
-            if held { Err(format!("{}; an agent doesn't run {} there · {way}", person.why.clone().unwrap_or_else(|| format!("{} has the person's keys", person.focus)), row.id)) } else { Ok(()) }
+            let theirs = if row.while_ == Some(While::Typing) { typing } else { person.focus == tile || typing };
+            if theirs { held(&person.why.clone().unwrap_or_else(|| format!("{} has the person's keys", person.focus)), &format!("run {} there", row.id)) } else { Ok(()) }
         }
         // What is the person's own of a draft (opening it, typing in it, saving, closing) says so on its row (`person`,
         // refused above); the rest is decided where the note is known: the action's, and for a patch the service's.
         Touches::Draft => Ok(()),
         Touches::Screen => match person.idle {
             // Their keys are held, whatever holds them and however long ago their last key was.
-            _ if person.busy => Err(format!("{}; an agent doesn't move what they look at · {way}", person.why.as_deref().unwrap_or("the person is typing"))),
+            _ if person.busy => held(person.why.as_deref().unwrap_or("the person is typing"), "move what they look at"),
             // The door's words (its dispatcher's screen rule), with its wait.
             Some(idle) if idle < crate::keys::IDLE => Err(format!("the person is at the keys (last key {:.1}s ago); try again once they've been idle {}s", idle.as_secs_f32(), crate::keys::IDLE.as_secs())),
             _ => Ok(()),
         },
     }
+}
+
+/// What an agent held back for the person does here to get their attention: a comment on the note, by this
+/// window's own action (its row names it; the door marks the block instead). The one namer: the actor rule says
+/// it, and the layout's rules are told it (`App::asked`), so both name the same act.
+pub(crate) fn attention() -> Way { Way::new(review::ATTENTION.id, "on the note gets their attention").arg("body", "…") }
+
+/// One way out in this window's words, for `by`: None when the window has no such action (a refusal never names an
+/// action that is no row here). The person reads the key this window's own table binds to the act (`keys::cap_of`),
+/// with where their keys are for it to mean this, else the act line; an agent reads the act line, and for a way
+/// that is the person's alone, that it is theirs, by their key. (A control a way names is the door's to draw: this
+/// window draws none of them, and says none.)
+fn way_said(way: &Way, by: &Actor) -> Option<String> {
+    find(&way.act)?;
+    let line = actline::Request { action: way.act.clone(), tile: way.tile.clone(), by: None, args: way.args.iter().cloned().collect() }.line();
+    let key = crate::keys::cap_of(&way.act, &way.args);
+    Some(match (by, key) {
+        (Actor::Agent(_), Some(key)) if way.theirs => format!("the person's {key} ({line}) {}", way.does),
+        (Actor::Agent(_), None) if way.theirs => format!("the person's {line} {}", way.does),
+        (Actor::Person, Some(key)) => format!("{key}{} {}", way.at.as_ref().map_or(String::new(), |at| format!(" {at}")), way.does),
+        _ => format!("{line} {}", way.does),
+    })
+}
+
+/// Ways out said one after another: outline-core's `waysSaid`, held by `core-contract.json`. A way `said` has no
+/// words for is left out; each follows the one before as its `then` says.
+pub(crate) fn ways_said(ways: &[Way], said: impl Fn(&Way) -> Option<String>) -> String {
+    let mut out = String::new();
+    for way in ways {
+        let Some(words) = said(way) else { continue };
+        if !out.is_empty() { out.push_str(if way.then { ", then " } else { ", or " }) }
+        out.push_str(&words);
+    }
+    out
+}
+
+/// A refusal as this window says it to `by`: its reason, then the ways out this window has. The one place a way out
+/// is worded (the layout's refusals through `reshape` and an open's landing, the actor rule's own): the layout and
+/// the rule name an act, and this reads the key from the window's own table.
+pub(crate) fn says(why: &Refusal, by: &Actor) -> String {
+    let ways = ways_said(&why.ways, |way| way_said(way, by));
+    if ways.is_empty() { why.reason.clone() } else { format!("{} · {ways}", why.reason) }
 }
 
 impl App {

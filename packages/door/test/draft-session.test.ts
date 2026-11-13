@@ -336,7 +336,7 @@ describe("the agent rule, stated once", () => {
   test("in the person's draft an agent neither types (draft.*) nor leaves; in its own, it does, until someone else types", () => {
     const { t } = fake({ blockId: undefined, place: "edit:none" });
     const mine = DraftSession.open(t, {});
-    expect(agentRefusal(AGENT, mine)).toBe("the person is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
+    expect(agentRefusal(AGENT, mine)).toBe("the person is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit · block.mark gets their attention");
     expect(agentRefusal(AGENT, mine, { op: "leave" })).toContain("an agent doesn't save or close it");
     expect(agentRefusal(USER, mine, { op: "leave" })).toBeNull();
     const its = DraftSession.open(t, { by: AGENT });
@@ -344,7 +344,7 @@ describe("the agent rule, stated once", () => {
     expect(agentRefusal(AGENT, its)).toBeNull();
     expect(agentRefusal(OTHER, its)).toMatch(/^\w+ has this draft open; an agent doesn't type in it/);
     keys(its, ["!"]);
-    expect(agentRefusal(AGENT, its)).toBe("someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
+    expect(agentRefusal(AGENT, its)).toBe("someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit · block.mark gets their attention");
     mine.dispose(); its.dispose();
   });
 

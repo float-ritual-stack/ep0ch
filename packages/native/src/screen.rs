@@ -83,6 +83,8 @@ pub struct Spec<'a>(pub &'a Value);
 impl<'a> Spec<'a> {
     /// Where an open naming no tile lands: a tile's name, or a container's key (the layout's `lands` reads it).
     pub fn lands(&self) -> Option<&'a str> { self.0["lands"].as_str() }
+    /// Where the keys go back to when nothing else takes them (the spec's `home`): a tile's name, or a container's key.
+    pub fn home(&self) -> Option<&'a str> { self.0["home"].as_str() }
     /// A window with no arrangement of its own opens on it.
     pub fn starts(&self) -> bool { self.0["start"] == true }
     /// Its toolbar: act lines, one a button.

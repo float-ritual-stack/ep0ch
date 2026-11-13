@@ -11,6 +11,7 @@
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
+//   ways       a refusal, each way's own words → the refusal as it is said: the reason, then the ways joined (whySaid)
 //   quoted     a note's text, a quote as a client sends it with a comment → the span of the source it is, or the
 //              refusal the service sends (findQuoted, quoteRefusal). `quotedNote` is the made-up note most of them
 //              are about, as a page: a stand-in host serves it and answers a comment from these rows, so it refuses
@@ -19,6 +20,7 @@ import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
 import { sourceLines } from "../src/code-ranges";
+import { way, whyNot, whySaid, type Why } from "../src/way-out";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
 import { findQuoted, quoteRefusal, type QuotedPassage } from "../src/drawn-passage";
 import { noteMediaLines } from "../src/media-line";
@@ -131,6 +133,20 @@ const OFFSETS = [0, 2, 3, 4, 5, 8, 10, 12, 13, 20, 21, 26, 30, 31, 40, 41, 42, 4
 const KEY_NAMES: string[] = [...new Set([...Object.values(NAMED_KEYS).filter(name => !MOUSE_KEYS.has(name) && name !== "hover"), "l", "L", ",", "?", "/", "+", "1", "alt+c", "alt+L", "alt+,", "ctrl+l", "ctrl+,", "ctrl+L", "super+k", "hyper+h", "mod+l", "escape", "pageup", "ctrl+w q", "click", ""])];
 
 /**
+ * A refusal and the words a door has for each of its ways (null: the door hasn't the action): how the reason and the
+ * ways are joined is one rule. What a way's own words are (a key, an act line) is each door's, so the table gives them.
+ */
+const WAYS: { name: string; why: Why; said: (string | null)[] }[] = [
+  { name: "no way: the reason alone", why: whyNot("almanac can't go there: it's the only tile"), said: [] },
+  { name: "one way follows the reason", why: whyNot("log holds work", way("tile.close", "closes it first", { tile: "log" })), said: ["the key that closes it closes it first"] },
+  { name: "another way is an or", why: whyNot("sown stays: the lanes container keeps its tiles", way("tile.collapse", "folds it to a spine"), way("layout.policy", "turns closable on", { at: "there" })), said: ["fold folds it to a spine", "policy there turns closable on"] },
+  { name: "a way that follows the one before is a then", why: whyNot("the screen is locked", way("host.toggle", "puts the drawer away"), way("layout.lock", "unlocks it", { then: true })), said: ["drawer puts the drawer away", "lock unlocks it"] },
+  { name: "a way the door has no action for is left out, and the next is said as the first", why: whyNot("the screen is locked", way("host.toggle", "puts the drawer away"), way("layout.lock", "unlocks it", { then: true })), said: [null, "lock unlocks it"] },
+  { name: "no way the door has: the reason alone", why: whyNot("beds stays open: screen doesn't fold", way("layout.policy", "turns collapsible on")), said: [null] },
+  { name: "three ways, the middle one left out", why: whyNot("bed is held", way("draft.patch", "lands in it"), way("comment", "gets their attention"), way("block.mark", "marks it", { then: true })), said: ["patch lands in it", null, "mark marks it"] },
+];
+
+/**
  * A made-up note with a link, bold, two paragraphs, and the same words in two of its parts; and where its parts are
  * written, as `notes.page` frames them (the outliner's test holds these to what the service answers for this text):
  * a run of prose as the Markdown a client draws, a picture where its line is.
@@ -184,7 +200,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -197,6 +213,7 @@ export function coreContract(): string {
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
+    ways: WAYS.map(c => ({ ...c, whole: whySaid(c.why, each => c.said[c.why.ways.indexOf(each)] ?? null) })),
     // (A row about `quotedNote` leaves its text out: it is the note's.)
     quoted: QUOTED.map(c => {
       const found = findQuoted(c.text, c.passage), row = { name: c.name, ...(c.text === QUOTED_TEXT ? {} : { text: c.text }), passage: c.passage };

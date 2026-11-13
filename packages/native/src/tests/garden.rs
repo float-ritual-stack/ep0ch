@@ -189,13 +189,17 @@ fn nothing_drops_unsaved_text_but_discard() {
     }
     // Opening another note doesn't either: the layout opens it in a reader of its own beside the one the block is
     // being written in (the door's rule for a tile that holds an edit), and the draft stays where it is.
-    // The keys stay where the person types.
+    // The keys stay where the person types. The reader opened beside it takes the next open aimed there too (what
+    // placement remembers, the door's `PlacementMemory`): one reader beside the draft, not one more an open, and
+    // the note it showed before is a step back in it.
     for line in ["open id=shed", "link.follow ref=ep0ch:b/beans tile=reader"] {
         assert!(act(&mut app, line).ok, "{line} opens beside the draft");
         assert_eq!((app.layout.name(&app.layout.focus).as_str(), draft(&app).map(|d| (d.tile.as_str(), d.note.as_str())), words(&app)), ("reader", Some(("reader", "onions")), "Mine, typed for a while"), "after {line}");
         assert_eq!(app.note_of("reader").as_deref(), Some("onions"), "the draft's reader still shows its note");
     }
-    assert_eq!((app.note_of("reader2").as_deref(), app.note_of("reader3").as_deref()), (Some("shed"), Some("beans")));
+    assert_eq!((app.note_of("reader2").as_deref(), app.layout.named("reader3")), (Some("beans"), None), "the reader beside the draft took the second open, and no third reader was made");
+    assert_eq!(app.memory.beside, [("reader".to_string(), "reader2".to_string())], "opens from the reader a block is written in go beside it, in reader2");
+    assert_eq!(app.ui("reader2").history.last().map(String::as_str), Some("shed"), "the note it showed is the way back in it");
     // A new note is a block of its own, written in a tile of its own: the first draft is as it was, beside it.
     assert!(act(&mut app, "note.new").ok);
     assert_eq!((app.drafts.len(), words(&app), app.drafts[1].note.as_str()), (2, "Mine, typed for a while", "new"));
