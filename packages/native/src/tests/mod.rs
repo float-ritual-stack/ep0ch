@@ -31,6 +31,7 @@
 //!   script, and herdr-core's protocol spoken to a stand-in core in a scratch folder.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
+mod arrange;
 mod contract;
 mod control;
 mod drafts;

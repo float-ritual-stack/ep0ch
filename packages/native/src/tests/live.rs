@@ -135,7 +135,7 @@ fn live_a_screen_is_saved_as_a_note_listed_broken_and_reset_over_the_socket() {
         opened(&mut app);
         assert!(app.online, "{:?}", app.notice);
         // Split the reader, put the tree in a tab with the backlinks in the dock, and save it.
-        for line in ["tile.split", "tile.move side=center to=backlinks tile=tree", "screen.save name=\"Garden work\""] { let done = act(&mut app, line); assert!(done.ok, "{line}: {}", done.said) }
+        for line in ["tile.split", "layout.move to=backlinks where=tabs tile=tree", "screen.save name=\"Garden work\""] { let done = act(&mut app, line); assert!(done.ok, "{line}: {}", done.said) }
         assert!(app.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said.starts_with("Saved the screen garden-work")), "{:?}", app.notice);
         let (note, _) = app.screen.note().map(|(id, revision)| (id.to_string(), revision)).expect("the arrangement is the note's screen now");
         // The note is the block form: its header, then the layout as blocks under it.

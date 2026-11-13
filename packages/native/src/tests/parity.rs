@@ -26,6 +26,9 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
         ("dock.toggle", "dock.toggle side=left") => vec!["tile.dock edge=left tile=tree"],
         ("layout.undo", _) => vec!["tile.split"],
+        // A float is placed once a tile floats; a held tile is let go once one is held.
+        ("float.place", _) => vec!["tile.float on=true tile=backlinks"],
+        ("layout.drop", _) => vec!["layout.carry col=90 row=12 tile=tree"],
         // A pick names a row the tree lists: the folder the example's note is under is open.
         ("tree.pick", _) => vec!["tree.fold id=plot open=true"],
         // An extension's screen is saved under a name of the person's own first.
@@ -164,7 +167,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

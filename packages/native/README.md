@@ -128,6 +128,9 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
+| `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
+| `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
+| `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
 | `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |
@@ -139,6 +142,8 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
+| `mod+shift+l` | `layout.lock` | everywhere | lock or unlock the arrangement |
+| `escape` | `layout.drop cancel=true` | moving | lets go: the tile stays where it was |
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
 | `enter` | `form.save` | form | save the form |

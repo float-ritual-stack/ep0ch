@@ -241,13 +241,13 @@ fn every_argument_that_names_a_tile_reads_one_address_grammar() {
     assert!(!two.ok && two.said.contains("role:reader names 2 tiles") && two.said.contains("use tile=<id>"), "{}", two.said);
     assert_eq!(two.kind, Some("invalid"));
     // One tree: its role is its address, for `tile=` and for `to=` alike.
-    let moved = act(&mut g.app, "tile.move tile=t-5eed5eed to=role:tree side=bottom");
+    let moved = act(&mut g.app, "layout.move tile=t-5eed5eed to=role:tree where=down");
     assert!(moved.ok, "{}", moved.said);
     assert_eq!(g.app.steps.last().map(|step| step.tile.as_deref()), Some(Some("t-5eed5eed")));
     // None has it: the resolver says what there is to type.
     let none = act(&mut g.app, "tile.close tile=role:terminal");
     assert!(!none.ok && none.said.contains("no tile has the role terminal; roles here: backlinks, reader, tree"), "{}", none.said);
-    let none = act(&mut g.app, "tile.move tile=bed to=role:terminal side=left");
+    let none = act(&mut g.app, "layout.move tile=bed to=role:terminal where=left");
     assert!(!none.ok && none.said.contains("no tile has the role terminal"), "{}", none.said);
     // A plain name is read last, and still is one.
     assert!(act(&mut g.app, "tile.focus tile=reader").ok);

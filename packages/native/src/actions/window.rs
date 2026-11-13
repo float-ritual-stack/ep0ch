@@ -12,7 +12,7 @@ use crate::draft::Recovery;
 use crate::layout::Layout;
 use crate::screen::{From, Screen};
 
-static TEAR: ActionRow = ActionRow::new("tile.tear", Touches::Shape, "take a tile (tile=, else the one with the keys) out of this window into a window of its own: the same tile on the same outline, showing what it showed, over the same store. Whether it may leave is the layout's to say, as for a tile closed: one a block is being written in stays, and so does the only one a window has")
+pub(super) static TEAR: ActionRow = ActionRow::new("tile.tear", Touches::Shape, "take a tile (tile=, else the one with the keys) out of this window into a window of its own: the same tile on the same outline, showing what it showed, over the same store. Whether it may leave is the layout's to say, as for a tile closed: one a block is being written in stays, and so does the only one a window has")
     .keys(&[KeyRow::keys("mod+shift+t", "this tile, in a window of its own")])
     .menu(&[MenuRow::new("Tear out", "Tile", Some("mod+shift+t"))])
     .examples(&[Example { act: "tile.tear tile=reader", does: "the reader, in a window of its own", safe: None }]);
