@@ -602,6 +602,18 @@ action that is a row here. Four things turned up on the way:
 - **The service's `draft.patch` is no row of the door's.** The dispatcher's two sentences that point an agent at it
   keep it as words in the reason; the door's own ways after it are acts.
 
+Two more turned up in the wave's review, each red first and fixed:
+
+- **A key of one letter passed the scans.** "bed is pinned: opened beside it · p in bed unpins it" is no refusal (it
+  says why an open landed elsewhere), so it was left a sentence, with the door's `p` in it, in both doors' layout
+  files. A placement now holds its reason and what undoes it as an act (`ways`: `reader.pin on=false`, in that
+  reader), the door says it through its sayer (`landedSaid`), and the window through `says`: it has no such action,
+  so it says the reason alone. Both scans now fail on a clause that starts with a word of one letter.
+- **A key the desk handles itself was said for any act of its action.** `^W T` takes a tab out of its tab set
+  (`layout.move to=<itself> where=right`), and was the key named for every `layout.move`: a tile that floated for
+  want of room was told "^W T places it", a key that answers "isn't in a tab set" there. Such a key now says what its
+  run always has (`wkeys.ts`: `special` with `args`), so it is only that act's key, and the float is told `^W m`.
+
 **What the actor table found (sweep 3):** the window let an agent's act that moves the screen through while the person typed, when nothing said why they were held; the door refuses it whenever they are busy. One row of 240.
 
 Three things the tables record as the door does them, for W2 to match or to raise:
