@@ -95,7 +95,7 @@ import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
-import { AnswerTile, answerLeftOut, answersWith } from "./answer-tile";
+import { AnswerTile, answerLeftOut, answersWith, movePair, pairOf } from "./answer-tile";
 import { AttachedTilePane, type Attachment } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, TYPED_WHILE_OPENING, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
@@ -7262,7 +7262,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   drawerTile(sel: string | undefined, on: boolean | undefined, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
     const host = this.ctx?.hostLayer;
     if (!host) throw new ActionRefused("this door has no drawer here (the logon and the logoff have none)");
-    const t = this.tile(sel);
+    const t = this.tile(sel), pair = on === undefined || (on === false) === host.isDrawer(this) ? pairOf(this, t.name) : null; if (pair) return movePair(this, host, pair, to, where, actor);   // a reader and its answer go as one (PIE-1794)
     if (host.isDrawer(this)) {
       if (this.isFloat(t.id) && on !== false) return host.put(this, t.name, actor);
       if (on === true) return { ...this.tileAnswer(t.id), inDrawer: true };
@@ -7303,7 +7303,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let land: ReturnType<Desk["landingFor"]>;
     try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
     const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
-    const own = carryLoses(this.top().descend(), d => d.panes.values(), [pane, goes], dest); if (own) return own;
+    const own = carryLoses(this.top().descend(), d => d.panes.values(), [pane, goes, ...(how.along ?? [])], dest); if (own) return own;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
       // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
       tile: t.id, ...(how.heir ? { heir: { id: this.nextId, name: this.autoName(how.heir.kind) } } : {}),
@@ -8095,7 +8095,7 @@ export interface TileLine {
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; kept?: true }   // kept: from its screen's dock that keeps work, so into the one there (PIE-1679)
 /** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */ const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
 /** How a tile is carried (`Desk.carry`): beside `to`, `where` it; or `floating` there (the glass, no keys); `heir` takes its place. */
-export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane }
+export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane; /** Tiles going in the same step (a reader's answer, PIE-1794): not left behind. */ along?: readonly Pane[] }
 /** A carry's answer as an action says it: the moved pane and the keys flag are the caller's, not the person's. */
 const withoutCarry = ({ keys: _k, moved: _m, ...done }: TileDone & { keys: boolean; moved: MovedTile }): TileDone => done;
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */

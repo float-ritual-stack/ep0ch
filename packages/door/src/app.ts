@@ -139,7 +139,7 @@ export interface HostLayer {
   /** Why `sel` names no tile in the host layer, in words and with the command to run (the drawer's own program closed, or out on a screen not shown), or null: the dispatcher's refusal says it. */
   unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
-  put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
+  put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where, keep?: boolean, along?: readonly Pane[]): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. keepTogether: `run`'s keeps said once, in the drawer's order (a screen left with its groups, PIE-1697). */
   keep(moved: MovedTile[]): Pane[]; keepTogether?(run: () => void): void;
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
@@ -155,7 +155,7 @@ export interface HostLayer {
   /** Open block `id` on the screen shown, where an open naming no tile lands there (a detail; `fresh`: a new one): the status bar's opens. */
   openOnScreen(id: string, fresh: boolean, actor: Actor, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
-  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor, along?: readonly Pane[]): TileDone;
   /** Fold the drawer to a strip at its edge (a tile in it with nothing beside it, folded: `tile.collapse`); on=false opens it as it was. */
   collapse(name: string, on: boolean | undefined, actor: Actor): TileDone;
   /** The drawer is folded to a strip. */

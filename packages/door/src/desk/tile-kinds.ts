@@ -147,10 +147,9 @@ export interface TileKind {
   /**
    * Why a move would lose tile `p`, on desk `from`, or null: its own rule (an answer that would leave its reader, or be
    * left by it), asked by `carryLoses` of every tile of the screen when tiles go to desk `to` (the drawer, a group,
-   * another screen). `goes`: the tiles that travel, a group's members too; `p` is one of them, or stays. `empties`: `from`
-   * is a group every tile but `p` leaves, so it goes, `p` with it (PIE-1775).
+   * another screen). `goes`: the tiles that travel, a group's members too; `p` is one of them, or stays. 
    */
-  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi, goes: ReadonlySet<Pane>, empties: boolean): string | null;
+  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi, goes: ReadonlySet<Pane>): string | null;
   /** A list whose open (⏎) gives the reader it lands in the person's keys when nothing routes it (the tree); placement decides it. */
   readonly handsKeys?: true;
   /**
@@ -347,7 +346,7 @@ export function carryLoses<D extends DeskApi>(desks: readonly D[], panesOf: (d: 
   const family = desks.flatMap(d => [...panesOf(d)].map(p => [p, d] as const));
   const inside = new Set(moved.flatMap(p => (p as { inner?: { descend(): object[] } }).inner?.descend() ?? []));
   const goes = new Set([...moved, ...family.filter(([, d]) => inside.has(d)).map(([p]) => p)]);
-  for (const [p, d] of family) { const why = kindOf(p)?.carryRefusal?.(p, d, to, goes, !!(d as { inGroup?(): boolean }).inGroup?.() && family.every(([q, e]) => e !== d || q === p || goes.has(q))); if (why) return why; }
+  for (const [p, d] of family) { const why = kindOf(p)?.carryRefusal?.(p, d, to, goes); if (why) return why; }
   return null;
 }
 

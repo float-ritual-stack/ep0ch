@@ -14,14 +14,17 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
 
   const sum = (ws: string[]) => ws.reduce((n, w) => n + Number(w.split(" ")[1]), 0);
   const show = (p: Pane) => `${widths(p).join()} | drawer ${widths(p, true).join()}\n${p.capture()}`;
-  /** ^W a from the gathered group, until the edit is in the drawer and the emptied group has gone. */
+  /**
+   * ^W a from the gathered group, until it's in the drawer and gone from the desk. The group holds just the edit and its
+   * answer, so it goes whole (PIE-1794: a reader and its answer move as one; the answer no longer closes).
+   */
   async function toDrawer(p: Pane) {
     p.keys("C-w", "a");
-    await until(() => widths(p, true).some(w => w.startsWith("detail ")), "the edit in the drawer").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
-    await until(() => !widths(p).some(w => w.startsWith("group")), "the emptied group gone", 3000).catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+    await until(() => widths(p, true).some(w => w.startsWith("group ")), "the group in the drawer").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+    await until(() => !widths(p).some(w => w.startsWith("group")), "the group gone from the desk", 3000).catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
   }
 
-  test("^W a from a gathered group: the emptied group goes and gives its room back; the keys stay in the edit; ^W a brings it back", async () => {
+  test("^W a from a gathered group: the group goes whole and gives its room back; the keys stay in the edit; ^W a brings it back", async () => {
     const p = await beanDesk(doors);
     try {
       await gather(p);
@@ -33,10 +36,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("groups leave nothing behind (P
       expect(p.capture()).not.toContain("ep0ch · group");
       // The keys went with the edit, as they do from any tile.
       await until(() => p.capture().includes("╔═ editing"), "the keys in the drawer's edit").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
-      // And back: ^W a in the drawer takes the edit out onto the desk.
+      // And back: ^W a in the drawer takes the pair out onto the desk, its group whole (PIE-1794).
       p.keys("C-w", "a");
-      await until(() => widths(p).some(w => w.startsWith("detail ")), "the edit back on the desk").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
-      expect(widths(p).some(w => w.startsWith("group"))).toBe(false);
+      await until(() => widths(p).some(w => w.startsWith("group ")), "the group back on the desk").catch(e => { throw new Error(`${e.message}: ${show(p)}`); });
+      expect(widths(p, true).some(w => w.startsWith("group"))).toBe(false);
     } finally { p.close(); }
   }, 40_000);
 

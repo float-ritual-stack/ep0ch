@@ -69,10 +69,12 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a group gathered on a desk of 
     const p = await desk();
     try {
       await gather(p);
-      // ^W acts on the tile inside, as it did before: the edit goes alone, and has the drawer's room to type in.
+      // ^W a from the edit: the group holds just it and its answer, so it goes whole (PIE-1794), and the edit has room to
+      // type in there.
       p.keys("C-w", "a");
-      await until(() => widths(p, true).some(w => w.startsWith("detail ")), "the edit in the drawer").catch(e => { throw new Error(`${e.message}: ${widths(p, true).join()}\n${p.capture()}`); });
-      expect(Number(widths(p, true).find(w => w.startsWith("detail "))!.split(" ")[1])).toBeGreaterThanOrEqual(28);
+      await until(() => widths(p, true).some(w => w.startsWith("group ")), "the group in the drawer").catch(e => { throw new Error(`${e.message}: ${widths(p, true).join()}\n${p.capture()}`); });
+      const inner = (JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; screen: string; tiles: { name: string; rect?: { cols: number } }[] }[]).find(l => l.drawer && l.screen === "group")!.tiles;
+      expect(inner.find(t => t.name === "detail")?.rect?.cols ?? 0).toBeGreaterThanOrEqual(28);
       await until(() => p.capture().includes("@tally the stakes · answered"), "its ask drawn in the drawer").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
     } finally { p.close(); }
   }, 40_000);
