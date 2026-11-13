@@ -5,6 +5,7 @@
 - **A link is up as soon as its proof checks:** it no longer waits for the forward lock, so the connector's 10 s deadline doesn't time it out while an SSH start holds the lock.
 - **A read cut off says so at once:** a connection closed before its answer fails then, not 15 s later as "timed out".
 - **Pages of a change log are cut by size too:** about 1 MB, whole transactions, so float-hub's rebuild fits the laptop's 0.7 MB/s line.
-- **Only `EP0CH_MCP_MIRRORS` is followed:** a link read no longer follows every copy it finds in the folder, and an ask outlives neither its process nor the list it came from.
+- **Only what is listed is followed:** a link read follows `EP0CH_MCP_MIRRORS` and what a running process here asked for (the gateway's), never every copy it finds in the folder; an ask holds its process's id and lapses with it. Links into a copy nobody lists no longer fall back to it while its machine is away.
+- **A forward that closed with no answer gets the start hint:** "No outline host answers at …", as a timeout did.
 - **Install goes on past a slow link:** a connector that runs again but hasn't reached its server within a minute is said, and the remaining steps still run.
-- **Run:** `ep0ch install --apply` on float-2 and the laptop. No PROTOCOL, GRAMMAR or schema change.
+- **Run:** `ep0ch install --apply` on float-2 first, then the laptop. No PROTOCOL, GRAMMAR or schema change.

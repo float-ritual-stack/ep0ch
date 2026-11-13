@@ -194,6 +194,14 @@ function wantedBy(file: string): number | null {
   try { process.kill(pid, 0); return pid; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM" ? pid : null; }
 }
 
+/** The outlines of `machine` a running process on this machine asked to have followed into `<folder>/<machine>/`. */
+export function followedCopies(folder: string, machine: string): string[] {
+  const dir = join(folder, machine, ".follow");
+  let names: string[];
+  try { names = readdirSync(dir); } catch { return []; }
+  return names.filter(n => n.endsWith(".want") && isOutlineName(n.slice(0, -5)) && wantedBy(join(dir, n)) !== null).map(n => n.slice(0, -5));
+}
+
 /** The removal of a database file and its side files (a copy being replaced: nothing has it open). */
 const removeDatabase = (path: string) => { for (const s of ["", "-wal", "-shm"]) rmSync(path + s, { force: true }); };
 

@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requestTimeoutMs } from "@ep0ch/outline-core/request-timeout";
-import { createOutlinerClient, OutlinerTimeoutError } from "../src/client";
+import { createOutlinerClient, OutlinerClosedError, OutlinerTimeoutError } from "../src/client";
 
 const folder = mkdtempSync(join(tmpdir(), "outliner-timeout-"));
 const socket = join(folder, "silent.sock");
@@ -63,7 +63,7 @@ test("a connection closed before its answer fails then, not at the timeout (PIE-
     const client = createOutlinerClient({ socket: path, mode: "host", outline: "garden" }, { timeoutMs: 5_000 });
     const started = Date.now();
     const error: Error = await client.request({ action: "blocks.query", query: {} } as never).then(() => new Error("answered"), (e: Error) => e);
-    expect({ timedOut: error instanceof OutlinerTimeoutError, message: error.message }).toEqual({ timedOut: false, message: expect.stringContaining("closed the connection before it answered") });
+    expect({ timedOut: error instanceof OutlinerTimeoutError, closed: error instanceof OutlinerClosedError }).toEqual({ timedOut: false, closed: true });
     expect(Date.now() - started).toBeLessThan(2_000);
   } finally { closing.close(); rmSync(dir, { recursive: true, force: true }); }
 });

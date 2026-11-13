@@ -631,7 +631,8 @@ function followsHere(mirrorRoot: string, mirrors: string) {
 test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
   sshReachesNobody(root);
-  followsHere(mirrorRoot, "orchard@laptop");
+  // No list here (float-2's host reads none): the copies a running process asked for are read, as the gateway's are.
+  followsHere(mirrorRoot, "");
   const host = await startHost(root, "garden");
   await host.create("garden");
   const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
@@ -674,7 +675,7 @@ test("away machines answer links from a read-only copy while silent forwards tim
 test("an away machine's big copies answer links while the door's reads keep their turn (PIE-1546)", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
   sshReachesNobody(root);
-  followsHere(mirrorRoot, ["orchard", "attic", "cellar", "shed", "barn"].map(name => `${name}@laptop`).join(","));
+  followsHere(mirrorRoot, "");
   const logged: string[] = [];
   const error = console.error;
   console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };

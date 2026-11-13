@@ -13,7 +13,7 @@ import { StdinBuffer, truncateToWidth, wrapTextWithAnsi, type ProcessTerminal } 
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { emitKeypressEvents } from "node:readline";
 import { PassThrough, type Readable } from "node:stream";
-import { createOutlinerClient, nobodyThere, OutlinerTimeoutError, type OutlinerClient } from "./client";
+import { createOutlinerClient, nobodyThere, OutlinerClosedError, OutlinerTimeoutError, type OutlinerClient } from "./client";
 import { reexecClient } from "./client-code";
 import { OutlinerActionKeymap } from "./outliner-actions";
 import { reportCurrentPaneWorkspace } from "./pane-control";
@@ -79,11 +79,12 @@ export async function waitForService(client: OutlinerClient, paths: OutlinerClie
 }
 
 /**
- * What a failed start should say to run: when no host answered (nobody at the socket, or no answer in time), where it
+ * What a failed start should say to run: when no host answered (nobody at the socket, no answer in time, or a forward
+ * that closed with none), where it
  * looked and how to start or reach the host; otherwise nothing, the reason says it.
  */
 export function startFailureHint(error: unknown, paths: Pick<OutlinerClientPaths, "mode" | "socket" | "machine">): string | undefined {
-  if (!nobodyThere(error) && !(error instanceof OutlinerTimeoutError)) return undefined;
+  if (!nobodyThere(error) && !(error instanceof OutlinerTimeoutError) && !(error instanceof OutlinerClosedError)) return undefined;
   return `No outline host answers at ${paths.socket}. ${hostHint(paths)}`;
 }
 

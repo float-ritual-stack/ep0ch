@@ -1,4 +1,4 @@
-import { OutlineFollower, mirrorsConfig } from "./outline-follower";
+import { followedCopies, OutlineFollower, mirrorsConfig } from "./outline-follower";
 import { SCHEMA_VERSION } from "./schema";
 import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
 import { existsSync, readdirSync } from "node:fs";
@@ -49,9 +49,10 @@ export class OutlineLinks {
     const machines = new Set(files(layout.remoteDir).filter(f => f.endsWith(".sock") && !f.endsWith(".link.sock")).map(f => f.slice(0, -5)));
     if (!("error" in config)) for (const entry of config.mirrors) machines.add(entry.machine);
     const answers = await Promise.all([...machines].sort().map(async machine => {
-      // What this machine follows is EP0CH_MCP_MIRRORS, the one list (PIE-1779): a file left in the copies' folder by an
-      // earlier list isn't followed again because a link read found it.
-      const copies = "error" in config ? [] : config.mirrors.filter(m => m.machine === machine).map(m => m.outline);
+      // The copies this machine follows (PIE-1779): the list, and what a running process here asked for (the gateway's,
+      // whose list this host doesn't read). A file left in the folder by an earlier list isn't followed again because a
+      // link read found it.
+      const copies = "error" in config ? [] : [...new Set([...config.mirrors.filter(m => m.machine === machine).map(m => m.outline), ...followedCopies(config.folder, machine)])];
       const copy = async (outline: string): Promise<T | undefined> => {
         if ("error" in config) return;
         const key = `${machine}/${outline}`;

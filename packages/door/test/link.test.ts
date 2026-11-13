@@ -123,11 +123,30 @@ test("a link that comes up while SSH serves a read takes over without resetting 
   const messages: string[] = [];
   const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log: line => messages.push(line), env, retireAfterMs: 3000 });
   let connector: ReturnType<typeof connectLink> | undefined;
+  let follower: import("@ep0ch/outliner/outline-follower").OutlineFollower<SocketBoard> | undefined;
   const { forwardPaths, sshArgv } = await import("@ep0ch/outline-core/machine");
   const { nodeMachineIO } = await import("@ep0ch/outliner/machine-forward");
   const paths = forwardPaths(here.outlines, "travel");
   try {
     expect((await forwardFor("travel", here.outlines, env)).transport).toBe("ssh");
+    // The sentence: a follower here (the gateway's) keeps a copy of the laptop's outline current through all of it.
+    const { OutlineFollower } = await import("@ep0ch/outliner/outline-follower");
+    const { SCHEMA_VERSION } = await import("@ep0ch/outliner/schema");
+    follower = new OutlineFollower<SocketBoard>("garden", "travel", join(here.root, "copies"), {
+      schema: () => SCHEMA_VERSION, everyMs: 1_000, log: () => {}, reach: async machine => (await forwardFor(machine, here.outlines, env)).socket,
+      attach: async (socket, name) => { const b = new SocketBoard(socket, undefined, name); return { board: b, close: () => b.close() }; },
+    });
+    const copied = async (id: string) => {
+      const r = await follower!.read();
+      if ("error" in r) return r.error;
+      try { return (await r.board.request("get", { blockId: id })).text; } catch (e) { return (e as Error).message; }
+    };
+    const laptopWrites = new SocketBoard(laptop.sock, undefined, "garden");
+    const landed = async (text: string, what: string) => {
+      const made = await laptopWrites.createBlock(null, text);
+      await untilAsync(async () => (await copied(made.id)) === text, what, 15_000);
+    };
+    await untilAsync(async () => (await copied(note.id)) === "Greenhouse journal", "the copy made over SSH", 15_000);
     const board = new SocketBoard(paths.socket, undefined, "garden");
     const reading = board.get(note.id);
     await Bun.sleep(200);
@@ -141,13 +160,17 @@ test("a link that comes up while SSH serves a read takes over without resetting 
     await untilAsync(async () => (await nodeMachineIO(env).run(sshArgv.check(ssh, paths), 5000)).code !== 0, "the SSH connection retired");
     const after = new SocketBoard(paths.socket, undefined, "garden");
     try { expect((await after.get(note.id))?.text).toBe("Greenhouse journal"); } finally { after.close(); }
+    await landed("Sowed the beans", "an edit on the laptop reaches the copy over the link");
     connector.stop(); connector = undefined;
     await until(() => linkStates(here.outlines).length === 0, "the link drops");
     const back = await forwardFor("travel", here.outlines, env);
     expect({ transport: back.transport, how: back.how }).toEqual({ transport: "ssh", how: "started" });
     const again = new SocketBoard(paths.socket, undefined, "garden");
     try { expect((await again.get(note.id))?.text).toBe("Greenhouse journal"); } finally { again.close(); }
+    await landed("Watered the beans", "an edit reaches the copy over SSH again");
+    laptopWrites.close();
   } finally {
+    await follower?.close();
     connector?.stop();
     await nodeMachineIO(env).run(sshArgv.exit(ssh, paths), 5000);
     line.close(); await server.stop(); await here.dispose(); await laptop.dispose();
