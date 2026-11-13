@@ -168,6 +168,12 @@ export function parseCalloutHeader(content: string): CalloutHeader | null {
   return { type, metadata, fold: m[2] === "+" || m[2] === "-" ? m[2] : null, title: m[3]?.trim() ?? "" };
 }
 
+/** A callout's lead as a reader draws it: its type's icon, then the title its line gives, else the type's own. */
+export function calloutLead(header: Pick<CalloutHeader, "type" | "title">, registry: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
+  const type = registry.style(header.type);
+  return `${type.icon} ${header.title || type.title}`;
+}
+
 /**
  * Each callout in `lines`, outermost first in reading order: its header line, `end` (the line after its last), its
  * quote depth, and its header. A callout runs over the lines quoted at least as deep as its header, up to one
