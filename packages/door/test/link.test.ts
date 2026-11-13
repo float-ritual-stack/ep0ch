@@ -95,10 +95,11 @@ test("a connector with the right key isn't timed out while an SSH attempt holds 
   } finally { rmSync(lock, { force: true }); connector.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
 
-test("a link that comes up while SSH serves a read takes over without resetting it, and SSH serves again once it drops", async () => {
-  // float-2, Nov 12 (PIE-1779): the gateway's followers read the laptop over SSH; each time the laptop dialled in, the
-  // link ended the SSH forward under every read in flight (ECONNRESET), then waited for the forward's socket file to
-  // go, which OpenSSH never removes, and refused the link; the next read started SSH again, every 22 seconds.
+/**
+ * A laptop ("travel") with a garden note, reached from here over the fake ssh through a slow line (every answer 1.5 s
+ * late), with its link server's keys; the scratch hosts, the line, the ssh and its environment.
+ */
+async function slowLaptop() {
   const here = new ScratchHost(), laptop = new ScratchHost();
   await here.start(); await laptop.start(); await laptop.create("garden");
   const direct = new SocketBoard(laptop.sock, undefined, "garden");
@@ -120,6 +121,14 @@ test("a link that comes up while SSH serves a read takes over without resetting 
   const env = { ...process.env, EP0CH_SOCKET: undefined, EP0CH_OUTLINES: here.outlines, EP0CH_SSH: ssh, FAKE_SSH_HOME: join(here.root, "far-home"), FAKE_SSH_OUTLINES: laptop.outlines };
   mkdirSync(join(here.outlines, ".remote"), { recursive: true, mode: 0o700 });
   writeFileSync(join(here.outlines, ".remote/travel.json"), JSON.stringify({ outlines: slow }));
+  return { here, laptop, note, line, ssh, env };
+}
+
+test("a link that comes up while SSH serves a read takes over without resetting it, and SSH serves again once it drops", async () => {
+  // float-2, Nov 12 (PIE-1779): the gateway's followers read the laptop over SSH; each time the laptop dialled in, the
+  // link ended the SSH forward under every read in flight (ECONNRESET), then waited for the forward's socket file to
+  // go, which OpenSSH never removes, and refused the link; the next read started SSH again, every 22 seconds.
+  const { here, laptop, note, line, ssh, env } = await slowLaptop();
   const messages: string[] = [];
   const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log: line => messages.push(line), env, retireAfterMs: 3000 });
   let connector: ReturnType<typeof connectLink> | undefined;
@@ -171,6 +180,43 @@ test("a link that comes up while SSH serves a read takes over without resetting 
     laptopWrites.close();
   } finally {
     await follower?.close();
+    connector?.stop();
+    await nodeMachineIO(env).run(sshArgv.exit(ssh, paths), 5000);
+    line.close(); await server.stop(); await here.dispose(); await laptop.dispose();
+  }
+}, 60_000);
+
+test("each SSH connection the link takes over from gets its own grace: one started after a stall isn't ended mid-read", async () => {
+  // Codex on #1481: the retirement was one timer per takeover. The link stalled, reads fell back to a new SSH
+  // connection, the link took the socket back, and the first timer ended that new connection under a read.
+  const { here, laptop, note, line, ssh, env } = await slowLaptop();
+  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, env, retireAfterMs: 3000 });
+  let connector: ReturnType<typeof connectLink> | undefined;
+  const { forwardPaths, sshArgv } = await import("@ep0ch/outline-core/machine");
+  const { nodeMachineIO } = await import("@ep0ch/outliner/machine-forward");
+  const paths = forwardPaths(here.outlines, "travel"), state = join(here.outlines, ".remote/travel.link.json");
+  const viaLink = async () => (await forwardFor("travel", here.outlines, { ...env, EP0CH_SSH: "/no-such-ssh" }).catch(() => null))?.transport === "link";
+  try {
+    expect((await forwardFor("travel", here.outlines, env)).transport).toBe("ssh");
+    connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, log() {} });
+    await until(() => linkStates(here.outlines).length === 1, "the link comes up");
+    await untilAsync(viaLink, "reads go over the link");
+    const tookOver = Date.now();
+    // The link stalls (its record says down a moment): the next read starts a new SSH connection.
+    const saved = readFileSync(state, "utf8");
+    writeFileSync(state, JSON.stringify({ ...JSON.parse(saved), up: false }));
+    expect(await forwardFor("travel", here.outlines, env)).toMatchObject({ transport: "ssh", how: "started" });
+    // A read on it that is still in flight when the first takeover's grace ends.
+    await Bun.sleep(Math.max(0, tookOver + 2200 - Date.now()));
+    const board = new SocketBoard(paths.socket, undefined, "garden");
+    const reading = board.get(note.id);
+    await Bun.sleep(100);
+    writeFileSync(state, saved);
+    await untilAsync(viaLink, "the link takes the socket back");
+    try { expect((await reading)?.text).toBe("Greenhouse journal"); } finally { board.close(); }
+    // That connection is ended in its own time.
+    await untilAsync(async () => (await nodeMachineIO(env).run(sshArgv.check(ssh, paths), 5000)).code !== 0, "the second SSH connection retired", 15_000);
+  } finally {
     connector?.stop();
     await nodeMachineIO(env).run(sshArgv.exit(ssh, paths), 5000);
     line.close(); await server.stop(); await here.dispose(); await laptop.dispose();

@@ -172,8 +172,8 @@ function linkUp(p: ForwardPaths, io: Pick<MachineIO, "read" | "alive">): boolean
  *
  * This is the one place that decides which transport serves a machine (PIE-1779). A link that is up takes the shared
  * socket by one rename, so a read in flight over SSH finishes on the connection it started on while every new one goes
- * over the link; the SSH connection is ended later, once what it carried is done (`retireForward`, run by the link's
- * server). An SSH connection still up after the link took its socket forwards nothing; once the link has gone, the next
+ * over the link; the SSH connection is ended later, once what it carried is done (`forwardBehindLink`, `retireForward`,
+ * run by the link's server). An SSH connection still up after the link took its socket forwards nothing; once the link has gone, the next
  * client ends it and starts a new one.
  */
 export async function ensureForward(machine: string, o: ForwardOptions): Promise<Forward> {
@@ -220,15 +220,32 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
   });
 }
 
+/** The pid ssh's `-O check` names ("Master running (pid=1234)"), or null when it names none. */
+const masterPid = (r: { out: string; err: string }) => { const m = /pid=(\d+)/.exec(`${r.err}\n${r.out}`); return m ? Number(m[1]) : null; };
+
 /**
- * Ends the machine's SSH connection when the link holds the shared socket: run by the link's server a while after the
- * link took over (long enough for what SSH carried to finish), never while SSH still serves the socket. Whether it
- * ended one.
+ * The SSH connection that still runs while the link holds the machine's shared socket, by its pid: one the link took the
+ * socket from, which carries only what started on it. Null when the link doesn't hold the socket or no connection runs
+ * (no control socket: nothing is spawned to ask).
  */
-export async function retireForward(machine: string, o: ForwardOptions): Promise<boolean> {
+export async function forwardBehindLink(machine: string, o: ForwardOptions): Promise<number | null> {
+  const p = forwardPaths(o.outlines, machine);
+  if (!routedToLink(p, o.io) || !o.io.exists(p.control)) return null;
+  const r = await o.io.run(sshArgv.check(o.ssh, p), 5000);
+  return r.code === 0 ? masterPid(r) : null;
+}
+
+/**
+ * Ends the SSH connection `pid` once the link holds the shared socket: run by the link's server when that connection
+ * has had its grace since the link took the socket from it (each connection its own, PIE-1779), never one that serves
+ * the socket again or another that started since. Whether it ended it.
+ */
+export async function retireForward(machine: string, pid: number, o: ForwardOptions): Promise<boolean> {
   const p = forwardPaths(o.outlines, machine);
   return withForwardLock(`${p.control}.lock`, o.io, async () => {
-    if (!routedToLink(p, o.io) || (await o.io.run(sshArgv.check(o.ssh, p), 5000)).code !== 0) return false;
+    if (!routedToLink(p, o.io)) return false;
+    const r = await o.io.run(sshArgv.check(o.ssh, p), 5000);
+    if (r.code !== 0 || masterPid(r) !== pid) return false;
     return (await o.io.run(sshArgv.exit(o.ssh, p), 5000)).code === 0;
   });
 }

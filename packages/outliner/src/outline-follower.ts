@@ -155,7 +155,7 @@ interface Folder {
   loops: Map<string, { loop: FollowLoop; users: number }>;
   /** When the other process's host last answered (a read asks again at most every ANSWER_CHECK_MS). */
   answeredAt: number;
-  /** The owner's look for outlines another process asked it to follow (`.follow/<outline>.want`). */
+  /** The owner's look for outlines another process asked it to follow (`.follow/<outline>.<pid>.want`). */
   sweep: ReturnType<typeof setInterval> | null;
   /** The outlines a follower in this process asked for: each runs its own loop, with its own settings. */
   asked: Set<string>;
@@ -186,20 +186,31 @@ async function answers(socket: string): Promise<boolean> {
   try { await new OutlinerClient(socket, 1_500).request({ action: "outlines.list" } as never); return true; } catch { return false; }
 }
 
-/** The process that asked for a copy (`.follow/<outline>.want` holds its id), while it runs; null for one that has gone. */
-function wantedBy(file: string): number | null {
-  let pid: number;
-  try { pid = Number(readFileSync(file, "utf8").trim()); } catch { return null; }
-  if (!Number.isInteger(pid) || pid <= 0) return null;
-  try { process.kill(pid, 0); return pid; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM" ? pid : null; }
+/**
+ * The asks for copies in a machine's copies folder (PIE-1779): one file per process and outline,
+ * `.follow/<outline>.<pid>.want`, so each reader's interest is its own. An ask counts while its process runs; the
+ * owner removes the rest (an earlier build's `<outline>.want` among them) as it looks.
+ */
+const ASK = /^([a-z0-9][a-z0-9-]{0,31})\.(\d+)\.want$/;
+const askFile = (dir: string, outline: string, pid = process.pid) => join(dir, ".follow", `${outline}.${pid}.want`);
+const running = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
+function asksIn(dir: string, tidy = false): Set<string> {
+  const follow = join(dir, ".follow"), asked = new Set<string>();
+  let names: string[];
+  try { names = readdirSync(follow); } catch { return asked; }
+  for (const name of names.filter(n => n.endsWith(".want"))) {
+    const m = ASK.exec(name);
+    if (m && running(Number(m[2]))) asked.add(m[1]!);
+    else if (tidy) rmSync(join(follow, name), { force: true });
+  }
+  return asked;
 }
+/** This process's followers that ask for each copy (`<dir>\0<outline>`): its ask file goes when the last one closes. */
+const askers = new Map<string, Set<object>>();
 
 /** The outlines of `machine` a running process on this machine asked to have followed into `<folder>/<machine>/`. */
 export function followedCopies(folder: string, machine: string): string[] {
-  const dir = join(folder, machine, ".follow");
-  let names: string[];
-  try { names = readdirSync(dir); } catch { return []; }
-  return names.filter(n => n.endsWith(".want") && isOutlineName(n.slice(0, -5)) && wantedBy(join(dir, n)) !== null).map(n => n.slice(0, -5));
+  return [...asksIn(join(folder, machine))];
 }
 
 /** The removal of a database file and its side files (a copy being replaced: nothing has it open). */
@@ -444,13 +455,26 @@ export class OutlineFollower<B> {
   }
 
   /**
-   * Asks whichever process owns the folder to follow this outline too: a file the owner looks for, holding this
-   * process's id, so an ask outlives neither the process that made it nor the list it came from (PIE-1779).
+   * Asks whichever process owns the folder to follow this outline too: a file of this process's own that the owner
+   * looks for, so an ask outlives neither the process that made it nor its last follower here (PIE-1779).
    */
   private want(): void {
-    const file = join(this.dir, ".follow", `${this.outline}.want`);
-    if (wantedBy(file) !== null) return;
-    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, String(process.pid), { mode: 0o600 }); } catch { /* the next read asks again */ }
+    const key = `${this.dir}\0${this.outline}`;
+    let mine = askers.get(key);
+    if (!mine) askers.set(key, mine = new Set());
+    mine.add(this);
+    const file = askFile(this.dir, this.outline);
+    if (existsSync(file)) return;
+    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, "", { mode: 0o600 }); } catch { /* the next read asks again */ }
+  }
+
+  /** This follower's ask let go; the process's ask file goes with its last follower of the outline. */
+  private unwant(): void {
+    const key = `${this.dir}\0${this.outline}`, mine = askers.get(key);
+    if (!mine?.delete(this) || mine.size) return;
+    askers.delete(key);
+    folders.get(this.dir)?.asked.delete(this.outline);
+    rmSync(askFile(this.dir, this.outline), { force: true });
   }
 
   /** Whether a copy has arrived. */
@@ -494,15 +518,20 @@ export class OutlineFollower<B> {
     try {
       await host.start(); f.owner = host; f.socket = host.socketPath;
       // What other processes asked for, followed here too, on this process's clock and reach.
+      // A loop for an ask nobody makes any more is stopped (PIE-1779): it would ask the home for its log forever.
       const look = () => {
-        let wanted: string[] = [];
-        try { wanted = readdirSync(join(f.dir, ".follow")).filter(n => n.endsWith(".want") && wantedBy(join(f.dir, ".follow", n)) !== null).map(n => n.slice(0, -5)); } catch { return; }
+        const wanted = asksIn(f.dir, true);
         for (const outline of wanted) {
-          if (f.loops.has(outline) || f.asked.has(outline) || !isOutlineName(outline)) continue;
+          if (f.loops.has(outline) || f.asked.has(outline)) continue;
           const loop = new FollowLoop(f, outline, { log: this.log, now: this.now, schema: this.schema, migrate: this.migrate, label: this.label, reach: this.reach, everyMs: this.everyMs });
           f.loops.set(outline, { loop, users: 0 });
           loop.start();
           void loop.pull();
+        }
+        for (const [outline, e] of f.loops) {
+          if (e.users > 0 || wanted.has(outline) || f.asked.has(outline)) continue;
+          f.loops.delete(outline);
+          void e.loop.stop();
         }
       };
       look();
@@ -556,6 +585,7 @@ export class OutlineFollower<B> {
   async close(): Promise<void> {
     this.closed = true;
     await this.starting;
+    this.unwant();
     this.attached?.close();
     this.attached = null;
     const f = folders.get(this.dir);

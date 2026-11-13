@@ -59,8 +59,9 @@ Which transport serves a machine is decided in one place, outline-core's
 for the forward lock. The link's server then asks `ensureForward`, which takes the
 lock and routes the shared socket to the link with one rename. A read in flight
 over SSH finishes on the connection it started on; every new one goes over the
-link. The SSH master is ended 30 seconds later (`retireForward`), once what it
-carried has had time to finish. Nothing waits for SSH's socket file to go: OpenSSH
+link. Each SSH master left behind the link is ended once it has had its own 30
+seconds there (`forwardBehindLink`, `retireForward`, by its pid), so one started
+after a stall never ends early on an earlier one's clock. Nothing waits for SSH's socket file to go: OpenSSH
 leaves it behind when it ends. A link on another protocol carries no reads and
 leaves SSH as it is. The link's own listener survives an SSH fallback; a later
 request selects the link again once its host answers. After link loss, the next

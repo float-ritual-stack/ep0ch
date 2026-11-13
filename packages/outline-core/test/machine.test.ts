@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ensureForward, forwardPaths, forwardState, type MachineIO, parseRemoteStatus, REMOTE_STATUS, retireForward, sshArgv } from "../src/machine";
+import { ensureForward, forwardBehindLink, forwardPaths, forwardState, type MachineIO, parseRemoteStatus, REMOTE_STATUS, retireForward, sshArgv } from "../src/machine";
 
 /**
  * A fictional machine reached over a fictional ssh, on a fictional clock: what each ssh call does to the world (the
@@ -10,17 +10,18 @@ function world(o: { status?: { code: number; out: string; err?: string }; forwar
   const files = new Map<string, string>();
   const routes = new Map<string, string>();
   const alive = new Set<number>([4242]);
-  let connected = false, clock = 0;
+  let connected = false, clock = 0, master = 700;
   const io: MachineIO = {
     async run(argv, _ms, how) {
       calls.push(argv);
       const op = argv.includes("-O") ? argv[argv.indexOf("-O") + 1] : argv.includes("-L") ? "forward" : "status";
-      if (op === "check") return { code: connected ? 0 : 255, out: "", err: connected ? "" : "Control socket connect: No such file" };
-      if (op === "exit") { const was = connected; connected = false; return { code: was ? 0 : 255, out: "", err: "" }; }
+      if (op === "check") return { code: connected ? 0 : 255, out: "", err: connected ? `Master running (pid=${master})` : "Control socket connect: No such file" };
+      if (op === "exit") { const was = connected; connected = false; files.delete(argv[argv.indexOf("-S") + 1]!); return { code: was ? 0 : 255, out: "", err: "" }; }
       if (op === "forward") {
         expect(how?.detached).toBe(true);
         if (o.forwardFails) { files.set(argv[argv.indexOf("-E") + 1]!, `debug1: hello\n${o.forwardFails}\n`); return { code: 255, out: "", err: "" }; }
-        connected = true;
+        connected = true; master++;
+        files.set(argv[argv.indexOf("-S") + 1]!, "control");
         // ssh makes the forward's socket file (and, as OpenSSH does, leaves it there when it ends).
         files.set(argv[argv.indexOf("-L") + 1]!.split(":")[0]!, "socket");
         return { code: 0, out: "", err: "" };
@@ -44,7 +45,7 @@ function world(o: { status?: { code: number; out: string; err?: string }; forwar
     now: () => clock,
     sleep: async ms => { clock += ms; },
   };
-  return { io, calls, files, routes, alive, drop: () => { connected = false; }, get connected() { return connected; } };
+  return { io, calls, files, routes, alive, drop: () => { connected = false; }, get connected() { return connected; }, get master() { return master; } };
 }
 const OPTS = (io: MachineIO) => ({ ssh: "ssh", outlines: "/home/sam/outlines", io, waitMs: 300 });
 const ops = (calls: string[][]) => calls.map(c => (c.includes("-O") ? c[c.indexOf("-O") + 1] : c.includes("-L") ? "forward" : "status"));
@@ -136,12 +137,18 @@ describe("a machine's forward", () => {
     // Up and routed: the next client finds it without the lock or an ssh call.
     expect((await ensureForward("box-a", OPTS(w.io))).transport).toBe("link");
     expect(ops(w.calls)).toEqual([]);
-    // The link's server ends the connection later; never one that still serves the socket.
-    expect(await retireForward("box-a", OPTS(w.io))).toBe(true);
+    // The link's server ends the connection later, by its pid; never another that started since, nor one that serves.
+    const behind = await forwardBehindLink("box-a", OPTS(w.io));
+    expect(behind).toBe(w.master);
+    expect(await retireForward("box-a", behind! + 1, OPTS(w.io))).toBe(false);
+    expect(w.connected).toBe(true);
+    expect(await retireForward("box-a", behind!, OPTS(w.io))).toBe(true);
     expect(w.connected).toBe(false);
+    expect(await forwardBehindLink("box-a", OPTS(w.io))).toBeNull();
     const ssh = world();
     await ensureForward("box-a", OPTS(ssh.io));
-    expect(await retireForward("box-a", OPTS(ssh.io))).toBe(false);
+    expect(await forwardBehindLink("box-a", OPTS(ssh.io))).toBeNull();
+    expect(await retireForward("box-a", ssh.master, OPTS(ssh.io))).toBe(false);
     expect(ssh.connected).toBe(true);
   });
 

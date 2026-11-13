@@ -4,7 +4,7 @@ import { networkInterfaces } from "node:os";
 import { chmodSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import { ensureForward, forwardPaths, linkSocketOf, retireForward, routedToLink } from "@ep0ch/outline-core/machine";
+import { ensureForward, forwardBehindLink, forwardPaths, linkSocketOf, retireForward, routedToLink } from "@ep0ch/outline-core/machine";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { hostAnswers, nodeMachineIO } from "./machine-forward";
 import { PROTOCOL, GRAMMAR } from "@ep0ch/outline-core/protocol";
@@ -34,7 +34,7 @@ export async function openLinked(outlines: string, url: string, remoteAddress: s
 /** `server`: the machine the link dials into, as it names itself (an outbound link; PIE-1644: where its artifacts are kept). */
 /** `streams`: false for a link on another protocol, which carries no reads (ensureForward leaves the machine to SSH). */
 type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string; server?: string; streams?: boolean };
-/** Longer than a follower's request (15 s), so what SSH carried when the link took over finishes there. */
+/** Each SSH connection's grace behind the link: longer than a follower's request (15 s), so what it carried finishes. */
 const RETIRE_AFTER_MS = 30_000;
 const savedState = (path: string): LinkState | undefined => {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return; }
@@ -46,7 +46,7 @@ function saveState(path: string, state: LinkState) {
 
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
-type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; doors?: Map<string, { path: string; server: SocketServer }>; doorsSaid?: string; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
+type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; doors?: Map<string, { path: string; server: SocketServer }>; doorsSaid?: string; /** The SSH connection left behind this link, and since when (its grace). */ behind?: { pid: number; since: number }; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void>; /** What ssh runs with (EP0CH_SSH names it); default this process's. */ env?: NodeJS.ProcessEnv; /** How long SSH keeps carrying what it started after the link takes over (default RETIRE_AFTER_MS). */ retireAfterMs?: number }) {
   let reporting = Promise.resolve();
   let openId = 0;
@@ -114,19 +114,33 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   };
   // The link takes the machine's shared socket from SSH (PIE-1779): ensureForward, the one owner of which transport
   // serves a machine, routes it to the link with one rename (waiting for any SSH start that holds the forward's lock),
-  // so a read in flight over SSH finishes there. The SSH connection is ended once what it carried has had time to.
+  // so a read in flight over SSH finishes there. Each SSH connection left behind the link is ended once it has had its
+  // own grace since it was first seen there (`retiring`), so a connection started later (the link stalled, reads fell
+  // back, the link took the socket again) gets its own, never an earlier one's.
   const forward = { ssh: env.EP0CH_SSH?.trim() || "ssh", outlines: o.outlines, io };
+  const grace = o.retireAfterMs ?? RETIRE_AFTER_MS;
   const takeOver = async (ws: ServerWebSocket<Peer>, machine: string) => {
-    try {
-      const f = await ensureForward(machine, forward);
-      if (f.transport !== "link" || ws.data.closed) return;
-      const retire = setTimeout(() => {
-        if (ws.data.closed) return;
-        void retireForward(machine, forward).then(ended => { if (ended) o.log(`link ${machine}: ended the SSH connection it took over from`); }, e => o.log(`link ${machine}: ${(e as Error).message}`));
-      }, o.retireAfterMs ?? RETIRE_AFTER_MS);
-      (retire as { unref?: () => void }).unref?.();
-    } catch (error) { if (!ws.data.closed) o.log(`link ${machine}: reads stay on SSH: ${(error as Error).message}`); }
+    try { await ensureForward(machine, forward); }
+    catch (error) { if (!ws.data.closed) o.log(`link ${machine}: reads stay on SSH: ${(error as Error).message}`); }
   };
+  let retiring = false;
+  const retire = async () => {
+    if (retiring) return;
+    retiring = true;
+    try {
+      for (const ws of peers.values()) {
+        const p = ws.data, machine = p.machine;
+        if (!machine || !p.streams || p.closed) continue;
+        const pid = await forwardBehindLink(machine, forward).catch(() => null);
+        if (!pid) { p.behind = undefined; continue; }
+        if (p.behind?.pid !== pid) { p.behind = { pid, since: Date.now() }; continue; }
+        if (Date.now() - p.behind.since < grace) continue;
+        p.behind = undefined;
+        if (await retireForward(machine, pid, forward).catch(e => { o.log(`link ${machine}: ${(e as Error).message}`); return false; })) o.log(`link ${machine}: ended the SSH connection it took over from (pid ${pid})`);
+      }
+    } finally { retiring = false; }
+  };
+  const retirement = setInterval(() => void retire(), Math.max(100, Math.min(10_000, Math.floor(grace / 3))));
   const server = Bun.serve<Peer>({
     hostname: "127.0.0.1", port: o.port,
     fetch(req, server) {
@@ -230,7 +244,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
   return { port: server.port!, async stop() {
     // The CLI signal handler can exit before an awaited stop resumes: release its sockets first.
-    updates.close(); clearInterval(heartbeat);
+    updates.close(); clearInterval(heartbeat); clearInterval(retirement);
     for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); }
     const closed = opener.stop(true); io.remove(socket);
     await server.stop(true); await closed;

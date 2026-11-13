@@ -95,7 +95,8 @@ export class OutlineLinks {
           const remaining = deadline - Date.now();
           if (remaining <= 0) throw new Error("machine read deadline");
           return [await read({ outline, machine, client: new OutlinerClient(layout.remote(machine).socket, remaining, outline) })];
-        } catch { return fallback([outline]); }
+        // A copy only of an outline this machine follows: a read that missed its deadline never starts following one.
+        } catch { return fallback(copies.includes(outline) ? [outline] : []); }
       }));
       return results.flat();
     }));

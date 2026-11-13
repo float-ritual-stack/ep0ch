@@ -613,6 +613,8 @@ async function followedCopy(mirrors: string, machine: string, outline: string, s
     const read = await follower.read();
     if ("error" in read) throw new Error(`${outline}@${machine}'s copy: ${read.error}`);
   } finally { await follower.close(); }
+  // The gateway's ask, which outlives this follower: a process that still runs (this one) asks for the copy (PIE-1779).
+  writeFileSync(join(mirrors, machine, ".follow", `${outline}.${process.pid}.want`), "");
   // What the copy holds once its follower stopped (a range that landed after the read is in it): its own record.
   return (JSON.parse(readFileSync(join(mirrors, machine, ".follow", `${outline}.json`), "utf8")) as { asOf: string }).asOf;
 }
