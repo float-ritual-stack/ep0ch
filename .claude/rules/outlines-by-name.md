@@ -36,7 +36,8 @@ it before changing it.
   set aside and said on stderr (`scratchEnv`, `ignoredMachineNote`; PIE-912).
 - Every client reaches it through one shared socket, `<outlines>/.remote/<ssh-name>.sock` (outline-core's
   `src/machine.ts`, `ensureForward`): the outbound link's `<ssh-name>.link.sock` first, then an SSH forward
-  started by the first client that needs it. Clients name the transport they used. `<outlines>/.remote/<ssh-name>.json`
+  started by the first client that needs it. `ensureForward` alone decides which (PIE-1779): the link takes the socket by
+  one rename, never by ending SSH under a read, and the link's server ends SSH later (`retireForward`). Clients name the transport they used. `<outlines>/.remote/<ssh-name>.json`
   (`{ "outlines": "/abs/folder" }`) names that machine's outlines folder when its own `ep0ch status` isn't the host
   to reach. `EP0CH_SOCKET` names any host's socket outright, the low-level escape hatch. It beats `EP0CH_MACHINE`
   and a `.ep0ch`'s machine, but a typed `--machine` beats it: a host hands its socket to every program it starts (a

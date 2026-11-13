@@ -277,12 +277,16 @@ export class OutlinerClient {
       socket.destroy();
     };
     socket.setEncoding("utf8");
+    let answered = false;
     socket.on("error", fail);
+    // Closed with no answer (an SSH forward ended under it, a host that stopped): said now, not at the timeout (PIE-1779).
+    socket.once("close", () => { if (!answered) fail(new Error("the outline host closed the connection before it answered")); });
     socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       const newline = buffer.indexOf("\n");
       if (newline < 0) return;
+      answered = true;
       clearTimeout(timeout);
       // One request per connection: the answer is in, so close outright rather than half-close.
       socket.destroy();

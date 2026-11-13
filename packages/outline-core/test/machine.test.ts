@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { ensureForward, forwardPaths, forwardState, type MachineIO, parseRemoteStatus, REMOTE_STATUS, sshArgv } from "../src/machine";
+import { ensureForward, forwardPaths, forwardState, type MachineIO, parseRemoteStatus, REMOTE_STATUS, retireForward, sshArgv } from "../src/machine";
 
 /**
  * A fictional machine reached over a fictional ssh, on a fictional clock: what each ssh call does to the world (the
  * connection, the forward, its log), the files, and every call made, in order.
  */
-function world(o: { status?: { code: number; out: string; err?: string }; forwardFails?: string; hostDown?: boolean; slowAnswers?: number } = {}) {
+function world(o: { status?: { code: number; out: string; err?: string }; forwardFails?: string; hostDown?: boolean; slowAnswers?: number; linkAnswers?: boolean } = {}) {
   const calls: string[][] = [];
   const files = new Map<string, string>();
+  const routes = new Map<string, string>();
   const alive = new Set<number>([4242]);
   let connected = false, clock = 0;
   const io: MachineIO = {
@@ -20,23 +21,30 @@ function world(o: { status?: { code: number; out: string; err?: string }; forwar
         expect(how?.detached).toBe(true);
         if (o.forwardFails) { files.set(argv[argv.indexOf("-E") + 1]!, `debug1: hello\n${o.forwardFails}\n`); return { code: 255, out: "", err: "" }; }
         connected = true;
+        // ssh makes the forward's socket file (and, as OpenSSH does, leaves it there when it ends).
+        files.set(argv[argv.indexOf("-L") + 1]!.split(":")[0]!, "socket");
         return { code: 0, out: "", err: "" };
       }
       return { err: "", ...(o.status ?? { code: 0, out: JSON.stringify({ socket: "/home/sam/outlines/.host/host.sock", outlines: [{ name: "jam-shelf" }] }) }) };
     },
-    answers: async () => { clock += o.slowAnswers ?? 0; return connected && !o.hostDown; },
+    answers: async socket => {
+      clock += o.slowAnswers ?? 0;
+      if (routes.has(socket) || socket.endsWith(".link.sock")) return !!o.linkAnswers;
+      return connected && !o.hostDown && files.has(socket);
+    },
     privateDir: () => {},
     read: path => files.get(path) ?? null,
     exists: path => files.has(path),
-    remove: path => { files.delete(path); },
-    routeLink: () => {},
+    remove: path => { files.delete(path); routes.delete(path); },
+    routeLink: (socket, target) => { files.set(socket, "route"); routes.set(socket, target); },
+    route: socket => routes.get(socket) ?? null,
     createExclusive: (path, text) => (files.has(path) ? false : (files.set(path, text), true)),
     pid: 4242,
     alive: pid => alive.has(pid),
     now: () => clock,
     sleep: async ms => { clock += ms; },
   };
-  return { io, calls, files, alive, drop: () => { connected = false; }, get connected() { return connected; } };
+  return { io, calls, files, routes, alive, drop: () => { connected = false; }, get connected() { return connected; } };
 }
 const OPTS = (io: MachineIO) => ({ ssh: "ssh", outlines: "/home/sam/outlines", io, waitMs: 300 });
 const ops = (calls: string[][]) => calls.map(c => (c.includes("-O") ? c[c.indexOf("-O") + 1] : c.includes("-L") ? "forward" : "status"));
@@ -112,6 +120,53 @@ describe("a machine's forward", () => {
     expect(parseRemoteStatus('Welcome {friend}!\n{\n "socket": "/s/host.sock",\n "outlines": [{"name":"jam-shelf"},{"name":"garden"}]\n}\nbye\n', "box-a")).toEqual({ socket: "/s/host.sock", outlines: ["jam-shelf", "garden"] });
     expect(() => forwardPaths("/o", "-oProxyCommand=x")).toThrow("isn't an ssh config name");
     expect(() => forwardPaths(`/${"o".repeat(70)}`, "box-a")).toThrow("too long for a socket's path");
+  });
+
+  test("a link that comes up while SSH serves takes the socket by one rename, and SSH is ended only once nothing rides it", async () => {
+    // PIE-1779: the link once ended SSH under every read in flight, then waited for a socket file OpenSSH never removes.
+    const w = world({ linkAnswers: true });
+    const sock = "/home/sam/outlines/.remote/box-a.sock", link = "/home/sam/outlines/.remote/box-a.link.sock";
+    expect((await ensureForward("box-a", OPTS(w.io))).transport).toBe("ssh");
+    w.files.set("/home/sam/outlines/.remote/box-a.link.json", JSON.stringify({ machine: "box-a", pid: 4242, up: true, streams: true }));
+    w.calls.length = 0;
+    expect(await ensureForward("box-a", OPTS(w.io))).toEqual({ socket: sock, how: "up", transport: "link" });
+    expect(w.routes.get(sock)).toBe(link);
+    expect(ops(w.calls)).toEqual([]);
+    expect(w.connected).toBe(true);
+    // Up and routed: the next client finds it without the lock or an ssh call.
+    expect((await ensureForward("box-a", OPTS(w.io))).transport).toBe("link");
+    expect(ops(w.calls)).toEqual([]);
+    // The link's server ends the connection later; never one that still serves the socket.
+    expect(await retireForward("box-a", OPTS(w.io))).toBe(true);
+    expect(w.connected).toBe(false);
+    const ssh = world();
+    await ensureForward("box-a", OPTS(ssh.io));
+    expect(await retireForward("box-a", OPTS(ssh.io))).toBe(false);
+    expect(ssh.connected).toBe(true);
+  });
+
+  test("once the link has gone, an SSH connection it took the socket from is ended and started again; a link on another protocol leaves SSH be", async () => {
+    const w = world({ linkAnswers: true });
+    const sock = "/home/sam/outlines/.remote/box-a.sock", state = "/home/sam/outlines/.remote/box-a.link.json";
+    await ensureForward("box-a", OPTS(w.io));
+    w.files.set(state, JSON.stringify({ machine: "box-a", pid: 4242, up: true }));
+    await ensureForward("box-a", OPTS(w.io));
+    // The link drops: its server removes its route; the connection is still up, with no socket of its own.
+    w.files.set(state, JSON.stringify({ machine: "box-a", pid: 4242, up: false }));
+    w.io.remove(sock);
+    w.calls.length = 0;
+    expect(await ensureForward("box-a", OPTS(w.io))).toMatchObject({ how: "started", transport: "ssh" });
+    expect(ops(w.calls)).toEqual(["check", "exit", "status", "forward"]);
+    // A route left behind by a link that went without saying so (a crash) is no forward either.
+    w.io.routeLink(sock, "/home/sam/outlines/.remote/box-a.link.sock");
+    w.drop();
+    expect(await ensureForward("box-a", OPTS(w.io))).toMatchObject({ how: "started", transport: "ssh" });
+    expect(w.routes.has(sock)).toBe(false);
+    // A link on another protocol carries no reads: SSH keeps the machine.
+    w.files.set(state, JSON.stringify({ machine: "box-a", pid: 4242, up: true, streams: false }));
+    w.calls.length = 0;
+    expect(await ensureForward("box-a", OPTS(w.io))).toMatchObject({ how: "up", transport: "ssh" });
+    expect(ops(w.calls)).toEqual([]);
   });
 
   test("its state, read without starting anything", async () => {

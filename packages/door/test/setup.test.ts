@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, installCopy, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, installCopy, handoverLines, hostReady, hostVerb, linkAfterRestart, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { doorExtState, extFacts } from "../src/setup/ext-links";
@@ -1748,4 +1748,19 @@ describe("restarts only on a change to the code each service runs (PIE-1397)", (
   });
 
 
+});
+
+test("a connector that runs again but hasn't reached its server is slow, not down: the install goes on (PIE-1779)", () => {
+  // The laptop, Nov 12: its install stopped at the machine link ("laptop: connection timed out") and nothing after it ran,
+  // so its door sessions weren't handed over, while its connector ran and only waited on a busy server.
+  const row = (o: Partial<Parameters<typeof linkAfterRestart>[2][number]>) => ({ machine: "orchard", transport: "link" as const, direction: "outbound" as const, up: false, running: true, pid: 20, ...o });
+  const before = [row({ pid: 10, up: true })];
+  expect(linkAfterRestart("connect", ["orchard"], before, [row({ up: true })]).kind).toBe("ok");
+  expect(linkAfterRestart("connect", ["orchard"], before, [row({ reason: "connection timed out" })])).toEqual({ kind: "slow", said: "orchard: connection timed out" });
+  // Not running again, or still the old process: down, and the install stops there as before.
+  expect(linkAfterRestart("connect", ["orchard"], before, [row({ running: false, reason: "link process is not running" })]).kind).toBe("down");
+  expect(linkAfterRestart("connect", ["orchard"], before, [row({ pid: 10 })]).kind).toBe("down");
+  // A server only has to run: whether the machine dials back in is that machine's.
+  const inbound = (o: Parameters<typeof row>[0]) => row({ direction: "inbound", ...o });
+  expect(linkAfterRestart("serve", ["orchard"], [inbound({ pid: 10 })], [inbound({ reason: "waiting for connector" })]).kind).toBe("ok");
 });

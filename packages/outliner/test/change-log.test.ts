@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
+import { applyRange, canonicalDump, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
 import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
@@ -112,6 +112,34 @@ test("a range ends at the end of a store transaction, never inside one", () => {
   expect(page.complete).toBe(false);
   expect(jar.id).toBeTruthy();
   home.close();
+});
+
+test("a page is cut by its size as well as its count, at a transaction's end, so a slow line carries it in time", () => {
+  // float-2, Nov 12 (PIE-1779): a follower's 5,000-entry page of a big outline was 10 MB; over the laptop's 0.7 MB/s it
+  // outran the 15 s a request waits, so the rebuild never finished.
+  const dir = root();
+  const home = new OutlinerStore(join(dir, "home.sqlite"));
+  for (let i = 0; i < 30; i++) home.create(`Seed catalogue ${i}\n${"Sow after the last frost. ".repeat(4_000)}`);
+  const bytes = (r: LogRange) => r.entries.reduce((n, e) => n + (e.row?.length ?? 0) + (e.key?.length ?? 0), 0);
+  const pages: LogRange[] = [];
+  for (let after = 0; ;) {
+    const page = home.log.range(after, 5_000);
+    pages.push(page);
+    if (page.complete) break;
+    after = page.entries.at(-1)!.lsn;
+  }
+  expect(pages.length).toBeGreaterThan(1);
+  for (const page of pages) {
+    const last = page.entries.at(-1)!.txn, before = { ...page, entries: page.entries.filter(e => e.txn !== last) };
+    // Under the budget until its last transaction, which it finishes whole.
+    expect(bytes(before)).toBeLessThan(LOG_RANGE_PAGE_BYTES);
+  }
+  const follower = join(dir, "follower.sqlite");
+  const db = new Database(follower, { create: true });
+  openFollowerSchema(db, home.log.cursor().logId);
+  for (const page of pages) applyRange(db, page, SCHEMA_VERSION);
+  expect(canonicalDump(db)).toBe(dumpOf(join(dir, "home.sqlite")));
+  db.close(); home.close();
 });
 
 test("a follower refuses a range that doesn't follow its cursor, and keeps what it has", () => {

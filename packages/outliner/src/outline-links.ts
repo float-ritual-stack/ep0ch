@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { OutlineFollower, mirrorsConfig } from "./outline-follower";
 import { SCHEMA_VERSION } from "./schema";
 import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
@@ -50,10 +49,9 @@ export class OutlineLinks {
     const machines = new Set(files(layout.remoteDir).filter(f => f.endsWith(".sock") && !f.endsWith(".link.sock")).map(f => f.slice(0, -5)));
     if (!("error" in config)) for (const entry of config.mirrors) machines.add(entry.machine);
     const answers = await Promise.all([...machines].sort().map(async machine => {
-      const copies = "error" in config ? [] : [...new Set([
-        ...config.mirrors.filter(m => m.machine === machine).map(m => m.outline),
-        ...files(join(config.folder, machine)).filter(f => f.endsWith(".sqlite") && !f.endsWith(".owner.sqlite") && !f.startsWith(".")).map(f => f.slice(0, -7)),
-      ])];
+      // What this machine follows is EP0CH_MCP_MIRRORS, the one list (PIE-1779): a file left in the copies' folder by an
+      // earlier list isn't followed again because a link read found it.
+      const copies = "error" in config ? [] : config.mirrors.filter(m => m.machine === machine).map(m => m.outline);
       const copy = async (outline: string): Promise<T | undefined> => {
         if ("error" in config) return;
         const key = `${machine}/${outline}`;

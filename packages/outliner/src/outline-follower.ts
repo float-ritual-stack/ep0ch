@@ -186,6 +186,14 @@ async function answers(socket: string): Promise<boolean> {
   try { await new OutlinerClient(socket, 1_500).request({ action: "outlines.list" } as never); return true; } catch { return false; }
 }
 
+/** The process that asked for a copy (`.follow/<outline>.want` holds its id), while it runs; null for one that has gone. */
+function wantedBy(file: string): number | null {
+  let pid: number;
+  try { pid = Number(readFileSync(file, "utf8").trim()); } catch { return null; }
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try { process.kill(pid, 0); return pid; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM" ? pid : null; }
+}
+
 /** The removal of a database file and its side files (a copy being replaced: nothing has it open). */
 const removeDatabase = (path: string) => { for (const s of ["", "-wal", "-shm"]) rmSync(path + s, { force: true }); };
 
@@ -427,11 +435,14 @@ export class OutlineFollower<B> {
     try { mkdirSync(dirname(this.homeFile), { recursive: true, mode: 0o700 }); writeFileSync(this.homeFile, `${name}\n`); } catch { /* the alias is a convenience */ }
   }
 
-  /** Asks whichever process owns the folder to follow this outline too (a file the owner looks for). */
+  /**
+   * Asks whichever process owns the folder to follow this outline too: a file the owner looks for, holding this
+   * process's id, so an ask outlives neither the process that made it nor the list it came from (PIE-1779).
+   */
   private want(): void {
     const file = join(this.dir, ".follow", `${this.outline}.want`);
-    if (existsSync(file)) return;
-    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, "", { mode: 0o600 }); } catch { /* the next read asks again */ }
+    if (wantedBy(file) !== null) return;
+    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, String(process.pid), { mode: 0o600 }); } catch { /* the next read asks again */ }
   }
 
   /** Whether a copy has arrived. */
@@ -477,7 +488,7 @@ export class OutlineFollower<B> {
       // What other processes asked for, followed here too, on this process's clock and reach.
       const look = () => {
         let wanted: string[] = [];
-        try { wanted = readdirSync(join(f.dir, ".follow")).filter(n => n.endsWith(".want")).map(n => n.slice(0, -5)); } catch { return; }
+        try { wanted = readdirSync(join(f.dir, ".follow")).filter(n => n.endsWith(".want") && wantedBy(join(f.dir, ".follow", n)) !== null).map(n => n.slice(0, -5)); } catch { return; }
         for (const outline of wanted) {
           if (f.loops.has(outline) || f.asked.has(outline) || !isOutlineName(outline)) continue;
           const loop = new FollowLoop(f, outline, { log: this.log, now: this.now, schema: this.schema, migrate: this.migrate, label: this.label, reach: this.reach, everyMs: this.everyMs });

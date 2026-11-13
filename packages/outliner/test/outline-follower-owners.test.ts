@@ -2,7 +2,7 @@
 // Here the owner is another process (a gateway, say) following one outline; this process wants a second one from the
 // same machine, gets it from that owner, and takes the folder over when the owner exits. Fictional notes throughout.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerClient } from "../src/client";
@@ -90,3 +90,19 @@ test("when the owner exits, the next process takes the folder over and keeps fol
   // The bread the old owner followed is still read here.
   expect(bread.id).toBeTruthy();
 }, 45_000);
+
+test("an ask left by a process that has gone, or by an earlier build, isn't followed (PIE-1779)", async () => {
+  // float-2, Nov 12: asks for eight copies nobody listed any more stayed in the folder, and the gateway followed them
+  // all, each asking the laptop for its log through the one forward.
+  const follow = join(root, "mirrors", FAR, ".follow");
+  const store = new OutlinerStore(far().database("pantry"), { workspaceRoot: root });
+  store.create("Pantry\nLentils on the top shelf.", null, "user");
+  store.close();
+  writeFileSync(join(follow, "pantry.want"), "");
+  const gone = Bun.spawn(["true"]);
+  await gone.exited;
+  writeFileSync(join(follow, "larder.want"), String(gone.pid));
+  // The owner looks every second (everyMs 1000): three looks.
+  await Bun.sleep(3_000);
+  expect(["pantry", "larder"].filter(name => existsSync(join(follow, `${name}.json`)))).toEqual([]);
+});
