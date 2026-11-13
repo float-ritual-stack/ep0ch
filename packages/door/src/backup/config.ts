@@ -62,6 +62,8 @@ export interface BackupConfig {
   state: string;
   /** `<mirrors>/<machine>/<outline>.sqlite`: the MCP gateway's mirrors (EP0CH_MCP_MIRROR_DIR, else ~/outline-mirrors). */
   mirrorsDir: string;
+  /** What this machine follows into `mirrorsDir` (EP0CH_MCP_MIRRORS), as `<outline>@<machine>`. */
+  following: string[];
   mirrors: MirrorSource[];
   restic: string;
   /** How long the daily prune may run (EP0CH_BACKUP_PRUNE_MINUTES, default 40 minutes). */
@@ -114,6 +116,7 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
     host: env.EP0CH_SOCKET?.trim() || outlineLayout(outlines).socket,
     state,
     mirrorsDir: resolve(get("EP0CH_MCP_MIRROR_DIR") || join(home, "outline-mirrors")),
+    following: (get("EP0CH_MCP_MIRRORS") ?? "").split(",").map(s => s.trim()).filter(Boolean),
     mirrors,
     restic: get("EP0CH_RESTIC") ?? "restic",
     pruneTimeoutMs: (Number(get("EP0CH_BACKUP_PRUNE_MINUTES")) > 0 ? Number(get("EP0CH_BACKUP_PRUNE_MINUTES")) : 40) * 60_000,

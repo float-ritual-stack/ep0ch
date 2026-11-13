@@ -377,7 +377,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     // Another machine's outlines are followed now (ADR 0009): a state file the restic mirrors wrote keeps nothing of them.
     for (const old of ["mirrors", "sources", "guard"]) delete (s as unknown as Record<string, unknown>)[old];
     // The followers' word on their copies, for the alert (a copy that stopped following is an incident).
-    s.follows = followedCopies(c.mirrorsDir);
+    s.follows = followedCopies(c.mirrorsDir, c.following);
     // Each part stands alone: one failing never stops the others.
     const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
     writeBackupState(c.state, s);

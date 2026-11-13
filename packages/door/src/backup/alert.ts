@@ -8,6 +8,7 @@
 // fixes it.
 import { age } from "@ep0ch/outline-core/age";
 import { readdirSync, readFileSync } from "node:fs";
+import { followedCopies as askedCopies } from "@ep0ch/outliner/outline-follower";
 import { join } from "node:path";
 import { writeState } from "../state";
 import { plainFailure } from "./plain";
@@ -101,14 +102,18 @@ export interface BackupState {
 export interface FollowedCopy { key: string; cursor: number; copiedAt: string | null; stale: { since: string | null; why: string } | null }
 
 /** Each follower's own word on its copy, read from the status files the owner writes. */
-export function followedCopies(mirrors: string): FollowedCopy[] {
+export function followedCopies(mirrors: string, listed: readonly string[] = []): FollowedCopy[] {
   const out: FollowedCopy[] = [];
   let machines: string[] = [];
   try { machines = readdirSync(mirrors).filter(m => !m.startsWith(".")); } catch { return out; }
   for (const machine of machines.sort()) {
     let files: string[] = [];
     try { files = readdirSync(join(mirrors, machine, ".follow")).filter(f => f.endsWith(".json")); } catch { continue; }
+    // Only what is followed (PIE-1779): listed (`<outline>@<machine>`), or asked for by a process that runs; a status
+    // file an earlier list left behind says nothing about now.
+    const asked = new Set(askedCopies(mirrors, machine));
     for (const f of files.sort()) {
+      if (!asked.has(f.slice(0, -5)) && !listed.includes(`${f.slice(0, -5)}@${machine}`)) continue;
       try {
         const st = JSON.parse(readFileSync(join(mirrors, machine, ".follow", f), "utf8")) as { cursor?: number; copiedAt?: string | null; stale?: { since: string | null; why: string } | null };
         out.push({ key: `${f.slice(0, -5)}@${machine}`, cursor: st.cursor ?? 0, copiedAt: st.copiedAt ?? null, stale: st.stale ?? null });
