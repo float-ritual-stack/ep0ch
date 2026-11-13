@@ -1542,10 +1542,11 @@ export class Draft {
     if (!ask) return "";
     const where = this.answerSaid(ask, row, ask === saved);
     if (ask.warning) {
-      // Beside its line while that fits (a row of its own moves what's typed below it): the block count gives way first, then
-      // the answer's side (`beside ▸`, what a click on the row shows: PIE-1775 lost it at 61 columns while the count stayed).
+      // Beside its line while that fits (a row of its own moves what's typed below it): the block count gives way first
+      // (PIE-1775 lost the side at 61 columns while the count stayed). The answer's side never does (`below ▾`, what a click
+      // on the row shows: PIE-1791's 44-column row named no tile under it): narrower, the words take a row of their own.
       const warn = ` · ${ask.warning}`, blocks = ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : "";
-      return [warn + blocks + where, warn + where, warn].find(t => width(t) <= room) ?? warn + blocks + where;
+      return width(warn + blocks + where) <= room ? warn + blocks + where : warn + where;
     }
     const short = ` · ${ask.state}${where}`;
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${where}`;
