@@ -260,6 +260,30 @@ describe("the whole command, in a scratch home", () => {
     expect(existsSync(join(backups, "20260314T092653Z/seed-library.sqlite"))).toBe(true);
   });
 
+  test("install marks a rollback point in the archive once a served drill stands in, and copies, saying why, when it can't (PIE-1786)", async () => {
+    const f = home("rollback-point");
+    const env = { ...f.env, EP0CH_STATE: join(f.h, "state") };
+    const plan = async () => {
+      const out: string[] = [];
+      expect(await setupCommand(["install", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot })).toBe(0);
+      return JSON.parse(out[0]!).steps.find((s: { id: string }) => s.id === "backup") as { title: string; why: string; archive?: true };
+    };
+    // No drill: copies, and the one line says so.
+    expect((await plan()).why).toMatch(/^copying, because no restore drill has run here yet \(ep0ch backup drill --serve\)/);
+    // A served drill that passed today: the archive stands in.
+    mkdirSync(join(f.h, "state/backup"), { recursive: true });
+    const at = new Date().toISOString();
+    writeFileSync(join(f.h, "state/backup/state.json"), JSON.stringify({ outlines: {}, drill: { at, ok: true, detail: "restored, replayed and served 2", served: [{ outline: "field-notes", restoreMs: 900, replayMs: 300, serveMs: 400, blocks: 1 }] } }));
+    const stands = await plan();
+    expect({ title: stands.title, archive: stands.archive }).toEqual({ title: "Mark every outline's rollback point", archive: true });
+    // Applied with no repository to archive to: it copies after all, and says why in one line.
+    const out: string[] = [];
+    await setupCommand(["install", "--apply", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot });
+    const step = JSON.parse(out.at(-1)!).steps.find((s: { id: string }) => s.id === "backup") as { done: string[] };
+    expect(step.done.join("\n")).toMatch(/copying instead: (archiving the logs failed \(.+\)|the archive run left field-notes, seed-library unarchived)/);
+    expect(step.done.join("\n")).toContain("field-notes: ");
+  }, 60_000);
+
   test("install refuses a backup without enough space before copying any database", async () => {
     const f = home("full-backup-volume");
     const trees = join(f.h, "volume-worktrees");

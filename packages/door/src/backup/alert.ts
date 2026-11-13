@@ -56,7 +56,27 @@ export const FORGET_EVERY_MS = 6 * 3_600_000;
 export const PRUNE_RETRY_MS = 3 * 3_600_000;
 
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
-export interface Drill { at: string; ok: boolean; detail: string; via?: string }
+export interface Drill {
+  at: string; ok: boolean; detail: string; via?: string;
+  /** A served drill (`--serve`, PIE-1786): each outline opened by a scratch host and read, with its times. */
+  served?: { outline: string; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }[];
+}
+
+/** How recent a passing served drill must be for install to stop copying outlines (PIE-1786). */
+export const SERVED_DRILL_FRESH_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Whether the backups can stand in for install's copies now (PIE-1786): a served drill passed within
+ * SERVED_DRILL_FRESH_MS, on this machine's own repository. Else, why not, in words install says in one line.
+ */
+export function drillStandsIn(s: Pick<BackupState, "drill"> | null, now: number): { ok: true } | { ok: false; why: string } {
+  const d = s?.drill;
+  if (!d) return { ok: false, why: "no restore drill has run here yet (ep0ch backup drill --serve)" };
+  if (!d.ok) return { ok: false, why: `the last restore drill failed (${d.at}): ${d.detail.slice(0, 160)}` };
+  if (!d.served?.length) return { ok: false, why: `the last restore drill (${d.at}) didn't serve its outlines from a scratch host (ep0ch backup drill --serve)` };
+  if (now - Date.parse(d.at) > SERVED_DRILL_FRESH_MS) return { ok: false, why: `the last served restore drill is from ${d.at}, more than 7 days ago (ep0ch backup drill --serve)` };
+  return { ok: true };
+}
 
 /**
  * Netmail (PIE-615): on the gateway's machine, each other machine's queued MCP writes; on a home machine, its last

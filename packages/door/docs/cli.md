@@ -245,7 +245,7 @@ changed is snapshotted (VACUUM INTO, integrity-checked) into this machine's rest
 repository, other machines' mirrors are refreshed from theirs, and what's stale is
 put on the door's status bar and announced once (scripts/backup/README.md)
 ```text
-ep0ch backup snapshot [--force] [--verbose] | mirror | drill
+ep0ch backup snapshot [--force] [--verbose] | mirror | drill [--serve]
 ```
 
 one part of it: snapshot (--force: unchanged outlines too), mirror, the restore drill.

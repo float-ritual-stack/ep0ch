@@ -64,7 +64,7 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
     case "drill": {
       // From here, or through the hub when the repository is out of reach (jobs.ts drillHere).
       const s = readBackupState(c.state);
-      const d = await drillHere(c, { say });
+      const d = await drillHere(c, { say, ...(args.includes("--serve") ? { serve: true } : {}) });
       if ("waiting" in d) {
         s.drillWaiting = { since: s.drillWaiting?.since ?? new Date().toISOString(), why: d.waiting };
         writeBackupState(c.state, s);
@@ -84,7 +84,7 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
 export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> = {
   run: { bare: ["--drill", "--verbose"], value: [] },
   snapshot: { bare: ["--force", "--verbose"], value: [] },
-  drill: { bare: ["--json"], value: ["--machine"] },
+  drill: { bare: ["--json", "--serve"], value: ["--machine"] },
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
   restore: { bare: [], value: ["--machine", "--at", "--to"] },

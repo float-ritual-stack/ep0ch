@@ -11,6 +11,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
 import { ep0ch, sessionFlags } from "../session/place";
 import { backupPlan } from "../backup/setup";
+import { drillStandsIn } from "../backup/alert";
 import { diskPlan } from "../disk/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, type PublisherFacts, RUNS, codeFiles, codeKey, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
@@ -28,6 +29,10 @@ export interface Step {
   commands: string[];
   /** backup: each database and where it's copied. */
   backups?: (DatabaseFacts & { dest: string })[];
+  /** The backup step archives every outline's log instead of copying it (PIE-1786): a served restore drill stands in. */
+  archive?: true;
+  /** The repo step goes back to an earlier commit (`--sha <earlier> --back`, PIE-1786): the code alone. */
+  back?: true;
   /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
   unchecked?: true;
   /** ext, skills: the links to make, replace and take away (links.ts), as the commands say. */
@@ -228,8 +233,13 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
   if (!f.databases.length) return { id: "backup", title, status: "skip", why: `no outlines in ${f.host.folder}`, commands: [] };
   const backups = f.databases.map(d => ({ ...d, dest: join(o.backupDir, backupName(d.name, o.now)) }));
   if (!anythingElse) return { id: "backup", title, status: "skip", why: `nothing else changes, so no backup is needed (${f.databases.length} outline${f.databases.length === 1 ? "" : "s"})`, commands: [], backups };
+  // The data's way back is the archive once a served restore drill has proved it (PIE-1786): every outline's log
+  // archived now, its point said; the code's way back is `--sha <earlier> --back`, apart from it. Else, copies.
+  const stands = drillStandsIn(f.restic?.state ?? null, o.now.getTime());
+  if (stands.ok) return { id: "backup", title: "Mark every outline's rollback point", status: "do", archive: true, backups,
+    why: `the backups stand in for copies (a served restore drill passed ${f.restic!.state!.drill!.at}): every outline's log archived now, and the point to restore to said`, commands: ["ep0ch backup snapshot"] };
   // A served outline is copied by its host (PIE-1750); a stopped one, with no host answering, from its file.
-  return { id: "backup", title, status: "do", why: `before anything changes: a consistent copy (VACUUM INTO${f.host.running ? ", by the host" : ""}) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
+  return { id: "backup", title, status: "do", why: `copying, because ${stands.why}: before anything changes, a consistent copy (VACUUM INTO${f.host.running ? ", by the host" : ""}) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
     commands: backups.map(b => f.host.running ? `ep0ch backup copy ${b.name} ${b.dest}` : `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
 }
 

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { alertMark, type BackupState, CHECK_LATE_MS, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
+import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
@@ -301,6 +301,23 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(out.join("\n")).toMatch(/garden ok \(\d+ blocks, entry \d+/);
     expect(out.join("\n")).toMatch(/pantry ok \(\d+ blocks/);
     expect(readBackupState(join(root, "laptop", "state", "backup")).drill?.ok).toBe(true);
+  }, 120_000);
+
+  test("a served drill opens each restored outline with a scratch host of its own and reads it, timed; install then stops copying (PIE-1786)", async () => {
+    const out: string[] = [];
+    const env = laptop.env;
+    const code = await backupCommand(["backup", "drill", "--serve"], { out: s => out.push(s), err: s => out.push(s) }, env);
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/garden ok \(\d+ blocks.*served by a scratch host: \d+ notes read \(restore [\d.]+ s, replay [\d.]+ s, open and read [\d.]+ s\)/);
+    const drill = readBackupState(join(root, "laptop", "state", "backup")).drill!;
+    expect(drill.ok).toBe(true);
+    expect(drill.served?.map(t => t.outline).sort()).toEqual(["garden", "pantry"]);
+    expect(drill.served!.every(t => t.serveMs >= 0 && t.blocks !== null && t.blocks > 0)).toBe(true);
+    // The gate install reads: a passing served drill stands in for its copies, for 7 days.
+    expect(drillStandsIn({ drill }, Date.parse(drill.at))).toEqual({ ok: true });
+    expect(drillStandsIn({ drill }, Date.parse(drill.at) + 8 * 86_400_000)).toMatchObject({ ok: false, why: expect.stringContaining("more than 7 days ago") });
+    expect(drillStandsIn({ drill: { ...drill, served: undefined } }, Date.parse(drill.at))).toMatchObject({ ok: false, why: expect.stringContaining("didn't serve") });
+    expect(drillStandsIn(null, 0)).toMatchObject({ ok: false, why: expect.stringContaining("no restore drill") });
   }, 120_000);
 
   test("`backup run` at a terminal: each step spins and ends with its time, as install's do; piped, the plain lines", async () => {
