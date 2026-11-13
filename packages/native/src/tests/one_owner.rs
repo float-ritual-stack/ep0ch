@@ -47,6 +47,9 @@ fn where_the_keys_are_is_said_once_and_a_hint_row_reads_it() {
     // The bar and the form draw their own hint rows, each under the one field it is the keys of.
     let named: Vec<String> = strays("Layer::", |path| path == "keys.rs").into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
     assert!(named.iter().all(|path| path == "bar.rs"), "a layer named outside keys.rs and the bar's own two hint rows: {named:?}");
+    // A screen's own keys are read off its spec in one place, and bound in keys.rs with the rows'.
+    none("a screen's keys read outside the spec's own reader", strays("[\"keys\"]", |path| path == "screen.rs"));
+    none("a screen's keys bound outside keys.rs", strays(".keys()", |path| path == "keys.rs").into_iter().filter(|found| found.contains("spec")).collect());
 }
 
 #[test]

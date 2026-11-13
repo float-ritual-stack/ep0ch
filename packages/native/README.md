@@ -455,7 +455,9 @@ toolbar button is
   a kind that runs a program is still drawn as its spec.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
-- Keys are the rows' defaults: a screen's own keys and the person's `keybindings.json` aren't read yet.
+- Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);
+  the person's `keybindings.json` isn't read yet, and a button's keycap is its row's default even where a screen
+  binds another key to the same line.
 - With the screens extension uninstalled the window says there is no screen to open on, and opens when it is
   back (the bar's Extensions installs it).
 - After its own write the window reads what it shows at once rather than waiting for the watch to say so.

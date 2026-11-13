@@ -1,7 +1,7 @@
 //! Tiles and screens: the shell draws whatever tree the layout holds, where the layout says; an open lands where
 //! `place` says, asked only through the `open` action; and a screen is data that is opened, saved, found broken
 //! and reset. Every layout here is opened as a screen the host lists, the way a person's own would be.
-use rune::{Key, Runtime};
+use rune::{Key, Mods, Runtime};
 use serde_json::{Value, json};
 
 use super::support::*;
@@ -315,4 +315,39 @@ fn the_arrangement_is_kept_in_a_file_and_the_window_opens_as_it_was_left() {
     assert_eq!((again.note_of("reader2").as_deref(), again.ui("tree").unfolded.iter().next().map(String::as_str), again.layout.focus.as_str()), (Some("shed"), Some("plot"), "reader2"));
     let _ = std::fs::remove_file(&file);
     let _ = std::fs::remove_dir(&dir);
+}
+
+#[test]
+fn a_screen_s_own_keys_run_first_while_a_tile_has_the_keys_and_never_while_a_block_is_written() {
+    let mut g = garden(ok());
+    let mut row = screen_row("potting", json!({ "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [{ "t": "leaf", "kind": "query", "name": "beds", "query": "type=chore" }, { "t": "leaf", "kind": "reader", "name": "reader" }] } }), json!([]));
+    // As a screen writes its keys: a capital is the letter with Shift; one runs in a tile it names; one holds only off a reader.
+    row["spec"]["keys"] = json!([
+        { "key": "S", "action": "bar.open", "args": { "scope": "screens" } },
+        { "key": "x", "action": "tile.close", "tile": "beds", "only": ["reader"] },
+        { "key": "b", "action": "bar.open", "unless": ["reader"] },
+    ]);
+    screens_are(&mut g, json!([row]));
+    assert!(act(&mut g.app, "screen.open name=potting").ok);
+    act(&mut g.app, "open id=shed");
+    let mut rt = window(g.app);
+    // The keys are listed with the rows', the screen's own first and said to be the screen's.
+    let listed = crate::keys::rows(&rt.state);
+    assert_eq!(listed[0], json!({ "chord": "S", "line": "bar.open scope=screens", "layer": "tile", "from": "screen" }));
+    assert_eq!(listed[1], json!({ "chord": "x", "line": "tile.close tile=beds", "layer": "tile", "from": "screen", "only": ["reader"] }));
+    // While a block is written the keys are its field's: a letter the screen binds is a letter typed.
+    press(&mut rt, "tile/reader/edit");
+    typed(&mut rt, "x");
+    assert!(words(&rt.state).ends_with('x') && rt.state.layout.named("beds").is_some(), "typed, not run: {:?}", words(&rt.state));
+    rt.update(|s, _| { assert!(s.act("edit.close discard=true", Actor::Person).ok); });
+    rest(&mut rt);
+    // On a tile: one that holds off a reader does nothing on the reader; the capital runs its action with its arguments.
+    typed(&mut rt, "b");
+    assert!(!rt.state.bar.open, "b is not the reader's");
+    chord(&mut rt, Key::Text("S".into()), Mods { shift: true, ..Mods::default() });
+    assert!(rt.state.bar.open && rt.state.steps.last().is_some_and(|step| step.line() == "bar.open scope=screens"), "{:?}", rt.state.steps.last().map(|step| step.line()));
+    chord(&mut rt, Key::Escape, Mods::default());
+    // One that names a tile runs there, as the person.
+    typed(&mut rt, "x");
+    assert!(rt.state.layout.named("beds").is_none() && rt.state.layout.named("reader").is_some(), "the screen's x closed the tile it names");
 }
