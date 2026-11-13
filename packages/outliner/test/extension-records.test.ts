@@ -284,6 +284,30 @@ test("the poll applies a changed ticket; a poll or refresh that finds nothing ne
   expect(extensions.entries.map((entry) => entry.block.id)).toContain(record.id);
 });
 
+test("Jira changes a ticket without moving its `updated` (a sprint closes, a person is renamed): a refresh keeps the new content and says no \"can't fetch\"", async () => {
+  const { fake, store, client, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  const record = await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  const issue = fake.issues.get("PC-1")!;
+  const updated = issue.updated;
+  const refresh = () => client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: page.id });
+
+  // The sprint closes: the raw issue changes, its `updated` doesn't.
+  issue.sprintState = "closed";
+  let read = await refresh();
+  expect(read.projections[0]!.fetchError).toBeUndefined();
+  expect(store.resources.describe(resourceId, false).remoteStatus).toMatchObject({ freshness: "fresh", lastError: null });
+
+  // The assignee's display name changes, still under the same `updated`: the card and the stored copy say the new one.
+  issue.assignee = "Dana Ortiz-Reyes";
+  read = await refresh();
+  expect(issue.updated).toBe(updated);
+  expect(read.projections[0]!.fetchError).toBeUndefined();
+  expect(store.get(record.id)!.properties).toContainEqual({ key: "jira.assignee", value: "Dana Ortiz-Reyes" });
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.assignee).toBe("Dana Ortiz-Reyes");
+});
+
 test("a comment on ticket text follows the text when Jira edits it, and says when it lost its place", async () => {
   const { fake, store, client, create, recordOf } = await setup();
   const page = await create("PC-1 Rollout [jira::PC-1]");

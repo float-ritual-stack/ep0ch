@@ -339,6 +339,18 @@ export interface ResourceRevisionRef {
   readonly revision: ResourceRevision;
 }
 
+/**
+ * Whether a revision's validator is weak: it says when the content last changed (`updated-at`, `last-modified`) or
+ * that it is "about the same" (a `W/` ETag), so the same value can come back with different bytes (Jira's `updated`
+ * doesn't move when a sprint closes or a person is renamed). A weak revision's new content is the newest read of it,
+ * never a provider fault; a strong one (a content hash, a strong ETag, a file's hash) promises the same bytes.
+ */
+export function weakResourceRevision(revision: ResourceRevision): boolean {
+  if (!("validator" in revision)) return false;
+  const validator: { readonly kind: string; readonly weak?: boolean } = revision.validator;
+  return validator.kind === "updated-at" || validator.kind === "last-modified" || validator.weak === true;
+}
+
 export interface ComputedProducerDeclarationSnapshot {
   readonly id: string;
   readonly version: number;

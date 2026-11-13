@@ -51,6 +51,7 @@ import {
   normalizeRetainedResourceRevisionRef,
   normalizeResourceRevisionRef,
   resourceRevisionRefEquals,
+  weakResourceRevision,
   normalizeResourceSourceInput,
   type ComputedExecutionHistory,
   type ComputedExecutionReceipt,
@@ -2441,18 +2442,28 @@ export class ResourceCatalog {
         );
       }
       if (snapshot.payload_json !== payloadJson) {
-        // A new adapter version may read the same remote revision differently
-        // (more fields). The stored snapshot stays; only the same adapter
-        // returning different content for one revision is a provider fault.
-        const sameAdapter = this.database.query(`
-          SELECT 1 FROM remote_entity_representations
-          WHERE source_snapshot_id = ? AND adapter_id = ? AND version = ? LIMIT 1
-        `).get(snapshot.id, observed.representation.adapter.id, observed.representation.adapter.version);
-        if (sameAdapter) {
-          throw new ResourceCatalogError(
-            "source-unavailable",
-            "Remote entity provider reused a revision for different content",
-          );
+        if (snapshot.payload_json === null || weakResourceRevision(revision.revision)) {
+          // A weak validator (Jira's `updated`) can name new content, and an evicted copy has none to compare: this
+          // read is the revision's content now, so it replaces the stored one (PIE-1776).
+          this.database.query(`
+            UPDATE remote_entity_source_snapshots
+            SET payload_json = ?, payload_bytes = ?, captured_at = ?, payload_state = 'available', evicted_at = NULL
+            WHERE id = ?
+          `).run(payloadJson, Buffer.byteLength(payloadJson), observed.sourceSnapshot.fetchedAt, snapshot.id);
+        } else {
+          // A new adapter version may read the same remote revision differently
+          // (more fields). The stored snapshot stays; only the same adapter
+          // returning different content for one strong revision is a provider fault.
+          const sameAdapter = this.database.query(`
+            SELECT 1 FROM remote_entity_representations
+            WHERE source_snapshot_id = ? AND adapter_id = ? AND version = ? LIMIT 1
+          `).get(snapshot.id, observed.representation.adapter.id, observed.representation.adapter.version);
+          if (sameAdapter) {
+            throw new ResourceCatalogError(
+              "source-unavailable",
+              "Remote entity provider reused a revision for different content",
+            );
+          }
         }
       }
       const representationId = crypto.randomUUID();
