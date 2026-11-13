@@ -4,10 +4,10 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpat
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
-import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
+import { insertOutlineInstanceId, openSchema, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
-import { migrateDropWorkflows } from "../scripts/migrations/0011-drop-workflows";
+import { migrateChangeLog } from "../scripts/migrations/0012-change-log";
 
 const directories: string[] = [];
 function directory(): string {
@@ -69,73 +69,60 @@ test("any other schema version is refused", () => {
   expect(() => new OutlinerStore(path)).toThrow(`is schema version ${SCHEMA_VERSION + 1}; this build opens only schema version ${SCHEMA_VERSION}`);
 });
 
-/** Schema 10's two workflow tables (PIE-1586), as schema 10 created them: what 0011 drops. */
-const WORKFLOW_SQL_10 = `
-  CREATE TABLE IF NOT EXISTS workflow_runs (
-    run_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, action_id TEXT NOT NULL, invocation_json TEXT NOT NULL,
-    capabilities_json TEXT NOT NULL, limits_json TEXT NOT NULL, planner TEXT NOT NULL, target_client_id TEXT,
-    provenance_json TEXT, status TEXT NOT NULL, route_json TEXT NOT NULL, current_step_index INTEGER,
-    branch_question_json TEXT, metrics_json TEXT, comparison_json TEXT, result_block_ids_json TEXT NOT NULL,
-    cancellation_requested INTEGER NOT NULL DEFAULT 0, request_hash TEXT NOT NULL, error TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS workflow_runs_updated ON workflow_runs(updated_at DESC);
-  CREATE TABLE IF NOT EXISTS workflow_promotions (
-    request_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES workflow_runs(run_id) ON DELETE CASCADE,
-    step_id TEXT NOT NULL, annotation_id TEXT NOT NULL REFERENCES blocks(id), block_id TEXT NOT NULL REFERENCES blocks(id),
-    proposal_hash TEXT NOT NULL, created_at TEXT NOT NULL
-  );
-`;
-
 /** Every table, index and trigger, as sqlite_master has them. */
 const shape = (database: Database) => database.query("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
 
-test("schema 10 takes 0011: the workflow tables go, the notes stay, a served file and a file at 11 are left as they were (PIE-1586)", async () => {
+test("schema 11 takes 0012: the change log and its genesis, the notes stay, a served file and a file at 12 are left as they were (PIE-1751)", async () => {
   const path = join(directory(), "allotment.sqlite");
   const old = new Database(path);
   old.exec(SCHEMA_SQL);
-  old.exec(WORKFLOW_SQL_10);
+  // Schema 11 had no change log.
+  old.exec("DROP TABLE change_log; DROP TABLE log_state;");
   insertOutlineInstanceId(old);
-  const note = "22222222-2222-4222-8222-222222222222", promoted = "33333333-3333-4333-8333-333333333333";
-  for (const [id, text] of [[note, "Seed trays walkthrough"], [promoted, "Water the seed trays"]]) {
-    old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, ?, 'user', '2026-11-01', '2026-11-01')").run(id, text);
-  }
-  for (const n of [1, 2]) {
-    old.query("INSERT INTO workflow_runs (run_id, request_id, action_id, invocation_json, capabilities_json, limits_json, planner, status, route_json, result_block_ids_json, request_hash, created_at, updated_at) VALUES (?, ?, 'walkthrough.plan', '{}', '[]', '{}', 'pi-direct', 'ended', '[]', '[]', 'h', '2026-11-01', '2026-11-01')").run(`run-${n}`, `req-${n}`);
-  }
-  old.query("INSERT INTO workflow_promotions (request_id, run_id, step_id, annotation_id, block_id, proposal_hash, created_at) VALUES ('promo-1', 'run-1', 'step-1', ?, ?, 'p', '2026-11-01')").run(note, promoted);
-  old.exec("PRAGMA user_version = 10");
+  const note = "22222222-2222-4222-8222-222222222222", child = "33333333-3333-4333-8333-333333333333";
+  old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, 'Seed trays', 'user', '2026-11-01', '2026-11-01')").run(note);
+  old.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, ?, 0, 'Water the seed trays', 'user', '2026-11-01', '2026-11-01')").run(child, note);
+  old.exec("PRAGMA user_version = 11");
   old.close();
-  const at10 = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(/schema version 10.*only schema version 11.*0011-drop-workflows\.ts/s);
-  expect(readFileSync(path).equals(at10)).toBe(true);
+  const at11 = readFileSync(path);
+  expect(() => new OutlinerStore(path)).toThrow(/schema version 11.*only schema version 12.*0012-change-log\.ts/s);
+  expect(readFileSync(path).equals(at11)).toBe(true);
 
   const migrate = async () => {
-    const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0011-drop-workflows.ts"), path], { stdout: "pipe", stderr: "pipe" });
-    return { code: await child.exited, err: await new Response(child.stderr).text() };
+    const run = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0012-change-log.ts"), path], { stdout: "pipe", stderr: "pipe" });
+    return { code: await run.exited, err: await new Response(run.stderr).text() };
   };
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
   try { expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("already owned") }); }
   finally { held.close(); }
-  expect(readFileSync(path).equals(at10)).toBe(true);
+  expect(readFileSync(path).equals(at11)).toBe(true);
 
   expect(await migrate()).toMatchObject({ code: 0 });
-  expect(userVersion(path)).toBe(11);
+  expect(userVersion(path)).toBe(12);
   const fresh = new Database(":memory:");
-  fresh.exec(SCHEMA_SQL);
+  openSchema(fresh);
   const migrated = new Database(path, { readonly: true });
-  try { expect(shape(migrated)).toEqual(shape(fresh)); } finally { migrated.close(); fresh.close(); }
+  try {
+    expect(shape(migrated)).toEqual(shape(fresh));
+    // The genesis holds every row there was: a follower built from it alone has the two notes.
+    const genesis = migrated.query("SELECT op, tbl FROM change_log ORDER BY lsn").all() as { op: string; tbl: string }[];
+    expect(genesis[0]).toEqual({ op: "g", tbl: "" });
+    expect(genesis.filter(e => e.tbl === "blocks").length).toBe(2);
+  } finally { migrated.close(); fresh.close(); }
   const store = new OutlinerStore(path);
   try {
-    expect(store.require(note)).toMatchObject({ text: "Seed trays walkthrough" });
-    expect(store.require(promoted)).toMatchObject({ text: "Water the seed trays" });
+    expect(store.require(child)).toMatchObject({ text: "Water the seed trays", parentId: note });
+    // What the store writes from now on is logged.
+    const head = store.log.cursor().lsn;
+    store.create("Label the trays", note);
+    expect(store.log.range(head).entries.some(e => e.tbl === "blocks" && e.op === "i" && e.row?.includes("Label the trays"))).toBe(true);
   } finally { store.close(); }
 
-  const at11 = readFileSync(path);
-  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 10, found 11") });
-  expect(readFileSync(path).equals(at11)).toBe(true);
-  expect(() => migrateDropWorkflows(path)).toThrow("Expected schema 10, found 11");
+  const at12 = readFileSync(path);
+  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 11, found 12") });
+  expect(readFileSync(path).equals(at12)).toBe(true);
+  expect(() => migrateChangeLog(path)).toThrow("Expected schema 11, found 12");
 });
 
 test("a current database missing its instance id is refused with the import route, and the import opens", () => {
@@ -372,7 +359,7 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
     ].join("\n"));
   });
 
-  // Two steps behind never has a script, whether or not this build ships one for the last step (0011 names its own).
+  // Two steps behind never has a script, whether or not this build ships one for the last step (0012 names its own).
   test("the store's refusal is that message: with no script for the step, the import route; a path that needs quoting is quoted", () => {
     const folder = join(directory(), "my outlines");
     mkdirSync(folder);

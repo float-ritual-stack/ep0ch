@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { BLOCK_ACTIVITY_KINDS } from "./types";
+import { CHANGE_LOG_SQL, initLogState, installLogTriggers, writeGenesis } from "./change-log";
 
 /*
  * The outline database's one schema (PIE-530): the CREATE statements of the
@@ -25,7 +26,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (agent mentions, marks), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -834,7 +835,7 @@ ${MARKS_SQL}  CREATE TABLE IF NOT EXISTS capture_requests (
         state TEXT NOT NULL, input_hash TEXT NOT NULL, payload TEXT NOT NULL,
         updated_at TEXT NOT NULL
       ); CREATE INDEX IF NOT EXISTS edit_recovery_block ON edit_recovery(block_id,state,updated_at);
-${READ_MARKS_SQL}
+${READ_MARKS_SQL}${CHANGE_LOG_SQL}
 `;
 
 const userVersion = (database: Database) => (database.query("PRAGMA user_version").get() as { user_version: number }).user_version;
@@ -933,9 +934,25 @@ export function openSchema(database: Database, label = "This database", path?: s
     database.transaction(() => {
       database.exec(SCHEMA_SQL);
       insertOutlineInstanceId(database);
+      // The log starts with the outline (ADR 0009): its identity, its triggers, and a genesis of the rows made so far.
+      initLogState(database);
+      installLogTriggers(database);
+      writeGenesis(database, SCHEMA_VERSION);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }).immediate();
     return "created";
   }
   throw new Error(schemaRefusal(label, version, path));
+}
+
+/**
+ * Makes an empty file a follower's copy of the log `logId` (ADR 0009, outline-follower.ts): the current schema with no
+ * rows of its own, so the home's genesis fills it. Never opened by the store until its first range is applied.
+ */
+export function openFollowerSchema(database: Database, logId: string): void {
+  if (openSchema(database) !== "created") throw new Error("a follower's copy starts from an empty file");
+  database.transaction(() => {
+    database.exec("DELETE FROM change_log");
+    database.query("UPDATE log_state SET role = 'follower', log_id = ?, txn = 1 WHERE id = 1").run(logId);
+  }).immediate();
 }

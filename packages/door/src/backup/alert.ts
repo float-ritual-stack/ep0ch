@@ -7,7 +7,7 @@
 // keeps showing it until it clears; the push and `herdr notification` go out when it starts), with the command that
 // fixes it.
 import { age } from "@ep0ch/outline-core/age";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeState } from "../state";
 import { plainFailure } from "./plain";
@@ -23,11 +23,12 @@ export const DRILL_EVERY_MS = 30 * 24 * 3_600_000;
 
 /** One outline of this machine: the change its newest snapshot holds, and changes waiting since when. */
 export interface OutlineState {
-  /** The change feed's highest change_id in the newest snapshot (null: the outline has no change feed). */
+  /** The newest log entry the repository holds (ADR 0009), of the log `logId`. */
   seq?: number | null;
-  /** The schema version (`user_version`) of that snapshot: a migration moves it without moving `seq`, and is a change. */
+  logId?: string;
+  /** The outline's schema version when it was archived: a migration writes a genesis, and is a change. */
   schema?: number | null;
-  /** When that snapshot was taken, and its id. */
+  /** When that archive was uploaded, and its snapshot's id. */
   at?: string;
   snapshot?: string;
   /** The first run that found changes no snapshot holds (cleared when one does). */
@@ -35,32 +36,12 @@ export interface OutlineState {
   /** The last try's failure, when it failed. */
   error?: string;
   /**
-   * The newest snapshot didn't go to the repository from here: it went to another machine (`via`), which installed it as
-   * its mirror and uploaded it for this one, because `why` (the repository's refusal or silence). `uploaded: false`: the
+   * The newest entries didn't go to the repository from here: they went to another machine (`via`), which archived them
+   * and uploaded them for this one, because `why` (the repository's refusal or silence). `uploaded: false`: the
    * other machine couldn't upload it either (`uploadError`), so the next run tries the repository again. A relayed backup
    * counts as fresh: it is off this machine and checked.
    */
   relayed?: { via: string; at: string; why: string; uploaded: boolean; uploadError?: string };
-}
-
-/** One mirrored outline (`<machine>/<outline>`): the copy here, and what the machine itself last said. */
-export interface MirrorState {
-  folder?: string;
-  snapshot?: string;
-  seq?: number | null;
-  /** The snapshot's time (a copy found there, its file's time). */
-  at?: string;
-  /** Where the copy came from: a snapshot, a relay, or found in the folder (Litestream's, a lost state file). */
-  source?: "restic" | "found" | "relay";
-  refreshed?: string;
-  /** The outline's change on its machine when last asked over ssh, and when. */
-  remoteSeq?: number | null;
-  remoteAt?: string;
-  /** Changes on the machine that no snapshot holds, since. */
-  pendingSince?: string;
-  /** A newer snapshot this mirror couldn't take, since. */
-  behindSince?: string;
-  error?: string;
 }
 
 export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; cleared?: string }
@@ -78,7 +59,7 @@ export interface Drill { at: string; ok: boolean; detail: string; via?: string }
 
 /**
  * Netmail (PIE-615): on the gateway's machine, each other machine's queued MCP writes; on a home machine, its last
- * pull of them. `lastSeen`: the newest sign the machine was online (its mirror's newest snapshot, an ssh answer, a pull).
+ * pull of them. `lastSeen`: the newest sign the machine was online (its last pull).
  */
 export interface NetmailState {
   queues?: Record<string, { waiting: number; oldest: string | null; lastPull: string | null; lastSeen: string | null }>;
@@ -89,9 +70,6 @@ export interface BackupState {
   /** The repository the outlines' snapshots are in: another one starts them over. */
   repo?: string;
   outlines: Record<string, OutlineState>;
-  /** Other machines' repositories this one reads, when reading one fails. */
-  sources?: Record<string, { failingSince?: string; error?: string; missing?: boolean }>;
-  mirrors: Record<string, MirrorState>;
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
   /**
@@ -115,9 +93,31 @@ export interface BackupState {
    * the outlines, so a run that knows none yet still fails, and cleared by a run the host answers.
    */
   host?: { failingSince: string; error: string; fix: string };
-  /** Litestream replicators a change stopped and starting them again failed (outliner litestream-guard `stuckPauses`). */
-  guard?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[];
+  /** What each follower here said of its copy at the last run (the alert's `follow:` incidents). */
+  follows?: FollowedCopy[];
 }
+
+/** A follower's word on its copy (outliner outline-follower.ts writes `<mirrors>/<machine>/.follow/<outline>.json`). */
+export interface FollowedCopy { key: string; cursor: number; copiedAt: string | null; stale: { since: string | null; why: string } | null }
+
+/** Each follower's own word on its copy, read from the status files the owner writes. */
+export function followedCopies(mirrors: string): FollowedCopy[] {
+  const out: FollowedCopy[] = [];
+  let machines: string[] = [];
+  try { machines = readdirSync(mirrors).filter(m => !m.startsWith(".")); } catch { return out; }
+  for (const machine of machines.sort()) {
+    let files: string[] = [];
+    try { files = readdirSync(join(mirrors, machine, ".follow")).filter(f => f.endsWith(".json")); } catch { continue; }
+    for (const f of files.sort()) {
+      try {
+        const st = JSON.parse(readFileSync(join(mirrors, machine, ".follow", f), "utf8")) as { cursor?: number; copiedAt?: string | null; stale?: { since: string | null; why: string } | null };
+        out.push({ key: `${f.slice(0, -5)}@${machine}`, cursor: st.cursor ?? 0, copiedAt: st.copiedAt ?? null, stale: st.stale ?? null });
+      } catch { /* a status file mid-write: the next look reads it */ }
+    }
+  }
+  return out;
+}
+
 
 export interface Incident { key: string; title: string; detail: string; fix: string; since: string }
 export interface Alert {
@@ -130,7 +130,7 @@ export interface Alert {
   announced: string[];
 }
 
-export const emptyState = (): BackupState => ({ outlines: {}, mirrors: {} });
+export const emptyState = (): BackupState => ({ outlines: {} });
 
 export function readJson<T>(path: string): T | null {
   try { return JSON.parse(readFileSync(path, "utf8")) as T; } catch { return null; }
@@ -158,19 +158,6 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
       detail: `${name} changed since ${hhmm(o.pendingSince!)} and ${last}${o.error ? `; the upload fails: ${plainFailure(o.error)}` : ""}`,
       fix: `${cmd.run}   (its log: ${cmd.log})` });
   }
-  for (const [key, m] of Object.entries(s.mirrors).sort()) {
-    const [from, name] = key.split("/");
-    if (late(m.pendingSince)) {
-      out.push({ key: `pending:${key}`, since: m.pendingSince!, title: `${name} on ${from}: backup stale`,
-        detail: `${name} on ${from} has changes since ${hhmm(m.pendingSince!)} (change ${m.remoteSeq}) that no backup holds; its newest is ${m.at ? `${age(now - Date.parse(m.at))} old` : "missing"}`,
-        fix: `on ${from}: ep0ch backup run   (and ep0ch doctor there; its log says why the upload fails)` });
-    }
-    if (late(m.behindSince)) {
-      out.push({ key: `mirror:${key}`, since: m.behindSince!, title: `mirror ${key} stale`,
-        detail: `${machine}'s copy of ${name} hasn't taken the newer snapshot since ${hhmm(m.behindSince!)}${m.error ? `: ${m.error}` : ""}`,
-        fix: `${cmd.run}   (its log: ${cmd.log})` });
-    }
-  }
   if (s.host && late(s.host.failingSince)) {
     out.push({ key: `host:${machine}`, since: s.host.failingSince, title: `the outline host on ${machine} doesn't answer the backup job`,
       detail: `nothing has been copied since ${hhmm(s.host.failingSince)}: ${s.host.error}`, fix: s.host.fix });
@@ -187,12 +174,6 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
       detail: `restic prune has failed ${p.failures} times in a row since ${hhmm(p.since ?? p.at)}: ${p.error ?? "?"}; old snapshots are let go, but the space they held isn't given back`,
       fix: `${cmd.run}   (it tries the prune again ${PRUNE_RETRY_MS / 3_600_000} hours after a failure; EP0CH_BACKUP_PRUNE_MINUTES in ~/.config/ep0ch/backup.env gives it longer; its log: ${cmd.log})` });
   }
-  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
-    if (!late(x.failingSince)) continue;
-    out.push({ key: `source:${from}`, since: x.failingSince!, title: `${from}'s backups unreadable from ${machine}`,
-      detail: `${machine} hasn't been able to read ${from}'s backups since ${hhmm(x.failingSince!)}, so its mirrors' freshness is unknown: ${x.error ?? "?"}`,
-      fix: `ep0ch backup mirror   (it says restic's error; check the secrets: with-secrets --list)` });
-  }
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
     if (!q.waiting || !q.oldest || now - Date.parse(q.oldest) < NETMAIL_LATE_MS || !q.lastSeen || q.lastSeen <= q.oldest) continue;
     out.push({ key: `netmail:${m}`, since: q.oldest, title: `${m}'s queued MCP writes waiting`,
@@ -205,10 +186,12 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
       detail: `${machine} hasn't pulled its queued writes from ${pull.hub} since ${hhmm(pull.failingSince!)}: ${pull.detail}`,
       fix: `ep0ch mcp pull   (it says why; ssh ${pull.hub} ep0ch mcp queue status shows what waits)` });
   }
-  for (const g of s.guard ?? []) {
-    out.push({ key: `guard:${machine}/${g.unit}`, since: g.since, title: `Litestream ${g.unit} stopped on ${machine}`,
-      detail: `${g.unit} was stopped for a change to an outline's file at ${hhmm(g.since)} and starting it again failed ${g.attempts} time${g.attempts === 1 ? "" : "s"} (last ${hhmm(g.failedAt)}): ${g.error}; until it runs nothing is replicated`,
-      fix: g.fix });
+  // A copy followed here (pie's on float-box) that stopped taking its home's log: the off-machine copy is falling behind.
+  for (const f of s.follows ?? []) {
+    if (!f.stale?.since || !late(f.stale.since)) continue;
+    out.push({ key: `follow:${machine}/${f.key}`, since: f.stale.since, title: `${f.key}'s copy on ${machine} stopped following`,
+      detail: `the copy holds entry ${f.cursor}, last taken ${hhmm(f.stale.since)}: ${f.stale.why}`,
+      fix: "ep0ch backup follow --once   (it says what the home machine answers)" });
   }
   if (s.drill && !s.drill.ok) {
     out.push({ key: `drill:${machine}`, since: s.drill.at, title: `restore drill failed on ${machine}`, detail: s.drill.detail,

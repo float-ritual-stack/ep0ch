@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
-import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
+import { type Alert, type BackupState, followedCopies, type FollowedCopy, readAlert, readBackupState } from "./alert";
 import { plainReason } from "./plain";
 import { verdict } from "./verdict";
 import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
@@ -18,6 +18,8 @@ import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machi
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;
 export const LAUNCHD_LABEL = "io.ep0ch.backup";
+/** The followers' unit (ADR 0009, `ep0ch backup follow`): written on Linux when the settings name outlines to follow. */
+export const FOLLOW_UNIT = "ep0ch-follow.service";
 
 export interface UnitFile { path: string; want: string; have: string | null }
 export interface BackupSetupFacts {
@@ -43,6 +45,12 @@ export interface BackupSetupFacts {
   state: BackupState | null;
   alert: Alert | null;
   stateDir: string;
+  /** The settings name outlines to follow here (EP0CH_MCP_MIRRORS), so the followers' unit is written and run. */
+  follow?: boolean;
+  /** What each follower here says of its copy (`<mirrors>/<machine>/.follow/<outline>.json`, outliner outline-follower.ts). */
+  followed?: FollowedCopy[];
+  /** The outlines the settings name to follow here (`<outline>@<machine>`), with a status file or not. */
+  following?: string[];
 }
 
 /** A template with its {{NAME}}s filled. */
@@ -59,13 +67,13 @@ export const jobPath = (bun: string, home: string) =>
   // (A folder with a space is left out: systemd's Environment= line can't quote one inside the value.)
   [...new Set([dirname(bun), join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].filter(d => !/\s/.test(d)).join(":");
 
-export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env }): UnitFile[] {
+export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env; follow?: boolean }): UnitFile[] {
   const vars = { BUN: o.bun, MAIN: o.main, PATH: jobPath(o.bun, o.home), HOME: o.home };
   const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
   const templates = join(o.repoRoot, "scripts/backup");
   if (o.platform === "linux") {
     const dir = join(o.env.XDG_CONFIG_HOME || join(o.home, ".config"), "systemd/user");
-    return SYSTEMD_UNITS.map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
+    return [...SYSTEMD_UNITS, ...(o.follow ? [FOLLOW_UNIT] : [])].map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
   }
   if (o.platform === "macos") {
     const path = join(o.home, "Library/LaunchAgents", `${LAUNCHD_LABEL}.plist`);
@@ -79,7 +87,9 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const env: Env = { ...o.env, HOME: o.home };
   const c = backupConfig(env);
   const file = configFileOf(env);
-  const units = o.bun ? unitFiles({ ...o, bun: o.bun, env }) : [];
+  const fileText = existsSync(file) ? (() => { try { return readFileSync(file, "utf8"); } catch { return ""; } })() : "";
+  const follow = !!(env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim());
+  const units = o.bun ? unitFiles({ ...o, bun: o.bun, env, follow }) : [];
   const loaded = o.platform === "linux"
     ? await o.run(["systemctl", "--user", "is-active", "ep0ch-backup.timer"], { env, timeoutMs: 5000 }).then(async r => r.code === 0 && (await o.run(["systemctl", "--user", "is-enabled", "ep0ch-backup.timer"], { env, timeoutMs: 5000 })).code === 0, () => null)
     : o.platform === "macos"
@@ -101,6 +111,9 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
     state: "error" in c || !existsSync(join(c.state, "state.json")) ? null : readBackupState(c.state),
     alert: "error" in c ? null : readAlert(c.state),
     stateDir: "error" in c ? "" : c.state,
+    ...(follow ? { follow } : {}),
+    followed: "error" in c ? [] : followedCopies(c.mirrorsDir),
+    following: (env.EP0CH_MCP_MIRRORS?.trim() || parseEnvFile(fileText).EP0CH_MCP_MIRRORS?.trim() || "").split(",").map(x => x.trim()).filter(Boolean),
   };
 }
 
@@ -115,7 +128,7 @@ export interface BackupPlan {
 }
 
 const loadCommands = (f: BackupSetupFacts) => f.platform === "linux"
-  ? ["systemctl --user daemon-reload", "systemctl --user enable ep0ch-backup.timer", "systemctl --user restart ep0ch-backup.timer"]
+  ? ["systemctl --user daemon-reload", "systemctl --user enable ep0ch-backup.timer", "systemctl --user restart ep0ch-backup.timer", ...(f.follow ? [`systemctl --user enable ${FOLLOW_UNIT}`, `systemctl --user restart ${FOLLOW_UNIT}`] : [])]
   : [...(f.loaded ? [`launchctl bootout gui/$(id -u)/${LAUNCHD_LABEL}`] : []), `launchctl bootstrap gui/$(id -u) ${f.units[0]?.path ?? ""}`];
 
 export function backupPlan(f: BackupSetupFacts): BackupPlan {
@@ -189,14 +202,15 @@ export function settingsText(existing: string | null, set: Record<string, string
 /** The argv install runs to load the units after writing them. */
 export function loadArgv(f: BackupSetupFacts, uid: number): string[][] {
   return f.platform === "linux"
-    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-backup.timer"], ["systemctl", "--user", "restart", "ep0ch-backup.timer"]]
+    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-backup.timer"], ["systemctl", "--user", "restart", "ep0ch-backup.timer"],
+      ...(f.follow ? [["systemctl", "--user", "enable", FOLLOW_UNIT], ["systemctl", "--user", "restart", FOLLOW_UNIT]] : [])]
     : [...(f.loaded ? [["launchctl", "bootout", `gui/${uid}/${LAUNCHD_LABEL}`]] : []), ["launchctl", "bootstrap", `gui/${uid}`, f.units[0]!.path]];
 }
 
 type Status = "ok" | "behind" | "missing" | "info" | "unknown";
 export interface SetupCheck { name: string; status: Status; detail: string; fix?: string }
 
-/** Doctor's lines for the restic job: its setup, each outline's newest backup, the mirrors, the drill, the alert. */
+/** Doctor's lines for the restic job: its setup, each outline's newest archive, the drill, the alert. */
 export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[] {
   const out: SetupCheck[] = [];
   const p = backupPlan(f);
@@ -218,21 +232,18 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   const machine = f.config.machine;
   for (const [name, o] of Object.entries(s.outlines).sort()) {
     const inc = incidents.get(`outline:${machine}/${name}`);
-    const newest = o.at ? `newest ${o.relayed ? "backup" : "snapshot"} ${ago(o.at)} (change ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never snapshotted";
+    const newest = o.at ? `newest ${o.relayed ? "backup" : "archive"} ${ago(o.at)} (log entry ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never archived";
     out.push(inc ? { name: `restic ${name}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `restic ${name}`, status: "ok", detail: `${newest}${o.pendingSince ? `; changes since ${ago(o.pendingSince)} upload with the next run${o.error ? ` (the last try: ${o.error})` : ""}` : ", as the outline"}` });
   }
-  for (const [key, m] of Object.entries(s.mirrors).sort()) {
-    const inc = incidents.get(`mirror:${key}`) ?? incidents.get(`pending:${key}`);
-    const where = m.folder?.includes("/.restic/") ? `${m.folder} (beside the Litestream follower until it's retired)` : m.folder;
-    out.push(inc ? { name: `mirror ${key}`, status: "missing", detail: inc.detail, fix: inc.fix }
-      : { name: `mirror ${key}`, status: m.error ? "unknown" : "ok", detail: `${m.at ? `${m.source} copy of ${ago(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${where}${m.remoteAt ? `; its machine answered ${ago(m.remoteAt)} at change ${m.remoteSeq}` : ""}${m.error ? `; ${m.error}` : ""}` });
+  // One the settings name that has never written a word here: nothing follows it (no gateway, no follow unit running).
+  for (const key of (f.following ?? []).filter(k => !(f.followed ?? []).some(x => x.key === k))) {
+    out.push({ name: `follow ${key}`, status: "missing", detail: "named in EP0CH_MCP_MIRRORS, but no copy has been followed here yet", fix: f.platform === "linux" ? "systemctl --user status ep0ch-follow.service; ep0ch backup follow --once" : "ep0ch backup follow --once" });
   }
-  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
-    if (x.missing) out.push({ name: `mirror ${from}`, status: "info", detail: `${from} has no backups yet (restic/${from}), so nothing is mirrored from it; if it backs up under another name (its ep0ch backup status says which), name it ${from}`,
-      fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply (a machine set up under another name: set EP0CH_BACKUP_MACHINE=${from} in its ~/.config/ep0ch/backup.env, then ep0ch backup run)` });
-    else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
-    else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
+  for (const x of f.followed ?? []) {
+    out.push(x.stale
+      ? { name: `follow ${x.key}`, status: "behind", detail: `the copy here holds entry ${x.cursor}${x.copiedAt ? `, last applied ${ago(x.copiedAt)}` : ""}; stale: ${x.stale.why}`, fix: "ep0ch backup follow --once   (it says what the home machine answers)" }
+      : { name: `follow ${x.key}`, status: "ok", detail: `the copy here holds entry ${x.cursor}${x.copiedAt ? `, last applied ${ago(x.copiedAt)}` : ""}` });
   }
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
     const inc = incidents.get(`netmail:${m}`);

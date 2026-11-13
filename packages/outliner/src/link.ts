@@ -130,6 +130,9 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
             const key = Object.hasOwn(o.keys, auth.machine) ? o.keys[auth.machine] : undefined;
             if (!key || !timingSafeEqual(proof(key, auth.machine, p.nonce), Buffer.from(auth.proof, "hex"))) throw new Error("unknown machine or wrong key");
             if (peers.has(auth.machine)) throw new Error("machine already linked");
+            // The proof is the authentication: what follows may wait on an SSH attempt holding the forward lock
+            // (up to its connect timeout), and the 5 s timer must not close a proven link while it does.
+            clearTimeout(p.timer);
             p.addresses = auth.addresses;
             p.machine = auth.machine;
             peers.set(auth.machine, ws);

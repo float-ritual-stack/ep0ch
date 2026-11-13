@@ -40,7 +40,8 @@ test("each list main kept is now one column of the table", () => {
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
   // outlines.backup: the host's copy of an outline, so nothing else opens its file (PIE-1750).
   expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", ...MARKS.reads]));
+  // log.range: a follower answers its home's log onward (ADR 0009).
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "log.range", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "properties.patch", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",

@@ -1,18 +1,17 @@
 import { proposed } from "./wire";
 // The remote MCP gateway's writes (PIE-615), end to end over real HTTP. Two scratch hosts: "here" (the gateway's
 // machine, whose outlines it writes directly) and a far box standing in for the laptop, whose outline the gateway reads
-// from a read-only mirror and whose writes queue (netmail) until the far box pulls them over ssh. The ssh is the fake one
+// from a read-only copy here (its follower, applying the far box's change log) and whose writes queue (netmail) until the far box pulls them over ssh. The ssh is the fake one
 // (packages/outliner/test/fake-ssh.ts), whose "other machine" runs this checkout's `ep0ch` against the gateway's queue.
 // Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
-import { OutlineMirror } from "../src/mcp-mirror";
+import { OutlineFollower } from "../src/mcp-mirror";
 import { Netmail, pullNetmail } from "../src/mcp-netmail";
 import { incidents, type BackupState } from "../src/backup/alert";
 import { readQueues } from "../src/backup/netmail";
@@ -56,12 +55,9 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     boards.push(b);
     return b;
   };
-  const follow = (name: string) => {
-    const target = join(mirrors, FAR, `${name}.sqlite`);
-    rmSync(target, { force: true });
-    const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
-    try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
-  };
+  let mirror: OutlineFollower;
+  /** The copy here takes what the far box's log holds now (its follower asks at once, as it does on the far box's events). */
+  const follow = async () => { await mirror.pull(); };
   const token = async (aud = RESOURCE, who = { sub: PERSON, clientId: CLIENT }) => new SignJWT({ client_id: who.clientId, scope: "profile" })
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(who.sub).setAudience(aud)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
@@ -119,7 +115,6 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     dir = scratchDir("ep0ch-mcpw-");
     mirrors = join(dir, "mirrors");
     mkdirSync(join(mirrors, FAR), { recursive: true });
-    follow("attic-notes");
     // The fake ssh: "the other machine" is the gateway's, whose `ep0ch` reads the queue beside these mirrors.
     mkdirSync(join(dir, "bin")); mkdirSync(join(dir, "hub-home")); mkdirSync(join(dir, "hub-outlines"));
     writeFileSync(join(dir, "bin", "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test", "fake-ssh.ts")} "$@"\n`);
@@ -132,7 +127,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: `${PERSON},user_fictional_other` });
     if ("error" in config) throw new Error(config.error);
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
+    mirror = new OutlineFollower("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, { reach: async () => far.sock });
+    await follow();
     const outlines = machineOutlines(undefined, line => logs.push(line), async name => ["garden-notes", "pond-notes", "quiet-notes"].includes(name) ? boardOn(here, name, HERE) : { error: "no such outline" },
       [mirror], async () => ["garden-notes", "pond-notes", "quiet-notes"], join(mirrors, ".netmail.sqlite"));
     closeOutlines = outlines.close;
@@ -776,7 +772,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     // The far box's person comments there; the mirror catches up; the gateway reads it.
     const now = await textOf(far, "attic-notes", FAR, ids.trunk!);
     const made = await attic.comment("thread-seed", ids.trunk!, now.revision, "Is the canal map dated?", { quote: "canal", start: now.text.indexOf("canal") });
-    follow("attic-notes");
+    await follow();
     await Bun.sleep(100);
     const seen = (await tool("outline_threads", { uri: trunk })).json;
     // (the mirror refreshes on a timer, so the snapshot may not show the thread yet; the queue below doesn't need it)
@@ -835,6 +831,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const dropped = await pull();
     expect(dropped.settled).toMatchObject([{ state: "refused", said: expect.stringContaining("MCP access is none for attic-notes@") }]);
     await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "full" });
+    // The copy here follows the far box's access with its log: once it has, writes queue again.
+    await follow();
   }, 60_000);
 
   test("a write cut off mid-pull is tried again without landing twice; no answer keeps it waiting; a bad ledger stops the pull", async () => {
@@ -922,7 +920,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       expect(landed.settled.map(s => s.state)).toEqual(["refused", "refused"]);
       for (const id of pending) expect(prop((await attic.get(id))!, "proposal-status")).toBe("open");
       expect((await pull()).settled).toEqual([]);
-    } finally { await attic.request("mcp.access.configure", { level: "full" }); follow("attic-notes"); }
+    } finally { await attic.request("mcp.access.configure", { level: "full" }); await follow(); }
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {
@@ -932,10 +930,14 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       store.enqueue({ machine: "nap-box", outline: "nap-notes", uri: "ep0ch://nap-notes@nap-box/b/x", blockId: "x", tool: "outline_comment", input: { whole: true, body: "hi" },
         revision: null, mirrorRevision: 1, textHash: null, instanceId: null, level: "full", actorId: "mcp:chat.example.test", subject: PERSON, clientId: CLIENT }, old);
     } finally { store.close(); }
-    const s: BackupState = { outlines: {}, mirrors: { "nap-box/nap-notes": { at: "2026-03-11T09:00:00.000Z" } } };
+    const s: BackupState = { outlines: {} };
     const c = { env: { ...env, EP0CH_MCP_MIRROR_DIR: mirrors } } as unknown as Parameters<typeof readQueues>[0];
-    s.netmail = { queues: readQueues(c, s) };
-    expect(s.netmail.queues!["nap-box"]).toEqual({ waiting: 1, oldest: "2026-03-10T08:00:00.000Z", lastPull: null, lastSeen: "2026-03-11T09:00:00.000Z" });
+    s.netmail = { queues: readQueues(c) };
+    // Never pulled: never seen online, so nothing to say yet.
+    expect(s.netmail.queues!["nap-box"]).toEqual({ waiting: 1, oldest: "2026-03-10T08:00:00.000Z", lastPull: null, lastSeen: null });
+    expect(incidents(s, HERE, Date.parse("2026-03-11T10:00:00Z"), { run: "", log: "" })).toEqual([]);
+    // Seen online after the oldest write queued (a pull that took nothing for this outline), and the write still waits.
+    s.netmail.queues!["nap-box"]!.lastSeen = "2026-03-11T09:00:00.000Z";
     const found = incidents(s, HERE, Date.parse("2026-03-11T10:00:00Z"), { run: "ep0ch backup run", log: "journalctl" });
     expect(found).toEqual([expect.objectContaining({ key: "netmail:nap-box", fix: expect.stringContaining("on nap-box: ep0ch mcp pull") })]);
     // Not seen online since: no incident, only waiting.

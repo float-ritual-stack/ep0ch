@@ -11,7 +11,6 @@ import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
 import type { BackupSetupFacts } from "../backup/setup";
-import type { BackupFacts } from "./backups";
 import type { ExtFacts } from "./ext-links";
 import type { InstalledCopy } from "@ep0ch/outliner/extension-update";
 import type { StaleLink } from "./links";
@@ -295,8 +294,6 @@ export interface Facts {
   skills?: SkillLinkFacts;
   /** The art packs the menus draw (EP0CH_PACKS, else the default folder) and how many it holds; undefined when not looked for. */
   art?: { dir: string; packs: number; fromEnv: boolean };
-  /** The Litestream units (replicators, mirror followers) and how far each replica trails (backups.ts); doctor only. */
-  backups?: BackupFacts;
   /** The machine itself: failed user units, the nightly run, the test runs, the load (machine-health.ts); doctor only. */
   machine?: import("./machine-health").MachineHealth;
   /** The restic backup job (PIE-607, src/backup/): its units, settings, restic, the secrets, its state and alert. */

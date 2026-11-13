@@ -856,9 +856,13 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
       await act("tile.drawer", target, { on: false });
       expect(wire().wires).toContainEqual({ verb: "open", to: target });
       await act("open", source, { id: s.testing.id });
-      await act("tile.close", target);
+      // The agent's answer names the closed tile by its id; the person's line names it by its name, never the id (PIE-1775).
+      const closed = await act("tile.close", target) as { tile?: string; name?: string };
+      expect(closed.tile).toBe(target);
       expect(wire().wires).not.toContainEqual({ verb: "open", to: target });
-      expect(app.describe().messages.some(m => m.message.includes("wire dropped") && m.message.includes(target))).toBe(true);
+      const said = app.describe().messages.filter(m => m.message.includes("wire dropped")).map(m => m.message);
+      expect(said.some(m => m.includes(`${closed.name} closed`))).toBe(true);
+      expect(said.some(m => m.includes(target))).toBe(false);
     } finally {
       const left = app.drawer.made?.resolveTile(target);
       if (left) await left.dispatch.act({ action: "tile.close", tile: target }, USER);
