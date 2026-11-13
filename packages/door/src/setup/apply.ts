@@ -13,7 +13,7 @@ import { formatDoctor, doctorReport } from "./doctor";
 import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, type HostUnit, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
-import { withSecretsStep, backupDirOf, buildPlan, diskStep, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, publisherRestartCommand, type Migration, type Plan, type PlanOptions, repoStep, schemaTarget, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { withSecretsStep, backupDirOf, INSTALL_BACKUP_WAIT_S, buildPlan, diskStep, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, publisherRestartCommand, type Migration, type Plan, type PlanOptions, repoStep, schemaTarget, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { resolveTarget, hostLive } from "../discover";
 import type { Handover, UpgradeResult } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
@@ -321,7 +321,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       // The rollback point in the archive (PIE-1786): the backup job's snapshot now, then each outline's entry and time.
       if (step.archive) {
         // The snapshot of this install's own host and folder, never one an inherited EP0CH_SOCKET names (Codex on #1502).
-        const r = await run([process.execPath, f.repo.entry, "backup", "snapshot"], { env: { ...env, EP0CH_SOCKET: f.host.socket, EP0CH_OUTLINES: f.host.folder }, timeoutMs: 900_000, onLine: child });
+        // A scheduled backup already running is waited for (PIE-1800), said in its line as it waits.
+        const wait = Number(env.EP0CH_INSTALL_BACKUP_WAIT ?? INSTALL_BACKUP_WAIT_S);
+        if (!Number.isFinite(wait) || wait < 0) throw new StepFailed("EP0CH_INSTALL_BACKUP_WAIT must be a number of seconds", `unset EP0CH_INSTALL_BACKUP_WAIT to wait up to ${INSTALL_BACKUP_WAIT_S} s`);
+        const r = await run([process.execPath, f.repo.entry, "backup", "snapshot", "--wait", String(wait)], { env: { ...env, EP0CH_SOCKET: f.host.socket, EP0CH_OUTLINES: f.host.folder }, timeoutMs: (wait + 300) * 1000,
+          // Live while it waits, and kept in the step's lines after.
+          onLine: line => { child(line); const waiting = /waiting for another backup command .*/.exec(line)?.[0]; if (waiting) { record(waiting); show(`    · ${waiting}`); } } });
         const state = r.code === 0 && f.restic?.stateDir ? (() => { try { return readBackupState(f.restic!.stateDir); } catch { return null; } })() : null;
         const points = rollbackPoints(state, backups.map(b => b.name), f.restic ? { repo: f.restic.repo, machine: f.restic.config.machine, now: Date.now() } : undefined);
         if (r.code === 0 && "points" in points) {

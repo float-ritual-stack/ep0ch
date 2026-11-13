@@ -7,7 +7,7 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock } from "./jobs";
+import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock, waitForLock } from "./jobs";
 import { replayArchive, type Replayed } from "@ep0ch/outliner/log-archive";
 import { hostUnitCommands } from "@ep0ch/outliner/schema";
 import { restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
@@ -83,7 +83,7 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
 /** The flags each subcommand takes (`value`: followed by one). An unknown one is refused, never ignored (PIE-660's rule). */
 export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> = {
   run: { bare: ["--drill", "--verbose"], value: [] },
-  snapshot: { bare: ["--force", "--verbose"], value: [] },
+  snapshot: { bare: ["--force", "--verbose"], value: ["--wait"] },
   drill: { bare: ["--json", "--serve"], value: ["--machine"] },
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
@@ -127,7 +127,10 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
   }
   // The parts that write the job's state run one at a time, as the timer's run does (takeLock).
   if (sub === "snapshot" || sub === "drill") {
-    const release = takeLock(c);
+    // `--wait <seconds>` (install's rollback point, PIE-1800): a backup already running is waited for, said once.
+    const wait = sub === "snapshot" && flag(args, "--wait") !== undefined ? Number(flag(args, "--wait")) : 0;
+    if (!Number.isFinite(wait) || wait < 0) { io.err("ep0ch backup snapshot: --wait takes a number of seconds"); return 2; }
+    const release = wait > 0 ? await waitForLock(c, wait * 1000, pid => say(`· waiting for another backup command (pid ${pid}) to finish, up to ${wait} s`)) : takeLock(c);
     if (typeof release === "string") { io.err(`ep0ch backup: ${release}`); return 1; }
     try { return await stateful(sub, args, c, io); } finally { release(); }
   }

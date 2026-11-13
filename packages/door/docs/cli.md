@@ -245,10 +245,11 @@ changed is snapshotted (VACUUM INTO, integrity-checked) into this machine's rest
 repository, other machines' mirrors are refreshed from theirs, and what's stale is
 put on the door's status bar and announced once (scripts/backup/README.md)
 ```text
-ep0ch backup snapshot [--force] [--verbose] | mirror | drill [--serve]
+ep0ch backup snapshot [--force] [--verbose] [--wait <seconds>] | mirror | drill [--serve]
 ```
 
-one part of it: snapshot (--force: unchanged outlines too), mirror, the restore drill.
+one part of it: snapshot (--force: unchanged outlines too; --wait: waits that long for a backup already
+running, as install does, instead of stopping), mirror, the restore drill.
 When the repository doesn't answer (the work VPN), snapshots go through EP0CH_MCP_HUB
 and the drill runs there; with the hub out of reach too, the drill waits, said
 ```text

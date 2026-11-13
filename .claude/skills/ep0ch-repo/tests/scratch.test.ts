@@ -42,7 +42,8 @@ describe('a cleanup of scratch folders is allowed without a prompt', () => {
       'rm -rf /tmp/claude-1000/-home-me/abc/scratchpad/work',
       'rm -r -f -- /tmp/claude-1000/x /tmp/ep0ch-agent-1000/loki/y',
       'rm -rf ~/.agent-env/loki/state',
-      'rm -rf /tmp/ep0ch-1000/p267-AbC123', // a failed Herdr run's folder under scratch-dir's root (PIE-1698)
+      'rm -rf /var/tmp/ep0ch-1000/p267-AbC123', // a failed Herdr run's folder under scratch-dir's root (PIE-1698, PIE-1799)
+      'rm -rf /tmp/ep0ch-1000/p267-AbC123', // and under its root before PIE-1799
       'rm -rf /tmp/claude-1000/a/../b',
       'rm -fr /tmp/claude-1000/a && rm -rf /tmp/claude-1000/b',
       'rm -rf /tmp/claude-1000/-home-me/abc/*',
