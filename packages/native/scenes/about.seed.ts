@@ -5,6 +5,7 @@
 // - "Bean rows": a note with a history (three texts), a comment thread on words of it with a reply, and an edit an
 //   agent proposed beside it. What the comments, proposals and revisions tiles list of it is the service's.
 // - "Seed list": a screen saved as a note, with keys of its own and the list of the keys beside its reader.
+// - "Two beds": a screen saved as a note, two readers with the first's opens wired to the second (the `heir` scene).
 // - "The plot in June" (with a folder): a header image, two pictures (one nobody took), an svg fence and a mermaid
 //   fence. The pictures are drawn here and written into the folder, so the scratch host has files to read.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -72,6 +73,17 @@ await ask({ action: "screens.save", mutation: { author: "user" }, spec: {
     { key: "K", action: "tile.focus", tile: "keys", only: ["reader"], says: "the keys to the list of keys" },
     { key: "B", action: "open", args: { id: beans.id }, says: "open the bean rows" },
   ],
+} });
+// Two readers side by side, the first's opens wired to the second, which is told no note: what a close leaves of the
+// first one's note is the layout's to say (its heir), and the `heir` scene closes it.
+await ask({ action: "screens.save", mutation: { author: "user" }, spec: {
+  name: "two-beds", title: "Two beds", lands: "bed",
+  toolbar: ["back", "bar.open", "tile.close", "screen.reset"],
+  layout: { focus: "beds", root: { t: "split", dir: "row", weights: [0.24, 0.38, 0.38], kids: [
+    { t: "leaf", kind: "tree", name: "beds", wires: [{ verb: "select", to: "bed" }] },
+    { t: "leaf", kind: "reader", name: "bed", wires: [{ verb: "open", to: "spare" }] },
+    { t: "leaf", kind: "reader", name: "spare" },
+  ] } },
 } });
 console.log(beans.id);
 process.exit(0);

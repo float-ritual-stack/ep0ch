@@ -1,0 +1,8 @@
+# What a close leaves of a reader's note (scenes/about.seed.ts saves the screen as a note): two readers, the first's
+# opens wired to the second, which was told no note. The bean rows open in the first, and it is closed: the note
+# stays on screen, in the reader the layout says is its heir, and the status line says who keeps it.
+bar.open scope=screens query=two-beds
+bar.pick n=1
+bar.open scope=search query="Bean rows"
+bar.pick n=1
+tile.close tile=bed

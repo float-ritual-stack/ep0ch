@@ -472,8 +472,11 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
+![A reader closed: its note stays on screen, in the reader its opens were wired to](docs/heir-dark.png)
+
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
+`heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
