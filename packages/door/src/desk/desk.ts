@@ -3171,8 +3171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
     const exited = this.waitsOnExit(), busy = exited ? this.holdsOtherKeys() : this.holdsKeys();   // an exited program isn't typed in and holds nobody back (PIE-1563)
     const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!this.keptOpen() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
-    const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
-    const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
+    const deeper = this.keysDesk(), address = (deeper !== this ? deeper.keys().address : null) ?? (f ? this.tileId(this.focus) : null);   // a group's keys are its tile's (keysDesk: the one walk)
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
     return { focus: name, address, typingIn: typing ? name : null, busy, ...(why ? { why } : {}) };
@@ -3927,6 +3926,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
   /** The desk the person's keys are in: this one, or the focused group's or mounted screen's (its focused tile has them). */
+  /** The one walk to the desk the person's keys are in, down this desk's focused groups (not folded): what keys(), Esc, undo and chords read; the App's keys record (focusedDesk) is built from it. */
   private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner && !this.contentCover(this.focus).fold ? f.inner.keysDesk() : this; }
   /**
    * Where the person types in a program, as Esc asks it (PIE-1431): `typing`, a terminal tile has their keys here or in a
@@ -4521,7 +4521,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (focusedDesk, PIE-1346) when it is this one or down in its groups, else this desk's focused tile.
    */
   private keysTile(): { desk: Desk; id: number } | null {
-    const at = this.focusedDesk(), desk = at && this.descend().includes(at) ? at : this;
+    const desk = this.keysDesk();
     return desk.panes.has(desk.focus) ? { desk, id: desk.focus } : null;
   }
   /** The focused tile's menu rows the ^W panel's own group was drawn from (PIE-1338), and the desk the tile is on. */
