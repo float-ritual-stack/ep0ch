@@ -287,7 +287,9 @@ an outline's newest snapshot (or the newest at or before --at: an ISO time, or 3
 ep0ch disk [status] [--json]   what the disk keeper last saw: each disk's use, its biggest places with who reclaims
                                each (offload's sweep, install's retention, journald's cap, or nobody: reported), the
                                last sweep, and what's open
-ep0ch disk keep [--json]       the keeper's run, as ep0ch-disk.timer runs it every 15 minutes: df and du, then
+ep0ch disk keep [--sweep] [--json]
+                               the keeper's run, as ep0ch-disk.timer runs it every 15 minutes (--sweep: sweep
+                               whatever the share, as offload-sweep.timer runs it weekly): df and du, then
                                offload --sweep --yes when home's disk is past 75%, measured again and recorded;
                                85% (and again at 95%), a fill within 12 hours at the last hour's rate, or a sweep
                                that failed is one incident on the backup alert path (scripts/disk/README.md)

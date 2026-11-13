@@ -318,7 +318,7 @@ export const commandsHere = (platform = process.platform): Commands => ({
 });
 
 /** The incidents now, into alert.json; the new ones announced (once each). */
-export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => number; announce?: (i: Incident[]) => Promise<void> } = {}): Promise<Alert> {
+export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => number; announce?: (i: Incident[]) => Promise<unknown> } = {}): Promise<Alert> {
   const now = (o.now ?? Date.now)();
   // The disk keeper's open incidents stay in the alert beside the job's own (it announces them itself).
   const found = [...incidents(s, c.machine, now, commandsHere()), ...readDiskIncidents(c.state)];
@@ -348,19 +348,27 @@ export async function heartbeat(c: BackupConfig): Promise<void> {
   try { await Bun.spawn(["with-secrets", "heartbeat", "--", process.execPath, "-e", ping], { stdout: "ignore", stderr: "ignore", env: c.env as Record<string, string> }).exited; } catch { /* the next run pings */ }
 }
 
-/** One push per new incident: Herdr's notification here, and ntfy when a secrets group `ntfy` (NTFY_URL) exists. */
-export async function announceAll(c: Pick<BackupConfig, "env">, list: Incident[]): Promise<void> {
+/**
+ * One push per new incident: Herdr's notification here, and ntfy when a secrets group `ntfy` (NTFY_URL) exists.
+ * Answers the keys that reached someone (Herdr or ntfy said yes), so a caller can try the rest again.
+ */
+export async function announceAll(c: Pick<BackupConfig, "env">, list: Incident[]): Promise<string[]> {
+  const reached: string[] = [];
+  const ntfy = list.length > 0 && hasSecretsGroup(c, "ntfy");
   for (const i of list) {
     const body = `${i.detail}\nfix: ${i.fix}`;
     const quiet = { stdout: "ignore", stderr: "ignore", env: c.env as Record<string, string> } as const;
-    try { await Bun.spawn(["herdr", "notification", "show", i.title, "--body", body, "--sound", "request"], quiet).exited; } catch { /* no Herdr here */ }
-    if (hasSecretsGroup(c, "ntfy")) {
+    let ok = false;
+    try { ok = (await Bun.spawn(["herdr", "notification", "show", i.title, "--body", body, "--sound", "request"], quiet).exited) === 0; } catch { /* no Herdr here */ }
+    if (ntfy) {
       // The request is made inside the process with-secrets started, so the topic's URL is never in an argv.
-      const push = 'await fetch(process.env.NTFY_URL, { method: "POST", headers: { Title: process.argv[1], Tags: "floppy_disk" }, body: process.argv[2], signal: AbortSignal.timeout(20000) })';
-      try { await Bun.spawn(["with-secrets", "ntfy", "--", process.execPath, "-e", push, i.title, body], quiet).exited; }
+      const push = 'const r = await fetch(process.env.NTFY_URL, { method: "POST", headers: { Title: process.argv[1], Tags: "floppy_disk" }, body: process.argv[2], signal: AbortSignal.timeout(20000) }); process.exit(r.ok ? 0 : 1)';
+      try { ok = (await Bun.spawn(["with-secrets", "ntfy", "--", process.execPath, "-e", push, i.title, body], quiet).exited) === 0 || ok; }
       catch { /* the status bar still shows it */ }
     }
+    if (ok) reached.push(i.key);
   }
+  return reached;
 }
 
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
@@ -430,9 +438,9 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
  * One backup command at a time on a machine: `run.lock` made exclusively (O_EXCL), holding its pid. A lock whose
  * process is gone is taken over. Returns the release, or why it can't run now.
  */
-export function takeLock(c: BackupConfig): (() => void) | string {
+export function takeLock(c: Pick<BackupConfig, "state">, name = "run.lock", who = "another backup command"): (() => void) | string {
   mkdirSync(c.state, { recursive: true, mode: 0o700 });
-  const lock = join(c.state, "run.lock");
+  const lock = join(c.state, name);
   for (let tries = 0; tries < 2; tries++) {
     try {
       const fd = openSync(lock, "wx", 0o600);
@@ -441,7 +449,7 @@ export function takeLock(c: BackupConfig): (() => void) | string {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") return `can't make ${lock}: ${(e as Error).message}`;
       const pid = Number(readFileSync(lock, "utf8").trim() || 0);
-      if (pid && alive(pid)) return `another backup command (pid ${pid}) is running; this one stops`;
+      if (pid && alive(pid)) return `${who} (pid ${pid}) is running; this one stops`;
       rmSync(lock, { force: true });   // its process is gone
     }
   }

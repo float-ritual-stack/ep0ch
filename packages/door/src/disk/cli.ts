@@ -10,7 +10,7 @@ import { diskSettings, diskStateDir, readDisk } from "./state";
 type Env = Record<string, string | undefined>;
 interface IO { out: (s: string) => void; err: (s: string) => void }
 
-export const DISK_USAGE = "ep0ch disk [status] [--json] | ep0ch disk keep [--json]";
+export const DISK_USAGE = "ep0ch disk [status] [--json] | ep0ch disk keep [--sweep] [--json]";
 
 export function statusLines(env: Env, now = Date.now()): string[] {
   const s = readDisk(diskStateDir(diskSettings(env)));
@@ -34,12 +34,12 @@ export function statusLines(env: Env, now = Date.now()): string[] {
 
 export async function diskCommand(args: readonly string[], io: IO = { out: console.log, err: console.error }, env: Env = process.env): Promise<number> {
   const sub = args[1] && !args[1].startsWith("-") ? args[1] : "status";
-  const rest = args.slice(sub === args[1] ? 2 : 1).filter(a => a !== "--json");
+  const rest = args.slice(sub === args[1] ? 2 : 1).filter(a => a !== "--json" && !(sub === "keep" && a === "--sweep"));
   if (!["status", "keep"].includes(sub) || rest.length) { io.err(`ep0ch: ${DISK_USAGE}`); return 2; }
   const json = args.includes("--json");
   if (sub === "keep") {
     try {
-      const s = await keep({ env, say: json ? undefined : io.out });
+      const s = await keep({ env, say: json ? undefined : io.out, sweep: args.includes("--sweep") });
       if (json) io.out(JSON.stringify({ incidents: s.incidents, sweep: s.sweeps.at(-1) ?? null, announced: s.justAnnounced.map(i => i.key) }));
       return 0;
     } catch (e) { io.err(`ep0ch disk keep: ${(e as Error).message}`); return 1; }

@@ -66,7 +66,7 @@ describe("the disk keeper on a made-up disk", () => {
     const memory = file(`${project}/memory/MEMORY.md`, 4, 40);
     fillTo(78);
     const announced: Incident[] = [];
-    const s = await keep({ env, announce: async l => { announced.push(...l); } });
+    const s = await keep({ env, announce: async l => { announced.push(...l); return l.map(i => i.key); } });
 
     expect(s.sweeps).toHaveLength(1);
     expect(s.sweeps[0]!).toMatchObject({ code: 0, before: 78 });
@@ -100,7 +100,7 @@ describe("the disk keeper on a made-up disk", () => {
     const before = readFileSync(a, "utf8");
 
     const announced: Incident[] = [];
-    const s = await keep({ env, announce: async l => { announced.push(...l); } });
+    const s = await keep({ env, announce: async l => { announced.push(...l); return l.map(i => i.key); } });
     expect(s.sweeps.at(-1)!.code).toBe(4);
     expect(existsSync(a) && existsSync(b)).toBe(true);
     expect(readFileSync(a, "utf8")).toBe(before);
@@ -111,7 +111,7 @@ describe("the disk keeper on a made-up disk", () => {
     expect(readAlert(join(root, "state/backup"))!.incidents.map(i => i.key)).toEqual(["disk:box-a:/:sweep"]);
 
     // The same condition next run: still open, never announced again.
-    await keep({ env, announce: async l => { announced.push(...l); } });
+    await keep({ env, announce: async l => { announced.push(...l); return l.map(i => i.key); } });
     expect(announced).toHaveLength(1);
 
     // The command the alert gives: copies again by content, then the sweep moves them and the incident clears.
@@ -120,7 +120,7 @@ describe("the disk keeper on a made-up disk", () => {
     expect(existsSync(a)).toBe(false);
     expect(readFileSync(stale, "utf8")).toBe(before);
     fillTo(78);
-    const after = await keep({ env, announce: async l => { announced.push(...l); } });
+    const after = await keep({ env, announce: async l => { announced.push(...l); return l.map(i => i.key); } });
     expect(after.incidents).toEqual([]);
     expect(readAlert(join(root, "state/backup"))!.incidents).toEqual([]);
     expect(announced).toHaveLength(1);
@@ -131,7 +131,7 @@ describe("the disk keeper on a made-up disk", () => {
     fillTo(80);
     env.FAKE_SSH_DOWN = "1";
     const announced: Incident[] = [];
-    const s = await keep({ env, announce: async l => { announced.push(...l); } });
+    const s = await keep({ env, announce: async l => { announced.push(...l); return l.map(i => i.key); } });
     expect(s.sweeps.at(-1)!.code).toBe(3);
     expect(existsSync(a)).toBe(true);
     expect(announced.map(i => i.key)).toEqual(["disk:box-a:/:sweep"]);
@@ -159,5 +159,108 @@ describe("the disk keeper on a made-up disk", () => {
     expect(s.sweeps).toEqual([]);
     expect(existsSync(a)).toBe(true);
     expect(boxFiles()).toEqual([]);
+  }, 30_000);
+});
+
+// Codex's pass on #1489: what offload must never lose, each red before its fix.
+describe("offload keeps everything it hasn't verified", () => {
+  const offload = (...args: string[]) => Bun.spawnSync([env.EP0CH_OFFLOAD!, ...args], { env, stdout: "pipe", stderr: "pipe" });
+  /** A real rsync that runs a script of the test's right after each checking (--dry-run) pass: writes after the verify. */
+  const afterVerify = (script: string) => {
+    const bin = join(root, "bin");
+    writeFileSync(join(root, "after-verify.sh"), script);
+    const real = Bun.which("rsync", { PATH: process.env.PATH! })!;
+    writeFileSync(join(bin, "rsync"), `#!/bin/sh\n'${real}' "$@"; code=$?\ncase " $* " in *" --dry-run "*) . '${join(root, "after-verify.sh")}' ;; esac\nexit $code\n`, { mode: 0o755 });
+  };
+
+  test("refusing home deletes nothing", () => {
+    const keepMe = file("notes/keep.txt", 1, 1);
+    const r = offload(home);
+    expect(r.exitCode).toBe(2);
+    expect(existsSync(keepMe)).toBe(true);
+    expect(boxFiles()).toEqual([]);
+  });
+
+  test("a folder: a file appended after the check and one made after the copy both stay; the rest goes", () => {
+    const a = file("proj/a.txt", 2, 30), b = file("proj/b.txt", 2, 30, "b");
+    afterVerify(`printf more >> '${a}'\nprintf new > '${join(home, "proj/new.txt")}'\n`);
+    const r = offload(join(home, "proj"));
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(b)).toBe(false);
+    expect(readFileSync(a, "utf8").endsWith("more")).toBe(true);
+    expect(readFileSync(join(home, "proj/new.txt"), "utf8")).toBe("new");
+    expect(readFileSync(join(home, "proj.offloaded"), "utf8")).toContain("2 files changed or made during the move stay here");
+  });
+
+  test("a sweep: a transcript appended after the check stays", async () => {
+    const a = file(`${project}/${session}.jsonl`, 4, 10);
+    afterVerify(`printf more >> '${a}'\n`);
+    expect(offload("--sweep", "--yes").exitCode).toBe(0);
+    expect(readFileSync(a, "utf8").endsWith("more")).toBe(true);
+  });
+
+  test("a recon clone is cold by its newest file, not its folder's time", () => {
+    const warm = file("recon/warm/src/today.ts", 1, 0), cold = file("recon/cold/src/old.ts", 1, 30);
+    for (const d of ["recon/warm", "recon/cold"]) { const t = (Date.now() - 20 * DAY) / 1000; utimesSync(join(home, d), t, t); }
+    expect(offload("--sweep", "--yes").exitCode).toBe(0);
+    expect(existsSync(warm)).toBe(true);
+    expect(existsSync(cold)).toBe(false);
+  });
+
+  test("a session goes or stays whole: a fresh transcript keeps its older tool results", () => {
+    const fresh = file(`${project}/${session}.jsonl`, 1, 1);
+    const old = file(`${project}/${session}/tool-results/out.txt`, 1, 10);
+    expect(offload("--sweep", "--yes").exitCode).toBe(0);
+    expect(existsSync(fresh) && existsSync(old)).toBe(true);
+    expect(boxFiles()).toEqual([]);
+  });
+
+  test("a file name with a newline in it can't point the removal at another file", () => {
+    const keepMe = file("#keep", 1, 1);
+    const evil = file(".claude/uploads/u1/evil\n#keep", 1, 40);
+    expect(offload("--sweep", "--yes").exitCode).toBe(0);
+    expect(existsSync(keepMe)).toBe(true);
+    expect(existsSync(evil)).toBe(false);
+    expect(boxFiles().some(f => f.endsWith("evil\n#keep"))).toBe(true);
+  });
+
+  test("a folder with a space in its name comes back where it was, and its marker goes", () => {
+    file("cold folder/f.txt", 1, 30);
+    expect(offload(join(home, "cold folder")).exitCode).toBe(0);
+    expect(existsSync(join(home, "cold folder.offloaded"))).toBe(true);
+    expect(offload("--restore", join(home, "cold folder")).exitCode).toBe(0);
+    expect(readFileSync(join(home, "cold folder/f.txt"), "utf8")).toHaveLength(1024);
+    expect(existsSync(join(home, "cold folder/cold folder"))).toBe(false);
+    expect(existsSync(join(home, "cold folder.offloaded"))).toBe(false);
+  });
+});
+
+describe("the keeper's own run", () => {
+  test("an announcement that didn't reach anyone is tried again next run", async () => {
+    fillTo(90);
+    const tries: string[][] = [];
+    await keep({ env, announce: async l => { tries.push(l.map(i => i.key)); return []; } });
+    await keep({ env, announce: async l => { tries.push(l.map(i => i.key)); return l.map(i => i.key); } });
+    await keep({ env, announce: async l => { tries.push(l.map(i => i.key)); return l.map(i => i.key); } });
+    expect(tries).toEqual([["disk:box-a:/:full"], ["disk:box-a:/:full"]]);
+  }, 60_000);
+
+  test("the weekly sweep is the keeper's run: under the line, it sweeps and records", async () => {
+    const a = file(`${project}/${session}.jsonl`, 4, 10);
+    fillTo(40);
+    const s = await keep({ env, sweep: true, announce: async () => [] });
+    expect(s.sweeps).toHaveLength(1);
+    expect(existsSync(a)).toBe(false);
+  }, 60_000);
+
+  test("one run at a time: a second while the first holds the lock does nothing", async () => {
+    const a = file(`${project}/${session}.jsonl`, 4, 10);
+    fillTo(80);
+    mkdirSync(join(root, "state/backup"), { recursive: true });
+    writeFileSync(join(root, "state/backup/disk.lock"), String(process.pid));
+    const s = await keep({ env, announce: async () => [] });
+    expect(s.busy).toContain("another disk keeper run");
+    expect(existsSync(a)).toBe(true);
+    expect(existsSync(join(root, "state/backup/disk.json"))).toBe(false);
   }, 30_000);
 });

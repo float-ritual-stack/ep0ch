@@ -8,6 +8,7 @@ import { type Incident, mergeDisk } from "../backup/alert";
 import { diskSettings, diskStateDir, readDisk } from "./state";
 import { backupConfig, machineNameOf } from "../backup/config";
 import { writeState } from "../state";
+import { takeLock } from "../backup/jobs";
 import { backupDirOf } from "../setup/plan";
 import { type DiskState, diskIncidents, escalate, type Fs, parseDf, parsePlaces, percent, type Sample, shouldSweep, type SweepRecord, type Thresholds, thresholds, trimmed } from "./keeper";
 
@@ -26,8 +27,11 @@ export interface KeepOptions {
   env: Env;
   now?: () => number;
   run?: Run;
-  announce?: (list: Incident[]) => Promise<void>;
+  /** Sends the announcements; answers the keys that reached someone (none: tried again next run). */
+  announce?: (list: Incident[]) => Promise<string[]>;
   say?: (line: string) => void;
+  /** Sweep whatever the share (the weekly run, offload-sweep.service): recorded and raised like any other. */
+  sweep?: boolean;
 }
 
 interface Watched { fs: Fs; paths: string[] }
@@ -62,15 +66,22 @@ async function places(run: Run, env: Env, w: Watched, home: string, logs: string
 const sample = (fs: Fs, at: number, p?: Record<string, number>): Sample => ({ at: new Date(at).toISOString(), mount: fs.mount, size: fs.size, used: fs.used, avail: fs.avail, ...(p ? { places: p } : {}) });
 
 /** One run of the keeper: what it measured, swept, found and announced, kept in disk.json and alert.json. */
-export async function keep(o: KeepOptions): Promise<DiskState & { announced: Record<string, number>; justAnnounced: Incident[] }> {
+export async function keep(o: KeepOptions): Promise<DiskState & { justAnnounced: Incident[]; busy?: string }> {
   const env = diskSettings(o.env);
+  const dir = diskStateDir(env);
+  // One run at a time, the timer's, the weekly sweep's and one typed: state and announcements included.
+  const release = takeLock({ state: dir }, "disk.lock", "another disk keeper run");
+  if (typeof release === "string") { (o.say ?? (() => {}))(release); return { ...readDisk(dir), justAnnounced: [], busy: release }; }
+  try { return await keepLocked(o, env, dir); } finally { release(); }
+}
+
+async function keepLocked(o: KeepOptions, env: Env, dir: string): Promise<DiskState & { justAnnounced: Incident[] }> {
   const home = env.HOME || homedir();
   const now = o.now ?? Date.now, run = o.run ?? spawnRun, say = o.say ?? (() => {});
   const t: Thresholds = thresholds(env);
   const logs = env.EP0CH_DISK_LOGS || "/var/log";
   const c = backupConfig(env);
   const machine = "error" in c ? machineNameOf(env.EP0CH_HOSTNAME || hostname()) : c.machine;
-  const dir = diskStateDir(env);
   let s = readDisk(dir);
 
   const watched = await look(run, env, home, logs);
@@ -78,10 +89,10 @@ export async function keep(o: KeepOptions): Promise<DiskState & { announced: Rec
   const mine = watched.find(w => w.paths.includes(home))!;
   say(watched.map(w => `${w.fs.mount}: ${percent(w.fs)}% full`).join("; "));
 
-  if (shouldSweep(mine.fs, t)) {
+  if (o.sweep || shouldSweep(mine.fs, t)) {
     const before = percent(mine.fs);
     const offload = env.EP0CH_OFFLOAD || "offload";
-    say(`${mine.fs.mount} is ${before}% full (the line is ${t.sweepAt}%): offload --sweep --yes`);
+    say(o.sweep ? `the weekly sweep (${mine.fs.mount} is ${before}% full): offload --sweep --yes` : `${mine.fs.mount} is ${before}% full (the line is ${t.sweepAt}%): offload --sweep --yes`);
     const r = await run([offload, "--sweep", "--yes"], { env, timeoutMs: 45 * 60_000 });
     const again = (await look(run, env, home, logs)).find(w => w.paths.includes(home))!;
     s.samples.push(sample(again.fs, now(), await places(run, env, again, home, logs)));
@@ -93,13 +104,13 @@ export async function keep(o: KeepOptions): Promise<DiskState & { announced: Rec
 
   const found = watched.flatMap(w => diskIncidents({ machine, box: env.EP0CH_DISK_BOX, samples: s.samples, sweeps: w === mine ? s.sweeps : [], mount: w.fs.mount, t, now: now() }));
   const { announce, announced } = escalate(s.announced, found);
+  // An announcement counts once it reached someone; one that didn't keeps its old rank, so the next run tries again.
+  const send = o.announce ?? (async list => (await import("../backup/jobs")).announceAll({ env }, list));
+  const reached = new Set(announce.length ? await send(announce) : []);
+  for (const i of announce) if (!reached.has(i.key)) { if (s.announced[i.key] === undefined) delete announced[i.key]; else announced[i.key] = s.announced[i.key]!; }
   s = trimmed({ ...s, incidents: found, announced, checkedAt: new Date(now()).toISOString() }, now());
   writeState("disk.json", s, dir);
   mergeDisk(dir, machine, found, now());
-  if (announce.length) {
-    const send = o.announce ?? (async list => (await import("../backup/jobs")).announceAll({ env }, list));
-    await send(announce);
-  }
   for (const i of found) say(`${announce.includes(i) ? "announced" : "open"}: ${i.title} · ${i.fix}`);
-  return { ...s, justAnnounced: announce };
+  return { ...s, justAnnounced: announce.filter(i => reached.has(i.key)) };
 }

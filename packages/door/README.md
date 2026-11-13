@@ -558,10 +558,12 @@ has the settings, the setup on each machine and Litestream's retirement.
 
 **The disk keeper (PIE-1787) keeps a machine's disk under 80% without anyone watching it.** Where
 `~/.config/ep0ch/disk.env` names a storage box (`EP0CH_DISK_BOX=storagebox ep0ch install --apply`), install writes
-`ep0ch-disk.timer` and the weekly `offload-sweep.timer` from `scripts/disk/` and puts `offload` in `~/.local/bin`.
+`ep0ch-disk.timer` and the weekly `offload-sweep.timer` (`ep0ch disk keep --sweep`) from `scripts/disk/` and puts
+`offload` in `~/.local/bin`.
 Every 15 minutes `ep0ch disk keep` measures each disk (df, and du of home and /var/log); past 75% it runs `offload
---sweep --yes` (session transcripts older than 7 days, uploads and unused Claude Desktop builds older than 30, recon
-clones older than 14), measures again and records it. 85% (again at 95%), a fill within 12 hours at the last hour's
+--sweep --yes` (sessions with nothing newer than 7 days, whole; uploads and unused Claude Desktop builds older than
+30; recon clones with no file newer than 14), measures again and records it. offload removes only files whose copy
+matched by content and that haven't changed since. 85% (again at 95%), a fill within 12 hours at the last hour's
 rate, or a failed sweep is one incident in the backup job's alert: `✗ disk` on the status bar, one Herdr and ntfy
 announcement, doctor's `disk` group, each naming what grew in the last day, who reclaims it and the command. It never
 deletes anything itself. `ep0ch disk` says what it saw; [scripts/disk/README.md](../../scripts/disk/README.md) has the
