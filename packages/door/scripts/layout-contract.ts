@@ -3,7 +3,7 @@
 // rows and screens). Nothing here decides anything: each table is made by calling the door's function on made-up input
 // (scripts/layout-contract/cases.ts) and recording what came back.
 //
-//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the seven tables to packages/outline-core/fixtures/
+//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the eight tables to packages/outline-core/fixtures/
 //   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check    write nothing; exit 1 naming each table that is stale
 //
 //   layout-contract.json   { layout, tiles, actor, person, op }      → the layout after, or the refusal: its reason and its ways out, each an act   (apply)
@@ -13,6 +13,8 @@
 //   action-rows.json       every action the door has, as its row                                          (ActionSet, actionRow)
 //   screens.json           the door's built-in screens, each as its spec                                  (screenSpec, specData)
 //   actor-contract.json    { row, actor, invited, where, tile } → may they run it, or why not             (actorRule)
+//   drop-contract.json     { tiles, area, src } → the drop under every cell, the zones each tile shows,   (dropAt, zonesOf, handleDrop,
+//                          and the act and the operation a drop there runs                                 dropAction, dropArgs, dropOp)
 //
 // test/layout-contract.test.ts makes them again and fails when a checked-in table is stale, so a change to a layout rule
 // shows as a changed row in the same PR. It runs this script as a process of its own: the tables name every tile kind and
@@ -40,7 +42,8 @@ import { builtinScreen, readSpec, screenNames, screenSpec, screenTargetArg, spec
 import { tileKind, tileKinds } from "../src/desk/tile-kinds";
 import { canonSpec, tileKindNames, type LayoutSpec, type TileSpec } from "../src/desk/tiles";
 import { parseTileAddress, resolveAddress, resolveRelative, whyNone, type AddressCandidate } from "../src/desk/tile-address";
-import { ACT_LINES, ADDRESS_CASES, ADDRESS_TILES, AREA, LAYOUT_CASES, PLACE_CASES, TILE_ADDRESSES, type CaseCtx, type LayoutCase, type PlaceCase, type Scene } from "./layout-contract/cases";
+import { CENTRE, EDGE_COLS, dropAction, dropArgs, dropAt, dropOp, floatLanding, handleDrop, zonesOf, type Drop, type DropPlace, type DropTile, type Refuse } from "../src/desk/drop";
+import { ACT_LINES, ADDRESS_CASES, ADDRESS_TILES, AREA, DROP_CASES, HANDLE_CASES, LAYOUT_CASES, PLACE_CASES, TILE_ADDRESSES, type CaseCtx, type DropCase, type DropRefusal, type HandleCase, type LayoutCase, type PlaceCase, type Scene } from "./layout-contract/cases";
 
 /** Where the tables are checked in: outline-core's, so both suites read one copy. */
 export const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
@@ -314,7 +317,55 @@ function actorRows() {
   return rows;
 }
 
-/** The seven tables, by file name, as text. */
+// ── where a dragged tile lands: the drop zones ──
+
+/** A case's refusals as the callback the door's desk hands the drop rule: why policy refuses a place, or null. */
+const refuseOf = (rules: DropRefusal[] | undefined): Refuse<string> | undefined => rules && (to => rules.find(r => r.kind === to.kind && (to.kind === "edge" ? true : r.target === to.target) && (to.kind === "split" || to.kind === "edge" ? r.dir === to.dir : true))?.why ?? null);
+/** A drop's place alone: what `layout.move` and `layout.swap` are told. */
+const placeOf = (d: DropPlace<string>): Record<string, unknown> => d.kind === "swap" ? { kind: "swap", target: d.target } : d.kind === "edge" ? { kind: "edge", dir: d.dir } : d.kind === "tabs" ? { kind: "tabs", target: d.target, ...(d.index !== undefined ? { index: d.index } : {}) } : { kind: "split", target: d.target, dir: d.dir };
+/** A drop as its row holds it: the place, the box drawn, the words in it, why policy refuses it, and what letting go there runs. */
+function dropRow(src: string, d: Drop<string>) {
+  const { ghost, label, refused, handle, receive } = d;
+  return {
+    ...placeOf(d), ghost, label, ...(refused ? { refused } : {}), ...(handle ? { handle } : {}), ...(receive ? { receive } : {}),
+    act: { action: dropAction(d), args: receive?.args ?? dropArgs(d, id => id) },
+    ...(receive ? {} : { op: (o => o.op === "swap" ? o : { op: "move", tile: o.tile, to: placeOf(d) })(dropOp(src, d) as { op: string; tile: string }) }),
+  };
+}
+const CELL_MARKS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/**
+ * One layout under one dragged tile, whole: the drop under every cell of its area (`cells`: a row of the area a
+ * string, a cell a mark into `drops`; the first is nowhere), and the zones each tile shows while it is held.
+ */
+function dropCase(c: DropCase) {
+  const tiles = c.tiles as DropTile<string>[], refuse = refuseOf(c.refuse), many = c.many ?? tiles.length > 1;
+  const drops: (ReturnType<typeof dropRow> & { landing: boolean } | null)[] = [null], keys = ["null"];
+  const cells: string[] = [];
+  // (One cell past each side too: outside the area is nowhere.)
+  for (let y = c.area.row - 1; y <= c.area.row + c.area.rows; y++) {
+    let line = "";
+    for (let x = c.area.col - 1; x <= c.area.col + c.area.cols; x++) {
+      const d = dropAt(tiles, c.area, x, y, c.src, many, refuse);
+      const row = d && { ...dropRow(c.src, d), landing: floatLanding(d, tiles, y) }, key = JSON.stringify(row);
+      let at = keys.indexOf(key);
+      if (at < 0) { at = keys.length; keys.push(key); drops.push(row); }
+      if (at >= CELL_MARKS.length) throw new Error(`${c.name}: more distinct drops than a cell has marks`);
+      line += CELL_MARKS[at];
+    }
+    cells.push(line);
+  }
+  // The zones a tile shows are asked with the dragged tile when the layout holds it, else with none (it arrives from outside).
+  const source = tiles.some(t => t.id === c.src || t.tabs?.some(tab => tab.id === c.src)) ? c.src : undefined;
+  const zones = Object.fromEntries(tiles.map(t => [t.id, zonesOf(t, source, refuse).map(z => dropRow(c.src, z))]));
+  return { name: c.name, tiles: c.tiles, area: c.area, src: c.src, many, ...(c.refuse ? { refuse: c.refuse } : {}), drops, cells, zones };
+}
+function handleRow(c: HandleCase) {
+  const d = handleDrop(c.handles, c.area, c.x, c.y, c.src, refuseOf(c.refuse));
+  return { name: c.name, handles: c.handles, area: c.area, x: c.x, y: c.y, src: c.src, ...(c.refuse ? { refuse: c.refuse } : {}), drop: d && dropRow(c.src, d) };
+}
+
+/** The eight tables, by file name, as text. */
 export function contractTables(): Record<string, string> {
   const layout = LAYOUT_CASES.map(layoutRow), place = PLACE_CASES.map(placeRow);
   for (const [what, rows] of [["layout", layout], ["place", place]] as const) {
@@ -341,6 +392,17 @@ export function contractTables(): Record<string, string> {
     "address-contract.json": table({ about: "Which tile an address names (tile=, to=, a follower's source) among the tiles a window has: the one tile, why none has it (none), or the refusal when several do (refused). A plain name is the caller's own to read after these (name). Made by outline-core's parseTileAddress(), resolveAddress(), resolveRelative() and whyNone(), in the order the door's desk asks them; never edited by hand.", by: BY }, { tiles: ADDRESS_TILES, cases: ADDRESS_CASES.map(addressRow) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
     "actor-contract.json": table({ about: "Whether an actor may run an action, and why not: the person, an agent, and a script's run with and without the invitation the person's press minted (invited), wherever the person is. Made by the door's actorRule(); never edited by hand. refused is the door's sentence, or null: a second dispatcher is held to whether it refuses, and words its own refusal.", by: BY }, { cases: actorRows() }),
+    "drop-contract.json": table({
+      about: "Where a tile dragged by its title lands: the drop under every cell of a layout, the zones each tile shows while one is held, a shut dock's handle, and the act and the layout operation a drop runs. Made by the door's dropAt(), zonesOf(), handleDrop(), dropAction(), dropArgs(), dropOp() and floatLanding() (src/desk/drop.ts); never edited by hand.", by: BY,
+      reading: [
+        "Everything is in cells. A tile is its frame (rect), a tab set's labels on its header row (tabs: each tab's cells from, to), a content receiver (receive) and whether it floats.",
+        "cells is the area with one cell more on every side, a string a row: each character is a place in marks, which indexes drops (the first, null, is nowhere).",
+        "A drop is its place (kind, target, dir, index), the box drawn while it is held there (ghost), the words in it (label), why policy refuses it (refused), act (the action letting go runs, with its arguments), op (the layout operation that is) and landing (a float's title let go there docks it; anywhere else it only moves).",
+        "zones is what each tile draws while src is held: every place it offers, in the order drawn. A tile the layout hasn't (a tile arriving from outside) is asked with no source.",
+        "refuse is the policy a case was asked with, as data: a place of that kind (and target, and side) is refused with why.",
+      ],
+      edgeCols: EDGE_COLS, centre: CENTRE, marks: CELL_MARKS,
+    }, { cases: DROP_CASES.map(dropCase), handles: HANDLE_CASES.map(handleRow) }),
     "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. drawn names a field the screen drew as it made its spec (a hint row's strip): the table holds its words, without the colours and click marks. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
   };
 }
