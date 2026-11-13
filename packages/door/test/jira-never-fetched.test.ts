@@ -41,10 +41,28 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a ticket that never fetched sa
     const p = await doors.pane(id, "Printer", 120, 30);
     try {
       await until(() => card(p.capture()).includes("couldn't fetch"), "the failure said", 10_000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
-      expect(card(p.capture())).toContain("couldn't fetch: provider request failed");
+      expect(card(p.capture())).toContain("couldn't fetch: Jira answered 500");
       expect(card(p.capture())).toContain("the next poll tries again, R now");
       fake.status = null;
       await until(() => p.capture().includes("Label printer drops"), "fetched by the poll, no reopen", 10_000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
+    } finally { fake.status = null; p.close(); }
+  }, 60_000);
+
+  // PIE-1802: what Evan reads at 44 columns is about Jira and his ticket: no internal word, Jira named, "R now" whole.
+  test("at 44 columns a card that never fetched says it in Evan's words: Jira named, nothing internal, R now on one row", async () => {
+    fake.issues.set("PC-7", { id: "20007", key: "PC-7", summary: "Forklift charger trips", status: "To Do", updated: "2026-01-05T09:00:00.000Z" });
+    fake.status = 500;
+    const id = await doors.create("Forklift [jira::PC-7]\nBay four.");
+    const p = await doors.pane(id, "Forklift", 44, 30);
+    try {
+      await until(() => card(p.capture()).includes("couldn't fetch"), "the failure said", 10_000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
+      const rows = p.capture().split("\n").filter(l => l.includes("▌")).map(l => l.replace(/[║▌]/g, "").trim());
+      const said = rows.join(" ").replace(/\s+/g, " ");
+      expect(said).toContain("Jira answered 500");
+      expect(said).not.toContain("not registered");
+      expect(said).not.toContain("provider");
+      expect(rows.some(r => /(^|\s)R now\b/.test(r))).toBe(true);
+      expect(rows.filter(r => /(^|\s)R$/.test(r))).toEqual([]);
     } finally { fake.status = null; p.close(); }
   }, 60_000);
 

@@ -472,8 +472,10 @@ write what a person should read there, and never a secret.
 ```
 
 The answer is `{"ok": true, "value": …}` or `{"ok": false, "code": "not-found"}` (codes:
-`credentials-missing`, `unauthorized`, `forbidden`, `not-found`, `invalid-config`, `network`,
-`timeout`, `rate-limited`). A provider's own error text is never stored.
+`credentials-missing`, `unauthorized`, `forbidden`, `not-found`, `invalid-config`, `http` with the
+`status` the provider answered, `network` (no answer), `timeout`, `rate-limited`). The host words each
+one with the manifest's `name`: "Jira answered 500", "Jira didn't answer". A provider's own error text
+is never stored.
 
 An extension disabled, removed or edited (`extension.json` or `config.json`) while a call runs has
 that call's answer discarded: nothing it returned is kept or written, and the call fails with

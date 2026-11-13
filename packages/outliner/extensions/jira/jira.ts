@@ -3,7 +3,8 @@ type UnknownRecord = Record<string, unknown>;
 const MAX_ADF_DEPTH = 32,
   MAX_ADF_NODES = 20000;
 class ExtensionError extends Error {
-  constructor(readonly code: string) {
+  /** `status`: the HTTP status Jira answered, said with code `http` (PIE-1802: "Jira answered 500"). */
+  constructor(readonly code: string, readonly status?: number) {
     super(code);
   }
 }
@@ -277,9 +278,8 @@ async function jiraJson(url: URL, authorization: string, init: { method?: string
   }
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ExtensionError(
-      ({ 400: "invalid-query", 401: "unauthorized", 403: "forbidden", 404: "not-found", 429: "rate-limited" } as Record<number, string>)[response.status] ?? "network",
-    );
+    const code = ({ 400: "invalid-query", 401: "unauthorized", 403: "forbidden", 404: "not-found", 429: "rate-limited" } as Record<number, string>)[response.status];
+    throw code ? new ExtensionError(code) : new ExtensionError("http", response.status);
   }
   const text = await response.text();
   if (text.length > 900000) throw new ExtensionError("invalid-response");
@@ -444,14 +444,8 @@ async function main() {
   }
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ExtensionError(
-      (
-        { 401: "unauthorized", 403: "forbidden", 404: "not-found", 429: "rate-limited" } as Record<
-          number,
-          string
-        >
-      )[response.status] ?? "network",
-    );
+    const code = ({ 401: "unauthorized", 403: "forbidden", 404: "not-found", 429: "rate-limited" } as Record<number, string>)[response.status];
+    throw code ? new ExtensionError(code) : new ExtensionError("http", response.status);
   }
   if (!response.body) throw new ExtensionError("invalid-response");
   const reader = response.body.getReader();
@@ -551,6 +545,7 @@ try {
           : error instanceof Error && error.name === "TimeoutError"
             ? "timeout"
             : "invalid-response",
+      ...(error instanceof ExtensionError && error.status ? { status: error.status } : {}),
     }),
   );
 }

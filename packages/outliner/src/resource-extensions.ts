@@ -78,20 +78,27 @@ const MAX_CONFIG_BYTES = 64 * 1024,
   MAX_RESULT_BYTES = 1024 * 1024;
 /** What a provider's "no such item" reads as: a failure no poll will mend (PIE-1801). */
 export const NOT_FOUND_MESSAGE = "item was not found";
-const ERROR_MESSAGES: Record<string, string> = {
-  "credentials-missing": "credentials are unavailable",
-  unauthorized: "authentication failed (401)",
-  forbidden:
-    "access denied (403); check authentication mode and project access",
-  "not-found": NOT_FOUND_MESSAGE,
-  "outside-source": "item is outside the configured Source",
-  "invalid-config": "configuration is invalid",
-  "invalid-response": "provider returned an invalid response",
-  network: "provider request failed",
-  timeout: "provider request timed out",
-  "invalid-query": "the provider refused the search (400)",
-  "rate-limited": "the provider is limiting requests (429); fetching again later",
-};
+/**
+ * A failure in the person's words, naming the extension's provider (its manifest's `name`, "Jira"), never the outline's
+ * internals (PIE-1802). `status` is the HTTP status the provider answered, when the extension says it (`http`).
+ */
+export function extensionFailureWords(name: string, code: string, status?: number): string {
+  switch (code) {
+    case "credentials-missing": return `no ${name} credentials on this machine`;
+    case "unauthorized": return `${name} refused the credentials (401)`;
+    case "forbidden": return `${name} denied access (403); check the authentication mode and project access`;
+    case "not-found": return NOT_FOUND_MESSAGE;
+    case "outside-source": return "item is outside the configured Source";
+    case "invalid-config": return "configuration is invalid";
+    case "invalid-response": return `${name}'s answer couldn't be read`;
+    case "http": return status ? `${name} answered ${status}` : `${name} answered with an error`;
+    case "network": return `${name} didn't answer`;
+    case "timeout": return `${name} didn't answer in time`;
+    case "invalid-query": return `${name} refused the search (400)`;
+    case "rate-limited": return `${name} is limiting requests (429); fetching again later`;
+    default: return `${name} failed (${code})`;
+  }
+}
 /** The user extensions folder on the service host (wave B also watches the outline's own). */
 export function userExtensionsDirectory(): string {
   return userFolderOf(process.env, homedir());
@@ -736,7 +743,7 @@ export class ResourceExtensionRuntime {
             { additionalProperties: false },
           ),
           Type.Object(
-            { ok: Type.Literal(false), code: Type.String() },
+            { ok: Type.Literal(false), code: Type.String(), status: Type.Optional(Type.Integer({ minimum: 100, maximum: 599 })) },
             { additionalProperties: false },
           ),
         ]),
@@ -746,9 +753,7 @@ export class ResourceExtensionRuntime {
       throw failure("command returned an invalid response envelope");
     }
     if (!parsed.ok)
-      throw failure(parsed.code === "credentials-missing"
-        ? `no ${loaded.manifest.name} credentials on this machine`
-        : ERROR_MESSAGES[parsed.code] ?? "provider operation failed");
+      throw failure(extensionFailureWords(loaded.manifest.name, parsed.code, "status" in parsed ? parsed.status : undefined));
     return {
       value: scrubCredentials(parsed.value, secretValues),
       adapter: { id: loaded.manifest.id, version: loaded.manifest.version },

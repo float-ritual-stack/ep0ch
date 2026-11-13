@@ -4678,7 +4678,7 @@ export class NoteSurface {
       const shown = (p: ResourceProjection) => (p.kind === "agent" ? `${p.key} asked` : p.kind && p.kind !== "data" ? `${p.propertyKey}:: ${p.key ?? ""}`.trim() + " ran" : `${p.key} fetched`);
       const fetched = read.projections.filter(p => p.key && !p.fetchError).map(shown);
       const said = [fetched.length ? fetched.join(", ") : "",
-        ...failed.map(p => `${p.key}: ${fetchFailedWords(p)}`)].filter(Boolean).join(" · ");
+        ...failed.map(p => `${p.key}: ${fetchFailedWords(p).replaceAll("\u00a0", " ")}`)].filter(Boolean).join(" · ");
       host.ctx.flash(said || "nothing to fetch here");
       if (actor.kind === "agent") this.noteAgent(actor, `refreshed ${keys.join(", ") || "nothing"}`);
       host.redraw();
