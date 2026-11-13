@@ -1,0 +1,1 @@
+- **A laptop's link comes up while SSH attempts are failing (PIE-1751):** the link's 5 s authentication timer now ends at the proof, not after the wait for the machine's forward lock, which an SSH fallback holds for up to its 10 s connect timeout. On Nov 12 the change log's followers kept that lock busy and the laptop's link never came up.
