@@ -160,3 +160,66 @@ test("a row left out of the text-and-cursor form takes what its source said of i
   expect(answer.message).not.toContain("makes it");
   expect(answer.message).not.toContain("partial search");
 });
+
+// What a row says of itself is its source's own word (`SourceRow.docs`), and the one that is lit carries what
+// choosing it makes, as written and as a page would draw it (native H1): a window draws both beside the list and
+// keeps no description and no drawing of a component, a value or a callout of its own.
+test("completion.rows for a text and a cursor says each row's docs, and draws the lit row's example", async () => {
+  const { store, client } = await service();
+  const bed = store.create("North bed [type::bed] [stage::sown]");
+  store.create("South bed [type::bed] [stage::planned]");
+  type Row = { label: string; kind?: string; docs?: string; view?: { type: string; children: { type: string; title?: string; children: { type: string; text?: string }[] }[] } };
+  type Listed = { rows: Row[]; heading?: string };
+  // A property's name: what the notes carry says how many carry it, and a key a component gives a meaning says that meaning.
+  const keys = await client.request<Listed>({ action: "completion.rows", text: "Beds [st", cursor: 8, near: bed.id });
+  expect(keys.heading).toBe("properties");
+  expect(keys.rows.find(row => row.label === "stage")).toMatchObject({ kind: "property", docs: "2 notes with stage" });
+  const meant = await client.request<Listed>({ action: "completion.rows", text: "Beds [heading-pat", cursor: 17, near: bed.id });
+  expect(meant.rows[0]).toMatchObject({ label: "heading-pattern" });
+  expect(meant.rows[0]!.docs).toContain("the glyph track the band is drawn in");
+  // A value a component's schema knows: its docs are the schema's words for it, and the lit row (the first, unless
+  // said) carries its example as written and as drawn, each a box of primitives.
+  const text = "Beds [heading-pattern::";
+  const values = await client.request<Listed>({ action: "completion.rows", text, cursor: text.length, near: bed.id });
+  expect(values.rows.map(row => row.label).sort()).toEqual(["dots", "rule", "stack", "uptime", "waffle"]);
+  const dots = values.rows.findIndex(row => row.label === "dots");
+  expect(values.rows[dots]!.docs).toBe("sparse dots, now and then a bright one");
+  expect(values.rows[0]!.view!.children.map(box => box.title)).toEqual(["As written", "As drawn"]);
+  expect(values.rows[0]!.view!.children[0]!.children[0]).toMatchObject({ type: "source" });
+  expect(values.rows[0]!.view!.children[0]!.children[0]!.text).toContain(`[heading-pattern::${values.rows[0]!.label}]`);
+  expect(values.rows[0]!.view!.children[1]!.children.length).toBeGreaterThan(0);
+  expect(values.rows.slice(1).every(row => row.view === undefined)).toBe(true);
+  // Another row lit: that one's, and only that one's.
+  const lit = await client.request<Listed>({ action: "completion.rows", text, cursor: text.length, near: bed.id, lit: dots });
+  expect(lit.rows.map(row => row.label)).toEqual(values.rows.map(row => row.label));
+  expect(lit.rows.filter(row => row.view).map(row => row.label)).toEqual(["dots"]);
+  expect(lit.rows[dots]!.view!.children[0]!.children[0]!.text).toContain("[heading-pattern::dots]");
+  await expect(client.request({ action: "completion.rows", text, cursor: text.length, lit: -1 })).rejects.toThrow("lit");
+});
+
+// One merge, whichever form asks (H1's question: why a list read `heading-pattern, heading-style, header` on one
+// host and `heading-rows, -tone, -letters` on another). The text-and-cursor form orders its rows as the target form's
+// answers merge (`mergeSourceAnswers`, with the outline's picks): what the notes carry, most used first, then the
+// keys components give a meaning; and a key chosen before comes first among equals, in both.
+test("the text-and-cursor form lists a token's rows in the order the target form's answers merge to", async () => {
+  const { mergeSourceAnswers } = await import("@ep0ch/outline-core/completion-source");
+  const { store, client } = await service();
+  for (const n of [1, 2, 3]) store.create(`Bed ${n} [type::bed] [harvest::late] [heading-rows::2]`);
+  store.create("Shed [type::shed] [heading-tone::warm]");
+  const order = async () => {
+    const at = await client.request<{ rows: { label: string }[]; pickKey: string }>({ action: "completion.rows", text: "Beds [h", cursor: 7 });
+    const target = await client.request<{ answers: Parameters<typeof mergeSourceAnswers>[0]; picks: Record<string, never> }>({ action: "completion.rows", target: { kind: "key", query: "h" } });
+    return { at: at.rows.map(row => row.label), merged: mergeSourceAnswers(target.answers, "h", { picks: target.picks }).map(row => row.label), pickKey: at.pickKey };
+  };
+  const before = await order();
+  expect(before.at).toEqual(before.merged);
+  // The keys notes carry come before the ones only a schema knows, the most used first.
+  expect(before.at.slice(0, 3)).toEqual(["harvest", "heading-rows", "heading-tone"]);
+  expect(before.at).toContain("heading-pattern");
+  // A pick counts in both forms alike: the key chosen moves first among the rows that match as well.
+  const { pickId } = await import("@ep0ch/outline-core/completion-source");
+  await client.request({ action: "completion.picked", key: before.pickKey, insert: pickId("[heading-tone::"), outcome: "accepted" });
+  const after = await order();
+  expect(after.at).toEqual(after.merged);
+  expect(after.at.indexOf("heading-tone")).toBeLessThan(after.at.indexOf("heading-rows"));
+});
