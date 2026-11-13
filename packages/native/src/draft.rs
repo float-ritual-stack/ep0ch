@@ -71,15 +71,50 @@ pub struct Completing {
     pub moved: bool,
 }
 
+/// Words of a note a comment is on, and what whoever picked them knows of where they are. Where they are in the
+/// note's text is the service's to find (outline-core's drawn-passage.ts): nothing here anchors.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Quoted {
+    /// The words: as the note's text has them, or (`drawn`) as a reader showed them.
+    pub words: String,
+    /// They were selected in what a reader drew (a link's label, bold without its marks, two paragraphs).
+    pub drawn: bool,
+    /// The span of the note's text (UTF-16) they were drawn within: the parts of the page the selection was made
+    /// in, as the service says where each part is written.
+    pub within: Option<(usize, usize)>,
+    /// Among repeats, the ones nearest this UTF-16 offset of the note's text.
+    pub near: Option<usize>,
+}
+
+impl Quoted {
+    /// Words as the note's text has them (an act's `quote=`), nearest `near` among repeats.
+    pub fn written(words: impl Into<String>, near: Option<usize>) -> Quoted { Quoted { words: words.into(), near, ..Quoted::default() } }
+    /// Words selected in what a reader drew, within a span of the note's text when the reader knows one.
+    pub fn drawn(words: impl Into<String>, within: Option<(usize, usize)>) -> Quoted { Quoted { words: words.into(), drawn: true, within, near: None } }
+
+    /// The passage as the service takes it (`BlockCommentPassage`).
+    pub fn passage(&self) -> Value {
+        let mut passage = json!({ "quote": self.words });
+        if self.drawn { passage["drawn"] = json!(true) }
+        if let Some((start, end)) = self.within { passage["within"] = json!({ "start": start, "end": end }) }
+        if let Some(near) = self.near { passage["near"] = json!(near) }
+        passage
+    }
+
+    fn read(kept: &Value) -> Option<Quoted> {
+        let span = |v: &Value| Some((v["start"].as_u64()? as usize, v["end"].as_u64()? as usize));
+        Some(Quoted { words: kept["quote"].as_str()?.to_string(), drawn: kept["drawn"] == true, within: span(&kept["within"]), near: kept["near"].as_u64().map(|at| at as usize) })
+    }
+}
+
 /// What a draft writes when it is saved.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Writes {
     /// The block's own text, checked against the revision it stands on: saving never ends the draft.
     #[default]
     Block,
-    /// A comment on the block: on these words of it, as its source has them (`near`: among repeats, the ones
-    /// nearest this UTF-16 offset), or on the whole of it. Sent, the draft is done.
-    Comment { quote: Option<String>, near: Option<usize> },
+    /// A comment on the block: on these words of it (`Quoted`), or on the whole of it. Sent, the draft is done.
+    Comment { on: Option<Quoted> },
     /// A reply in a thread on the block, by the thread's id; `to` is what it answers, in the thread's first words.
     Reply { thread: String, to: String },
 }
@@ -102,8 +137,8 @@ impl Writes {
     pub fn on(&self) -> Option<String> {
         match self {
             Writes::Block => None,
-            Writes::Comment { quote: Some(quote), .. } => Some(format!("On “{quote}”")),
-            Writes::Comment { quote: None, .. } => Some("On the whole note".to_string()),
+            Writes::Comment { on: Some(quoted) } => Some(format!("On “{}”", quoted.words)),
+            Writes::Comment { on: None } => Some("On the whole note".to_string()),
             Writes::Reply { to, .. } if to.is_empty() => Some("In reply".to_string()),
             Writes::Reply { to, .. } => Some(format!("In reply to “{to}”")),
         }
@@ -115,14 +150,14 @@ impl Writes {
     fn json(&self) -> Value {
         match self {
             Writes::Block => Value::Null,
-            Writes::Comment { quote, near } => json!({ "kind": "comment", "quote": quote, "near": near }),
+            Writes::Comment { on } => { let mut kept = on.as_ref().map_or(json!({}), Quoted::passage); kept["kind"] = json!("comment"); kept }
             Writes::Reply { thread, to } => json!({ "kind": "reply", "thread": thread, "to": to }),
         }
     }
     fn read(kept: &Value) -> Writes {
         let text = |key: &str| kept[key].as_str().map(str::to_string);
         match kept["kind"].as_str() {
-            Some("comment") => Writes::Comment { quote: text("quote"), near: kept["near"].as_u64().map(|at| at as usize) },
+            Some("comment") => Writes::Comment { on: Quoted::read(kept) },
             Some("reply") => Writes::Reply { thread: text("thread").unwrap_or_default(), to: text("to").unwrap_or_default() },
             _ => Writes::Block,
         }

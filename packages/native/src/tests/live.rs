@@ -700,6 +700,71 @@ fn live_waiting_is_installed_used_configured_and_removed_and_the_window_switches
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
 }
 
+/// F1's sentence against a real outline host: words selected in the reader as it drew them, across a link (in each
+/// form one is written), a reference drawn as its note's title, bold text and two paragraphs, are commented on, and
+/// each comment lands on the source those words were drawn from. The window sends the words as drawn, said as drawn,
+/// with the span the service gave the part; where they are in the note is the service's to find. Words that are not
+/// in the note are refused with why, and the comment keeps its words. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_lands_on_that_passage() {
+    use super::support::{chord, draft, primary, rest, typed, window};
+    use crate::client::Socket;
+    use crate::draft::Quoted;
+    use rune::{Key, Mods, Runtime};
+    with_host("quote", |path, root| {
+        let mut raw = Socket::connect(path);
+        let mut ask = |request: Value| asked(&mut raw, request).unwrap();
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&App) -> bool) {
+            for _ in 0..400 { if so(&rt.state) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, steps {:?}", rt.state.notice, rt.state.steps.iter().rev().take(3).map(|step| (step.line(), step.ok, step.said.clone())).collect::<Vec<_>>());
+        }
+        fn line(rt: &mut Runtime<App>, line: &str) { let line = line.to_string(); rt.update(move |s, _| { let done = s.act(&line, crate::actions::Actor::Person); assert!(done.ok, "{line}: {}", done.said); }); rest(rt); }
+        let peas = ask(json!({ "id": "p", "action": "create", "outline": "scratch", "parentId": null, "text": "Early peas [type::crop]\nSown under glass.", "author": "user" }))["id"].as_str().unwrap().to_string();
+        // Each note's body is one part of its page: all of it selected is a selection across what the case names.
+        // (The title, the body as written, the body as the reader draws and copies it.)
+        let cases: Vec<(&str, String, &str)> = vec![
+            ("North bed", format!("Sow the [early peas](https://seeds.example/peas) in March, then the (({peas}|maincrop)) and what the [[seed list]] says."), "Sow the early peas in March, then the maincrop and what the seed list says."),
+            ("South bed", format!("The (({peas})) come up in ten days."), "The Early peas come up in ten days."),
+            ("West bed", "Water **before dusk**, never at *noon*.".to_string(), "Water before dusk, never at noon."),
+            ("East bed", "Peas go in first.\n\nThe beans go in May.".to_string(), "Peas go in first.\n\nThe beans go in May."),
+        ];
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
+        app.start();
+        opened(&mut app);
+        let mut rt = window(app);
+        for (n, (title, body, drawn)) in cases.iter().enumerate() {
+            let head = format!("{title} [type::bed]\n");
+            let id = ask(json!({ "id": format!("c{n}"), "action": "create", "outline": "scratch", "parentId": null, "text": format!("{head}{body}"), "author": "user" }))["id"].as_str().unwrap().to_string();
+            line(&mut rt, &format!("open id={id}"));
+            until(&mut rt, "the note's page", |s| s.page().is_some_and(|page| page.title == *title));
+            // Selected as a drag across the part would: the words as drawn, within the part's span of the note's text.
+            rt.update(|_, tx| tx.select_all_text("tile/reader/part/0"));
+            rest(&mut rt);
+            assert_eq!(rt.selected_text().as_deref(), Some(*drawn), "{title}");
+            let (start, end) = (head.encode_utf16().count(), head.encode_utf16().count() + body.encode_utf16().count());
+            assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn(*drawn, Some((start, end)))), "{title}");
+            chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
+            assert!(draft(&rt.state).is_some_and(|draft| !draft.is_block()), "{title}: {:?}", rt.state.notice);
+            typed(&mut rt, "Here.");
+            chord(&mut rt, Key::Command('s'), primary());
+            until(&mut rt, "the comment sent", |s| s.drafts.is_empty());
+            // The thread is anchored to the source the words were drawn from: the whole link, the styled run, both paragraphs.
+            let threads = ask(json!({ "id": format!("t{n}"), "action": "annotations.list", "outline": "scratch", "query": { "subject": { "kind": "block", "blockId": id } } }));
+            let anchor = &threads[0]["originalTarget"]["anchor"];
+            assert_eq!((threads.as_array().map(Vec::len), anchor["exact"].as_str(), anchor["start"].as_u64(), anchor["end"].as_u64()), (Some(1), Some(body.as_str()), Some(start as u64), Some(end as u64)), "{title}: {threads}");
+        }
+        // Words that are not in the note, as drawn or as written: refused with why, and the comment keeps its words.
+        line(&mut rt, "passage.select quote=\"Peas go in last.\"");
+        line(&mut rt, "comment");
+        typed(&mut rt, "Too late.");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the refusal", |s| s.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem));
+        assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.starts_with("The comment wasn't sent: Comment quote or context was not found") && n.said.contains("nearest: \"Peas go in\"")), "{:?}", rt.state.notice);
+        assert_eq!(words(&rt.state), "Too late.");
+    });
+}
+
 /// W6's sentence against a real outline host: a comment on words of a note, a reply and the thread resolved, by the
 /// rows' own presses; an agent's proposed edit listed with its change, applied, and another dismissed; an earlier
 /// text opened under its row and put back through the editor; the keys screen the key table's own rows, and a

@@ -510,6 +510,42 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
 }
 
+/// F1: where in a note's source a passage the reader drew is, is the service's to say (outline-core's
+/// `findDrawnPassage`, asked by `annotations.batch` through `findQuoted`). The window sends the words as drawn and
+/// says that they are, with the span the service gave the part they were selected in; it reads no source to know
+/// what a link or a bold run was written as, and looks no quote up.
+#[test]
+fn where_a_drawn_passage_is_in_the_source_is_the_service_s_to_find() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // The passage a comment sends is the quote's own form of it, made in one place and sent from one.
+    none("a comment's passage built outside the quote's own form (`Quoted::passage`)", ["[\"drawn\"]", "[\"within\"]", "\"within\":"].iter().flat_map(|key| strays(key, |path| path == "draft.rs")).collect());
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 1, "the passage is sent by the one action that sends a comment");
+    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()"));
+    // How the words were read is said by the two ways there are to name them: a selection in a reader (as drawn),
+    // an act's `quote=` (as the note's text has them, which the service reads as drawn when they aren't there).
+    none("how a quote was read said outside the action that hears a selection and the one that takes quote=", ["Quoted::drawn(", "Quoted::written("].iter().flat_map(|made| strays(made, |path| path == "actions/review.rs" || path == "draft.rs")).collect());
+    assert_eq!((code("actions/review.rs").matches("Quoted::drawn(").count(), code("actions/review.rs").matches("Quoted::written(").count()), (1, 1));
+    // The span a selection was drawn within is the service's frame of the part, read by the model's one reader for
+    // the page drawer alone: the drawer knows a part by its place, and nothing of what the part was written as.
+    none("a part's span read outside the model's one reader (`parts::span_of`)", strays("[\"span\"]", |path| path == "parts.rs"));
+    none("a part's span asked outside the page drawer", calls("span_of", |path| path == "tiles/page.rs" || path == "parts.rs"));
+    // Nothing in the window finds the words: no search of a note's text for a quote, no markup taken off one.
+    for path in ["actions/review.rs", "tiles/page.rs", "draft.rs", "actions/app.rs", "parts.rs"] {
+        for looked in ["text.find(", "text.contains(", "text.matches(", "find(&quote", "find(quote", ".replace(\"**\"", "trim_matches('*')", "strip_prefix(\"- \")"] { assert!(!code(path).contains(looked), "{path} has `{looked}`: where a passage is in the note is the service's to find") }
+    }
+    // The owner, on the service's side: one module reads a text as drawn, the exact lookup is the one it calls, and
+    // the service's comment asks through one function. (The published page's finder is held to the same in the
+    // outliner's own test.)
+    let beside = |path: &str| std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let owner = beside("outline-core/src/drawn-passage.ts");
+    assert!(owner.contains("export function findDrawnPassage(") && owner.contains("findPassage(drawn.text, words"), "the drawn reading is asked of the one quote lookup");
+    assert!(!owner.contains(".indexOf(quote") && !owner.contains("levenshtein") && !owner.contains("distance("), "nothing fuzzy beside the exact matcher");
+    let service = beside("outliner/src/block-comments.ts");
+    assert!(service.contains("findQuoted(text, passage") && !service.contains("findPassage(") && !service.contains("drawnText("), "the service's comment asks where a quote is through one function");
+}
+
 /// W7: a window, an outline and an extension each have one owner.
 #[test]
 fn a_window_an_outline_and_an_extension_each_have_one_owner() {
