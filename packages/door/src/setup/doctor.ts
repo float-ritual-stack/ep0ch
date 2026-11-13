@@ -9,6 +9,7 @@ import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { CHANGE_AGENT } from "../desk/drawer-program";
 import { machineChecks } from "./machine-health";
 import { resticChecks } from "../backup/setup";
+import { diskChecks } from "../disk/setup";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
 import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, mcpBehind, mcpIsHere, mcpRestartCommand, linkStep, pluginStep, repoStep, schemaStep, emptyOutlinesSaid, sessionName, sessionVerdict, unitChanges } from "./plan";
@@ -167,6 +168,8 @@ export function doctorChecks(f: Facts): Check[] {
 
   // and the restic job (PIE-607): its units, each outline's newest snapshot, the mirrors, the drill
   if (f.restic) for (const c of resticChecks(f.restic)) add("backups", c.name, c.status, c.detail, c.fix);
+  // the disk keeper (PIE-1787): installed or not, each disk as it last looked, what's open, journald's cap
+  if (f.disk) for (const c of diskChecks(f.disk)) add("disk", c.name, c.status, c.detail, c.fix);
   // the machine itself (PIE-1535): failed user units, the nightly run on main, the test runs, the load
   if (f.machine) for (const c of machineChecks(f.machine)) add("machine", c.name, c.status, c.detail, c.fix);
   // EchoNet's tossers (PIE-798): a toss that moved nothing writes no log, so when each last ran is said here.

@@ -2,30 +2,17 @@
 // each filesystem with df and du, sweep cold Claude files to the storage box through offload when home's filesystem is
 // past 75%, measure again, record it, and raise what's wrong through the backup job's alert path. It deletes nothing
 // itself: offload removes what it copied and verified, and everything else is its owner's (keeper.ts, OWNERS).
-import { parseEnvFile } from "@ep0ch/outliner/env-file";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
-import { type Incident, mergeDisk, readJson } from "../backup/alert";
+import { type Incident, mergeDisk } from "../backup/alert";
+import { diskSettings, diskStateDir, readDisk } from "./state";
 import { backupConfig, machineNameOf } from "../backup/config";
-import { writeState, defaultStateDir } from "../state";
+import { writeState } from "../state";
 import { backupDirOf } from "../setup/plan";
-import { type DiskState, diskIncidents, emptyDisk, escalate, type Fs, parseDf, parsePlaces, percent, type Sample, shouldSweep, type SweepRecord, type Thresholds, thresholds, trimmed } from "./keeper";
+import { type DiskState, diskIncidents, escalate, type Fs, parseDf, parsePlaces, percent, type Sample, shouldSweep, type SweepRecord, type Thresholds, thresholds, trimmed } from "./keeper";
 
 type Env = Record<string, string | undefined>;
 export type Run = (argv: string[], o: { env: Env; timeoutMs?: number }) => Promise<{ code: number; out: string; err: string }>;
-
-/** The keeper's settings: ~/.config/ep0ch/disk.env (EP0CH_DISK_BOX names the storage box), under what the environment says. */
-export const diskSettingsFile = (env: Env) => join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "disk.env");
-export function diskSettings(env: Env): Env {
-  const file = diskSettingsFile(env);
-  const fromFile = existsSync(file) ? (() => { try { return parseEnvFile(readFileSync(file, "utf8")); } catch { return {}; } })() : {};
-  return { ...fromFile, ...Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined && v !== "")) };
-}
-
-/** Where the keeper keeps disk.json: beside the backup job's alert.json, so doctor and the status bar read one folder. */
-export const diskStateDir = (env: Env) => join(env.EP0CH_STATE ?? defaultStateDir(env), "backup");
-export const readDisk = (dir: string): DiskState => ({ ...emptyDisk(), ...readJson<DiskState>(join(dir, "disk.json")) });
 
 export const spawnRun: Run = async (argv, o) => {
   try {

@@ -115,7 +115,7 @@ describe("the disk keeper on a made-up disk", () => {
     expect(announced).toHaveLength(1);
 
     // The command the alert gives: copies again by content, then the sweep moves them and the incident clears.
-    const retry = Bun.spawnSync([env.EP0CH_OFFLOAD, "--sweep", "--yes", "--checksum"], { env });
+    const retry = Bun.spawnSync([env.EP0CH_OFFLOAD!, "--sweep", "--yes", "--checksum"], { env });
     expect(retry.exitCode).toBe(0);
     expect(existsSync(a)).toBe(false);
     expect(readFileSync(stale, "utf8")).toBe(before);

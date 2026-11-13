@@ -11,12 +11,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
 import { ep0ch, sessionFlags } from "../session/place";
 import { backupPlan } from "../backup/setup";
+import { diskPlan } from "../disk/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, type PublisherFacts, RUNS, codeFiles, codeKey, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "named-agents" | "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "publishers" | "session" | "backups" | "clients" | "client-list";
+export type StepId = "named-agents" | "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "publishers" | "session" | "backups" | "disk" | "clients" | "client-list";
 
 export interface Step {
   id: StepId;
@@ -31,8 +32,8 @@ export interface Step {
   unchecked?: true;
   /** ext, skills: the links to make, replace and take away (links.ts), as the commands say. */
   links?: LinkWork;
-  /** backups: the files it writes (the job's units, its settings) before it loads them. */
-  writes?: { path: string; text: string }[];
+  /** backups, disk: the files it writes (the job's units, its settings, offload) before it loads them; mode 600 unless said. */
+  writes?: { path: string; text: string; mode?: number }[];
   /** schema: the outlines it migrates, `from` → `to` with the retained offline scripts (absolute), and how to go back. */
   migrate?: Migration;
   /** name: the machine name it writes. */
@@ -619,6 +620,16 @@ export function backupsStep(f: Facts): Step | null {
   return { id: "backups", title: "Back up the outlines to restic every 15 minutes", status: p.status, why: p.why + looked, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
 }
 
+/**
+ * The disk keeper (PIE-1787, src/disk/setup.ts): its timer and the weekly sweep's written from scripts/disk/ and
+ * loaded, and offload in ~/.local/bin, where the settings name a storage box.
+ */
+export function diskStep(f: Facts): Step | null {
+  if (!f.disk || f.disk.platform !== "linux") return null;
+  const p = diskPlan(f.disk);
+  return { id: "disk", title: "Keep the disk under 80%: sweep cold files to the storage box", status: p.status, why: p.why, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
+}
+
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
 /**
  * This machine's own name, written once (`<outlines>/.host/machine-name`): what `ep0ch://` URIs and EchoNet call it.
@@ -693,6 +704,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const builtins = builtinsStep(f, updates);
   const session = sessionStep(f, repo);
   const backups = backupsStep(f);
+  const disk = diskStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
   // Each outline's copy from just before its script (the host stopped, so nothing written since is missing from it).
   if (schema?.migrate) {
@@ -702,7 +714,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   }
   const mod: Step = { id: "claude-mod", title: "Install the Claude mod and rename its settings", status: "do", why: "load ep0ch and allow its tools; report launch commands that still name pi-outliner", commands: [`bun ${sh(join(f.repo.outliner, "scripts/install-claude-mod.ts"))} --project ${sh(f.repo.root)}`] };
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, ...(publishers ? [publishers] : []), { id: "named-agents", title: "Restart this machine’s named agents", status: "do", why: "Read .ep0ch/agents.toml and restart the local rows through ep0ch agent start", commands: [] }, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, ...(publishers ? [publishers] : []), { id: "named-agents", title: "Restart this machine’s named agents", status: "do", why: "Read .ep0ch/agents.toml and restart the local rows through ep0ch agent start", commands: [] }, session, ...(backups ? [backups] : []), ...(disk ? [disk] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }
 
 export function withSecretsStep(f: Facts): Step {
