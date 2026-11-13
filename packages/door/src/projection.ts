@@ -149,9 +149,10 @@ export function projectionLayout(p: ResourceProjection): ProjectionLayout {
     const status = p.status === "ambiguous"
       ? `ambiguous: ${(p.candidates ?? []).map(drawnInline).join(", ")}`
       : STATUS_LABELS[p.status] ?? drawnInline(String(p.status));
-    add("head", `- ${title} · ${status}`);
-    // A fetch that failed says why below; "saving fetches it" would only contradict it.
+    // A fetch that failed says why below; "saving fetches it" would only contradict it, and the head's "not registered"
+    // (an outline word: no copy is stored yet) sits beside the failure that says so in Evan's words (PIE-1802).
     const fetchSays = !!p.fetchError && (p.status === "not-registered" || p.status === "not-fetched");
+    add("head", fetchSays ? `- ${title}` : `- ${title} · ${status}`);
     if (reason && !fetchSays) add("reason", `  ${reason}`);
   }
   // Detail's layout ends with the status; the door adds what's running, and why a fetch failed (not for an
@@ -233,7 +234,7 @@ function ageLine(p: ResourceProjection, now: number): { text: string; bad: boole
   const age = when ? `fetched ${ageSince(when, now, "ago")}` : "";
   if (p.fetching && !when) return { text: "fetching…", bad: false };
   if (p.fetchError) return { text: `${when ? `kept the copy from ${ageSince(when, now, "ago")}` : "no copy yet"} · ${fetchFailedWords(p)}`, bad: true };
-  return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · ${runAgainKey()} refresh`, bad: false };
+  return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · ${runAgainKey()}\u00a0refresh`, bad: false };
 }
 
 /**
@@ -242,7 +243,8 @@ function ageLine(p: ResourceProjection, now: number): { text: string; bad: boole
  */
 export function fetchFailedWords(p: Pick<ResourceProjection, "fetchError" | "fetchRetry">): string {
   const failed = drawnInline((p.fetchError ?? "").replace(/^Resource extension: /, ""));
-  return `couldn't fetch: ${failed} · ${p.fetchRetry === "hourly" ? "checked again hourly" : "the next poll tries again"}, ${runAgainKey()} now`;
+  // The key and its "now" are one thing to read: a no-break space keeps them on one row (wrap draws it as a space).
+  return `couldn't fetch: ${failed} · ${p.fetchRetry === "hourly" ? "checked again hourly" : "the next poll tries again"}, ${runAgainKey()}\u00a0now`;
 }
 
 /**
