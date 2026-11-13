@@ -480,6 +480,10 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
     none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
     none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
+    // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
+    assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");
+    none("a row's writing compared with the text to say whose Return is: the service says it on the row", ["insert == ", "== row.insert", "== &row.insert"].iter().flat_map(|word| strays(word, |_| false)).collect());
     // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.
     assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
     assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));

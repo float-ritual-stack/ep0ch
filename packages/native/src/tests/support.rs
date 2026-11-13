@@ -314,9 +314,17 @@ fn completion(text: &str, cursor: usize) -> Value {
     let query = &line[open + 2..];
     let start = cursor - line[open..].encode_utf16().count();
     let pages = [("Seed list", "seed-list", "a page"), ("Shed", "shed", "a page"), ("Sowing calendar", "sowing-calendar", "a page")];
-    let rows: Vec<Value> = pages.iter().filter(|(title, _, _)| title.to_lowercase().contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") })).collect();
+    // A link already closed after the cursor is part of the token, and a row that would leave it as typed says Return
+    // is the field's (`enter`: the service's word, outline-core's `enterKeeps`), as `completion.rows` answers it.
+    let closed = String::from_utf16_lossy(&units[cursor.min(units.len())..]).starts_with("]]");
+    let (end, token) = if closed { (cursor + 2, format!("[[{query}]]")) } else { (cursor, format!("[[{query}")) };
+    let rows: Vec<Value> = pages.iter().filter(|(title, address, _)| title.to_lowercase().contains(&query.to_lowercase()) || address.contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| {
+        let mut row = json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") });
+        if row["insert"] == token.as_str() { row["enter"] = json!("new line") }
+        row
+    }).collect();
     let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
-    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": cursor, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
+    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
 }
 
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }

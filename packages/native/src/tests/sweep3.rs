@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::support::*;
 use super::sweep2::{asked_for, laid, leaf, note_in, split, with};
-use crate::actions::{Actor, App};
+use crate::actions::{Actor, App, Field};
 
 /// The rows a list tile shows, as the service answered them.
 fn rows_in(app: &App, tile: &str) -> Vec<crate::page::ListRow> { app.layout.named(tile).and_then(|id| app.list_of(&id).map(|answer| answer.list.rows.clone())).unwrap_or_default() }
@@ -72,4 +72,25 @@ fn a_list_speaks_for_one_reader_whatever_is_asked_of_it() {
     g.app.settle();
     assert!(edited.ok, "{}", edited.said);
     assert_eq!(g.app.drafts.iter().map(|draft| g.app.layout.name(&draft.tile)).collect::<Vec<_>>(), ["bench"], "a press in it that acts on a note acts in that reader");
+}
+
+// ── whether Return is the field's or the completion list's: the service's word on the row ──────────────────────────
+
+/// A row that would leave the line as typed takes no Return: the service says so on the row (outline-core's
+/// `enterKeeps`, the rule the door's completer asks), and the window types a line. It compares no text to know; a
+/// deliberate choice (an arrow) makes Return take the row, as it does anywhere.
+#[test]
+fn return_types_a_line_under_a_row_that_would_write_nothing() {
+    let mut g = garden(ok());
+    assert!(act(&mut g.app, "edit").ok);
+    let field = Field::Draft("reader".into());
+    let text = format!("{}\nSee [[shed]]", words(&g.app));
+    write(&mut g.app, &text);
+    g.app.field(&field).select(text.len() - 2, text.len() - 2);
+    g.app.typed(&field);
+    g.app.settle();
+    let rows: Vec<(String, Option<String>)> = g.app.completing("reader").expect("the list is open").rows.iter().map(|row| (row.insert.clone(), row.enter.clone())).collect();
+    assert_eq!(rows, [("[[shed]]".to_string(), Some("new line".to_string()))], "the row that is already written says Return is the field's");
+    assert!(act(&mut g.app, "complete.enter").ok);
+    assert_eq!(words(&g.app), format!("{}\n]]", &text[..text.len() - 2]), "a line is typed where the caret is, and the row is not written");
 }

@@ -280,3 +280,22 @@ export function completionSaid(all: readonly SaidAnswer[], shown: number, failed
   const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
   return { heading, message, truncated };
 }
+
+/** What the Return rule reads of the lit row: what it would write, and what it says of itself. */
+export interface EnterRow { insertion: string; enter?: "new line" | "applies"; newPage?: unknown; querySuggestion?: unknown }
+
+/**
+ * Whether Return is the field's rather than the completion list's, and what it does there (null: it takes the lit row,
+ * as Tab does). The one rule, asked by every completer: the door's, the Detail's, and the service's text-and-cursor
+ * form of `completion.rows`, which says the answer on each row (`enter`) for a window that reads no Blockdown.
+ *
+ * Return is the field's for a row that says so (`enter`: a figure's YAML, a property offered before anything is
+ * typed, a filter's words), a page nobody has written yet, words offered for a question, and a row that would leave the
+ * line as it is typed. A deliberate choice (`chosen`: an arrow, a click, Tab) makes Return take the row. In a one-line
+ * field that applies what is typed (`applies`), that is what Return does there.
+ */
+export function enterKeeps(row: EnterRow | undefined, at: { chosen: boolean; line: string; start: number; end: number; applies?: boolean }): "new line" | "applies" | null {
+  if (at.chosen || !row) return null;
+  const unchanged = at.line.slice(0, at.start) + row.insertion + at.line.slice(at.end) === at.line;
+  return row.enter || row.newPage || row.querySuggestion || unchanged ? (at.applies ? "applies" : row.enter ?? "new line") : null;
+}
