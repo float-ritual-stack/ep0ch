@@ -5363,32 +5363,32 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = node ? policyOfNode(this.layout, node) : effective([{ by: "screen", policy: this.layout.policy }]);
     const id = node ? node.id ?? "" : "screen";
     const tname = this.nameOf(tile);
-    const set = (args: Record<string, unknown>) => this.run("layout.policy", { node: id, ...args }, tname);
+    const act = (action: string, args: Record<string, unknown> = {}, on = tname) => ({ act: { action, args, tile: on }, run: () => { this.run(action, args, on); } }), set = (args: Record<string, unknown>) => act("layout.policy", { node: id, ...args });   // a row says the action it runs, as data, and runs that
     const onOff = (b: boolean) => (b ? "on" : "off");
     const flag = (k: "draggable" | "droppable" | "closable" | "resizable" | "collapsible", about: string) => ({
       label: `${k} · ${about}`, value: own[k] === undefined ? `${onOff(at[k])} (from ${at.by[k] ?? "the default"})` : onOff(own[k]!),
       // Cycles: from above → off → on → from above.
-      run: () => (own[k] === undefined ? set({ [k]: false }) : own[k] === false ? set({ [k]: true }) : set({ clear: k })),
+      ...(own[k] === undefined ? set({ [k]: false }) : own[k] === false ? set({ [k]: true }) : set({ clear: k })),
     });
     const rows: ReturnType<Desk["policyRows"]> = [{
       label: "locked · the shape is fixed, the contents live", value: own.locked ? "on" : at.locked ? `on (from ${at.by.locked})` : "off",
-      run: () => (node ? set({ locked: !own.locked }) : this.run("layout.lock")),
+      ...(node ? set({ locked: !own.locked }) : act("layout.lock")),
     }, flag("draggable", "its tiles move out"), flag("droppable", "it takes tiles"), flag("closable", "its tiles close"), flag("resizable", "its borders move")];
     const ag = ["free", "edit", "off"] as const, agNow = own.agents ?? "free";
-    rows.push({ label: "agents · what an agent may do to its tiles (free, edit only, hands off)", value: own.agents ?? `${at.agents}${at.by.agents ? ` (from ${at.by.agents})` : " (the default)"}`, run: () => set({ agents: ag[(ag.indexOf(agNow) + 1) % ag.length] }) });
+    rows.push({ label: "agents · what an agent may do to its tiles (free, edit only, hands off)", value: own.agents ?? `${at.agents}${at.by.agents ? ` (from ${at.by.agents})` : " (the default)"}`, ...set({ agents: ag[(ag.indexOf(agNow) + 1) % ag.length] }) });
     const kinds = [...new Set((node ? leaves(node) : this.all()).map(i => this.panes.get(i)!.kind))];
-    rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", run: () => (own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
+    rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", ...(own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
     const notes = this.all().filter(i => kindOf(this.panes.get(i))?.accepts?.notes && !(node && leaves(node).includes(i))).map(i => this.nameOf(i));
     const rule = (o: OpenRule) => `${o}: ${OPEN_RULE_WORDS[o]}`, next = OPEN_RULES[(OPEN_RULES.indexOf(own.opens ?? at.opens) + 1) % OPEN_RULES.length]!;   // ⏎ steps through them (self: in place, PIE-1516), then back to the one from above
-    rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, run: () => (own.opens === OPEN_RULES.at(-1) ? set({ clear: "opens" }) : set({ opens: next })) });
+    rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, ...(own.opens === OPEN_RULES.at(-1) ? set({ clear: "opens" }) : set({ opens: next })) });
     if (!node) {
-      for (const k of ["gap", "inset"] as const) rows.push({ label: `${k} · ${TILE_ACTIONS.def("layout.policy")!.args![k]!.about}`, value: String(own[k] ?? 0), run: () => set({ [k]: ((own[k] ?? 0) + 1) % 9 }), adjust: by => set({ [k]: Math.max(0, Math.min(k === "gap" ? 8 : Infinity, (own[k] ?? 0) + by)) }) });
+      for (const k of ["gap", "inset"] as const) rows.push({ label: `${k} · ${TILE_ACTIONS.def("layout.policy")!.args![k]!.about}`, value: String(own[k] ?? 0), ...set({ [k]: ((own[k] ?? 0) + 1) % 9 }), adjust: by => set({ [k]: Math.max(0, Math.min(k === "gap" ? 8 : Infinity, (own[k] ?? 0) + by)) }).run() });
       const order = ["over", "beside", "none"] as const, now = own.host ?? "over";
-      rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", run: () => set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
+      rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", ...set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
     }
     rows.push({
       label: "opens into · where its tiles' opens land", value: own.opensInto ?? (at.opensInto ? `${at.opensInto} (from ${at.by.opensInto})` : "—"),
-      run: () => { const i = own.opensInto ? notes.indexOf(own.opensInto) : -1; const next = notes[i + 1]; return next ? set({ opensInto: next }) : set({ clear: "opensInto" }); },
+      ...(() => { const i = own.opensInto ? notes.indexOf(own.opensInto) : -1; const next = notes[i + 1]; return next ? set({ opensInto: next }) : set({ clear: "opensInto" }); })(),
     });
     if (node) {
       // Measured as laid out without a zoom (PIE-869: with another tile zoomed its tiles weren't on screen, and ⏎ here
@@ -5400,27 +5400,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         label: `${k} size · cells (+ - change it)`,
         // A lock that's set says so, and how to clear it, where it's seen (PIE-869).
         value: own[k] === undefined ? "—" : `${own[k]}${k === "fixed" && ignored ? " · ignored: nothing beside" : ""} · ⏎ clears`,
-        run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })),
-        adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }),
+        run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })).run(),
+        adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }).run(),
       }));
       rows.splice(1, 0, ...sizes);
     }
     if (node && isLine(node) && node.dir === "row") {
       const spines = SPINES;
       rows.push({ label: "spines · book, left, right, centre, or toward the invoker", value: at.spines,
-        run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
+        ...set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
       rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
-        run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
+        ...set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }).run() });
       for (const entry of this.dispatch.menu(this.tileId(tile), USER, "layout.gather")) rows.push({
-        label: entry.label, value: "", run: () => this.run(entry.action, { ...entry.args, node: id }, tname),
+        label: entry.label, value: "", ...act(entry.action, { ...entry.args, node: id }),
       });
     }
     if (node?.t === "dock") {
       rows.push(flag("collapsible", "it slides shut"));
-      rows.push({ label: "overlay · slides over (off: takes its room)", value: onOff(node.policy?.overlay !== false), run: () => set({ overlay: node.policy?.overlay === false }) });
-      rows.push({ label: "stays · open when the keys leave it", value: onOff(!!node.policy?.stays), run: () => set({ stays: !node.policy?.stays }) });
+      rows.push({ label: "overlay · slides over (off: takes its room)", value: onOff(node.policy?.overlay !== false), ...set({ overlay: node.policy?.overlay === false }) });
+      rows.push({ label: "stays · open when the keys leave it", value: onOff(!!node.policy?.stays), ...set({ stays: !node.policy?.stays }) });
       const order: Dir[] = ["left", "up", "right", "down"];
-      rows.push({ label: "edge · where it slides from", value: node.edge, run: () => this.run("tile.dock", { edge: order[(order.indexOf(node.edge) + 1) % 4] }, this.nameOf(leaves(node.kid)[0]!)) });
+      rows.push({ label: "edge · where it slides from", value: node.edge, ...act("tile.dock", { edge: order[(order.indexOf(node.edge) + 1) % 4] }, this.nameOf(leaves(node.kid)[0]!)) });
     }
     return rows;
   }
