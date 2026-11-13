@@ -17,6 +17,8 @@ export interface FakeIssue {
   priority?: string;
   labels?: string[];
   sprint?: string;
+  /** The sprint's state (`active` unless set): Jira changes it without touching the issue's `updated`. */
+  sprintState?: string;
   updated: string;
   comments?: { id: string; author: string; created: string; body: string }[];
 }
@@ -94,7 +96,7 @@ export function startFakeJira(issues: FakeIssue[]): FakeJira {
             assignee: issue.assignee ? { displayName: issue.assignee } : null,
             reporter: issue.reporter ? { displayName: issue.reporter } : null,
             labels: issue.labels ?? [],
-            customfield_10020: issue.sprint ? [{ id: 1, name: issue.sprint, state: "active" }] : null,
+            customfield_10020: issue.sprint ? [{ id: 1, name: issue.sprint, state: issue.sprintState ?? "active" }] : null,
           },
         });
       }

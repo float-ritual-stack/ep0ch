@@ -51,6 +51,7 @@ import {
   normalizeRetainedResourceRevisionRef,
   normalizeResourceRevisionRef,
   resourceRevisionRefEquals,
+  weakResourceRevision,
   normalizeResourceSourceInput,
   type ComputedExecutionHistory,
   type ComputedExecutionReceipt,
@@ -2434,25 +2435,17 @@ export class ResourceCatalog {
         refreshed.address.entityId,
         revisionJson,
       ) as RemoteEntitySourceSnapshotRow | null;
-      if (!snapshot) {
-        throw new ResourceCatalogError(
-          "source-unavailable",
-          "Remote entity provider reused a revision for different content",
-        );
-      }
+      if (!snapshot) throw new ResourceCatalogError("source-unavailable", "Remote entity source snapshot was not retained");
       if (snapshot.payload_json !== payloadJson) {
-        // A new adapter version may read the same remote revision differently
-        // (more fields). The stored snapshot stays; only the same adapter
-        // returning different content for one revision is a provider fault.
-        const sameAdapter = this.database.query(`
-          SELECT 1 FROM remote_entity_representations
-          WHERE source_snapshot_id = ? AND adapter_id = ? AND version = ? LIMIT 1
-        `).get(snapshot.id, observed.representation.adapter.id, observed.representation.adapter.version);
-        if (sameAdapter) {
-          throw new ResourceCatalogError(
-            "source-unavailable",
-            "Remote entity provider reused a revision for different content",
-          );
+        // A weak validator (Jira's `updated`) can name new content, and an evicted copy has none to compare: this read is
+        // the revision's content now (PIE-1776). A new adapter version may read a strong revision differently (the
+        // stored copy stays); only the same adapter returning other content for one is a provider fault.
+        if (snapshot.payload_json === null || weakResourceRevision(revision.revision)) {
+          this.database.query("UPDATE remote_entity_source_snapshots SET payload_json = ?, payload_bytes = ?, captured_at = ?, payload_state = 'available', evicted_at = NULL WHERE id = ?")
+            .run(payloadJson, Buffer.byteLength(payloadJson), observed.sourceSnapshot.fetchedAt, snapshot.id);
+        } else if (this.database.query("SELECT 1 FROM remote_entity_representations WHERE source_snapshot_id = ? AND adapter_id = ? AND version = ? LIMIT 1")
+          .get(snapshot.id, observed.representation.adapter.id, observed.representation.adapter.version)) {
+          throw new ResourceCatalogError("source-unavailable", "Remote entity provider reused a revision for different content");
         }
       }
       const representationId = crypto.randomUUID();
@@ -2482,12 +2475,10 @@ export class ResourceCatalog {
         observed.representation.adapter.version,
         observed.representation.contentHash,
       ) as { id: string } | null;
-      if (!representation) {
-        throw new ResourceCatalogError(
-          "source-unavailable",
-          "Remote entity Markdown representation was not retained",
-        );
-      }
+      if (!representation) throw new ResourceCatalogError("source-unavailable", "Remote entity Markdown representation was not retained");
+      // A text seen before (A, B, then A under one weak revision) is this read's again: newest, and back if evicted.
+      this.database.query("UPDATE remote_entity_representations SET markdown = ?, derived_at = ?, payload_state = 'available', payload_bytes = ?, evicted_at = NULL WHERE id = ?")
+        .run(observed.markdown, observed.representation.derivedAt, Buffer.byteLength(observed.markdown), representation.id);
       const stateUpdate = this.database.query(`
         UPDATE remote_entity_resource_state
         SET address_version = ?,
@@ -2517,6 +2508,14 @@ export class ResourceCatalog {
     })();
     this.onRemoteEntityObserved?.(this.require(refreshedId), observed);
     return this.describe(refreshedId, destinationHostRegistered);
+  }
+
+  /** Every registered Resource of a provider, its key, and when its copy was last read well (null: never, failed or cut off). */
+  remoteEntityKeys(provider: string): readonly { resourceId: string; sourceId: string; key: string; readAt: string | null }[] {
+    return this.database.query(`SELECT r.id AS resourceId, r.source_id AS sourceId, json_extract(r.address_json, '$.key') AS key,
+      CASE WHEN s.freshness = 'fresh' THEN s.checked_at END AS readAt FROM resources r LEFT JOIN remote_entity_resource_state s
+      ON s.resource_id = r.id AND s.address_version = r.address_version WHERE r.provider = ? AND key IS NOT NULL ORDER BY r.id`)
+      .all(provider) as { resourceId: string; sourceId: string; key: string; readAt: string | null }[];
   }
 
   /**

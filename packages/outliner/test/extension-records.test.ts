@@ -17,6 +17,7 @@ import type { ResourceProjectionReadResult } from "../src/resource-projection";
 import type { BacklinkCollection, Block, ChangeFeedPage, PageAddressResolution } from "../src/types";
 import { FAKE_TOKEN, installJira, startFakeJira, type FakeIssue } from "./fake-jira";
 import { useJiraProvider } from "./resource-providers";
+import { ExtensionSync } from "../src/extension-sync";
 
 // Jira's `jira::` lines, as a service with the Jira extension reads them.
 useJiraProvider();
@@ -282,6 +283,30 @@ test("the poll applies a changed ticket; a poll or refresh that finds nothing ne
   expect(people.entries.map((entry) => entry.block.id)).not.toContain(record.id);
   const extensions = await client.request<{ entries: { block: Block }[] }>({ action: "activity.recent", author: "agent", extensions: "only", limit: 50 });
   expect(extensions.entries.map((entry) => entry.block.id)).toContain(record.id);
+});
+
+test("Jira changes a ticket without moving its `updated` (a sprint closes, a person is renamed): a refresh keeps the new content and says no \"can't fetch\"", async () => {
+  const { fake, store, client, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  const record = await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  const issue = fake.issues.get("PC-1")!;
+  const updated = issue.updated;
+  const refresh = () => client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: page.id });
+
+  // The sprint closes: the raw issue changes, its `updated` doesn't.
+  issue.sprintState = "closed";
+  let read = await refresh();
+  expect(read.projections[0]!.fetchError).toBeUndefined();
+  expect(store.resources.describe(resourceId, false).remoteStatus).toMatchObject({ freshness: "fresh", lastError: null });
+
+  // The assignee's display name changes, still under the same `updated`: the card and the stored copy say the new one.
+  issue.assignee = "Dana Ortiz-Reyes";
+  read = await refresh();
+  expect(issue.updated).toBe(updated);
+  expect(read.projections[0]!.fetchError).toBeUndefined();
+  expect(store.get(record.id)!.properties).toContainEqual({ key: "jira.assignee", value: "Dana Ortiz-Reyes" });
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.assignee).toBe("Dana Ortiz-Reyes");
 });
 
 test("a comment on ticket text follows the text when Jira edits it, and says when it lost its place", async () => {
@@ -586,3 +611,94 @@ test("a ticket deleted at Jira doesn't stop the poll: the refused key search is 
   // A missing ticket is not a refusal: nothing pauses.
   expect(server.extensionSync.for("jira")!.paused()).toBeUndefined();
 }, 30_000);
+
+/** A page whose ticket was read once from its header and that now names it only on a list item: no record asks for it. */
+async function bulletedTicket(ctx: Awaited<ReturnType<typeof setup>>) {
+  const { store, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const read = await ctx.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: page.id });
+  expect(read.projections).toEqual([]);
+  return { page, resourceId, checkedAt: () => store.resources.describe(resourceId, false).remoteStatus?.checkedAt };
+}
+
+test("a ticket a note names only on a list item (no record) is still re-read by the poll when Jira changes it", async () => {
+  const ctx = await setup();
+  const { fake, store, server } = ctx;
+  const { resourceId, checkedAt } = await bulletedTicket(ctx);
+  const before = checkedAt();
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Done";
+  issue.description = "The switch is done.";
+  issue.updated = new Date().toISOString();
+
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 1, changed: 1 });
+  expect(checkedAt()).not.toBe(before);
+  const described = store.resources.describe(resourceId, false);
+  expect(described.remoteEntity?.metadata.status).toBe("Done");
+  expect(described.remoteEntity?.markdown).toContain("The switch is done.");
+});
+
+test("the first poll after a restart looks back to when each copy was read, not one poll interval", async () => {
+  const ctx = await setup();
+  const { fake, store, server } = ctx;
+  const { resourceId } = await bulletedTicket(ctx);
+  // Read two hours ago; edited in Jira an hour ago, while the service was down.
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  store.database.query("UPDATE remote_entity_resource_state SET checked_at = ? WHERE resource_id = ?").run(twoHoursAgo, resourceId);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  server.extensionSync.for("jira")!.stop();
+  const restarted = new ExtensionSync(store, "jira", { pollMs: 0 });
+  expect(await restarted.poll()).toEqual({ checked: 1, changed: 1 });
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+});
+
+test("content that comes back under the same `updated` (A, B, then A again) reads as A, even after A's old text was evicted", async () => {
+  const { fake, store, client, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  const issue = fake.issues.get("PC-1")!;
+  const refresh = () => client.request({ action: "resources.projection.refresh", blockId: page.id });
+
+  issue.assignee = "Dana Ortiz-Reyes";
+  await refresh();
+  // A's text isn't the current copy now: retention evicts it as it would (its row stays, its text goes).
+  store.database.query(`UPDATE remote_entity_representations SET markdown = NULL, payload_state = 'evicted', payload_bytes = 0, evicted_at = ?
+    WHERE source_snapshot_id IN (SELECT id FROM remote_entity_source_snapshots WHERE resource_id = ?) AND markdown LIKE '%Dana Ortiz\`%'`)
+    .run(new Date().toISOString(), resourceId);
+  issue.assignee = "Dana Ortiz";
+  await refresh();
+
+  const now = store.resources.describe(resourceId, false);
+  expect(now.remoteStatus?.freshness).toBe("fresh");
+  expect(now.remoteEntity?.markdown).toContain("Dana Ortiz`");
+  // Asked by its revision, the same: the newest read's text, not B's.
+  const byRevision = store.resources.describe(resourceId, false, now.remoteEntity!.sourceSnapshot!.revision);
+  expect(byRevision.remoteEntity?.markdown).toContain("Dana Ortiz`");
+  expect(byRevision.remoteEntity?.metadata.assignee).toBe("Dana Ortiz");
+});
+
+test("a ticket whose first read failed is read by the next poll, though Jira hasn't changed it", async () => {
+  const { fake, store, server, client, create, recordOf } = await setup();
+  await recordOf((await create("PC-1 Rollout [jira::PC-1]")).id);
+  const receipt = await client.request<{ resource: { id: string } }>({
+    action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" },
+    mutation: { author: "agent", actorId: "helper-agent" },
+  });
+  fake.status = 503;
+  await client.request({ action: "resources.refresh", resourceId: receipt.resource.id }).catch(() => {});
+  expect(store.resources.describe(receipt.resource.id, false).remoteStatus?.freshness).toBe("failed");
+  fake.status = null;
+
+  await server.extensionSync.for("jira")!.poll();
+  const described = store.resources.describe(receipt.resource.id, false);
+  expect(described.remoteStatus?.freshness).toBe("fresh");
+  expect(described.remoteEntity?.title).toBe("Label printer drops the last line");
+});
