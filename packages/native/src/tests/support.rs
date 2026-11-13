@@ -204,6 +204,14 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
         "actions" => {
             let Some(handed) = ask["actions"].as_array() else { return Err(("invalid", "lists.read from=actions lists the asker's own actions: hand them over as actions=[<each action's row>]".into())) };
             let mut rows: Vec<Value> = Vec::new();
+            // The keys of the screen the asker has open come first, as its spec has them (the outliner's `actions` producer).
+            let open = screens.as_array().into_iter().flatten().find(|s| ask["screen"].as_str().is_some_and(|name| s["name"] == name));
+            for (n, key) in open.and_then(|s| s["spec"]["keys"].as_array()).into_iter().flatten().enumerate() {
+                let mut args: Vec<String> = key["args"].as_object().into_iter().flatten().map(|(k, v)| format!("{k}=\"{}\"", v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect();
+                if let Some(tile) = key["tile"].as_str() { args.push(format!("tile=\"{tile}\"")) }
+                let line = std::iter::once(key["action"].as_str().unwrap_or("").to_string()).chain(args).collect::<Vec<_>>().join(" ");
+                rows.push(json!({ "id": format!("this screen#{n}"), "label": key["key"], "detail": key["says"], "mark": key["action"], "group": "this screen", "cells": [key["key"], line, "this screen", key["says"]], "act": line }));
+            }
             for action in handed {
                 let id = action["id"].as_str().unwrap_or("");
                 for (n, way) in action["keys"].as_array().into_iter().flatten().enumerate() {

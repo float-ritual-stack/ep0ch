@@ -159,5 +159,5 @@ fn listed(s: &App) -> Value {
         row["name"] = json!(action.row.id);
         row
     }).collect();
-    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(), "catalogue": tiles::described(s) })
+    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(s), "catalogue": tiles::described(s) })
 }

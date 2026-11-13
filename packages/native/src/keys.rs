@@ -3,6 +3,9 @@
 //!
 //! - **The table is read from the actions' rows** (`KeyRow.keys`, `.on`, `.args`): a chord, the layer it belongs to
 //!   and the line it runs. Nothing else binds a key; a keycap on a button or a bar row is the table read backwards.
+//! - **The open screen's own keys come before it** (`App::screen_keys`, its spec's `keys` as served): while a tile
+//!   has the keys, each runs its action as the person, as the door runs them before the focused tile's own. A key is
+//!   named there as screens name keys (`L`, `ctrl+l`, `esc`), read as a chord by `chord_named`.
 //! - **`App::person()` says where the person's keys are**: in the bar, in a draft (in its completion list while that
 //!   is open: `complete` with rows to choose from, `said` with only a word to say), or on a tile. The table is asked with that layer first, then the layer under it (a completion list is
 //!   open over a draft), then the rows that hold everywhere.
@@ -25,6 +28,7 @@ use serde_json::{Value, json};
 
 use crate::actions::row::KeyRow;
 use crate::actions::{self, Actor, App, Field, word};
+use crate::actline::Request;
 
 /// Where the person's keys are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,9 +177,55 @@ pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
     esc.into_iter().chain(table().iter().filter(|bind| bind.layer == Some(layer) && !bind.is_escape())).map(|bind| (bind.cap(), bind.does)).collect()
 }
 
-/// The table as `peek` and the keys screen read it.
-pub fn rows() -> Value {
-    json!(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from })).collect::<Vec<_>>())
+/// The table as `peek` and the keys screen read it: the open screen's own keys first, as they are tried first.
+pub fn rows(s: &App) -> Value {
+    let screen = s.screen_keys().into_iter().map(|key| json!({ "chord": key.spec, "line": key.request.line(), "layer": Layer::Tile.name(), "from": "screen", "bound": key.chord.is_some() }));
+    json!(screen.chain(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from }))).collect::<Vec<_>>())
+}
+
+/// A key of the open screen's own: the key as the screen names it, the chord that is here, and the request it runs.
+pub struct ScreenKey {
+    /// The key as its screen wrote it.
+    pub spec: String,
+    /// None: a key this window has no chord for (a modifier alone, `hyper+…`); it is listed and never pressed.
+    pub chord: Option<Chord>,
+    pub request: Request,
+    /// The kinds of tile it holds over, and the ones it doesn't: none named, every kind.
+    only: Option<Vec<String>>,
+    unless: Vec<String>,
+}
+
+/// A key as a screen names it (outline-core's `isKeyName`: `l`, `L`, `,`, `ctrl+l`, `alt+c`, `esc`, `pgup`,
+/// `alt+left`), read as a chord: a capital is Shift with its letter, and the two pages are named in full here. Held
+/// to the names there are by `core-contract.json`. None: no chord here is that key.
+pub fn chord_named(key: &str) -> Option<Chord> {
+    let (mods, last) = match key.rsplit_once('+') { Some((mods, last)) if !last.is_empty() => (Some(mods), last), _ => (None, key) };
+    let mut chars = last.chars();
+    let name = match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_uppercase() => format!("shift+{}", c.to_lowercase()),
+        _ => match last { "pgup" => "pageup".to_string(), "pgdn" => "pagedown".to_string(), other => other.to_string() },
+    };
+    Chord::parse(&match mods { Some(mods) => format!("{mods}+{name}"), None => name }).ok()
+}
+
+impl App {
+    /// The open screen's own keys, in its order: its spec's as served, read each time (`App::spec_now`).
+    pub fn screen_keys(&self) -> Vec<ScreenKey> {
+        let kinds = |key: &Value, field: &str| key[field].as_array().map(|kinds| kinds.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>());
+        self.spec_now().map_or(&[][..], |spec| spec.keys()).iter().filter_map(|key| {
+            let (spec, action) = (key["key"].as_str()?, key["action"].as_str()?);
+            let request = Request { action: action.to_string(), tile: key["tile"].as_str().map(str::to_string), by: None, args: key["args"].as_object().cloned().unwrap_or_default() };
+            Some(ScreenKey { spec: spec.to_string(), chord: chord_named(spec), request, only: kinds(key, "only"), unless: kinds(key, "unless").unwrap_or_default() })
+        }).collect()
+    }
+
+    /// The screen's key this event is, where the person is: one of its keys whose chord it is and that holds over
+    /// the kind of tile with the keys (the kind the tile carries: the service resolved the screen's names).
+    fn screen_key(&self, e: &KeyEvent, tx: &Tx) -> Option<Request> {
+        let kind = self.kind_of(&self.layout.focus).map(|row| row.kind.clone()).or_else(|| self.spec(&self.layout.focus).map(|spec| spec.kind.clone()));
+        let over = |kinds: &[String]| kind.as_ref().is_some_and(|kind| kinds.contains(kind));
+        self.screen_keys().into_iter().find(|key| key.chord.is_some_and(|chord| chord.matches_tx(e, tx)) && key.only.as_deref().is_none_or(over) && !over(&key.unless)).map(|key| key.request)
+    }
 }
 
 /// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
@@ -214,6 +264,13 @@ pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
     s.held().last = Some(Instant::now());
     let layer = s.person().layer;
     let mut seq = std::mem::take(&mut s.held().seq);
+    // The screen's own keys first, while a tile has the keys and no sequence is under way: its request is run as
+    // it stands, never written as a line to be read again.
+    if layer == Layer::Tile && seq.is_empty() && let Some(request) = s.screen_key(e, tx) {
+        s.act_request(request, Actor::Person);
+        effects(s, tx);
+        return true;
+    }
     seq.push(e.clone());
     match find(layer, &seq, tx) {
         Found::Run(bind) => {

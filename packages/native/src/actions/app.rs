@@ -181,6 +181,8 @@ const DRAWERS: &str = "drawers";
 const KINDS: &str = "kinds";
 /// What the asker runs: its own actions, each as its row (`ListsRequest.actions`: what a list of the keys is made from).
 const ROWS: &str = "actions";
+/// Where the asker is: the screen it has open, by name (`ListsRequest.screen`: a list of the keys puts that screen's own first).
+const SCREEN: &str = "screen";
 /// The list is of: the source it names (`from`), in a tile's fields.
 const FROM: &str = "from";
 
@@ -417,7 +419,7 @@ impl App {
         let mut params = serde_json::Map::new();
         params.insert(FROM.into(), json!(from));
         for name in self.source_params(from)? {
-            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), ROWS => Some(super::rows().clone()), _ => None };
+            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), ROWS => Some(super::rows().clone()), SCREEN => Some(json!(self.screen.name)).filter(|_| !self.screen.is_nowhere()), _ => None };
             if let Some(value) = fill(name).or_else(own) { params.insert(name.to_string(), value); }
         }
         Some(if watched { Ask::watched(&self.at, "lists.read", Value::Object(params)) } else { Ask::read(&self.at, "lists.read", Value::Object(params)) })

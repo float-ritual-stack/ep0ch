@@ -262,6 +262,55 @@ fn the_keys_screen_is_a_list_made_from_the_rows_the_window_hands_over() {
     assert!(rt.state.bar.open);
 }
 
+/// A screen's own keys are keys here while it is open: its spec's `keys`, each named as screens name keys, tried
+/// before the table's own while a tile has the keys, and held to the kinds of tile the key says. The keys list on
+/// that screen puts them first: the list and the key table are still the same rows.
+#[test]
+fn a_screen_s_own_keys_are_pressed_before_the_table_s_and_listed_first() {
+    let mut g = garden(ok());
+    let layout = json!({ "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.5, 0.5], "kids": [{ "t": "leaf", "kind": "reader", "name": "reader" }, { "t": "leaf", "kind": "keymap", "name": "keys" }] } });
+    let mut row = screen_row("seed-list", layout, json!([]));
+    row["spec"]["keys"] = json!([
+        { "key": "ctrl+l", "action": "bar.open", "args": { "scope": "screens" }, "says": "the screens" },
+        { "key": "K", "action": "tile.focus", "tile": "keys", "only": ["screens.reader"], "says": "to the keys" },
+        { "key": "hyper+h", "action": "back", "says": "back" },
+    ]);
+    screens_are(&mut g, json!([row]));
+    let mut rt = window(g.app);
+    assert!(line(&mut rt, "screen.open name=seed-list").ok);
+    // What the screen binds is the table's first rows, a key with no chord here said so and never pressed.
+    let table = keys::rows(&rt.state);
+    let bound: Vec<(&str, &str, &str, bool)> = table.as_array().unwrap().iter().take_while(|row| row["from"] == "screen").map(|row| (row["chord"].as_str().unwrap(), row["line"].as_str().unwrap(), row["layer"].as_str().unwrap(), row["bound"] == true)).collect();
+    assert_eq!(bound, [("ctrl+l", "bar.open scope=screens", "tile", true), ("K", "tile.focus tile=keys", "tile", true), ("hyper+h", "back", "tile", false)]);
+    // The keys list of this screen: the service's rows for it, then the actions' own. Chord for chord, line for line.
+    let rows = rt.state.rows_of(&rt.state.layout.named("keys").unwrap()).to_vec();
+    let cell = |row: &crate::page::ListRow, n: usize| crate::page::ListRow::cell(&row.cells[n]);
+    let listed: Vec<(String, crate::actline::Request)> = rows.iter().map(|row| (cell(row, 0), crate::actline::parse(&cell(row, 1)).unwrap())).collect();
+    let tabled: Vec<(String, crate::actline::Request)> = table.as_array().unwrap().iter().map(|row| (row["chord"].as_str().unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap())).collect();
+    assert_eq!(listed, tabled, "the keys list and the key table are the same rows, the screen's first");
+    assert_eq!(rows[0].group.as_deref(), Some("this screen"));
+    // Its key wins over the table's for the same chord (the table's own opens the bar on a query), as the person.
+    chord(&mut rt, if cfg!(target_os = "macos") { Key::Text("l".into()) } else { Key::Command('l') }, Mods { ctrl: true, cmd: !cfg!(target_os = "macos"), ..Mods::default() });
+    assert!(rt.state.bar.open && rt.state.bar.scope == "screens", "{:?}", rt.state.bar.scope);
+    // While the bar has the keys, the screen's are not asked: Escape is the bar's.
+    chord(&mut rt, Key::Escape, Mods::default());
+    assert!(!rt.state.bar.open);
+    // A key that holds only over a reader: pressed there it runs, with the tile it names; pressed on the list it is no key.
+    assert_eq!(rt.state.person().focus, "reader");
+    chord(&mut rt, Key::Text("K".into()), Mods { shift: true, ..Mods::default() });
+    assert_eq!(rt.state.person().focus, "keys");
+    line(&mut rt, "tile.focus tile=reader");
+    line(&mut rt, "tile.focus tile=keys");
+    let steps = rt.state.steps.len();
+    chord(&mut rt, Key::Text("K".into()), Mods { shift: true, ..Mods::default() });
+    assert_eq!((rt.state.person().focus.as_str(), rt.state.steps.len()), ("keys", steps), "the key doesn't hold over this kind of tile");
+    // Another screen has other keys: the same chord is the table's own again.
+    assert!(line(&mut rt, "screen.open name=desk").ok);
+    assert!(rt.state.screen_keys().is_empty());
+    chord(&mut rt, Key::Command('l'), primary());
+    assert!(rt.state.bar.open && rt.state.bar.scope == "query", "{:?}", rt.state.bar.scope);
+}
+
 /// The library screen is a list of the components; one picked shows what it is and its own example, the primitives
 /// the service lowered it to, built by the registry every page's parts go through.
 #[test]

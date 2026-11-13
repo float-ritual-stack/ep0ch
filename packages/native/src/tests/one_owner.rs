@@ -446,5 +446,8 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.
     assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
     assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));
+    // A screen's own keys: read from its spec by the key table alone, each key's name read as a chord by one reader.
+    none("a screen's keys read outside the key table (`App::screen_keys`, through `Spec::keys`)", strays("[\"keys\"]", |path| path == "screen.rs").into_iter().chain(calls("screen_keys", |path| path == "keys.rs")).collect());
+    none("a key's name read as a chord outside the key table", calls("chord_named", |path| path == "keys.rs"));
     none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
 }

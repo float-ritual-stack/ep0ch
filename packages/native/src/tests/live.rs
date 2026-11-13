@@ -685,6 +685,21 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         // An action no key reaches is listed too, under what does reach it.
         assert!(rows(&app, "keys").iter().any(|row| row.group.as_deref() == Some("no key") && ListRow::cell(&row.cells[1]) == "proposal.apply"));
 
+        // A screen with keys of its own, saved as a note: open, its keys are the table's first rows, written with the
+        // kinds its tiles are served as, and the keys list on it is still the table, row for row.
+        let spec = json!({ "name": "seed-list", "title": "Seed list", "layout": { "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.5, 0.5], "kids": [{ "t": "leaf", "kind": "reader", "name": "reader" }, { "t": "leaf", "kind": "keymap", "name": "keys" }] } },
+            "keys": [{ "key": "ctrl+l", "action": "bar.open", "args": { "scope": "screens" }, "says": "the screens" }, { "key": "K", "action": "tile.focus", "tile": "keys", "only": ["reader"] }] });
+        ask(json!({ "id": "sk", "action": "screens.save", "outline": "scratch", "spec": spec, "mutation": { "author": "user" } }));
+        for _ in 0..100 { app.settle(); if act(&mut app, "screen.open name=seed-list").ok { break } std::thread::sleep(Duration::from_millis(50)) }
+        assert_eq!(app.screen.name, "seed-list", "{:?}", app.notice);
+        let table = crate::keys::rows(&app);
+        let tabled: Vec<(String, crate::actline::Request)> = table.as_array().unwrap().iter().map(|row| (row["chord"].as_str().unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap())).collect();
+        let listed: Vec<(String, crate::actline::Request)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty()).map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap())).collect();
+        assert_eq!(listed, tabled, "a screen's own keys are the list's first rows and the table's");
+        assert_eq!(tabled[1], ("K".to_string(), crate::actline::parse("tile.focus tile=keys").unwrap()));
+        let own = &rows(&app, "keys")[1];
+        assert_eq!((own.group.as_deref(), ListRow::cell(&own.cells[2]).as_str(), ListRow::cell(&own.cells[3]).contains("keys")), (Some("this screen"), "this screen · on screens.reader", true), "{:?}", own.cells);
+
         // The library: a component picked draws its own example, lowered by the service to what a page's parts are.
         assert!(act(&mut app, "screen.open name=library").ok, "{:?}", app.notice);
         assert!(rows(&app, "components").len() > 30);

@@ -323,3 +323,26 @@ fn a_caret_beside_a_placed_patch_goes_where_outline_core_s_map_cursor_puts_it() 
         }
     }
 }
+
+/// A key a screen names (outline-core's `isKeyName`, the door's one name for a key) reads as a chord here: every
+/// name there is, a capital as Shift with its letter. The two this window has no chord for (a modifier alone, and
+/// Hyper, which no key here is) read as none, and such a key is listed and never pressed.
+#[test]
+fn a_key_as_a_screen_names_it_reads_as_a_chord() {
+    use crate::keys::chord_named;
+    use rune::{Chord, ChordMod};
+    let rows = table("core-contract")["keyNames"].as_array().unwrap().clone();
+    assert!(rows.len() >= 40);
+    for row in rows.iter().filter(|row| row["named"] == true) {
+        let key = row["key"].as_str().unwrap();
+        let none = key == "ctrl" || key.starts_with("hyper+");
+        assert_eq!(chord_named(key).is_none(), none, "{key}");
+    }
+    assert_eq!(chord_named("L"), Some(Chord::parse("shift+l").unwrap()));
+    assert!(chord_named("alt+L").is_some_and(|chord| chord.has(ChordMod::Alt) && chord.has(ChordMod::Shift)));
+    assert_ne!(chord_named("l"), chord_named("L"));
+    assert_eq!(chord_named("pgup"), Some(Chord::parse("pageup").unwrap()));
+    assert_eq!(chord_named("esc"), Some(Chord::parse("escape").unwrap()));
+    assert_eq!(chord_named("ctrl+l"), Some(Chord::parse("ctrl+l").unwrap()));
+    assert_eq!(chord_named("+"), Some(Chord::parse("plus").unwrap()));
+}

@@ -85,6 +85,10 @@ impl<'a> Spec<'a> {
     pub fn starts(&self) -> bool { self.0["start"] == true }
     /// Its toolbar: act lines, one a button.
     pub fn toolbar(&self) -> Vec<String> { self.0["toolbar"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() }
+    /// Its own keys, as it wrote them (outline-core's `KeyBinding`): the key by the name screens give keys, the action
+    /// it runs and with what, the tile it runs in, and the kinds of tile it holds over (`only`, `unless`: the kinds
+    /// tiles carry, as the service resolved them).
+    pub fn keys(&self) -> &'a [Value] { self.0["keys"].as_array().map_or(&[], Vec::as_slice) }
     /// What it is opened on, when it takes a target: the argument a target fills, and the tile's field it becomes.
     pub fn target(&self) -> Option<(&'a str, &'a str)> { self.0["target"]["arg"].as_str().zip(self.0["target"]["fills"].as_str()) }
     /// The rule for a new note made while a tile of `kind` has the keys (none: no tile has them): the first of its
