@@ -496,8 +496,22 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
     none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
     assert!(code("actions/tile.rs").contains("heir: true") && !code("actions/tile.rs").contains(".showing") && !code("actions/tile.rs").contains("facts("), "tile.close asks the layout who keeps the note, and reads no tile's facts to decide it");
-    // What a reader shows, as the layout's rules read it, is the note it was told: never what it draws while told none.
-    assert!(code("actions/app.rs").contains("let showing = if notes { self.ui(tile).note.clone() } else { None };"), "`Facts.showing` is the note a reader was told");
+    // What a reader shows is one answer, `App::note_of`: the note it was told and no other (never the outline's first
+    // while it is told none). The layout's rules read that answer (`Facts.showing`) and the page drawer draws it, so
+    // what a tile draws and what a close or an open finds there can't differ.
+    assert!(code("actions/app.rs").contains("pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone() }"), "a reader shows the note it was told: `note_of` reads nothing else");
+    assert!(code("actions/app.rs").contains("let showing = if notes { self.note_of(tile) } else { None };"), "`Facts.showing` is `note_of`, the one answer");
+    none("a note given to a reader that was told none (a list's first row read as a note to show)", ["rows_of(&tree).first()", ".first().map(|row| row.id.clone())"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // A tile with nothing to draw yet says what it is in its kind's own words (`tiles::waiting`, the service's row):
+    // no drawer words a kind or what an empty tile waits for.
+    none("an empty tile worded by its drawer: `tiles::waiting` says the kind's own row", ["Pick a note", "starts a note", "Nothing is open to list"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    assert!(code("tiles/mod.rs").contains("cx.row.about") && code("tiles/page.rs").contains("super::waiting(") && code("tiles/list.rs").contains("super::waiting("), "a reader told no note and a list with no note to be about draw their kind's own description");
+    // Whether a row folds is the row's own word (`folds`, the service's: in a list of notes, that a note is under
+    // it, by outline-core's `isNoteUnder`). The mark is drawn from it in one place, and nothing else here says a
+    // note has something under it (a page's `hasChildren` is read to decide nothing).
+    none("a fold's mark drawn outside the list drawer's one row", strays("TRIANGLE_RIGHT", |_| false).into_iter().filter(|found| !found.starts_with("tiles/list.rs:")).collect());
+    assert_eq!(strays("TRIANGLE_RIGHT", |_| false).len(), 1, "the mark is drawn once, for a tree's row and any other row that folds");
+    none("something under a note decided by anything but its row's `folds`", strays(".has_children", |_| false));
     // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
     // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
     assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");
@@ -509,6 +523,42 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     none("a screen's keys read outside the key table (`keys::screen_binds`, through `Spec::keys`)", strays("[\"keys\"]", |path| path == "screen.rs").into_iter().chain(calls("screen_binds", |path| path == "keys.rs")).collect());
     none("a key's name read as a chord outside the key table", calls("chord_named", |path| path == "keys.rs"));
     none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
+}
+
+/// F1: where in a note's source a passage the reader drew is, is the service's to say (outline-core's
+/// `findDrawnPassage`, asked by `annotations.batch` through `findQuoted`). The window sends the words as drawn and
+/// says that they are, with the span the service gave the part they were selected in; it reads no source to know
+/// what a link or a bold run was written as, and looks no quote up.
+#[test]
+fn where_a_drawn_passage_is_in_the_source_is_the_service_s_to_find() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // The passage a comment sends is the quote's own form of it, made in one place and sent from one.
+    none("a comment's passage built outside the quote's own form (`Quoted::passage`)", ["[\"drawn\"]", "[\"within\"]", "\"within\":"].iter().flat_map(|key| strays(key, |path| path == "draft.rs")).collect());
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 1, "the passage is sent by the one action that sends a comment");
+    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()"));
+    // How the words were read is said by the two ways there are to name them: a selection in a reader (as drawn),
+    // an act's `quote=` (as the note's text has them, which the service reads as drawn when they aren't there).
+    none("how a quote was read said outside the action that hears a selection and the one that takes quote=", ["Quoted::drawn(", "Quoted::written("].iter().flat_map(|made| strays(made, |path| path == "actions/review.rs" || path == "draft.rs")).collect());
+    assert_eq!((code("actions/review.rs").matches("Quoted::drawn(").count(), code("actions/review.rs").matches("Quoted::written(").count()), (1, 1));
+    // The span a selection was drawn within is the service's frame of the part, read by the model's one reader for
+    // the page drawer alone: the drawer knows a part by its place, and nothing of what the part was written as.
+    none("a part's span read outside the model's one reader (`parts::span_of`)", strays("[\"span\"]", |path| path == "parts.rs"));
+    none("a part's span asked outside the page drawer", calls("span_of", |path| path == "tiles/page.rs" || path == "parts.rs"));
+    // Nothing in the window finds the words: no search of a note's text for a quote, no markup taken off one.
+    for path in ["actions/review.rs", "tiles/page.rs", "draft.rs", "actions/app.rs", "parts.rs"] {
+        for looked in ["text.find(", "text.contains(", "text.matches(", "find(&quote", "find(quote", ".replace(\"**\"", "trim_matches('*')", "strip_prefix(\"- \")"] { assert!(!code(path).contains(looked), "{path} has `{looked}`: where a passage is in the note is the service's to find") }
+    }
+    // The owner, on the service's side: one module reads a text as drawn, the exact lookup is the one it calls, and
+    // the service's comment asks through one function. (The published page's finder is held to the same in the
+    // outliner's own test.)
+    let beside = |path: &str| std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let owner = beside("outline-core/src/drawn-passage.ts");
+    assert!(owner.contains("export function findDrawnPassage(") && owner.contains("findPassage(drawn.text, words"), "the drawn reading is asked of the one quote lookup");
+    assert!(!owner.contains(".indexOf(quote") && !owner.contains("levenshtein") && !owner.contains("distance("), "nothing fuzzy beside the exact matcher");
+    let service = beside("outliner/src/block-comments.ts");
+    assert!(service.contains("findQuoted(text, passage") && !service.contains("findPassage(") && !service.contains("drawnText("), "the service's comment asks where a quote is through one function");
 }
 
 /// W7: a window, an outline and an extension each have one owner.

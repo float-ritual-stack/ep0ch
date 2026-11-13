@@ -2557,16 +2557,18 @@ Answers `RenderedNote`.
 | `properties?` | `Readonly<Record<string, string \| readonly string[]>>` | Its own properties, open (`kind`, `tags`, `color` as a theme tone, any key): `annotations.list` answers them, and a view's `where=` finds them. |
 | `passage?` | `BlockCommentPassage` | Omit only for an intentional whole-block comment. |
 
-**`BlockCommentPassage`**: A quote is exact source text; optional context must identify one occurrence.
+**`BlockCommentPassage`**: A quote is exact source text, or (`drawn`) the words as a reader drew them; optional context must identify one occurrence.
 
 | Field | Type | |
 |---|---|---|
-| `quote` | `string` | The words, exactly as the block's text has them. |
+| `quote` | `string` | The words: exactly as the block's text has them, or (with `drawn`) as a reader draws them. |
 | `start?` | `number` | Where the quote starts in the block's text, when you know. |
 | `near?` | `number` | Among repeats, the one nearest this offset (an agent's `near=`). |
 | `prefix?` | `string` | Text just before the quote, to tell repeats apart. |
 | `suffix?` | `string` | Text just after the quote, to tell repeats apart. |
 | `itemId?` | `string` |  |
+| `drawn?` | `boolean` | The words were selected in what a reader drew (a link's label, bold without its marks, two paragraphs): the service finds the source they were drawn from. |
+| `within?` | `{ readonly start: number; readonly end: number; }` | Only within this span of the block's text (UTF-16), when the reader knows which part of it the words were drawn from. |
 
 **`AnnotationReplyInput`**
 

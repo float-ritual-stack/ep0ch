@@ -1,0 +1,13 @@
+# A comment on words as the reader draws them (scenes/about.seed.ts writes the note into a scratch outline): the note
+# in the reader, its words across a link, a reference and bold text; beside it the thread a comment already made on
+# such words, listed with the source the service found them drawn from (the link whole, the bold run with its marks).
+# Then words picked as a selection in the reader says them, across the bold run and the reference, and a comment
+# begun on them: sent, the service anchors it to that passage of the note's text. (A selection made with the mouse
+# also says the span of the part it is in, and may run over paragraphs; a scene's line holds no line break.)
+bar.open scope=screens query=kitchen
+bar.pick n=1
+bar.open scope=search query="Sowing plan"
+bar.pick n=1
+passage.select quote="March, before the last frost, in the bean rows of last year."
+comment
+draft.paste text="Rotate them: beans were there two years running."

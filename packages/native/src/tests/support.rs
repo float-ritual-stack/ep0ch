@@ -35,7 +35,34 @@ impl Link for Standin {
 /// A made-up picture, as `media.read` hands one over.
 pub const SUN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20" fill="#234"/><circle cx="20" cy="10" r="6" fill="#fc6"/></svg>"##;
 
+/// Where a quote sent with a comment is in a note's text, as the service itself answered: outline-core's
+/// `core-contract.json` (`quoted`: each row made by `findQuoted` and `quoteRefusal`, and held to the running service
+/// by the outliner's own test). The stand-in host anchors nothing and has no reading of its own: it answers a comment
+/// from these rows, so it refuses what the service refuses.
+pub fn quotes() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/core-contract.json")).expect("the core contract is JSON") }
+
+/// The made-up note those rows are about, as the page the service answers for its text (`quotedNote`): a link, bold
+/// and two paragraphs in its first part, a picture, and the first part's last words again in its third.
+pub const SOWING: &str = "sowing";
+fn sowing() -> Value {
+    let note = quotes()["quotedNote"].clone();
+    json!({ "blockId": note["id"], "revision": note["revision"], "title": note["title"], "text": note["text"], "chips": note["chips"], "ancestors": [], "parts": note["parts"], "children": [] })
+}
+
+/// What the service does with `passage` of a note whose text is `text`: the thread, or its refusal. A quote no row
+/// has is refused in the stand-in's own words, which name where the row is added: nothing is accepted unasked.
+pub fn quoted(text: &str, passage: &Value, body: &Value) -> Result<Value, (&'static str, String)> {
+    let table = quotes();
+    let row = table["quoted"].as_array().into_iter().flatten().find(|row| row.get("text").unwrap_or(&table["quotedNote"]["text"]) == text && &row["passage"] == passage);
+    match row {
+        Some(row) if row["found"].is_object() => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": body, "originalTarget": { "anchor": { "kind": "text-quote", "start": row["found"]["start"], "end": row["found"]["end"], "exact": row["found"]["exact"] } } }], "deduplicated": false })),
+        Some(row) => Err((if row["refused"]["kind"] == "ambiguous" { "ambiguous" } else { "not-found" }, row["refused"]["error"].as_str().unwrap_or_default().to_string())),
+        None => Err(("failed", format!("the stand-in host has no answer on record for this quote of this text: add it to QUOTED in packages/outline-core/scripts/core-contract.ts and write the table again (passage {passage}, text {text:?})"))),
+    }
+}
+
 fn page(id: &str, title: &str, revision: u64, text: &str) -> Value {
+    if id == SOWING { return sowing() }
     let mut page = plain_page(id, title, revision, text);
     // The shed's page has pictures: a header image, a file, a fence's own text, and one the host can't read.
     if id == "shed" {
@@ -56,13 +83,24 @@ pub fn part(note: &str, kind: &str, line: u64, frame: Value, view: Value) -> Val
     part
 }
 
+/// A prose part on a note's second line, with that line's span of the text (UTF-16), as the service frames one.
+fn prose(note: &str, text: &str, view: Value) -> Value {
+    let mut part = part(note, "prose", 1, json!({}), view);
+    let units = |s: &str| s.encode_utf16().count();
+    let start = text.find('\n').map_or(units(text), |at| units(&text[..=at]));
+    part["span"] = json!({ "start": start, "end": start + units(text.split('\n').nth(1).unwrap_or("")) });
+    part
+}
+
 fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     let ancestors = match id { "onions" | "beans" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }]), "fork" => json!([{ "id": "plot", "title": "Plot", "hasChildren": true }, { "id": "onions", "title": "Lift the onions", "hasChildren": true }]), _ => json!([]) };
     json!({
         "blockId": id, "revision": revision, "title": title, "text": text,
         "chips": [{ "key": "type", "value": "chore" }], "ancestors": ancestors,
         "parts": [
-            part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
+            // (Its span is the note's second line: where the words a comment may quote are written. The part draws
+            // more than that line holds, so a selection of all of it is words the note doesn't have.)
+            prose(id, text, json!({ "type": "markdown", "text": "Before the rain. See [the shed](ep0ch:b/shed) and [seeds](ep0ch:p/Seed%20list)." })),
             part(id, "links", 3, json!({ "name": "links", "title": "On the plot", "query": "type=chore", "status": "live · 1 match" }),
               json!({ "type": "list", "groups": [{ "name": "Matches", "label": "Matches", "count": 1 }], "rows": [{ "id": "beans", "label": "Water the beans", "group": "Matches", "do": { "open": "beans" }, "act": opens("beans") }] })),
             part(id, "figure", 6, json!({ "name": "graph-stat", "figure": "stat", "title": "Chores", "status": "live" }),
@@ -327,13 +365,18 @@ fn completion(text: &str, cursor: usize) -> Value {
     json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
 }
 
+/// The garden, with the plot opened in the reader the screen's opens land in, as the person would open it first (a
+/// window kept between runs shows what it showed).
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
 
+/// The garden as a window first finds it: its readers told no note.
+pub fn garden_unopened(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_with(saves, true, None, false) }
+
 /// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
-pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None) }
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None, true) }
 
 /// The garden, in a window that keeps its arrangement (and what is being written) in `kept` between runs.
-pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept)) }
+pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept), true) }
 
 /// A stand-in host for one outline: the link to it, and what a test reads and says on it.
 struct Host { link: Standin, asked: Asked, said: Said, screens: Rc<RefCell<Value>>, shipped: Rc<std::cell::Cell<bool>> }
@@ -415,10 +458,16 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             "completion.picked" => Ok(json!({})),
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.
-            "annotations.batch" => match ask["operations"][0]["input"]["passage"]["quote"].as_str() {
-                Some("words nobody wrote") => Err(("not-found", "Comment quote or context was not found; read the current source and select it again (nearest: Before the rain.)".into())),
-                _ => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": ask["operations"][0]["input"]["body"] }], "deduplicated": false })),
-            },
+            // (A comment on words is answered as the service answered that quote of that text: `quoted`.)
+            "annotations.batch" => {
+                let input = &ask["operations"][0]["input"];
+                let on = input["blockId"].as_str().unwrap_or("").to_string();
+                let text = if on == SOWING { sowing()["text"].as_str().unwrap_or_default().to_string() } else { texts.borrow().get(&on).map(|(_, text)| text.clone()).unwrap_or_else(|| format!("{} [type::chore]\nBefore the rain.", titled(&on))) };
+                match input.get("passage").filter(|passage| passage.is_object()) {
+                    Some(passage) => quoted(&text, passage, &input["body"]),
+                    None => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": input["body"] }], "deduplicated": false })),
+                }
+            }
             "annotations.reply" => Ok(json!({ "annotations": [{ "block": { "id": "reply-new" }, "body": ask["input"]["body"] }], "deduplicated": false })),
             "annotations.lifecycle" => Ok(json!({ "block": { "id": ask["input"]["annotationId"] }, "lifecycle": ask["input"]["lifecycle"] })),
             "draft.proposal.apply" => match ask["proposalId"].as_str() {
@@ -437,7 +486,7 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
     Host { link: Standin { answers, asked: asked.clone(), said: said.clone() }, asked, said, screens, shipped: installed }
 }
 
-fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>) -> Garden {
+fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>, opened: bool) -> Garden {
     let Host { link, asked, said, screens, shipped } = host(saves, with_screens, "garden");
     let elsewhere: Elsewhere = Default::default();
     let (links, beside) = (elsewhere.clone(), kept.map(std::path::Path::to_path_buf));
@@ -454,6 +503,8 @@ fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_scre
     if let Some(kept) = kept { app = app.arranged_in(kept.to_path_buf()) }
     app.start();
     app.settle();
+    // A reader shows the note it was told and no other: the plot is opened, where a window has a reader and shows none.
+    if opened && app.reader().is_some() && app.subject().is_none() { act(&mut app, "open id=plot"); }
     Garden { app, asked, said, screens, shipped, elsewhere }
 }
 

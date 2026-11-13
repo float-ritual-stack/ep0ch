@@ -9,8 +9,10 @@
 //! - **A comment's and a reply's words are a draft** (`crate::draft`, `Writes`): the same session, field, completions
 //!   and file as a block's, written where the note is read and sent by the action that saves (`edit.save`). With
 //!   `body=` one is sent at once, which is an agent's way: it opens no editor.
-//! - **A comment is on words by quoting them**: the reader's selection as it shows it, or `quote=`. Where those
-//!   words are in the note, and whether they are there once, is the service's to find; nothing here anchors.
+//! - **A comment is on words by quoting them**: the reader's selection as it drew it (said as drawn, with the span
+//!   of the note's text the page's parts say it was drawn within), or `quote=`. Where those words are in the note,
+//!   and whether they are there once, is the service's to find (outline-core's drawn-passage.ts): nothing here
+//!   anchors, and nothing here reads the note's source to say what a link or a bold run was written as.
 //! - **A revision is restored into the editor**, never over the note: its text goes into the block's draft as one
 //!   step of the field's own way back, and nothing is written until the person saves.
 use serde_json::json;
@@ -18,7 +20,7 @@ use serde_json::json;
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
 use super::{About, Action, Actor, App, Field, Notice, Outcome};
 use crate::actline::Args;
-use crate::draft::{self, Writes};
+use crate::draft::{self, Quoted, Writes};
 use crate::layout::Id;
 use crate::store::Reply;
 
@@ -27,18 +29,22 @@ const SELECTED: &str = "the selection in a reader is whoever reads there: a comm
 /// Whose the editor is, for the row that puts a text in it.
 const EDITOR: &str = "the editor is whoever writes there: a revision's text goes into it for them to save or drop · draft.patch changes a note's text for anybody else";
 
-static SELECT: ActionRow = ActionRow::new("passage.select", Touches::Tile, "pick the words of the open note a comment will be on: quote= the words as the reader shows them (left out: none are picked). A selection made in a reader runs this; comment then opens on those words")
+static SELECT: ActionRow = ActionRow::new("passage.select", Touches::Tile, "pick the words of the open note a comment will be on: quote= the words as the reader shows them (a link's label, bold without its marks; left out: none are picked), from= and to= the span of the note's text they were drawn within, when the reader knows it. A selection made in a reader runs this; comment then opens on those words, and the service finds the source they were drawn from")
     .person(SELECTED)
-    .args(&[("quote", ArgSpec::text("the words, as the reader shows them").optional())])
+    .args(&[
+        ("quote", ArgSpec::text("the words, as the reader shows them").optional()),
+        ("from", ArgSpec::number("the words are within a span of the note's text: where it starts (UTF-16), as the page's parts say where they are written").optional()),
+        ("to", ArgSpec::number("where that span ends").optional()),
+    ])
     .keys(&[KeyRow::via("words selected in a reader, with the mouse")])
     .examples(&[Example { act: "passage.select quote=\"Before the rain.\"", does: "picks those words of the open note for a comment", safe: Some(true) }]);
 
 /// How an agent gets the person's attention in this window: the action a refusal of the dispatcher's names as the way.
 pub(super) static ATTENTION: &ActionRow = &COMMENT;
 
-static COMMENT: ActionRow = ActionRow::new("comment", Touches::Draft, "comment on the note a reader shows: on quote= (words of it, as its text has them; near= the offset to be nearest, among repeats), else on the words selected there, else on the whole note. With body= it is sent at once, recorded as whoever acts; left out, it opens to be written where the note is read, in the editor a block has, and edit.save sends it")
+static COMMENT: ActionRow = ActionRow::new("comment", Touches::Draft, "comment on the note a reader shows: on quote= (words of it, as its text has them, or as it reads when they aren't there as written; near= the offset to be nearest, among repeats), else on the words selected there, else on the whole note. With body= it is sent at once, recorded as whoever acts; left out, it opens to be written where the note is read, in the editor a block has, and edit.save sends it")
     .args(&[
-        ("quote", ArgSpec::text("the exact words to comment on, as the note's text has them").optional()),
+        ("quote", ArgSpec::text("the words to comment on: as the note's text has them, or as the note reads").optional()),
         ("body", ArgSpec::text("the comment's words, sent at once; left out, they are written in the reader").optional()),
         ("near", ArgSpec::number("when the words are there more than once: the offset (UTF-16) to be nearest").optional()),
     ])
@@ -111,16 +117,18 @@ fn free(app: &App, tile: &str) -> Result<(), Outcome> {
 
 fn select(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let Some(tile) = app.about() else { return Outcome::refused("there is no reader here to select in") };
-    app.ui_mut(&tile).passage = args.text("quote").map(str::to_string).filter(|quote| !quote.trim().is_empty());
+    // The span the words were drawn within: both ends, in order, or none.
+    let within = args.number("from").zip(args.number("to")).map(|(from, to)| (from.max(0.0) as usize, to.max(0.0) as usize)).filter(|(from, to)| to > from);
+    app.ui_mut(&tile).passage = args.text("quote").filter(|quote| !quote.trim().is_empty()).map(|quote| Quoted::drawn(quote, within));
     Outcome::done()
 }
 
 fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (tile, note, revision) = match read(app) { Ok(read) => read, Err(no) => return no };
     // The words it is on: the ones named, else the ones selected in this reader, else none (the whole note).
-    let quote = args.text("quote").map(str::to_string).or_else(|| app.ui(&tile).passage.clone()).filter(|quote| !quote.trim().is_empty());
     let near = args.number("near").map(|at| at.max(0.0) as usize);
-    let writes = Writes::Comment { quote, near };
+    let named = args.text("quote").filter(|quote| !quote.trim().is_empty()).map(|quote| Quoted::written(quote, near));
+    let writes = Writes::Comment { on: named.or_else(|| app.ui(&tile).passage.clone()) };
     if let Some(body) = args.text("body") { return post(app, None, &draft::send_name(), &note, revision, &writes, body, by) }
     // Its words are written here, by whoever is at the keys: sent as somebody else, it names them.
     if !app.stands(by) { return Outcome::refused("a comment sent over the control socket names its words: body=") }
@@ -164,13 +172,10 @@ fn post(app: &mut App, tile: Option<&str>, send: &str, note: &str, revision: u64
     let at = app.at.clone();
     let ctx = json!({ "tile": tile, "what": writes.kind() });
     match writes {
-        Writes::Comment { quote, near } => {
+        Writes::Comment { on } => {
             let mut input = json!({ "blockId": note, "expectedRevision": revision, "body": body, "source": source(by) });
-            if let Some(quote) = quote {
-                input["passage"] = json!({ "quote": quote });
-                if let Some(near) = near { input["passage"]["near"] = json!(near) }
-            }
-            let request = json!({ "requestId": request_id(send, &[note, quote.as_deref().unwrap_or(""), body]), "operations": [{ "operationId": "1", "type": "block-comment", "input": input }] });
+            if let Some(quoted) = on { input["passage"] = quoted.passage() }
+            let request = json!({ "requestId": request_id(send, &[note, on.as_ref().map_or("", |quoted| quoted.words.as_str()), body]), "operations": [{ "operationId": "1", "type": "block-comment", "input": input }] });
             app.store.write(&at, "annotations.batch", request, by, posted, ctx);
         }
         Writes::Reply { thread, .. } => {

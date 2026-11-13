@@ -81,12 +81,15 @@ fn button(cx: &TileCx, line: &str, variant: ButtonVariant) -> Button {
 /// by its type (`prim.rs`). Nothing here knows what a part is. While the note is being written here, its source
 /// stands where what is drawn from it would: in place of its parts, and of what the page makes of its own first
 /// line (a primitive that says `source`). A comment or a reply being written here is the same field over the
-/// note, which stays as it reads. Words selected in the note are told to the window as they are (`passage.select`).
+/// note, which stays as it reads. Words selected in the note are told to the window as they are drawn, with where
+/// the service says the parts they were selected in are written (`passage.select`).
 fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Kit) -> El {
     let at = PrimCx::of(cx);
     let from = cx.name.clone();
+    // Each part's span of the note's text, as its frame says it, by the part's place: what a selection is within.
+    let (parts, spans) = (format!("/{}", cx.key("part/")), page.map(|page| page.parts.iter().map(parts::span_of).collect::<Vec<_>>()).unwrap_or_default());
     let mut body = col().key(cx.key("note")).w_full().max_w(820.0).padding(24.0).gap(14.0)
-        .on_selection_change(move |s: &mut App, change: &rune::SelectionChange, _| if !change.dragging() { s.act_in(&selected(change), &from, Actor::Person); });
+        .on_selection_change(move |s: &mut App, change: &rune::SelectionChange, _| if !change.dragging() { s.act_in(&selected(change, &parts, &spans), &from, Actor::Person); });
     let (mut head, mut foot) = (Vec::new(), Vec::new());
     if let Some(page) = page { (head, foot) = parts::around(page) }
     // The block's own text being written, or something else written about it.
@@ -104,18 +107,37 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     k.scroll_bar(col().key(cx.key("scroll")).w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(row().w_full().justify_center().child(body.opacity(opacity))))
 }
 
-/// The act line a selection in the note says: the words selected, as copying takes them; none when it is cleared.
-fn selected(change: &rune::SelectionChange) -> String {
-    match change.selection().map(|selection| selection.text()).filter(|words| !words.trim().is_empty()) {
-        Some(words) => format!("passage.select quote={}", actions::word(words)),
-        None => "passage.select".to_string(),
+/// The act line a selection in the note says: the words selected, as copying takes them, and the span of the note's
+/// text they were drawn within (from where the first part selected in starts to where the last one ends, when the
+/// service said where both are written); no words when it is cleared. `parts`: the key every part is built under.
+fn selected(change: &rune::SelectionChange, parts: &str, spans: &[Option<(u64, u64)>]) -> String {
+    let Some(selection) = change.selection().filter(|selection| !selection.text().trim().is_empty()) else { return "passage.select".to_string() };
+    // The part a selected text is in, by its place: read off the key the part was built under (`part/<n>`).
+    let part = |text: &rune::SelectedText| -> Option<(u64, u64)> {
+        let rest = &text.path()[text.path().find(parts)? + parts.len()..];
+        spans.get(rest[..rest.find('/').unwrap_or(rest.len())].parse::<usize>().ok()?).copied().flatten()
+    };
+    let chosen: Vec<&rune::SelectedText> = selection.texts().iter().filter(|text| text.is_selected()).collect();
+    let within = chosen.first().and_then(|first| part(first)).zip(chosen.last().and_then(|last| part(last))).filter(|(first, last)| last.1 > first.0);
+    let quote = actions::word(selection.text());
+    match within {
+        Some((first, last)) => format!("passage.select quote={quote} from={} to={}", first.0, last.1),
+        None => format!("passage.select quote={quote}"),
     }
 }
 
+/// A reader with no page to draw. Told no note, it is empty and says so in its kind's own words (`tiles::waiting`),
+/// with the ways to give it a note under them, each a button its action's row labels and the key table caps; told
+/// one whose page is on its way (or with the outline still being called), that.
 fn empty(cx: &TileCx, k: &Kit) -> El {
-    let cap = |line: &str| keys::cap(line).unwrap_or_else(|| actions::label(line));
-    let said = if cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty()) { "Calling the outline…".to_string() } else if cx.app.note_of(cx.id).is_none() { format!("Nothing here yet. {} starts a note.", cap("note.new")) } else { format!("Pick a note, or find one with {}.", cap("bar.open")) };
-    col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(said).font(k.ty.body).color(k.c.text_muted))
+    let calling = cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty());
+    if !calling && cx.app.note_of(cx.id).is_none() {
+        let ways = row().key(cx.key("empty/ways")).gap(8.0).center_y()
+            .child(button(cx, "bar.open", ButtonVariant::Ghost).build(k).key(cx.key("empty/find")))
+            .child(button(cx, "note.new", ButtonVariant::Ghost).build(k).key(cx.key("empty/new")));
+        return super::waiting(cx, Some(ways), k);
+    }
+    col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(if calling { "Calling the outline…" } else { "Offline: the note isn't read yet." }).font(k.ty.body).color(k.c.text_muted))
 }
 
 /// What is being written in this tile, in its one field: a block's Blockdown source where the block stands (what

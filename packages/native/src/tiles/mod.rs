@@ -81,6 +81,19 @@ pub fn drawer_of(row: &KindRow) -> Option<&'static Drawer> { row.drawer.as_deref
 /// The drawers this window has, as it tells the service when it asks for screens.
 pub fn drawers() -> Vec<&'static str> { DRAWERS.iter().map(|drawer| drawer.id).collect() }
 
+/// A tile with nothing to draw yet (a reader told no note, a list about a note nobody shows): what it is, in its
+/// kind's own words. The name and the description are the service's row for the kind (`KindRow`), which says what a
+/// tile of it shows and so what this one waits for; nothing here words a kind, and no note is drawn in its place.
+/// `ways`: what the drawer offers to fill it (a row of its own buttons), under the words.
+pub fn waiting(cx: &TileCx, ways: Option<El>, k: &Kit) -> El {
+    let about = Some(cx.row.about.trim()).filter(|about| !about.is_empty()).map(|about| text(about.to_string()).key(cx.key("empty/about")).font(k.ty.small).color(k.c.text_muted).wrap().max_w(460.0));
+    let name = if cx.row.name.is_empty() { cx.spec.kind.clone() } else { cx.row.name.clone() };
+    col().key(cx.key("empty")).w_full().h_full().center().gap(10.0).padding(28.0)
+        .child(text(name).key(cx.key("empty/kind")).font(k.ty.ui).color(k.c.text_base))
+        .children(about)
+        .children(ways)
+}
+
 /// A tile whose kind this window can't draw: its spec as data, never hidden.
 pub fn as_data(spec: &TileSpec, name: &str, k: &Kit) -> El {
     let mut data = serde_json::Map::new();

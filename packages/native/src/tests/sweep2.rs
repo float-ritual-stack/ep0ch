@@ -132,7 +132,7 @@ fn lands_naming_a_container_is_where_every_open_and_every_act_about_the_open_not
     assert_eq!((theirs.ok, theirs.answer["tile"].as_str()), (true, Some("bed")), "{}", theirs.said);
     let mine = act(&mut g.app, "open id=beans tile=beds");
     assert_eq!((mine.ok, mine.answer["tile"].as_str()), (true, Some("bed")), "the person's open from the tree lands there too: {}", mine.said);
-    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (Some("plot"), Some("beans")), "the first reader of the screen is left as it was");
+    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (None, Some("beans")), "the first reader of the screen is left as it was: told no note");
 }
 
 // ── which new-note rule applies: asked once, with the kind the tile is ───────────────────────────────────────────────
@@ -143,6 +143,7 @@ fn lands_naming_a_container_is_where_every_open_and_every_act_about_the_open_not
 fn a_new_note_rule_holds_for_a_tile_made_here_as_for_one_the_screen_came_with() {
     let rules = json!([{ "opens": "tab", "only": ["screens.reader"] }, { "opens": "lands" }]);
     let mut g = laid(json!({ "lands": "bed", "newNote": rules, "layout": { "focus": "bed", "root": split(json!([leaf("screens.tree", "beds"), leaf("screens.reader", "bed")])) } }));
+    assert!(act(&mut g.app, "open id=plot tile=bed").ok);
     assert!(act(&mut g.app, "tile.split tile=bed name=seeds").ok && act(&mut g.app, "tile.focus tile=seeds").ok);
     assert!(act(&mut g.app, "note.new").ok);
     let made = draft(&g.app).map(|d| d.tile.clone()).expect("the new note is open to be written");

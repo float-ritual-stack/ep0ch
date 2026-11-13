@@ -75,6 +75,12 @@ pub fn around(page: &Page) -> (Vec<Value>, Vec<Value>) {
     (head, foot)
 }
 
+/// Where a part is written in its note's text (UTF-16 offsets), as the service framed it; none for a part that
+/// says no span of words.
+pub fn span_of(part: &Value) -> Option<(u64, u64)> {
+    part["span"]["start"].as_u64().zip(part["span"]["end"].as_u64()).filter(|(start, end)| end > start)
+}
+
 /// The line a press names a part by: as the door's `button.press line=` counts, from 1 (the wire's `line` is from 0).
 pub fn line_of(part: &Value) -> Option<u64> { part["line"].as_u64().map(|n| n + 1) }
 

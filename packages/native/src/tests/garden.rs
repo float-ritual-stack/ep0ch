@@ -19,21 +19,29 @@ fn tree_key(asked: &Asked, open: &[&str]) -> String { watch_of(asked, "lists.rea
 fn lists(asked: &Asked) -> Vec<String> { asked.borrow().iter().filter(|a| a["action"] == "lists.read").map(|a| a["from"].as_str().unwrap().to_string()).collect() }
 
 #[test]
-fn the_window_opens_on_the_first_note_and_asks_for_no_more_than_it_shows() {
-    let Garden { app, asked, .. } = garden(ok());
+fn the_window_opens_with_its_reader_empty_and_asks_for_no_more_than_it_shows() {
+    let Garden { mut app, asked, .. } = garden_unopened(ok());
     // Who answers and who this window is, then what a window is made of (the screens and kinds, what a list can be
-    // of), then one list a list tile and the first note's page: each asked once, though three tiles are about that note.
+    // of), then the one list on screen that is about no note: the tree. A reader told no note shows none and asks
+    // for no page, and the lists about the note it shows have nothing to ask.
     assert_eq!(actions(&asked)[..4], ["ping", "events.subscribe", "screens.list", "lists.read"]);
-    assert_eq!(lists(&asked), ["sources", "children", "properties", "links", "threads"], "what a list can be of, the tree, and the lists about the open note that are on screen once there is one (a hidden tab asks nothing)");
-    assert_eq!(actions(&asked).iter().filter(|a| *a == "notes.page").count(), 1, "the page is asked once");
+    assert_eq!(lists(&asked), ["sources", "children"], "what a list can be of, and the tree: nothing about a note nobody opened");
+    assert_eq!(actions(&asked).iter().filter(|a| *a == "notes.page").count(), 0, "no page is asked: the outline's first note is not shown in a reader told none");
     // The window registers as itself, for the acts of the scripts it starts and what the service asks of a draft it
     // holds, and nothing else of the event feed.
     let hello = asked.borrow()[1].clone();
     assert_eq!((hello["client"]["app"].as_str(), hello["client"]["clientId"].as_str(), &hello["kinds"]), (Some("native"), Some(app.store().client()), &serde_json::json!(["scripts.act", "scripts.ended", "draft.read", "draft.patch", "draft.revert", "draft.place"])));
     assert_eq!((app.at.outline.as_str(), app.machine.as_str()), ("garden", "box"));
     assert_eq!((app.screen.name.as_str(), app.steps.len(), app.journal.len()), ("desk", 0, 0), "it opened on the screen whose spec says windows start there: nobody's act, and nothing to undo");
-    assert_eq!(app.page().unwrap().title, "Plot");
+    // What the reader draws and what the layout's rules read of it are one answer: no note.
+    let reader = app.reader().expect("the desk has a reader");
+    assert_eq!((app.subject(), app.page().is_some(), app.facts(&reader).showing), (None, false, None));
     assert_eq!(listed(&app), [(0, "Plot".to_string()), (0, "Shed".to_string())], "only the top level was asked for");
+    // The plot opened, as a press on its row opens it: its page is asked once, though three tiles are about that note.
+    assert!(act(&mut app, "open id=plot").ok);
+    assert_eq!(lists(&asked), ["sources", "children", "properties", "links", "threads"], "the lists about the open note that are on screen, once there is one (a hidden tab asks nothing)");
+    assert_eq!(actions(&asked).iter().filter(|a| *a == "notes.page").count(), 1, "the page is asked once");
+    assert_eq!((app.page().unwrap().title.as_str(), app.facts(&reader).showing.as_deref()), ("Plot", Some("plot")));
     // Every read names the outline and is watched under a key of its own; a list is asked by what its source says it reads.
     let reads = asked.borrow();
     let tree = reads.iter().find(|a| a["from"] == "children").unwrap();

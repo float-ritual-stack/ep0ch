@@ -2,7 +2,7 @@
 // chips, then its body in order, each part prose or a component with the service's answer in it. A client that can't
 // run this package (a native window, a web view, a chat app) reads Blockdown through this and parses nothing: the
 // service finds the components, asks their questions (`site.answer`) and says what each holds. Pure: no I/O.
-import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, type CalloutRegistry } from "./callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, calloutLead, quoteDepth, type CalloutRegistry } from "./callouts";
 import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
 import type { SourceRange } from "./code-ranges";
@@ -150,7 +150,7 @@ export function withActs<P extends PagePrimitive>(prim: P): P {
 }
 
 /** A note in a list, as every list of a page names one: its id, its title as lists show it, and where it sits. */
-export interface NoteRow { id: string; title: string; hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
+export interface NoteRow { id: string; title: string; /** It has notes under it (`isNoteUnder`, derived.ts: a comment on it and an edit proposed beside it are none), so a fold drawn from this opens onto a note. */ hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
 
 /** `notes.page`'s answer: everything a client draws of one note, in one read. */
 export interface NotePage {
@@ -227,8 +227,8 @@ export function proseMarkdown(text: string, titles: ReadonlyMap<string, string>,
   }
   const lines = (out + text.slice(at)).split("\n");
   for (const c of calloutBlocks(lines)) {
-    const type = callouts.style(c.type), line = lines[c.line]!;
-    lines[c.line] = `${line.slice(0, line.length - quoteDepth(line).content.length)}**${type.icon} ${c.title || type.title}**`;
+    const line = lines[c.line]!;
+    lines[c.line] = `${line.slice(0, line.length - quoteDepth(line).content.length)}**${calloutLead(c, callouts)}**`;
   }
   const code = new Set(noteCodeFences(lines).flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, i) => f.start + i)));
   return lines.map((line, i) => !code.has(i) && !code.has(i + 1) && line.trim() && lines[i + 1]?.trim() && !line.endsWith("  ") ? `${line}  ` : line).join("\n");

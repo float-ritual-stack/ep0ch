@@ -13,6 +13,8 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![The board's cards as a table: the title and the properties they carry as columns, under their groups, dark](docs/table-dark.png)
 
 ![About a note, on the kitchen screen: a comment being written on words of it, its thread with a reply, an agent's proposed edit as the lines the service found, and an earlier revision opened to what changed since, dark](docs/about-dark.png)
+
+![A comment on words as the reader draws them: begun on words across bold text and a reference, beside a thread the service anchored to the source such words were drawn from (the link whole, the bold run with its marks), dark](docs/quote-dark.png)
 ![The keys screen: every way to press an action, a list made from the actions' own rows, dark](docs/keys-dark.png)
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
 ![The library: the components under their groups, one picked with its own example as written and as drawn, dark](docs/library-dark.png)
@@ -50,7 +52,8 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 
 | Do | How |
 |---|---|
-| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it |
+| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words, with Find and New note under them |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
@@ -67,7 +70,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Complete what you type | A page's name begun (`[[se`), a note's (`((po`), a property, a component, a callout: the service's list hangs at the caret. Down and Up light a row, Tab or Return writes it, Esc puts the list away |
 | Write while an agent edits | The block is held on the service while it is open: an agent's edit lands in your text in front of you, lit, and the tile says who changed what. Never in the paragraph you are typing in, never under an input method's marked text, and your caret and selection stay yours. The editor's own undo takes it back |
 | Find your words back | What you type is kept as you type it. A window that ended before a save finds the text back in its block, and says so |
-| Comment on words | Select words in a reader and press the comment's key (`comment`; its button is on the kitchen screen's toolbar, and the bar runs it for the same words): the comment opens over the note, in the editor a block has, under the words it quotes; Save sends it. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
+| Comment on words | Select words in a reader and press the comment's key (`comment`; its button is on the kitchen screen's toolbar, and the bar runs it for the same words): the comment opens over the note, in the editor a block has, under the words it quotes; Save sends it. The words may cross a link, bold text or paragraphs: they are sent as the reader drew them, and the service anchors the thread to the source they were drawn from. Words the note draws twice are told apart by the part they were selected in, and refused with why when one part draws them twice. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
 | Answer and resolve | The Comments tile lists the note's threads, the open ones first, each with what it is on and its replies under it. Reply opens the same editor where the note is read (`reply thread=`); Resolve puts the thread among the earlier ones, and Reopen brings it back (`resolve thread=`) |
 | Review a proposed edit | The Proposals tile lists the edits waiting beside the note: who sent each, why it didn't apply, and what it would change, line by line as the service found it. Apply and Dismiss are its presses (`proposal.apply id=`, `proposal.dismiss id=`) |
 | Look back, and go back | The Revisions tile lists the texts the note had. A press on an earlier one opens what changed since under its row (`list.pick id=<its number> tile=revisions`); Restore puts that text in the editor, to save or drop (`revision.restore revision=`) |
@@ -274,6 +277,11 @@ src/ (Rust, Rune)                                      the outline host
   The window never works out what a change touches.
 - **The tree is one list** (`lists.read from=children`, with the folders that are open): only what's unfolded is
   listed, and only the rows in view are built, so a large outline costs what's on screen.
+- **A fold's mark is the row's own word** (`folds`), and the service says it of a note only when a note is under
+  it: the reading that lists the notes under a note (outline-core's `isNoteUnder`: a comment, a reply and a
+  proposed edit are none) is the one that says whether there are any (`blocks.read`'s `hasNotes`, the outliner's
+  `notes-under.ts`). The tree, a question's matches and a page's own rows all fold by it, so a mark never opens
+  onto nothing. The window draws the mark in one place and decides nothing.
 - **The bar's sources are the service's too** (`bar.rs`). What a bar can list is what the list producers say of
   themselves (`lists.read from=sources`): the notes by the service's search, a question's matches, the screens.
   Their rows, facets and hint are one list answer each, asked as a tile's list is (`App::ask_of`); the window's
@@ -317,8 +325,12 @@ src/ (Rust, Rune)                                      the outline host
   thread. One session type, one field (the page drawer's), the same list that completes a word, the same file that
   keeps what is typed, and the same actions: `edit.save` saves a block and sends a comment, `edit.close` leaves
   either. Only a block's own text is held on the service. A comment is on words by quoting them (`passage.select`
-  is what a selection in a reader says, as it is made); where they are in the note is the service's to find. A press
-  on the toolbar leaves the selection as it is (`keeps_text_selection`), and the bar put away lets it go.
+  is what a selection in a reader says, as it is made: the words as drawn, and the span of the note's text the
+  service says the parts they were selected in are written in). They are sent said as drawn (`Quoted`, `drawn` and
+  `within` on the passage); where they are in the note is the service's to find, for every client alike
+  (outline-core's `drawn-passage.ts`: the source read as a reader draws it, asked of the one exact lookup). The
+  window reads no source to know what a link or a bold run was written as. A press on the toolbar leaves the
+  selection as it is (`keeps_text_selection`), and the bar put away lets it go.
 - **One send is one request** (`DraftSession.send`, `draft::send_name`): a comment's or a reply's request is named
   by its draft and its words, so a draft tried again is the request it was and the same words written another time
   (a second "Agreed." in a thread) are another, which the service writes.
@@ -329,6 +341,12 @@ src/ (Rust, Rune)                                      the outline host
   note while the reader moved on puts nothing into another note's editor.
 - **A closed reader's note stays on screen** when the layout says a reader is its heir (`close_heir`, the door's
   rule by contract: the empty reader its opens land in). `tile.close` shows it there, with the way back.
+- **A reader shows the note it was told, and no other** (`App::note_of`). One told none shows none: the layout's
+  rules read that (`Facts.showing`) and the tile draws that, so a close's heir and an open's landing replace
+  nothing that was on screen. What an empty tile says is its kind's own row (`tiles::waiting`: the name and the
+  description the service serves for the kind), for a reader and for a list about a note nobody shows alike; a
+  window opens on its screen with its reader empty, and the arrangement kept between runs brings back what each
+  reader showed.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
   list is asked, `App::ask_of`) and the name of the screen it has open, and the service answers them as rows, the
   line each key runs written by outline-core's one writer: that screen's own keys first (the service's spec, the
@@ -421,9 +439,12 @@ reader a list speaks for, makes the person the actor of somebody else's act or n
 outside the renderer seam (`shell.rs`, `tiles/`, `bar.rs`, `list.rs`, `keys.rs`, `control.rs`, `main.rs`: the
 model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the same deciders by what the window does
 (sweep 3's: a pressed script acts as the script on its press's invitation, a list speaks for one reader, a closed
-reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here), and
+reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here;
+F2's are in `lists.rs` and `shell.rs`: a fold's mark only on a row the service says opens onto notes, and a reader
+told no note drawn as empty in its kind's own words), and
 `review.rs` has what is about a note (the tiles
-that follow the reader, a comment written on words selected in the window, a reply and a thread resolved by the
+that follow the reader, a comment written on words selected in the window across a link, bold text and two
+paragraphs, words drawn twice told apart by their part, a reply and a thread resolved by the
 row's own presses, a proposal applied and dismissed on the wire, a revision opened and put back, the keys screen made
 from the rows handed over, a component's example drawn), and
 `contract.rs` also asks every row of `actor-contract.json` (who may run an action, as the door's dispatcher answers
@@ -440,10 +461,15 @@ extension or saving a screen note, never by building the window again.
 `cargo test -- --ignored live` runs the same window against a scratch host: among them the draft's whole sentence
 (written with completions from the service's own sources while an agent patches it over the control socket, the
 window ended mid-word, the text found back), what is about a note (a comment on words of it, a reply, the
-thread resolved; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
+thread resolved; words dragged over with the mouse from one paragraph into the next, across a link and bold text;
+words selected across each form of link, a reference drawn as its note's title, bold text, two paragraphs and a
+rule between two, each comment anchored to the source they were drawn from, and words not in the note refused with
+the comment kept; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
 keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
 bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
-removed by an agent's act; then a switch to a second outline of the same host and back). `cargo test --release measure_a_long_block -- --ignored --nocapture`
+removed by an agent's act; then a switch to a second outline of the same host and back), and the tree's folds (beds
+with only a comment, only a proposed edit and both under them drawn with no mark, the one with a note among them
+unfolded onto it, and the window's reader empty until a note is opened). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
 
 `src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
@@ -452,7 +478,7 @@ written (a name nobody has refused, nothing made); a tile torn into a second win
 one store, and the control socket naming the window an act is for; a torn window that switches outline keeping
 no arrangement there and its words in a file of its own; and a window closed mid-block holding nothing afterwards.
 
-The service's side is `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
+The service's side is `packages/outliner/test/notes-under.test.ts` (whether a note has notes under it, said on the row: the tree, a question's matches and a page), `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
 lists, a rendered tile's view, a setting reaching the script its extension ships), `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,
 and `completion.rows` for a text and a cursor), `packages/outline-core/test/draft-patch-place.test.ts` (whether a
 patch may land in a live draft: the door's rule and the service's), `packages/outliner/test/notes-page.test.ts`, `test/component-pages.test.ts` (each component's
@@ -480,11 +506,15 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A reader closed: its note stays on screen, in the reader its opens were wired to](docs/heir-dark.png)
 
+![A fold's mark opens onto notes: the bean rows, with only a comment and a proposed edit under them, have none, and the folder the open note is in is unfolded; the reader told no note is empty, in its kind's own words](docs/caret-dark.png)
+
 ![A close the layout refuses: the notice names the way out by this window's own key](docs/ways-dark.png)
 
-A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
+A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
+outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
+`caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
 `ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
@@ -494,7 +524,9 @@ box, a live list, two buttons, the first pressed; a note whose `::links` and the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
 `pictures` (notes `bun scenes/about.seed.ts <socket> <outline> <a scratch folder>` writes: a note with three texts
 behind it, a comment thread on words of it and an agent's proposed edit beside it; and a note with a header image,
-pictures it draws into the folder, an svg fence and a mermaid fence). `--act <file>` runs any file of them before the
+pictures it draws into the folder, an svg fence and a mermaid fence), and `quote` (a note the same seed writes, its
+words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
+and one begun on words picked as a selection says them). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
@@ -541,10 +573,11 @@ toolbar button is
   what an agent answers there was not run in this wave, and no progress is shown on the line. A draft stays in its tile: closing the
   tile is refused until it is closed, a tile takes one thing being written (a comment waits for the block's edit to
   close, and the other way), and a card's draft is not built.
-- Comments: a comment is on words as the reader shows them, and the service finds them in the note's text exactly:
-  words selected across a link, bold text or two paragraphs read differently from the text as written, and such a
-  comment is refused with the nearest words there are (its text stays in its field). No mark is drawn in the note
-  where a thread is anchored; a posted comment isn't edited here, nor a thread marked seen or kept; highlights and
+- Comments: words one part of a note draws twice can't be told apart by a selection (the window knows the part a
+  selection is in, not where in it), so such a comment is refused with why until a few more words are selected; and
+  words a part shows that the note's text doesn't hold (a figure's numbers, a list's rows, another note's text
+  embedded) are no passage of it. A drag that starts on a link's label selects nothing (the press is the link's):
+  a selection across a link starts beside it. No mark is drawn in the note where a thread is anchored; a posted comment isn't edited here, nor a thread marked seen or kept; highlights and
   the agent that answers in threads have no press. A reply is written in the reader, not in the list.
 - Proposals: a proposal that also makes or moves notes says how many such changes it holds and doesn't list them;
   "resolve against the note now" (the outline agent's) has no press here.

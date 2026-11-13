@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::support::*;
 use crate::actions::{self, Actor, App, Tone};
-use crate::draft::Writes;
+use crate::draft::{Quoted, Writes};
 use crate::keys::{self, Layer};
 
 /// The last thing the window asked of the host by this action.
@@ -54,44 +54,118 @@ fn the_tiles_about_a_note_follow_the_reader_and_a_hidden_one_asks_nothing() {
     assert_eq!((facts["follows"].as_str(), facts["rows"][0]["cells"][0]["act"].as_str(), facts["rows"][0]["shows"].as_str()), (Some("reader"), Some("proposal.apply id=\"proposal-plot\""), Some("diff")));
 }
 
-/// A comment is written on the words selected in the reader: the selection is told to the window as it is made,
-/// the comment opens where the note is read, in the editor a block has, and saving sends it with the words it quotes.
+/// A comment is written on the words selected in the reader, as it drew them: across a link, bold text and two
+/// paragraphs. The selection is told to the window as it is made, with the span of the note's text the service says
+/// the part it was made in is written in; the comment opens where the note is read, in the editor a block has, and
+/// saving sends the words as drawn for the service to find. The host answers as the service answered that quote.
 #[test]
 fn a_comment_is_written_on_the_words_selected_and_sent_by_the_key_that_saves() {
     let g = garden(ok());
     let asked = g.asked.clone();
     let mut rt = window(g.app);
-    // The words of the note's first paragraph, selected as a drag across them would.
+    assert!(line(&mut rt, &format!("open id={SOWING}")).ok);
+    // The words of the note's first part, selected as a drag across them would: a link's label, bold without its
+    // marks, and the paragraph after.
     rt.update(|_, tx| tx.select_all_text("tile/reader/part/0"));
     rest(&mut rt);
-    assert_eq!(rt.selected_text().as_deref(), Some("Before the rain. See the shed and seeds."));
+    assert_eq!(rt.selected_text().as_deref(), Some("Sow the early peas in March, before the last frost.\n\nWater the beds at dusk."));
     let picked = rt.state.ui("reader").passage.clone().expect("the selection was told to the window");
-    assert!(picked.starts_with("Before the rain."), "{picked}");
+    let part = quotes()["quotedNote"]["parts"][0]["span"].clone();
+    assert_eq!(picked, Quoted::drawn(rt.selected_text().unwrap(), Some((part["start"].as_u64().unwrap() as usize, part["end"].as_u64().unwrap() as usize))), "the words as drawn, within the part's span of the note's text");
     assert!(rt.state.steps.iter().any(|step| step.action == "passage.select" && step.by == Actor::Person && step.ok));
     // The comment's chord opens it over the note, which stays as it reads; the keys are the draft's.
     chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
     let draft = rt.state.draft_on("reader").expect("a comment is being written in the reader");
-    assert_eq!((&draft.writes, draft.note.as_str(), draft.hold_id()), (&Writes::Comment { quote: Some(picked.clone()), near: None }, "plot", None), "a comment is held by nobody");
+    assert_eq!((&draft.writes, draft.note.as_str(), draft.hold_id()), (&Writes::Comment { on: Some(picked.clone()) }, SOWING, None), "a comment is held by nobody");
     assert_eq!(rt.state.person().layer, Layer::Draft);
     assert!(rt.find("tile/reader/source").is_some() && rt.find("tile/reader/part/0").is_some() && rt.find("tile/reader/title").is_some(), "the field stands over the note: {:?}", keyed(&rt, "tile/reader/"));
-    assert_eq!(says(&rt, "tile/reader/on"), [format!("On “{picked}”")]);
+    assert_eq!(says(&rt, "tile/reader/on"), [format!("On “{}”", picked.words)]);
     assert!(sent(&asked, "drafts.hold").is_none(), "nothing is held on the service for a comment");
     // Typed in the same field, completed by the same list.
-    typed(&mut rt, "Which rain? See [[sh");
+    typed(&mut rt, "Which frost? See [[sh");
     assert_eq!(rt.state.completing("reader").map(|found| found.rows.iter().map(|row| row.label.clone()).collect::<Vec<_>>()), Some(vec!["Shed".to_string()]));
     chord(&mut rt, Key::Tab, Mods::default());
-    assert_eq!(words(&rt.state), "Which rain? See [[shed]]");
-    // The key that saves sends it: the words it quotes, what was typed, recorded as the person.
+    assert_eq!(words(&rt.state), "Which frost? See [[shed]]");
+    // The key that saves sends it: the words as drawn, said as drawn, within the part; what was typed; as the person.
     chord(&mut rt, Key::Command('s'), primary());
     let batch = sent(&asked, "annotations.batch").expect("the comment was sent");
     let input = &batch["operations"][0]["input"];
-    assert_eq!((batch["operations"][0]["type"].as_str(), input["blockId"].as_str(), input["expectedRevision"].as_u64(), input["body"].as_str(), input["passage"]["quote"].as_str(), input["source"].as_str()),
-        (Some("block-comment"), Some("plot"), Some(3), Some("Which rain? See [[shed]]"), Some(picked.as_str()), Some("user")));
+    assert_eq!((batch["operations"][0]["type"].as_str(), input["blockId"].as_str(), input["expectedRevision"].as_u64(), input["body"].as_str(), input["source"].as_str()),
+        (Some("block-comment"), Some(SOWING), Some(3), Some("Which frost? See [[shed]]"), Some("user")));
+    assert_eq!(input["passage"], json!({ "quote": picked.words, "drawn": true, "within": part }));
     assert_eq!((batch["author"].as_str(), batch.get("mutation")), (Some("user"), None), "a comment is a block made: recorded by author, as a new note is");
     // Sent, its draft is done, the note reads as before and the list of its comments is read again.
-    assert!(rt.state.drafts.is_empty() && rt.state.person().layer == Layer::Tile);
+    assert!(rt.state.drafts.is_empty() && rt.state.person().layer == Layer::Tile, "{:?}", rt.state.notice);
     assert!(rt.state.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said == "The comment is sent."), "{:?}", rt.state.notice);
     assert!(lists_of(&asked, "threads").len() >= 2, "the comments are read again once one is written");
+}
+
+/// Words the note draws twice are told apart by what the window knows: the part they were selected in. Selected in
+/// the part after the picture, the comment is on the second; named with no part (an act's `quote=`), the service
+/// says they are there twice, and the comment keeps its words. Words a part draws that its note doesn't hold are
+/// refused the same way: the stand-in host answers each as the service answered it (`core-contract.json`).
+#[test]
+fn words_the_note_draws_twice_are_the_ones_in_the_part_they_were_selected_in() {
+    let g = garden(ok());
+    let asked = g.asked.clone();
+    let mut rt = window(g.app);
+    assert!(line(&mut rt, &format!("open id={SOWING}")).ok);
+    rt.update(|_, tx| tx.select_all_text("tile/reader/part/2"));
+    rest(&mut rt);
+    let picked = rt.state.ui("reader").passage.clone().expect("the selection was told to the window");
+    let part = quotes()["quotedNote"]["parts"][2]["span"].clone();
+    assert_eq!((picked.words.as_str(), picked.drawn, picked.within), ("Water the beds at dusk, and again at dawn.", true, Some((part["start"].as_u64().unwrap() as usize, part["end"].as_u64().unwrap() as usize))));
+    assert!(line(&mut rt, "comment").ok);
+    typed(&mut rt, "Twice a day?");
+    chord(&mut rt, Key::Command('s'), primary());
+    assert_eq!(sent(&asked, "annotations.batch").unwrap()["operations"][0]["input"]["passage"], json!({ "quote": picked.words, "drawn": true, "within": part }));
+    assert!(rt.state.drafts.is_empty() && rt.state.notice.as_ref().is_some_and(|n| n.said == "The comment is sent."), "{:?}", rt.state.notice);
+    // Named by an act, with no part: as the note's text has them, they are there twice, and the service says so.
+    assert!(line(&mut rt, "comment quote=\"Water the beds at dusk\"").ok);
+    typed(&mut rt, "Which one?");
+    chord(&mut rt, Key::Command('s'), primary());
+    assert_eq!(sent(&asked, "annotations.batch").unwrap()["operations"][0]["input"]["passage"], json!({ "quote": "Water the beds at dusk" }));
+    assert_eq!(words(&rt.state), "Which one?", "what was written is still in its field");
+    assert!(rt.state.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem && n.said.contains("Comment quote is ambiguous") && n.said.contains("is there 2 times")), "the service's own words: {:?}", rt.state.notice);
+    press(&mut rt, "tile/reader/discard");
+    // Picked as drawn with no part said (the act, typed): drawn twice, refused the same way.
+    assert!(line(&mut rt, "passage.select quote=\"Water the beds at dusk\"").ok);
+    assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn("Water the beds at dusk", None)));
+    assert!(line(&mut rt, "comment").ok);
+    typed(&mut rt, "Which one?");
+    chord(&mut rt, Key::Command('s'), primary());
+    assert!(rt.state.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem && n.said.contains("Comment quote is ambiguous")), "{:?}", rt.state.notice);
+    press(&mut rt, "tile/reader/discard");
+    // A page that draws words its note's text doesn't hold (the stand-in's plot): a selection of them is refused
+    // with the nearest words there are, and the comment keeps its words.
+    assert!(line(&mut rt, "open id=plot").ok);
+    rt.update(|_, tx| tx.select_all_text("tile/reader/part/0"));
+    rest(&mut rt);
+    assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn("Before the rain. See the shed and seeds.", Some((19, 35)))));
+    assert!(line(&mut rt, "comment").ok);
+    typed(&mut rt, "Which shed?");
+    chord(&mut rt, Key::Command('s'), primary());
+    assert_eq!(words(&rt.state), "Which shed?");
+    assert!(rt.state.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem && n.said.contains("Comment quote or context was not found") && n.said.contains("nearest: \"Before the rain.\"")), "{:?}", rt.state.notice);
+}
+
+/// The stand-in host accepts no quote unasked: one the service's rows don't have is refused, naming where a row is
+/// added, so a test can't pass on words the service was never asked about.
+#[test]
+fn the_stand_in_host_answers_a_quote_only_as_the_service_answered_it() {
+    let rows = quotes();
+    let note = rows["quotedNote"]["text"].as_str().unwrap();
+    let (mut found, mut refused) = (0, 0);
+    for row in rows["quoted"].as_array().unwrap() {
+        let text = row.get("text").and_then(Value::as_str).unwrap_or(note);
+        match quoted(text, &row["passage"], &json!("Here.")) {
+            Ok(answer) => { found += 1; assert_eq!(answer["annotations"][0]["originalTarget"]["anchor"]["exact"], row["found"]["exact"], "{}", row["name"]) }
+            Err((kind, error)) => { refused += 1; assert_eq!((kind, error.as_str()), (row["refused"]["kind"].as_str().unwrap(), row["refused"]["error"].as_str().unwrap()), "{}", row["name"]) }
+        }
+    }
+    assert!(found >= 4 && refused >= 4, "{found} found, {refused} refused");
+    let unasked = quoted(note, &json!({ "quote": "Sow the early peas", "drawn": true }), &json!("Here."));
+    assert!(unasked.is_err_and(|(kind, error)| kind == "failed" && error.contains("no answer on record") && error.contains("core-contract.ts")));
 }
 
 /// The words selected are still the ones a comment is on when it is asked for with the mouse or from the bar: a
@@ -109,10 +183,10 @@ fn a_comment_asked_for_by_the_toolbar_s_button_or_from_the_bar_is_on_the_words_s
     let (x, y) = rt.find("tool/comment").expect("the kitchen screen's toolbar has a Comment button");
     rt.pointer_down(x, y);
     rest(&mut rt);
-    assert_eq!(rt.selected_text().as_deref(), Some(picked.as_str()), "a press on the toolbar leaves the selection");
+    assert_eq!(rt.selected_text().as_deref(), Some(picked.words.as_str()), "a press on the toolbar leaves the selection");
     rt.pointer_up(x, y);
     rest(&mut rt);
-    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { quote: Some(picked.clone()), near: None }), "the button's press left the selection");
+    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { on: Some(picked.clone()) }), "the button's press left the selection");
     press(&mut rt, "tile/reader/done");
     assert!(rt.state.drafts.is_empty());
     // From the bar: opened by its chord, the action found by a word and run by Return.
@@ -121,7 +195,7 @@ fn a_comment_asked_for_by_the_toolbar_s_button_or_from_the_bar_is_on_the_words_s
     assert!(rt.state.bar.open);
     typed(&mut rt, "comment");
     chord(&mut rt, Key::Enter, Mods::default());
-    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { quote: Some(picked), near: None }), "the bar took the keys, not the words");
+    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { on: Some(picked) }), "the bar took the keys, not the words");
     press(&mut rt, "tile/reader/done");
     // Let go by the person (a press in the note that selects nothing), the next comment is on the whole note.
     select(&mut rt);
