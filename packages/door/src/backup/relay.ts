@@ -10,6 +10,7 @@
 //             the upload (restic with `--host <m>`, then retention)
 //
 // Secrets stay on each machine: the hub uses its own keys for the upload; nothing here reads or prints them.
+import type { DrillTimes } from "./jobs";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
@@ -57,13 +58,14 @@ export async function relay(c: BackupConfig, hub: string, o: { outline: string; 
  * The restore drill on the hub, for this machine (PIE-810): `ep0ch backup drill --machine <this> --json` there restores
  * this machine's snapshots from its repository, which the hub can reach. Its answer, or why there is none.
  */
-export async function drillVia(c: BackupConfig, hub: string, timeoutMs = 900_000): Promise<{ ok: boolean; detail: string } | { error: string; unreachable: boolean }> {
+export async function drillVia(c: BackupConfig, hub: string, timeoutMs = 900_000, serve = false): Promise<{ ok: boolean; detail: string; served?: DrillTimes[]; repo?: string; machine?: string } | { error: string; unreachable: boolean }> {
   if (!MACHINE_NAME.test(c.machine)) return { error: `${c.machine} isn't a machine name`, unreachable: false };
-  const r = await ssh(c.env, hub, `ep0ch backup drill --machine ${c.machine} --json`, undefined, timeoutMs).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
+  const r = await ssh(c.env, hub, `ep0ch backup drill --machine ${c.machine} --json${serve ? " --serve" : ""}`, undefined, timeoutMs).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
   try {
-    const d = lastJson(r.out) as { ok?: unknown; detail?: unknown; error?: unknown };
+    const d = lastJson(r.out) as { ok?: unknown; detail?: unknown; error?: unknown; served?: unknown; repo?: unknown; machine?: unknown };
     if (typeof d.error === "string") return { error: `${hub} couldn't drill it: ${d.error}`, unreachable: false };
-    if (typeof d.ok === "boolean" && typeof d.detail === "string") return { ok: d.ok, detail: d.detail };
+    // A served drill's times and what it covered come back with it (Codex on #1502), so the gate can read them.
+    if (typeof d.ok === "boolean" && typeof d.detail === "string") return { ok: d.ok, detail: d.detail, ...(serve && Array.isArray(d.served) && typeof d.repo === "string" && typeof d.machine === "string" ? { served: d.served as DrillTimes[], repo: d.repo, machine: d.machine } : {}) };
   } catch { /* no answer from the command itself */ }
   // Only a hub that doesn't answer is a wait; one that answers and fails is a failed drill (an incident).
   return r.code === 255 ? { error: `${hub} doesn't answer over ssh`, unreachable: true }

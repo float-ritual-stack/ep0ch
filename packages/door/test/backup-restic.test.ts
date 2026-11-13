@@ -277,6 +277,11 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, snapshot: undefined, relayed: { via: "hub", uploaded: false } } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("relayed to hub, not uploaded") });
     expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, pendingSince: "2026-11-13T00:00:00Z" } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("changes not uploaded") });
     expect(rollbackPoints(s, ["garden", "cellar"])).toMatchObject({ why: expect.stringContaining("cellar (not archived)") });
+    // The drill rechecked against the logs this archive took: one it never replayed is no rollback point (Codex on #1502).
+    const drilled = { at: new Date().toISOString(), ok: true, detail: "served", repo: "/scratch/repo", machine: "laptop", served: [{ outline: "garden", logId: s.outlines.garden!.logId!, restoreMs: 1, replayMs: 1, serveMs: 1, blocks: 1 }, { outline: "pantry", logId: "a-log-restored-since", restoreMs: 1, replayMs: 1, serveMs: 1, blocks: 1 }] };
+    const gate = { repo: "/scratch/repo", machine: "laptop", now: Date.now() };
+    expect(rollbackPoints({ ...s, drill: drilled }, ["garden", "pantry"], gate)).toMatchObject({ why: expect.stringContaining("didn't cover pantry") });
+    expect(rollbackPoints({ ...s, drill: { ...drilled, served: drilled.served.map(t => ({ ...t, logId: s.outlines[t.outline]!.logId! })) } }, ["garden", "pantry"], gate)).toMatchObject({ points: [{ name: "garden" }, { name: "pantry" }] });
   }, 120_000);
 
   test("a restore from the archive holds what the live outline holds", async () => {

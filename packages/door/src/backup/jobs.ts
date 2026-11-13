@@ -341,10 +341,10 @@ export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: 
   const why = c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null;
   if (!why) return { drill: await drill(c, o) };
   const { drillVia } = await import("./relay");
-  const r = await drillVia(c, c.hub!);
+  const r = await drillVia(c, c.hub!, undefined, !!o.serve);
   if ("error" in r) return r.unreachable ? { waiting: `${plainReason(why, { repo })}, and ${r.error}` }
     : { drill: { ok: false, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.error}`, via: c.hub! } };
-  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub! } };
+  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub!, ...(r.served ? { served: r.served, repo: r.repo, machine: r.machine } : {}) } };
 }
 
 /** How the job is run and read on this platform (what a fix says). */

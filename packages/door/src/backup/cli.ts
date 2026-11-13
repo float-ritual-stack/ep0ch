@@ -121,7 +121,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     const answer = (x: unknown) => { io.out(JSON.stringify(x)); };
     if (!MACHINE_NAME.test(machine) || machine === c.machine) { answer({ error: `${machine} isn't another machine's name` }); return 2; }
     if (!c.mirrors.some(m => m.machine === machine)) { answer({ error: `${c.machine} doesn't mirror ${machine}: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` }); return 2; }
-    const d = await drill(c, { machine, say: args.includes("--json") ? () => {} : say });
+    const d = await drill(c, { machine, say: args.includes("--json") ? () => {} : say, ...(args.includes("--serve") ? { serve: true } : {}) });
     if (args.includes("--json")) answer(d); else say(`${d.ok ? "✓" : "✗"} ${d.detail}`);
     return d.ok ? 0 : 1;
   }

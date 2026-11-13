@@ -34,7 +34,7 @@ const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" }
 
 export { backupDatabase } from "@ep0ch/outliner/snapshot-database";
 import { backupDatabase } from "@ep0ch/outliner/snapshot-database";
-import { readBackupState } from "../backup/alert";
+import { type BackupState, drillStandsIn, readBackupState } from "../backup/alert";
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
   const lines = [`ep0ch install · ${f.platform} · ${apply ? "applying" : "dry run: nothing changes; ep0ch install --apply runs the → steps"}`, ""];
@@ -125,6 +125,13 @@ function verifySameNotes(path: string, copy: string): void {
   if (was !== kept) throw new Error(`the copy holds ${kept} notes and the outline ${was}`);
 }
 
+/** The copies of `name` at schema `version` in install's backup folder, all but `keep`: earlier attempts of one step. */
+export function sameSchemaCopies(root: string, name: string, version: number, keep: string): string[] {
+  if (!existsSync(root)) return [];
+  const file = `${name}.schema-${version}.sqlite`;
+  return readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(join(root, e.name, file))).map(e => join(root, e.name, file)).filter(p => resolve(p) !== resolve(keep));
+}
+
 /** The copies of `name` from before earlier schema steps in install's backup folder, all but `keep`. */
 export function olderSchemaCopies(root: string, name: string, keep: string): string[] {
   if (!existsSync(root)) return [];
@@ -137,7 +144,7 @@ export function olderSchemaCopies(root: string, name: string, keep: string): str
  * the repository holds and the snapshot that holds it, every one confirmed uploaded (a relay the hub uploaded counts;
  * one it couldn't, a change still waiting or a failure don't). Else why not, for install's one line.
  */
-export function rollbackPoints(state: { outlines: Record<string, { seq?: number | null; logId?: string; snapshot?: string; pendingSince?: string; error?: string; relayed?: { via: string; uploaded?: boolean } }> } | null, names: readonly string[]): { points: { name: string; seq: number; logId: string; where: string }[] } | { why: string } {
+export function rollbackPoints(state: (Pick<BackupState, "drill"> & { outlines: Record<string, { seq?: number | null; logId?: string; snapshot?: string; pendingSince?: string; error?: string; relayed?: { via: string; uploaded?: boolean } }> }) | null, names: readonly string[], gate?: { repo: string; machine: string; now: number }): { points: { name: string; seq: number; logId: string; where: string }[] } | { why: string } {
   if (!state) return { why: "the backup job's state couldn't be read after the archive" };
   const points: { name: string; seq: number; logId: string; where: string }[] = [], short: string[] = [];
   for (const name of names) {
@@ -146,7 +153,14 @@ export function rollbackPoints(state: { outlines: Record<string, { seq?: number 
     if (!o || !uploaded || typeof o.seq !== "number" || !o.logId) { short.push(`${name} (${!o ? "not archived" : o.error ? o.error.slice(0, 80) : o.pendingSince ? "changes not uploaded" : o.relayed && !o.relayed.uploaded ? `relayed to ${o.relayed.via}, not uploaded` : "no snapshot holds it"})`); continue; }
     points.push({ name, seq: o.seq, logId: o.logId, where: o.relayed ? `uploaded through ${o.relayed.via}` : `snapshot ${o.snapshot!.slice(0, 8)}` });
   }
-  return short.length ? { why: `the archive doesn't hold every outline as uploaded: ${short.join(", ")}` } : { points };
+  if (short.length) return { why: `the archive doesn't hold every outline as uploaded: ${short.join(", ")}` };
+  // The drill checked again against the logs this archive just took (Codex on #1502): an outline restored or made
+  // again since the drill has a log it never replayed.
+  if (gate) {
+    const stands = drillStandsIn(state, gate.now, { repo: gate.repo, machine: gate.machine, outlines: points.map(p => ({ name: p.name, logId: p.logId })) });
+    if (!stands.ok) return { why: stands.why };
+  }
+  return { points };
 }
 
 /** A child's stderr without the progress lines asked for with --progress (Receiving objects:  45% (90/200)). */
@@ -163,7 +177,18 @@ async function updateCheckout(root: string, name: string, say: (s: string) => vo
     const changed = (await run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { env })).out;
     if (changed) throw new StepFailed(`the checkout has local changes; not moved`, `commit or move them aside (git -C ${root} status), then rerun ep0ch install --apply --sha ${sha} --back`);
     if ((await run(["git", "-C", root, "merge-base", "--is-ancestor", "HEAD", "origin/main"], { env })).code !== 0) throw new StepFailed(`the checkout's HEAD isn't on origin/main; not moved`, `push or move its own commits aside (git -C ${root} log origin/main..HEAD), then rerun`);
-    await must(["git", "-C", root, "reset", "--keep", sha], `the checkout wasn't moved (a file of yours is where ${sha.slice(0, 8)} has one, or a local change); see git -C ${root} status, then rerun ep0ch install --apply --sha ${sha} --back`, { env, onLine: child });
+    // A file git doesn't track (an ignored one too) where the older commit has one: `reset --keep` would take it.
+    const theirs = new Set((await run(["git", "-C", root, "ls-tree", "-r", "--name-only", sha], { env })).out.split("\n").filter(Boolean));
+    const untracked = [...(await run(["git", "-C", root, "ls-files", "--others", "--exclude-standard"], { env })).out.split("\n"), ...(await run(["git", "-C", root, "ls-files", "--others", "--ignored", "--exclude-standard"], { env })).out.split("\n")].filter(Boolean);
+    const taken = [...new Set(untracked.filter(p => theirs.has(p)))];
+    if (taken.length) throw new StepFailed(`${sha.slice(0, 8)} has ${taken.length === 1 ? "a file" : "files"} where the checkout holds ${taken.length === 1 ? "one" : "some"} git doesn't track: ${taken.slice(0, 8).join(", ")}${taken.length > 8 ? ` and ${taken.length - 8} more` : ""}; not moved`, `move ${taken.length === 1 ? "it" : "them"} aside (they're yours), then rerun ep0ch install --apply --sha ${sha} --back`);
+    const r = await run(["git", "-C", root, "reset", "--keep", sha], { env, onLine: child });
+    if (r.code !== 0) {
+      // Part way (Codex on #1502): what state it's in, and the two commands, one to finish and one to undo.
+      const at = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out, changed = (await run(["git", "-C", root, "status", "--porcelain"], { env })).out.split("\n").filter(Boolean);
+      throw new StepFailed(`going back failed part way: ${withoutProgress(r.err).trim().split("\n").at(-1) || `exit ${r.code}`}; HEAD is at ${at.slice(0, 8)}${changed.length ? `, with ${changed.length} path${changed.length === 1 ? "" : "s"} not as either commit has ${changed.length === 1 ? "it" : "them"} (git -C ${root} status)` : ""}`,
+        `fix what stopped it, then finish going back: git -C ${root} reset --keep ${sha}; or undo it, back to where it was: git -C ${root} reset --hard ${before}`);
+    }
   }
   else await must(sha ? ["git", "-C", root, "merge", "--ff-only", sha] : ["git", "-C", root, "pull", "--ff-only", "--progress", "origin", "main"], `nothing was merged (--ff-only); see git -C ${root} status, fix it, and rerun ep0ch install`, { env, onLine: child });
   const after = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out;
@@ -298,7 +323,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         // The snapshot of this install's own host and folder, never one an inherited EP0CH_SOCKET names (Codex on #1502).
         const r = await run([process.execPath, f.repo.entry, "backup", "snapshot"], { env: { ...env, EP0CH_SOCKET: f.host.socket, EP0CH_OUTLINES: f.host.folder }, timeoutMs: 900_000, onLine: child });
         const state = r.code === 0 && f.restic?.stateDir ? (() => { try { return readBackupState(f.restic!.stateDir); } catch { return null; } })() : null;
-        const points = rollbackPoints(state, backups.map(b => b.name));
+        const points = rollbackPoints(state, backups.map(b => b.name), f.restic ? { repo: f.restic.repo, machine: f.restic.config.machine, now: Date.now() } : undefined);
         if (r.code === 0 && "points" in points) {
           for (const p of points.points) say(`${p.name}: rollback point entry ${p.seq} of log ${p.logId.slice(0, 8)} (${p.where}); its data back: ep0ch backup restore ${p.name} --log ${p.logId} --entry ${p.seq} --to ~/${p.name}-restored.sqlite`);
           pruneInstallBackups(backupRoot, keep, say);
@@ -540,6 +565,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         if (o.copy) {
           try { mkdirSync(dirname(o.copy), { recursive: true, mode: 0o700 }); backupDatabase(o.path, o.copy); verifySameNotes(o.path, o.copy); }
           catch (e) { throw new StepFailed(`copying ${o.name} before its migration failed: ${(e as Error).message}`, `${o.name} wasn't migrated; ${migrationRecovery(f, m, null, done)}`); }
+          // Verified: an earlier failed attempt's copy of the same schema is this one again (Codex on #1502).
+          for (const old of sameSchemaCopies(backupDirOf(f.home), o.name, o.version, o.copy)) rmSync(old, { force: true });
         }
         for (let to = o.version + 1; to <= m.to; to++) {
           const r = await run([process.execPath, m.scripts[to]!, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });

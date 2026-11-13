@@ -138,3 +138,77 @@ test("ordinary retention never removes a schema step's copy, even keeping one ru
     expect(() => readFileSync(join(root, "20261112T000000Z", "garden.sqlite"))).toThrow();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+/** A scratch checkout with its own origin: commits made by `commits`, each a function of the repo; returns their shas. */
+function scratchRepo(prefix: string) {
+  const dir = scratchDir(prefix);
+  const repo = join(dir, "repo"), origin = join(dir, "origin.git"), home = join(dir, "home"), outlines = join(dir, "outlines");
+  mkdirSync(home); mkdirSync(outlines);
+  const env = { HOME: home, PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`, XDG_CONFIG_HOME: join(home, ".config"), EP0CH_OUTLINES: outlines, EP0CH_STATE: join(dir, "state"), GIT_AUTHOR_NAME: "Wren", GIT_AUTHOR_EMAIL: "wren@example.test", GIT_COMMITTER_NAME: "Wren", GIT_COMMITTER_EMAIL: "wren@example.test" };
+  const git = (...args: string[]) => {
+    const r = Bun.spawnSync(["git", ...args], { env, stdout: "pipe", stderr: "pipe" });
+    if (r.exitCode) throw new Error(r.stderr.toString());
+    return r.stdout.toString().trim();
+  };
+  const output: string[] = [];
+  const io = { env, repoRoot: repo, cwd: home, platform: "other", out: (s: string) => output.push(s), err: (s: string) => output.push(s) };
+  git("init", "-qb", "main", repo);
+  mkdirSync(join(repo, "packages/door/scripts"), { recursive: true });
+  copyFileSync(resolve(import.meta.dir, "../scripts/with-secrets"), join(repo, "packages/door/scripts/with-secrets"));
+  mkdirSync(join(repo, "packages/outliner/src"), { recursive: true });
+  copyFileSync(resolve(import.meta.dir, "../../outliner/src/schema.ts"), join(repo, "packages/outliner/src/schema.ts"));
+  const commit = (message: string) => { git("-C", repo, "add", "-A"); git("-C", repo, "commit", "-qm", message); return git("-C", repo, "rev-parse", "HEAD"); };
+  const publish = () => { git("clone", "-q", "--bare", repo, origin); git("-C", repo, "remote", "add", "origin", origin); git("-C", repo, "fetch", "-q", "origin"); };
+  const back = (sha: string) => setupCommand(["install", "--apply", "--sha", sha, "--back", "--json"], io).catch((e: Error) => { output.push(e.message); return 1; });
+  return { dir, repo, git, output, commit, publish, back, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("--back refuses to overwrite an ignored file where the older commit has one, naming it (Codex on #1502)", async () => {
+  const r = scratchRepo("install-back-ignored-");
+  try {
+    writeFileSync(join(r.repo, "seed-notes"), "from the older commit");
+    const one = r.commit("one");
+    r.git("-C", r.repo, "rm", "-q", "seed-notes");
+    writeFileSync(join(r.repo, ".gitignore"), "seed-notes\n");
+    r.commit("two: seed-notes is the person's own now");
+    r.publish();
+    writeFileSync(join(r.repo, "seed-notes"), "the person's own notes");
+    expect(await r.back(one)).not.toBe(0);
+    expect(readFileSync(join(r.repo, "seed-notes"), "utf8")).toBe("the person's own notes");
+    expect(r.git("-C", r.repo, "log", "-1", "--format=%s")).toBe("two: seed-notes is the person's own now");
+    expect(r.output.join("\n")).toContain("seed-notes");
+  } finally { r.done(); }
+}, 60_000);
+
+test("a --back that fails part way says what state the checkout is in, and the commands that finish or undo it (Codex on #1502)", async () => {
+  const r = scratchRepo("install-back-partway-");
+  const { chmodSync } = await import("node:fs");
+  try {
+    mkdirSync(join(r.repo, "beds"));
+    for (const f of ["north", "south"]) writeFileSync(join(r.repo, "beds", f), `${f} bed, as first planted`);
+    const one = r.commit("one");
+    for (const f of ["north", "south"]) writeFileSync(join(r.repo, "beds", f), `${f} bed, replanted`);
+    writeFileSync(join(r.repo, "beds", "east"), "east bed");
+    const two = r.commit("two");
+    r.publish();
+    // A folder git can't write: the move back fails inside it.
+    chmodSync(join(r.repo, "beds"), 0o555);
+    try { expect(await r.back(one)).not.toBe(0); } finally { chmodSync(join(r.repo, "beds"), 0o755); }
+    const said = r.output.join("\n");
+    expect(said).toMatch(/HEAD is (at )?[0-9a-f]{8}/);
+    expect(said).toContain(`git -C ${r.repo} reset --keep ${one}`);
+    expect(said).toContain(`git -C ${r.repo} reset --hard ${two}`);
+  } finally { r.done(); }
+}, 60_000);
+
+test("a schema step's retry replaces the copy an earlier failed attempt made of the same schema (Codex on #1502)", async () => {
+  const { sameSchemaCopies } = await import("../src/setup/apply");
+  const root = scratchDir("install-retry-copies-");
+  try {
+    for (const [run, file] of [["20261101T000000Z", "garden.schema-11.sqlite"], ["20261113T090000Z", "garden.schema-12.sqlite"], ["20261113T091000Z", "garden.schema-12.sqlite"], ["20261113T092000Z", "garden.schema-12.sqlite"]] as const) {
+      mkdirSync(join(root, run), { recursive: true }); writeFileSync(join(root, run, file), "");
+    }
+    // The newest attempt's copy verified: the earlier attempts' copies of schema 12 go; schema 11's waits for a migration.
+    expect(sameSchemaCopies(root, "garden", 12, join(root, "20261113T092000Z/garden.schema-12.sqlite")).sort()).toEqual([join(root, "20261113T090000Z/garden.schema-12.sqlite"), join(root, "20261113T091000Z/garden.schema-12.sqlite")]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
