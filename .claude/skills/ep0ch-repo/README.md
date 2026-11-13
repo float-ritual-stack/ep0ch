@@ -99,6 +99,10 @@ miss `door.md`. The mod closes that gap (`hooks/rules.ts`):
   `scripts/agent-env`). Wrappers count too (`scripts/agent-env … --`, `bash -c '…'`).
 - **What decides:** each rule's own `paths:`. A new rule file is picked up with no change here, and a narrow rule
   (`outlines-by-name.md`) fires only for its own files.
+- **Rules about a machine:** a rule's `commands:` list holds regular expressions matched against the whole Bash
+  command, for what no path names. `machine-disk.md` fires on `ssh float-2 '… du/df/rm/mv/rsync/offload …'` and points
+  at the hub's disk policy before anything is moved or deleted (Nov 12). It still has `paths:` (the backup code), so
+  Claude Code never loads it into every session.
 - **How it arrives:** the first command that touches a rule's files carries the rule's text after its result, as
   context the agent reads. This happens once per loop: the main thread and each subagent get it once each, and again
   after a compaction or `/clear`. A refused command carries nothing.

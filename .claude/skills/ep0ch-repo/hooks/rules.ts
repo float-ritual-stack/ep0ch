@@ -7,16 +7,25 @@
 
 import { simpleCommands } from './shell'
 
-export type Rule = { file: string; globs: string[]; body: string }
+export type Rule = { file: string; globs: string[]; commands: RegExp[]; body: string }
 
-/** A rule file: its `paths:` globs (frontmatter) and the text after the frontmatter. No `paths:`: null (it loads always). */
+/** A frontmatter list (`key:` then its `- "item"` lines, quoted either way or not), up to the next key. */
+function listOf(frontmatter: string, key: string): string[] {
+  const block = new RegExp(`^${key}:\\s*\\n((?:[ \\t]*-.*\\n?)*)`, 'm').exec(`${frontmatter}\n`)
+  return block ? [...block[1]!.matchAll(/^\s*-\s*(["']?)(.+?)\1\s*$/gm)].map(g => g[2]!) : []
+}
+
+/**
+ * A rule file: its `paths:` globs, its `commands:` patterns (frontmatter) and the text after the frontmatter. A
+ * `commands:` pattern is a regular expression a Bash command is matched against whole (`ssh float-2 … du`), for a rule
+ * about a machine rather than a package. No `paths:`: null (Claude Code loads it always, so it is not one of these).
+ */
 export function ruleOf(file: string, text: string): Rule | null {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(text.replace(/\r\n/g, '\n'))
   if (!m) return null
-  // The list under `paths:` (its `- "glob"` lines, quoted either way or not), up to the next key.
-  const block = /^paths:\s*\n((?:[ \t]*-.*\n?)*)/m.exec(`${m[1]!}\n`)
-  const globs = block ? [...block[1]!.matchAll(/^\s*-\s*(["']?)(.+?)\1\s*$/gm)].map(g => g[2]!) : []
-  return globs.length ? { file, globs, body: text.replace(/\r\n/g, '\n').slice(m[0].length).trim() } : null
+  const globs = listOf(m[1]!, 'paths')
+  const commands = listOf(m[1]!, 'commands').map(c => new RegExp(c))
+  return globs.length ? { file, globs, commands, body: text.replace(/\r\n/g, '\n').slice(m[0].length).trim() } : null
 }
 
 /** A `paths:` glob as a pattern: `**` any depth, `*` within a folder, `{a,b}` either; `dir/**` also matches `dir`. */
@@ -96,9 +105,9 @@ export function pathsIn(command: string, cwd: string, root: string): string[] {
   return [...paths].filter(Boolean)
 }
 
-/** The rules whose `paths:` match one of `paths`, in the order given. */
-export function rulesFor(paths: readonly string[], rules: readonly Rule[]): Rule[] {
-  return rules.filter(rule => rule.globs.some(glob => {
+/** The rules whose `paths:` match one of `paths`, or whose `commands:` match `command`, in the order given. */
+export function rulesFor(paths: readonly string[], rules: readonly Rule[], command = ''): Rule[] {
+  return rules.filter(rule => rule.commands.some(c => c.test(command)) || rule.globs.some(glob => {
     const pattern = globPattern(glob)
     return paths.some(p => pattern.test(p))
   }))
