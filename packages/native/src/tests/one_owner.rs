@@ -40,6 +40,16 @@ fn a_key_is_bound_and_a_chord_is_read_only_in_keys_rs() {
 }
 
 #[test]
+fn where_the_keys_are_is_said_once_and_a_hint_row_reads_it() {
+    // Which layer has the keys is `App::person` (and `App::writing` for a block's draft and the list over it): a
+    // drawer that names a layer of its own shows another layer's keys (the editor's hint row did, under an open list).
+    none("a layer named by a drawer: ask App::writing or App::person", strays("Layer::", |path| !path.starts_with("tiles/")));
+    // The bar and the form draw their own hint rows, each under the one field it is the keys of.
+    let named: Vec<String> = strays("Layer::", |path| path == "keys.rs").into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert!(named.iter().all(|path| path == "bar.rs"), "a layer named outside keys.rs and the bar's own two hint rows: {named:?}");
+}
+
+#[test]
 fn state_changes_only_under_actions_and_the_store() {
     let texts = sources();
     let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("the App is defined under actions/").1;

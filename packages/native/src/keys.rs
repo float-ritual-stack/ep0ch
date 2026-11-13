@@ -93,13 +93,18 @@ impl App {
         } else if self.form.is_some() {
             Whereabouts { layer: Layer::Form, focus, idle, typing_in: Some("form".into()), busy: true, why: Some("the person is filling in a form".into()) }
         } else if let Some(draft) = self.draft_on(&self.layout.focus) {
-            let tile = self.layout.name(&draft.tile);
-            // The list's own keys are for choosing: one with nothing to choose from keeps only the key that puts it away.
-            let layer = match self.completing(&draft.tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft };
+            let (tile, layer) = (self.layout.name(&draft.tile), self.writing(&draft.tile));
             Whereabouts { layer, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
             Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None }
         }
+    }
+
+    /// The layer the keys are in while a block is written in `tile`: its completion list while that is open, else
+    /// the draft's own. The list's own keys are for choosing: one with nothing to choose from keeps only the key
+    /// that puts it away. `person` and the hint row under the block's field both read this.
+    pub fn writing(&self, tile: &str) -> Layer {
+        match self.completing(tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft }
     }
 }
 
@@ -170,11 +175,13 @@ pub fn esc_steps() -> Vec<&'static Bind> {
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
 pub fn esc(layer: Layer) -> Option<&'static Bind> { esc_steps().into_iter().find(|bind| bind.layer.is_none_or(|own| layer.stack().contains(&own))) }
 
-/// The keys that are a layer's own, with what each does: the hint row under the bar and the editor. What Esc
-/// closes there comes first.
+/// The keys that are a layer's own, with what each does: the hint row under the bar, a form and the editor. What
+/// Esc closes there comes first. A layer with no key of its own but the one that leaves it (a completion list
+/// with nothing to choose from) lists the keys of the layer under it, which still hold.
 pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
-    let esc = esc(layer);
-    esc.into_iter().chain(table().iter().filter(|bind| bind.layer == Some(layer) && !bind.is_escape())).map(|bind| (bind.cap(), bind.does)).collect()
+    let own = |layer: Layer| table().iter().filter(move |bind| bind.layer == Some(layer) && !bind.is_escape());
+    let shown = layer.stack().iter().copied().find(|layer| own(*layer).next().is_some()).unwrap_or(layer);
+    esc(layer).into_iter().chain(own(shown)).map(|bind| (bind.cap(), bind.does)).collect()
 }
 
 /// The table as `peek` and the keys screen read it.
