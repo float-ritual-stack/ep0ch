@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::owners::{laid, leaf};
 use super::support::*;
-use crate::actions::{self, Actor, says};
+use crate::actions::{self, Actor, Tone, says};
 use crate::keys;
 use crate::layout::{Refusal, Way};
 
@@ -36,11 +36,16 @@ fn a_refusal_of_the_layout_s_names_this_window_s_own_key_for_the_person_and_the_
     let mine = act(&mut g.app, "tile.close tile=reader");
     assert_eq!((mine.ok, mine.said.as_str()), (false, format!("not closed: it holds an edit of Lift the onions · {key} enters it").as_str()));
     assert!(!mine.said.contains("^W") && !mine.said.contains('⏎'), "no key of the door's is named: {}", mine.said);
+    // It is put in front of them: the refusal is the notice, as an open's is. (It was answered and shown nowhere.)
+    assert_eq!(g.app.notice.as_ref().map(|notice| (notice.tone, notice.said.as_str())), Some((Tone::Problem, mine.said.as_str())));
+    act(&mut g.app, "notice.dismiss");
     // An agent is held back for the person by the layout's own guard, and is told the act that gets their attention
     // here: this window's (a comment on the note), by its row's name, as the act line it runs.
     let resized = g.app.act("layout.resize split=s1 border=0 share=0.6", agent());
     assert_eq!((resized.ok, resized.said.as_str()), (false, "the person is typing in reader; an agent doesn't resize it · comment body=\"…\" on the note gets their attention"));
     assert_eq!(dotted(&resized.said), Vec::<String>::new(), "nothing of the door's is named: {}", resized.said);
+    // An agent's refusal is the agent's to read, and is said on the status line: it puts no notice before the person.
+    assert!(g.app.notice.is_none() && g.app.agent_said.as_deref().is_some_and(|said| said.ends_with(&resized.said)), "{:?} {:?}", g.app.notice, g.app.agent_said);
     // A way with no key is said by its act line to the person too, and the act is a row: the one that names a split.
     for by in [Actor::Person, agent()] {
         let gone = g.app.act("layout.resize split=s9 border=0 share=0.3", by.clone());

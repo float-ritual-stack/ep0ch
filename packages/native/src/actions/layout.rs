@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
-use super::{Action, Actor, App, Outcome, About};
+use super::{Action, Actor, App, Notice, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::{self, Node};
 use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op};
@@ -103,7 +103,9 @@ impl App {
     pub(super) fn reshape(&mut self, op: &Op, by: &Actor) -> Outcome {
         match self.asked(by, |ctx| layout::apply(&self.layout, op, ctx)) {
             Ok(done) => { self.arranged(done.layout, done.changed); Outcome::answer(Value::Object(done.answer)) }
-            Err(why) => Outcome::refused(super::says(&why, by)),
+            // Refused: said as this window words it (`actions::says`), and put in front of the person when the act
+            // was theirs, so the way out is something they read where they are. (An agent's is on the status line.)
+            Err(why) => { let said = super::says(&why, by); if self.stands(by) { self.st.notice = Some(Notice::problem(said.clone())) } Outcome::refused(said) }
         }
     }
 
