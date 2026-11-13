@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { existsSync, renameSync, rmSync, statfsSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, chownSync, existsSync, renameSync, rmSync, statfsSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { logState, writeGenesis } from "../../src/change-log";
 import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
@@ -12,7 +13,8 @@ import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
  * Built beside the outline (`<file>.schema-13.tmp`) and checked before it replaces it, so the outline itself is never
  * written: a failure (no room, a bad check) leaves it exactly as it was. The room it needs is checked first, on the
  * outline's own filesystem: the outline without its log, plus a genesis. A follower's copy keeps its log as it is; the
- * home's new genesis rebuilds it.
+ * home's new genesis rebuilds it. The home's log is a new one (a new id, its lsns from 1): its archive starts a new
+ * chain at the genesis.
  */
 export function migrateIncrementalVacuum(path: string, o: { free?: () => number; say?: (line: string) => void } = {}): { before: number; after: number } {
   const say = o.say ?? (() => {});
@@ -23,8 +25,12 @@ export function migrateIncrementalVacuum(path: string, o: { free?: () => number;
     source = new Database(path, { create: false, readwrite: true });
     const { user_version } = source.query("PRAGMA user_version").get() as { user_version: number };
     if (user_version !== 12) throw new Error(`Expected schema 12, found ${user_version}`);
-    // Everything in the file itself: what the WAL held is read, and nothing waits in it when the copy replaces the file.
-    source.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    // Everything in the file itself, or nothing is done: a reader holding the WAL back (busy) would leave frames the
+    // new file must never meet (Codex on #1500).
+    const checkpoint = source.query("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number; log: number; checkpointed: number };
+    if (checkpoint.busy !== 0 || (checkpoint.log > 0 && checkpoint.checkpointed !== checkpoint.log)) {
+      throw new Error(`not migrated: its WAL couldn't be checkpointed (a reader holds it: ${checkpoint.checkpointed} of ${checkpoint.log} frames); stop what reads ${path}, then run ep0ch install --apply again (the outline is as it was)`);
+    }
     const before = statSync(path).size;
     const pages = (pragma: string) => (source!.query(`PRAGMA ${pragma}`).get() as Record<string, number>)[pragma]!;
     const used = (pages("page_count") - pages("freelist_count")) * pages("page_size");
@@ -63,7 +69,9 @@ export function migrateIncrementalVacuum(path: string, o: { free?: () => number;
     }).immediate();
     db.exec("DETACH DATABASE src");
     db.transaction(() => {
-      if (home) writeGenesis(db, 13);
+      // A new log: its entries start again at 1, so an archive or a follower of the old one starts a new chain at this
+      // genesis instead of meeting lsns behind its cursor (Codex on #1500).
+      if (home) { db.query("UPDATE log_state SET log_id = ?, txn = 1 WHERE id = 1").run(randomUUID()); writeGenesis(db, 13); }
       // The triggers last: the copy above is no edit, and logs nothing.
       for (const x of objects.filter(x => x.type === "trigger" || x.type === "view")) db.exec(x.sql);
       db.exec("PRAGMA user_version = 13");
@@ -74,9 +82,18 @@ export function migrateIncrementalVacuum(path: string, o: { free?: () => number;
     if (vacuum !== 2) throw new Error(`not migrated: the new file's auto_vacuum is ${vacuum}, not incremental; the outline is as it was`);
     made.close(); made = undefined;
     source.close(); source = undefined;
+    // The outline's own mode and owner, not the umask's.
+    const was = statSync(path);
+    chmodSync(temp, was.mode & 0o7777);
+    try { chownSync(temp, was.uid, was.gid); } catch { /* another owner's file: only root may give it; its mode is kept */ }
+    // The old file's WAL and index go before the new file takes its name: emptied above, they belong to the old one,
+    // and an interruption after this leaves the old file whole (Codex on #1500).
+    for (const side of ["-wal", "-shm"]) {
+      const file = `${path}${side}`;
+      if (side === "-wal" && existsSync(file) && statSync(file).size > 0) throw new Error(`not migrated: ${file} still holds frames after the checkpoint; the outline is as it was`);
+      rmSync(file, { force: true });
+    }
     renameSync(temp, path);
-    // The old file's WAL (emptied above) belongs to it, not to the new one.
-    for (const side of ["-wal", "-shm"]) rmSync(`${path}${side}`, { force: true });
     const after = statSync(path).size;
     say(`${path}: ${Math.round(before / 1048576)} MB → ${Math.round(after / 1048576)} MB, auto_vacuum incremental${home ? ", its log begun again at a genesis" : ""}`);
     return { before, after };

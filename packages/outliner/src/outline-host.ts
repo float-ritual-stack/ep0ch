@@ -321,8 +321,14 @@ export class OutlineHost {
   private compactSweep: ReturnType<typeof setInterval> | undefined;
   private compact(outline: HostedOutline): void {
     if (this.options.readOnly) return;
-    try { if (outline.store.log.compact()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
+    try { if (outline.store.log.compact()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; what it replaces goes, a step at a time)`); }
     catch (error) { this.log(`Outline "${outline.name}": compacting its change log failed: ${error instanceof Error ? error.message : String(error)}`); }
+    // What a compaction replaced is given back a bounded step at a time, each after the requests waiting (PIE-1786).
+    const step = () => {
+      try { if (this.opened.get(outline.name) === outline && outline.store.log.trim()) setTimeout(step, 0); }
+      catch (error) { this.log(`Outline "${outline.name}": giving back its change log's space failed: ${error instanceof Error ? error.message : String(error)}`); }
+    };
+    setTimeout(step, 0);
   }
 
   private warmRecent(): void {

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
@@ -8,7 +8,8 @@ import { insertOutlineInstanceId, openSchema, readOutlineInstanceId, SCHEMA_SQL,
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
 import { migrateIncrementalVacuum } from "../scripts/migrations/0013-incremental-vacuum";
-import { initLogState, installLogTriggers, writeGenesis } from "../src/change-log";
+import { canonicalDump, initLogState, installLogTriggers, readRange, writeGenesis, type LogRange } from "../src/change-log";
+import { archivedCursor, replayArchive, writeSegment } from "../src/log-archive";
 
 const directories: string[] = [];
 function directory(): string {
@@ -141,6 +142,53 @@ test("schema 12 takes 0013: the file made again, incremental, its log one genesi
   expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 12, found 13") });
   expect(readFileSync(path).equals(at13)).toBe(true);
 }, 60_000);
+
+test("after 0013 the archive starts a new chain at the new log's genesis, and a restore from it is the outline (Codex on #1500)", () => {
+  const dir = directory(), path = join(dir, "allotment.sqlite"), archive = join(dir, "archive");
+  schema12(path, 120);
+  // The backup job's run (jobs.ts newRanges): the log after what the archive holds of this log id, to its head.
+  const archiveRun = () => {
+    const db = new Database(path, { readonly: true });
+    try {
+      const logId = (db.query("SELECT log_id FROM log_state").get() as { log_id: string }).log_id;
+      const schema = userVersion(path);
+      const ranges: LogRange[] = [];
+      let at = archivedCursor(archive, "allotment", logId)?.lsn ?? 0;
+      for (;;) { const r = readRange(db, at, 500, schema); ranges.push(r); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
+      writeSegment(archive, "allotment", ranges);
+      return logId;
+    } finally { db.close(); }
+  };
+  const before = archiveRun();
+  migrateIncrementalVacuum(path);
+  const after = archiveRun();
+  expect(after).not.toBe(before);
+  replayArchive(archive, "allotment", join(dir, "restored.sqlite"));
+  const restored = new Database(join(dir, "restored.sqlite"), { readonly: true }), live = new Database(path, { readonly: true });
+  try { expect(canonicalDump(restored)).toBe(canonicalDump(live)); } finally { restored.close(); live.close(); }
+});
+
+test("0013 refuses when a reader holds the WAL back, and keeps the outline's mode on the new file (Codex on #1500)", () => {
+  const dir = directory(), path = join(dir, "allotment.sqlite");
+  schema12(path, 40);
+  chmodSync(path, 0o600);
+  // A reader in the middle of a read: the checkpoint can't empty the WAL, so the old file must stay.
+  const reader = new Database(path, { readonly: true });
+  reader.exec("BEGIN");
+  reader.query("SELECT COUNT(*) FROM blocks").get();
+  const writer = new Database(path);
+  writer.exec("UPDATE blocks SET position = position + 1 WHERE rowid = 1");
+  writer.close();
+  const at12 = readFileSync(path);
+  try { expect(() => migrateIncrementalVacuum(path)).toThrow(/checkpoint/); }
+  finally { reader.exec("COMMIT"); reader.close(); }
+  expect(readFileSync(path).equals(at12)).toBe(true);
+  expect(userVersion(path)).toBe(12);
+  const umask = process.umask(0o022);
+  try { migrateIncrementalVacuum(path); } finally { process.umask(umask); }
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(userVersion(path)).toBe(13);
+});
 
 test("a current database missing its instance id is refused with the import route, and the import opens", () => {
   const folder = directory();
