@@ -205,7 +205,7 @@ test("sources: the producers say what they are, so a bar's sources and an agent'
   expect(said.list.rows.map(r => r.id)).toEqual(listSources().map(s => s.from));
   // What a client reads is each source as it says of itself: which a bar lists, which is on its main list, which carries facets.
   expect(said.sources).toEqual(listSources());
-  expect(said.sources!.filter(s => s.bar).map(s => [s.from, s.about, s.bar])).toEqual([["search", "Notes", { main: true }], ["query", "Query", { facets: true }], ["screens", "Screens", {}]]);
+  expect(said.sources!.filter(s => s.bar).map(s => [s.from, s.about, s.bar])).toEqual([["search", "Notes", { main: true }], ["query", "Query", { facets: true }], ["screens", "Screens", {}], ["extensions", "Extensions", {}], ["outlines", "Outlines", {}]]);
   // Every producer is asked for by its row's name, and a name none has is refused with the ones there are.
   await expect(client.request({ action: "lists.read", from: "wheelbarrows" } as never)).rejects.toThrow("lists.read lists children, search, query");
 });

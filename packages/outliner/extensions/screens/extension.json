@@ -3,7 +3,7 @@
   "id": "screens",
   "version": 1,
   "name": "Screens",
-  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions and activity tiles they are made of. Fork it to change what a door opens on.",
+  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions, activity, extensions and outlines tiles they are made of. Fork it to change what a door opens on.",
   "defaultOn": true,
   "tiles": [
     {
@@ -175,6 +175,30 @@
       "replaces": [
         "components"
       ]
+    },
+    {
+      "kind": "extensions",
+      "name": "Extensions",
+      "description": "the outline's extensions: the ones installed (a row opens its page), each one's settings, and the ones the repo has that aren't installed (a row installs one); with words typed in its question, removing one too",
+      "drawer": "list",
+      "fields": {
+        "from": "extensions"
+      },
+      "replaces": [
+        "extensions"
+      ]
+    },
+    {
+      "kind": "outlines",
+      "name": "Outlines",
+      "description": "the outlines there are to open: this machine's and the ones on the machines it holds a forward to; a row switches the window to one",
+      "drawer": "list",
+      "fields": {
+        "from": "outlines"
+      },
+      "replaces": [
+        "outlines"
+      ]
     }
   ],
   "screens": [
@@ -193,6 +217,8 @@
         "bar.open",
         "bar.open scope=query",
         "bar.open scope=screens",
+        "bar.open scope=extensions",
+        "bar.open scope=outlines",
         "note.new",
         "tile.split",
         "screen.save",
@@ -490,14 +516,17 @@
     },
     {
       "name": "kitchen",
-      "title": "kitchen sink",
+      "title": "Kitchen",
       "lands": "reader",
       "toolbar": [
         "back",
         "bar.open",
         "bar.open scope=screens",
+        "bar.open scope=extensions",
+        "bar.open scope=outlines",
         "edit",
         "comment",
+        "tile.tear",
         "screen.reset"
       ],
       "layout": {
@@ -506,26 +535,71 @@
           "t": "split",
           "dir": "row",
           "weights": [
-            0.18,
-            0.42,
-            0.4
+            0.22,
+            0.4,
+            0.38
           ],
           "kids": [
             {
-              "t": "leaf",
-              "kind": "tree",
-              "name": "tree",
-              "wires": [
+              "t": "split",
+              "dir": "col",
+              "weights": [
+                0.4,
+                0.35,
+                0.25
+              ],
+              "kids": [
                 {
-                  "verb": "select",
-                  "to": "reader"
+                  "t": "leaf",
+                  "kind": "tree",
+                  "name": "tree",
+                  "wires": [
+                    {
+                      "verb": "select",
+                      "to": "reader"
+                    }
+                  ]
+                },
+                {
+                  "t": "leaf",
+                  "kind": "extensions",
+                  "name": "extensions"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "outlines",
+                  "name": "outlines"
                 }
               ]
             },
             {
-              "t": "leaf",
-              "kind": "reader",
-              "name": "reader"
+              "t": "tabs",
+              "active": 0,
+              "tabs": [
+                {
+                  "t": "leaf",
+                  "kind": "reader",
+                  "name": "reader"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "props",
+                  "name": "props",
+                  "source": "tile:reader",
+                  "subject": "follows"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "activity",
+                  "name": "activity",
+                  "wires": [
+                    {
+                      "verb": "select",
+                      "to": "reader"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "t": "split",

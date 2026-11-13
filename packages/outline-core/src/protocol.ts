@@ -241,7 +241,7 @@ export const WATCHABLE_ACTIONS = [
   // A list of notes by id or under a note (`under`): what a tree's open folder shows.
   "blocks.read",
   // What a module answers over a turn and keeps watched itself: a note's page, the outline's screens, a list.
-  "notes.page", "screens.list", "lists.read",
+  "notes.page", "screens.list", "lists.read", "tiles.view",
 ] as const;
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the

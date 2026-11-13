@@ -551,6 +551,152 @@ fn live_a_block_is_written_with_completions_while_an_agent_patches_it_and_comes_
     });
 }
 
+/// A day as a person writes one (`2026-03-01 09:30`), `days` before now: what an outbox item's `sent` holds.
+fn days_ago(days: u64) -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - days * 86_400;
+    // Days since 1970 to a civil date (Howard Hinnant's algorithm).
+    let z = (secs / 86_400) as i64 + 719_468;
+    let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    format!("{:04}-{m:02}-{d:02} {:02}:{:02}", yoe + era * 400 + i64::from(m <= 2), (secs % 86_400) / 3_600, (secs % 3_600) / 60)
+}
+
+/// W7's sentence against a real outline host: on a scratch outline the bundled Waiting extension is installed from
+/// the bar's own row, its screen opened and a row of its tile picked, its setting changed in the form its schema
+/// makes, and removed by an agent's act; then the window switches to another outline of the same host and back.
+/// What is left afterwards is said by the asserts at its end. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_waiting_is_installed_used_configured_and_removed_and_the_window_switches_outline_over_the_socket() {
+    use crate::actions::{Actor, Field};
+    use crate::client::{Socket, Way};
+    use crate::tiles::rendered::TileView;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-ext-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config")).env("OUTLINER_EXTENSIONS_DIR", root.join("user-extensions"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(30));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        // Two outlines on the one scratch host, made on purpose; an ask that has waited two days on the first.
+        for (id, name) in [("a", "scratch"), ("b", "allotment")] { asking(&mut Socket::connect(&path), json!({ "id": id, "action": "outlines.attach", "name": name, "create": true })); }
+        let mut raw = Socket::connect(&path);
+        let jars = asking(&mut raw, json!({ "id": "c", "action": "create", "outline": "scratch", "parentId": null, "author": "user",
+            "text": format!("Jars for the cellar [type::outbox-item] [outbox::waiting] [waiting-on::Ada: which shelf do the jars go on?] [sent::{}]", days_ago(2)) }));
+        let jars = jars["id"].as_str().unwrap().to_string();
+
+        // The way to any outline of this host is its one socket: what the rule answers for a scratch host.
+        let there = path.clone();
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").reaching(std::rc::Rc::new(move |_| Ok(Way { link: Box::new(Socket::connect(&there)), kept: None }))).blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        let until = |app: &mut App, what: &str, so: &dyn Fn(&App) -> bool| {
+            for _ in 0..400 { app.settle(); if so(app) { return } std::thread::sleep(Duration::from_millis(50)); }
+            panic!("{what}: {:?}", app.notice);
+        };
+        let installed = |app: &App| app.extensions().is_some_and(|listed| listed.entry("waiting").is_some());
+        // A host installs its default-on extensions as it starts, Waiting among them: the sentence starts without it.
+        until(&mut app, "the extensions are listed", &|app| app.extensions().is_some());
+        if installed(&app) {
+            assert!(act(&mut app, "extensions.uninstall demo=remove id=waiting").ok);
+            until(&mut app, "Waiting is removed first", &|app| !installed(app) && app.kind_row("waiting.list").is_none());
+        }
+
+        // Installed, as a person does: the bar's Extensions lists it among the ones not installed, and its row is picked.
+        act(&mut app, "bar.open scope=extensions query=waiting");
+        until(&mut app, "the bar lists the row that installs it", &|app| crate::bar::rows(app).iter().any(|row| row.key == "install:waiting"));
+        let row = crate::bar::rows(&app).into_iter().find(|row| row.key == "install:waiting").unwrap();
+        assert_eq!((row.label.as_str(), row.line.as_str()), ("Install Waiting", "extensions.install id=\"waiting\""));
+        assert!(act(&mut app, "bar.pick source=extensions key=install:waiting").ok);
+        until(&mut app, "Waiting is installed, and what it adds is listed", &|app| installed(app) && app.kind_row("waiting.list").is_some_and(|row| row.drawer.as_deref() == Some("view")) && app.screens().iter().any(|screen| screen.name == "waiting"));
+        assert!(app.notice.as_ref().is_some_and(|n| n.tone == Tone::Info && n.said.starts_with("Installed Waiting.")), "{:?}", app.notice);
+        eprintln!("installed: {}", app.notice.as_ref().unwrap().said);
+
+        // Used: its screen, its tile drawn from what its script answered, a row picked opening beside.
+        assert!(act(&mut app, "screen.open name=waiting").ok);
+        let tile = app.layout.named("waiting").expect("its screen has its tile");
+        let view = |app: &App| app.view_ask(&app.layout.named("waiting")?).and_then(|ask| app.store().read::<TileView>(&ask)).cloned();
+        until(&mut app, "its tile's view came", &|app| view(app).is_some_and(|shown| shown.view["rows"].as_array().is_some_and(|rows| !rows.is_empty())));
+        let shown = view(&app).unwrap();
+        assert_eq!((shown.kind.as_str(), shown.title.as_str(), shown.view["type"].as_str()), ("waiting.list", "outbox · 1 waiting on 1 person", Some("list")));
+        let row = shown.view["rows"][0].clone();
+        assert_eq!((row["id"].as_str(), row["act"].as_str(), row["tone"].as_str()), (Some(jars.as_str()), Some(format!("open id=\"{jars}\"").as_str()), None), "two days is inside its three");
+        assert!(app.act_in(row["act"].as_str().unwrap(), "waiting", Actor::Person).ok);
+        app.settle();
+        assert_eq!(app.note_of(&app.layout.named("reader").unwrap()).as_deref(), Some(jars.as_str()), "the pick lands in the reader its screen wires it to");
+        assert!(app.drawer_of(&tile).is_some_and(|drawer| drawer.id == "view"));
+
+        // Configured: the form is its schema's one field; saved, the script draws by it.
+        assert!(act(&mut app, "extensions.configure id=waiting").ok);
+        let form = app.form.as_ref().expect("the form opened");
+        assert_eq!(form.fields.iter().map(|field| field.name.as_str()).collect::<Vec<_>>(), ["warn-days"]);
+        assert_eq!(app.settings_of("waiting").map(|settings| (settings.fields[0].ty.as_str(), settings.fields[0].default.clone(), settings.fields[0].state.as_str())), Some(("integer", Some(json!(3)), "default")));
+        let field = Field::Form("warn-days".into());
+        app.field(&field).replace("0");
+        app.typed(&field);
+        act(&mut app, "form.save");
+        until(&mut app, "the service refuses a day count under one, and the form keeps it", &|app| app.form.as_ref().is_some_and(|form| form.said.is_some()));
+        eprintln!("refused: {}", app.form.as_ref().unwrap().said.as_ref().unwrap());
+        app.field(&field).replace("1");
+        app.typed(&field);
+        assert!(act(&mut app, "form.save").ok);
+        until(&mut app, "the setting is saved and the tile warns", &|app| app.form.is_none() && app.settings_of("waiting").is_some_and(|settings| settings.fields[0].value == Some(json!(1))) && view(app).is_some_and(|shown| shown.view["rows"][0]["tone"] == "warn"));
+        assert_eq!(app.notice.as_ref().map(|n| n.said.as_str()), Some("Saved Waiting's settings: warn-days=1."));
+
+        // Removed, by an act as an agent, its demo notes kept.
+        assert!(app.act("extensions.uninstall demo=keep id=waiting", Actor::Agent("compost-agent".into())).ok);
+        until(&mut app, "Waiting is removed", &|app| !installed(app) && app.kind_row("waiting.list").is_none() && !app.screens().iter().any(|screen| screen.name == "waiting"));
+        eprintln!("removed: {}", app.notice.as_ref().unwrap().said);
+        // What is left: the window is still laid out as its screen, whose tile nobody draws now (its spec, as data);
+        // its page and demo notes are in the outline; its settings are kept on the host for a reinstall.
+        assert!(app.layout.named("waiting").is_some() && app.kind_of(&tile).is_none());
+        let mut ask = |request: Value| asking(&mut raw, request);
+        let demo = ask(json!({ "id": "d", "action": "lists.read", "outline": "scratch", "from": "query", "query": "demo=waiting" }));
+        assert!(demo["list"]["rows"].as_array().is_some_and(|rows| !rows.is_empty()), "its demo notes stay: {demo}");
+        let listed = ask(json!({ "id": "e", "action": "lists.read", "outline": "scratch", "from": "extensions", "query": "waiting" }));
+        assert!(listed["list"]["rows"].as_array().unwrap().iter().any(|row| row["id"] == "install:waiting"), "it is one the repo has again: {listed}");
+        let back = ask(json!({ "id": "f", "action": "extensions.install", "outline": "scratch", "extension": "waiting", "mutation": { "author": "user" } }));
+        eprintln!("installed again: {back}");
+        assert!(back["settingsBack"].is_string(), "its settings from before are back with it: {back}");
+        ask(json!({ "id": "g", "action": "extensions.uninstall", "outline": "scratch", "extension": "waiting", "demo": "keep", "mutation": { "author": "user" } }));
+
+        // The window switches outline: the host lists the two it has, the other opens, and this one is as it was left.
+        act(&mut app, "bar.open scope=outlines");
+        until(&mut app, "the bar lists the outlines", &|app| crate::bar::rows(app).len() == 2);
+        assert_eq!(crate::bar::rows(&app).iter().map(|row| row.line.clone()).collect::<Vec<_>>(), ["outline.switch name=\"allotment\"", "outline.switch name=\"scratch\""]);
+        act(&mut app, "bar.close");
+        assert!(act(&mut app, "outline.switch name=meadow").ok);
+        until(&mut app, "a name nobody has is refused", &|app| app.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem && n.said.starts_with("No outline named meadow here")));
+        assert!(!outlines.join("meadow.sqlite").exists(), "and none was made by asking");
+        assert!(act(&mut app, "outline.switch name=allotment").ok);
+        until(&mut app, "the window is on the other outline, on a screen", &|app| app.at.outline == "allotment" && !app.screen.is_nowhere() && !app.kinds().is_empty());
+        assert_eq!((app.store().links().len(), app.parked.len(), app.layout.named("waiting")), (2, 1, None));
+        assert!(act(&mut app, "outline.switch name=scratch").ok);
+        app.settle();
+        assert_eq!((app.at.outline.as_str(), app.screen.name.as_str(), app.layout.named("waiting").is_some()), ("scratch", "waiting", true), "back as it was left");
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
 /// W6's sentence against a real outline host: a comment on words of a note, a reply and the thread resolved, by the
 /// rows' own presses; an agent's proposed edit listed with its change, applied, and another dismissed; an earlier
 /// text opened under its row and put back through the editor; the keys screen the key table's own rows, and a

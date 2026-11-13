@@ -157,6 +157,11 @@ fn toolbar(s: &App, k: &Kit) -> El {
         .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate())
         .child(Badge::new(s.screen.title.clone()).variant(BadgeVariant::Subtle).build(k).key("screen-name"));
+    // The outlines this window left, each a press back to it as it was left.
+    for at in { let mut left: Vec<_> = s.parked.keys().collect(); left.sort(); left } {
+        let line = format!("outline.switch name={} machine={}", word(&at.outline), word(&at.machine));
+        bar = bar.child(k.interactive(Badge::new(at.outline.clone()).variant(BadgeVariant::Subtle).build(k)).key(format!("parked/{}", at.outline)).role("button").label(actions::label(&line)).on_press(act(line)));
+    }
     // What an agent last did here, said where the person sees it.
     if let Some(said) = &s.agent_said { bar = bar.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate()) }
     bar = bar.child(el().grow(1.0));
@@ -173,6 +178,16 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
     // What it did can be taken back: the notice carries the act line that does.
     if let Some(undo) = &notice.undo { bar = bar.child(button(undo, ButtonVariant::Ghost).build(k).key("notice-undo")) }
     Some(bar.child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("notice.dismiss")).on_press(act("notice.dismiss")).build(k).key("notice-close")))
+}
+
+/// A window torn from another, opened: its own tree, keys and focus over the state the act made for it (`App::born`),
+/// which shares the first window's store. `made` is what every window of the run is made of (its view, its keys, its
+/// poll: `main.rs` says them once). Agents reach it by its name while it is open. A headless run opens nothing.
+pub fn open(born: App, made: rune::AppSpec<App>) {
+    let name = born.window();
+    let window = rune::App::new(made).init(move || born).on_close(crate::control::gone);
+    crate::control::here(&name, window.handle());
+    rune::open_window(rune::WindowSpec::from_app(format!("window/{name}"), window));
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {

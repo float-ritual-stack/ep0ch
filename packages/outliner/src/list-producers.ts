@@ -27,6 +27,7 @@ import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { ABOUT_PRODUCERS } from "./about-producers";
 import { capped, names, opens, row, runs, subject, titled, type Answered, type Listed, type ListsRequest, type Own, type Producer } from "./list-producer";
 import { readLinks, type LiveHost } from "./publish-live";
+import { EXTENSION_PRODUCERS } from "./list-extensions";
 import type { ScreensList } from "./screens";
 
 export type { ListsRequest } from "./list-producer";
@@ -246,9 +247,12 @@ const PRODUCERS: readonly Producer[] = [
   { row: { from: "screens", about: "Screens", placeholder: "A screen's name", params: [{ name: "query", about: "words of its name" }, { name: "kinds", about: "the tile kinds the asker draws" }, { name: "drawers", about: "the drawers the asker has" }], bar: {} }, read: screens },
 ];
 
+/** Every producer: the ones here, then the ones a module of its own adds (read when asked: the modules import each other). */
+const producers = (): readonly Producer[] => [...PRODUCERS, ...EXTENSION_PRODUCERS];
+
 /** The producers themselves, a row each: what a client may ask a list of, and which a command bar lists. */
 function sources(): Answered {
-  const rows = PRODUCERS.map(({ row: s }) => row({
+  const rows = producers().map(({ row: s }) => row({
     id: s.from, label: s.about, ...(s.placeholder ? { detail: s.placeholder } : {}), cells: [s.from, s.params.map(p => `${p.name}${p.required ? "" : "?"}`).join(" ")],
     // What it reads, a chip a parameter: a client hands a list its tile's fields by these names, and keeps no list of them.
     chips: s.params.map(p => ({ key: p.name, value: p.about })),
@@ -258,13 +262,13 @@ function sources(): Answered {
 }
 
 /** Every list source as it says of itself. */
-export const listSources = (): ListSource[] => PRODUCERS.map(p => p.row);
+export const listSources = (): ListSource[] => producers().map(p => p.row);
 
 /** `lists.read`: the list `from` names, by its producer; a name none has is refused with the ones there are. */
 export async function readList(own: Own, request: ListsRequest): Promise<ListAnswer> {
   const from = typeof request.from === "string" ? request.from : "";
   if (from === "sources") return { from, ...sources(), anyChange: true };
-  const producer = PRODUCERS.find(p => p.row.from === from);
-  if (!producer) throw new Refusal("invalid", `lists.read lists ${PRODUCERS.map(p => p.row.from).join(", ")} (from=sources says what each reads), not ${JSON.stringify(from)}`);
+  const producer = producers().find(p => p.row.from === from);
+  if (!producer) throw new Refusal("invalid", `lists.read lists ${producers().map(p => p.row.from).join(", ")} (from=sources says what each reads), not ${JSON.stringify(from)}`);
   return { from, ...await producer.read(own, request), anyChange: true };
 }

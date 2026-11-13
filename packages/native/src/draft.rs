@@ -349,6 +349,15 @@ impl Recovery {
         Recovery(layout.with_file_name(match name.strip_suffix(".layout.json") { Some(stem) => format!("{stem}.drafts.json"), None => format!("{name}.drafts.json") }))
     }
 
+    /// The drafts files of the other windows of this outline (`native-<outline>.<window>.drafts.json`, a window torn
+    /// from this one keeps its own): what a run that ended left in them is the next run's first window's to bring back.
+    pub fn strays(&self) -> Vec<PathBuf> {
+        let Some((dir, stem)) = self.0.parent().zip(self.0.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_suffix(".drafts.json"))) else { return Vec::new() };
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with(&format!("{stem}.")) && name.ends_with(".drafts.json") && name != format!("{stem}.drafts.json"))).collect();
+        found.sort();
+        found
+    }
+
     /// The drafts that hold unsaved text, written whole (to a file beside, then moved over): none, and the file goes.
     pub fn keep(&self, drafts: &[(String, &DraftSession)]) {
         let unsaved: Vec<Value> = drafts.iter().filter(|(_, draft)| draft.unsaved()).map(|(tile, draft)| json!({ "tile": tile, "note": draft.note, "revision": draft.revision, "base": draft.base, "text": draft.buf.words(), "caret": draft.buf.ends().1, "writes": draft.writes.json(), "send": draft.send })).collect();

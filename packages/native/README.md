@@ -25,6 +25,9 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A note's figures, a box and two buttons, one pressed and saying what it ran, dark](docs/parts-dark.png)
 ![A note's links on its page and in the links tile beside it: one list, drawn once, dark](docs/links-dark.png)
 ![A block written in place: an agent's edit lit above the caret and said on the tile, and the list that completes a note's name, dark](docs/draft-dark.png)
+![The kitchen screen, with the bar on the extensions and a name typed: open its page, its settings, install, remove, dark](docs/extensions-dark.png)
+![An extension's own screen, its tile drawn from what its script answered, and the form its settings schema makes, dark](docs/settings-dark.png)
+![A tile torn out into a second window over the same store, dark](docs/window-dark.png)
 
 ## Run it
 
@@ -71,6 +74,10 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | See every key | The keys screen (`screen.open name=keys`, from the bar's Screens): every way to press an action, where it holds and what it does; a pick runs it |
 | Browse the components | The library screen (`screen.open name=library`): every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn |
 | Make, move, bin | `note.new` under the open one; `note.move` up, down, in, out; `note.trash` (the notice has Undo) |
+| Add to it | The bar's Extensions (`bar.open scope=extensions`, the toolbar's Extensions): the outline's extensions as the service lists them. A row opens an installed one's page, installs one the repo has (`extensions.install id=`), and, once a name is typed, removes one, its demo notes kept or binned (`extensions.uninstall id= demo=keep\|remove`). What one adds is here as soon as the service lists it: its screens among the Screens, its tiles drawn (one its script renders is drawn from the primitives the service answers), its actions run by `extensions.act id= action=` |
+| Change an extension's settings | Its settings row opens a form: a field each as the extension's own schema says it (its name, what it means, what it takes, what it does left empty). Enter saves, Esc puts it away; a value the service refuses keeps the form, every word as typed, with why. A line does the same (`extensions.configure id=waiting warn-days=7`) |
+| Switch outline | The bar's Outlines (`bar.open scope=outlines`, the toolbar's Outlines): this machine's outlines and the ones on the machines it holds a forward to, as the service lists them. A row switches this window (`outline.switch name= [machine=]`). Only an outline that is listed opens: a name nobody has is refused, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; its name stays on the toolbar, a press back to it |
+| Open a second window | `tile.tear` (`mod+shift+t`, the kitchen's Tear out): the tile leaves this window for one of its own, on the same outline, showing what it showed. Both windows read one store: a note both show is read once, and a link's 64 watches are shared. A window may switch outline by itself; `window.close` closes it |
 | Find | The bar, with words: the service's search, under the actions that match |
 | Query | The bar on a query: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note, or a row of its properties, opens the query for it |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
@@ -117,6 +124,9 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
+| `enter` | `form.save` | form | save the form |
+| `escape` | `form.close` | form | put the form away |
+| `mod+shift+t` | `tile.tear` | everywhere | this tile, in a window of its own |
 <!-- /keys -->
 
 A screen adds its own (its spec's `keys`, as a screen note or an extension writes them: `ctrl+l`, `L`, `esc`, the
@@ -153,8 +163,12 @@ src/ (Rust, Rune)                                      the outline host
   actions/          the one dispatcher; one module a noun     ────────▶ update, create, move, delete, screens.save,
                     (review.rs: what is written about a note)            annotations.*, draft.proposal.*
   layout.rs         apply(layout, op) and place(layout, open): pure, the door's rules
+  tiles/rendered.rs the view drawer: a tile an extension's script renders, through the same registry
   screen.rs         screens and tile kinds, as served         ◀───────  screens.list
-  store.rs          one slot an ask; 64 watches a link        ◀───────  notes.page, lists.read
+  store.rs          one slot an ask; 64 watches a link; one   ◀───────  notes.page, lists.read, tiles.view
+                    hub the windows of a run share
+  ext.rs            what the extensions add, a row each;      ◀───────  extensions.list
+                    a setting's schema, typed
   client.rs         the socket                                ◀───────  queries.changed
   page.rs           the wire's shapes
   parts.rs          a page as primitives: its head and foot, the walk, the button a press names
@@ -184,8 +198,8 @@ src/ (Rust, Rune)                                      the outline host
   `src/tests/contract.rs` asks every row of `layout-contract.json` and `place-contract.json` here. Only an action
   issues an `Op`, and only `open` asks `place`.
 - **A tile is a kind and a drawer** (`tiles/`). A kind's row is the service's (`screens.list`'s `kinds`, an
-  extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are two
-  drawers, `page` and `list`; a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
+  extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are three
+  drawers, `page`, `list` and `view` (what an extension's script draws for a tile); a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
   state) and speaks only by act lines (`cx.act`). The window keeps no catalogue of kinds and names
   none: a kind is found by the name a tile carries, or the name the service says its row serves (`serves`), and
   one with no drawer here is drawn as its spec. The
@@ -211,6 +225,25 @@ src/ (Rust, Rune)                                      the outline host
 - **Every read is an ask in the store** (`store.rs`): an outline, a wire action, its parameters, watched or not.
   Equal asks share a slot; a tile is a slot's user; a slot nobody shows keeps its answer and gives its watch to
   the next ask. `peek` lists the slots, who shows each and how much of the budget is held.
+- **One store, however many windows** (`store.rs`). The links, the slots and the watch keys are a hub the windows
+  of a run share; each window's `Store` is its face on it: what that window wants, the answers as it last took
+  them (a view reads those, never the hub), and what the service said that is its to hear (the answer to its own
+  write, a script's act for the window that pressed, an ask about a draft it holds). A link is one an outline and
+  machine: two windows on one outline share it, and a window on another outline brings a second.
+- **A window is an `App` of its own** (`actions/window.rs`, `shell::open`): its arrangement, its keys, its bar and
+  the blocks written in it. `tile.tear` takes a tile out by the layout's rule for a tile closed, makes the state
+  of the window it goes to, and the shell opens it (`App::born`); a block is written in one window at a time.
+- **An outline is switched by name** (`actions/outline.rs`). Which outlines there are is the service's list
+  (`outlines.known`, asked each time); how one is reached is the rule every client opens an outline by
+  (`resolve.ts --to <name> [<machine>]`, the door's `resolveTarget`). The outline left is parked whole in the
+  window (arrangement, tiles, the way back, the blocks being written with their holds let go) and its
+  arrangement kept in its own file; coming back asks nobody.
+- **What an extension adds is the service's word** (`ext.rs`, `actions/ext.rs`). The bar's Extensions is a list
+  the service answers (`lists.read from=extensions`), each row with the act line it runs. Its kinds arrive with
+  the screens (`screens.list`): one its script renders names the `view` drawer (`tiles/rendered.rs`), which asks
+  `tiles.view` and builds the primitive it answers through the one registry, so a list in it is the list
+  drawer's. Its settings are a form drawn from its schema as `extensions.list` says it; what is typed is sent as
+  the value its field's type says, and the service checks it. Nothing in the window names an extension.
 - **The service answers a note whole** (`notes.page`, outline-core's `note-page.ts`): title, chips, properties, the
   body as parts, and the notes above, under and linking to it. It walks the note as a published page does (one
   finder says which component a line starts, outline-core's `componentAt`) and asks the same questions; where a
@@ -288,7 +321,7 @@ src/ (Rust, Rune)                                      the outline host
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
   list is asked, `App::ask_of`) and the name of the screen it has open, and the service answers them as rows, the
   line each key runs written by outline-core's one writer: that screen's own keys first (the service's spec, the
-  one the key table reads through `App::screen_keys`), then the actions'. The key table and the list are read from
+  one the key table reads through `keys::screen_binds`), then the actions'. The key table and the list are read from
   the same rows, and a test holds them equal against a real service.
 - **It holds no grammar and names no property, kind or screen.** A tile's body is `rune-kit`'s `Markdown`, `Badge` and `Button`;
   `bar.rs` is its `Dialog` over the one list; every field is `keys.rs`'s; the toolbar is the screen's own list of
@@ -339,6 +372,9 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
   the rows the store holds now, whether that is an answer yet, and the `lists.read` request that lists them, so
   an agent asks the service the same thing the bar does. `list.pick`, `list.sort`, `list.group`, `list.layout`
   and `facets.set` take a list tile by name, and `peek` gives each list's rows with their act lines.
+- **A request is for one window.** `window=<name>` among an act's words (or `window` in the request) says which:
+  `ep0ch act --door native open id=… window=reader`. Left out, it is the run's first (`main`); `peek` says the
+  window's name and every window there is, and a name none has is refused with the ones there are.
 - **`peek` is state, not a frame:** a hidden window answers it. The element tree and a picture of a live window
   are not served yet; `--snap` and `--tree` draw headless, and a headless run serves no control socket.
 
@@ -381,12 +417,21 @@ extension or saving a screen note, never by building the window again.
 
 `cargo test -- --ignored live` runs the same window against a scratch host: among them the draft's whole sentence
 (written with completions from the service's own sources while an agent patches it over the control socket, the
-window ended mid-word, the text found back), and what is about a note (a comment on words of it, a reply, the
+window ended mid-word, the text found back), what is about a note (a comment on words of it, a reply, the
 thread resolved; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
-keys screen equal to the key table, row for row; a component's example drawn). `cargo test --release measure_a_long_block -- --ignored --nocapture`
+keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
+bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
+removed by an agent's act; then a switch to a second outline of the same host and back). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
 
-The service's side is `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,
+`src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
+its form (a value refused keeps the form) and removed; a switch of outline and back to a block as it was being
+written (a name nobody has refused, nothing made); a tile torn into a second window drawn headless, two links in
+one store, and the control socket naming the window an act is for; a torn window that switches outline keeping
+no arrangement there and its words in a file of its own; and a window closed mid-block holding nothing afterwards.
+
+The service's side is `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
+lists, a rendered tile's view, a setting reaching the script its extension ships), `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,
 and `completion.rows` for a text and a cursor), `packages/outline-core/test/draft-patch-place.test.ts` (whether a
 patch may land in a live draft: the door's rule and the service's), `packages/outliner/test/notes-page.test.ts`, `test/component-pages.test.ts` (each component's
 example page, `outline-core/fixtures/component-pages.json`), `test/screens.test.ts`, `test/lists.test.ts` and `test/about-lists.test.ts` (one test a
@@ -412,7 +457,10 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 ![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
-`navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
+`navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
+`extensions` (the kitchen screen with the bar on the extensions), `settings`
+(Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
+reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
 title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
 box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
@@ -435,7 +483,7 @@ toolbar button is
 
 ## Not here yet
 
-- Tiles: two drawers (`page`, `list`); no terminal tile, and a kind an extension draws with a script or a program
+- Tiles: three drawers (`page`, `list`, `view`); no terminal tile, and a kind an extension runs a program for
   is drawn as its spec. Folding a tile to a spine, zooming and floating one have no action here yet, though a
   screen that holds them is laid out and drawn.
 - Lists are pressed, not walked: no cursor row moved by keys in a list tile, no `/` filter over its rows, no
@@ -447,7 +495,9 @@ toolbar button is
   a drag shows no hint of where a tile will drop.
 - A press inside a tile's body doesn't give it the keys by itself (its title, its tab or `tile.focus` does): Rune's
   focus isn't reconciled with the layout's yet (PROBES.md §1).
-- One window: the arrangement is kept a file an outline.
+- Windows: a torn-out window isn't opened again at the next start (its unsaved text is: the first window brings
+  it back), has no toolbar of its own (the bar is its `mod+k`), and can't be dropped back into the window it came
+  from; a tab dragged out by the pointer doesn't tear (the action and its key do).
 
 - Writing: a block is its whole source in one field, as typed: nothing is drawn of it until it is saved (no
   preview beside), and a long block (past a thousand lines) types slowly, since the field is laid out whole on each
@@ -483,15 +533,20 @@ toolbar button is
 - Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle
   (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
   a view's card covers and pictures in properties aren't shown.
-- Switching outlines from inside the window; the outline is named when it starts.
+- Outlines: a window on another machine's outline lists that host's outlines, so this machine's are reached from
+  there only by the name left on the toolbar (or `machine=""`); a machine that doesn't answer is listed from the
+  copies kept here and can't be switched to. A new outline isn't made from the window (`ep0ch outline create`).
+- Extensions: an extension's own bar source isn't listed in this bar (its rows carry no act line yet), its
+  secrets are said in the form and set elsewhere, a schema that isn't an object of named fields has no form, and
+  a kind that runs a program is still drawn as its spec.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
-- Keys are the rows' defaults and the open screen's own: the person's `keybindings.json` isn't read yet, so nothing
-  is rebound and the keys screen lists no key of theirs. A screen's key named with Hyper is listed and has no chord
-  here.
-- Extensions aren't installed or uninstalled from this window's bar yet (the door's bar and `ep0ch act
-  extensions.install id=screens` do it); with the screens extension uninstalled the window says there is no screen
-  to open on, and opens when it is back.
+- Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);
+  the person's `keybindings.json` isn't read yet, so nothing is rebound and the keys screen lists no key of
+  theirs, and a button's keycap is its row's default even where a screen binds another key to the same line. A
+  screen's key named with Hyper is listed and has no chord here.
+- With the screens extension uninstalled the window says there is no screen to open on, and opens when it is
+  back (the bar's Extensions installs it).
 - After its own write the window reads what it shows at once rather than waiting for the watch to say so.
 - The bar's list bounds itself to seven rows (`list::bounded`): `rune-kit`'s `Dialog` doesn't bound a scroll view in its body.
 - Rune is pre-release and pinned by rev in `Cargo.toml`. Windows builds also need Rune's `wgpu-hal` patch

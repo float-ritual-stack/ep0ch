@@ -27,6 +27,8 @@ pub enum From {
     /// A note in the outline, at the revision read.
     Note { id: String, revision: u64 },
     Extension(String),
+    /// No screen's: a tile torn out of another window into one of its own.
+    Torn,
 }
 
 /// A screen as served: its spec as data, and what the service found wrong with it.
@@ -85,20 +87,16 @@ impl<'a> Spec<'a> {
     pub fn starts(&self) -> bool { self.0["start"] == true }
     /// Its toolbar: act lines, one a button.
     pub fn toolbar(&self) -> Vec<String> { self.0["toolbar"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() }
-    /// Its own keys, as it wrote them (outline-core's `KeyBinding`): the key by the name screens give keys, the action
-    /// it runs and with what, the tile it runs in, and the kinds of tile it holds over (`only`, `unless`: the kinds
-    /// tiles carry, as the service resolved them).
-    pub fn keys(&self) -> &'a [Value] { self.0["keys"].as_array().map_or(&[], Vec::as_slice) }
+    /// Its own keys (outline-core's `KeyBinding`): each a key by the name screens write it (`L`, `ctrl+l`, `esc`),
+    /// the action it runs with its arguments, the tile it runs in, and the kinds it holds or doesn't hold on.
+    pub fn keys(&self) -> impl Iterator<Item = &'a Value> { self.0["keys"].as_array().into_iter().flatten() }
     /// What it is opened on, when it takes a target: the argument a target fills, and the tile's field it becomes.
     pub fn target(&self) -> Option<(&'a str, &'a str)> { self.0["target"]["arg"].as_str().zip(self.0["target"]["fills"].as_str()) }
     /// The rule for a new note made while a tile of `kind` has the keys (none: no tile has them): the first of its
     /// `newNote` rules that fits, as outline-core's `newNoteRule` picks it (`only` names the kind; `unless` doesn't,
     /// or no tile has the keys). The kinds are the ones tiles carry: the service resolved them as it did the tiles'.
     /// None: it has no rule for it, and a new note floats.
-    pub fn new_note(&self, kind: Option<&str>) -> Option<&'a Value> {
-        let names = |rule: &Value, key: &str| rule.get(key).and_then(Value::as_array).map(|kinds| kind.is_some_and(|kind| kinds.iter().any(|k| k == kind)));
-        self.0.get("newNote")?.as_array()?.iter().find(|rule| names(rule, "only").unwrap_or(true) && !(kind.is_some() && names(rule, "unless").unwrap_or(false)))
-    }
+    pub fn new_note(&self, kind: Option<&str>) -> Option<&'a Value> { self.0.get("newNote")?.as_array()?.iter().find(|rule| holds_on(rule, kind)) }
     /// The spec opened on `words`: the tile its target names carries them in the field it says (outline-core's
     /// `targetFilled`), in its layout or among its floats. No words, no target, or no such tile: the spec as it is.
     pub fn filled(&self, arg: &str, words: &str) -> Value {
@@ -115,6 +113,19 @@ impl<'a> Spec<'a> {
         for float in spec.get_mut("layout").and_then(|layout| layout.get_mut("floats")).and_then(Value::as_array_mut).into_iter().flatten() { if let Some(leaf) = float.get_mut("tile") { fill(leaf, tile, field, words.trim()) } }
         spec
     }
+}
+
+/// Whether a rule of a screen (a new-note rule, one of its keys) holds while a tile of `kind` has the keys (none: no
+/// tile has them): `only` names the kind; `unless` doesn't. The one reading of both words, whatever the rule is.
+pub fn holds_on(rule: &Value, kind: Option<&str>) -> bool {
+    let names = |key: &str| rule.get(key).and_then(Value::as_array).map(|kinds| kind.is_some_and(|kind| kinds.iter().any(|k| k == kind)));
+    names("only").unwrap_or(true) && !names("unless").unwrap_or(false)
+}
+
+/// The kinds a rule says it holds on and off, as it wrote them (`only` whenever it says one, `unless` when it names
+/// any): what `peek` says of a key beside its chord.
+pub fn kinds_said(rule: &Value) -> Vec<(&'static str, &Value)> {
+    ["only", "unless"].into_iter().filter_map(|key| rule.get(key).filter(|kinds| kinds.as_array().is_some_and(|kinds| key == "only" || !kinds.is_empty())).map(|kinds| (key, kinds))).collect()
 }
 
 /// `screens.list`'s answer, as this window reads it: the screens' rows as data, and the kinds extensions serve.

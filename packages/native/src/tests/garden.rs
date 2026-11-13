@@ -271,9 +271,9 @@ fn a_lost_link_is_made_again_and_everything_wanted_is_asked_for_afresh() {
     let Garden { asked, said, .. } = garden(ok());
     asked.borrow_mut().clear();
     let fresh = RefCell::new(Some((asked.clone(), said)));
-    let mut app = app.reconnecting(Box::new(move || {
+    let mut app = app.reaching(std::rc::Rc::new(move |_: &crate::store::OutlineAt| {
         let (asked, said) = fresh.borrow_mut().take().expect("made once");
-        Box::new(Standin { answers: Box::new(|ask| if ask["action"] == "ping" { Ok(json!({ "protocolVersion": PROTOCOL, "location": { "machine": "box" } })) } else { Err(("unavailable", "still starting".into())) }), asked, said })
+        Ok(crate::client::Way { link: Box::new(Standin { answers: Box::new(|ask| if ask["action"] == "ping" { Ok(json!({ "protocolVersion": PROTOCOL, "location": { "machine": "box" } })) } else { Err(("unavailable", "still starting".into())) }), asked, said }), kept: None })
     }));
     assert!(app.reconnect());
     assert!(app.online && info(&app, "Back online."));

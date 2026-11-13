@@ -6,6 +6,9 @@
  * - `notes.page`: everything a client draws of one note (note-page.ts).
  * - `screens.list`, `screens.save`: the outline's screens (screens.ts).
  * - `lists.read`: one list, whatever it is of (list-producers.ts).
+ * - `tiles.view`: what a tile an extension's script renders shows (tile-view.ts).
+ * - `outlines.known`: the outlines there are to open. The host answers it before it gets here (outline-links.ts); a
+ *   service no host runs knows only its own.
  *
  * A read here that is asked with `watch` is kept by `QueryWatches.askLater`: answered now, and again on each pass
  * that reaches it, with `queries.changed` when the answer moved.
@@ -17,7 +20,14 @@ import { servedPage } from "./note-page";
 import type { QueryWatches, WatchConnection } from "./query-watches";
 import { refusalEnvelope } from "./request-envelope";
 import { listScreens, saveScreen } from "./screens";
+import { readTileView } from "./tile-view";
 import type { OutlinerRequest } from "./types";
+
+/**
+ * The requests the modules here answer, as one member of the wire's union: a module's request type is added here,
+ * never to types.ts (which is capped, and names this once).
+ */
+export type ModuleRequest = import("./screens").ScreensRequest | import("./list-producers").ListsRequest | import("./tile-view").TileViewRequest | import("./outline-links").KnownOutlinesRequest;
 
 /** What a module's handler is given of the service. */
 export interface ModuleHost {
@@ -42,6 +52,8 @@ export function answeredInModule(request: OutlinerRequest, connection: WatchConn
     case "screens.list": return answered(request, connection, host, () => listScreens(host.own, request));
     case "screens.save": return answered(request, connection, host, () => saveScreen(host.own, request));
     case "lists.read": return answered(request, connection, host, () => readList(host.own, request));
+    case "tiles.view": return answered(request, connection, host, () => readTileView(host.own, request));
+    case "outlines.known": return answered(request, connection, host, async () => { const { outline } = host.address(); return { outlines: outline ? [{ name: outline, here: true }] : [] }; });
     default: return null;
   }
 }

@@ -77,8 +77,17 @@ type Own = { request<T>(input: { action: string } & Record<string, unknown>): Pr
 type Read = { id: string; text: string; revision: number };
 type ExtensionsListed = {
   extensions?: readonly { id: string; screens?: readonly ({ name: string } & Record<string, unknown>)[] }[];
-  tileKinds?: readonly { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>> }[];
+  tileKinds?: readonly ServedKind[];
 };
+type ServedKind = { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; render?: string; view?: string };
+
+/**
+ * The drawer a served kind is drawn by, and what a tile of it starts with. Its own word first (`drawer`, `fields`). A
+ * kind its extension's script renders is the `view` drawer's (`tiles.view` answers what it draws); one that lists a
+ * question is the `list` drawer's, over that question. A kind that runs a program names none here.
+ */
+const drawnBy = (k: ServedKind): Pick<ScreenKind, "drawer" | "fields"> =>
+  k.drawer ? { drawer: k.drawer, ...(k.fields ? { fields: k.fields } : {}) } : k.render ? { drawer: "view" } : k.view ? { drawer: "list", fields: { from: "query", query: k.view } } : {};
 
 const HOME_TYPE = "screens";
 
@@ -153,7 +162,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
   const replaced = new Map(served.flatMap(k => (k.replaces ?? []).map(old => [old, k.kind] as const)));
   const roles = rolesOf(served);
   const kinds = request.kinds ? [...new Set([...request.kinds.map(canonKind), ...served.map(k => k.kind)])] : null;
-  const undrawn = new Map(request.drawers ? served.flatMap(k => k.drawer && !request.drawers!.includes(k.drawer) ? [[k.kind, k.drawer] as const] : []) : []);
+  const undrawn = new Map(request.drawers ? served.flatMap(k => { const { drawer } = drawnBy(k); return drawer && !request.drawers!.includes(drawer) ? [[k.kind, drawer] as const] : []; }) : []);
   const checked = (spec: ScreenSpec): ScreenProblem[] => [...addressProblems(spec), ...(kinds ? kindProblems(spec, kinds, replaced, undrawn) : [])];
   const problems: string[] = [];
   const rows: ScreenRow[] = [];
@@ -183,7 +192,7 @@ export async function listScreens(own: Own, request: Pick<Extract<ScreensRequest
   rows.sort((a, b) => a.name.localeCompare(b.name) || (a.note?.id ?? "").localeCompare(b.note?.id ?? ""));
   const kindRows: ScreenKind[] = served.map(k => ({
     kind: k.kind, extension: k.extension, name: k.name, ...(k.description ? { about: k.description } : {}),
-    ...(k.drawer ? { drawer: k.drawer } : {}), ...(k.fields ? { fields: k.fields } : {}), ...(k.replaces?.length ? { replaces: k.replaces } : {}),
+    ...drawnBy(k), ...(k.replaces?.length ? { replaces: k.replaces } : {}),
     ...(k.replaces?.some(old => replaced.get(old) === k.kind) ? { serves: k.replaces.filter(old => replaced.get(old) === k.kind) } : {}),
   }));
   return { screens: rows, kinds: kindRows, problems, anyChange: true };

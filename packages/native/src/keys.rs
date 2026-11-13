@@ -3,12 +3,13 @@
 //!
 //! - **The table is read from the actions' rows** (`KeyRow.keys`, `.on`, `.args`): a chord, the layer it belongs to
 //!   and the line it runs. Nothing else binds a key; a keycap on a button or a bar row is the table read backwards.
-//! - **The open screen's own keys come before it** (`App::screen_keys`, its spec's `keys` as served): while a tile
-//!   has the keys, each runs its action as the person, as the door runs them before the focused tile's own. A key is
-//!   named there as screens name keys (`L`, `ctrl+l`, `esc`), read as a chord by `chord_named`.
 //! - **`App::person()` says where the person's keys are**: in the bar, in a draft (in its completion list while that
 //!   is open: `complete` with rows to choose from, `said` with only a word to say), or on a tile. The table is asked with that layer first, then the layer under it (a completion list is
 //!   open over a draft), then the rows that hold everywhere.
+//! - **The open screen's own keys come before the rows'** (`ScreenBind`, its spec's `keys` as the service lists
+//!   them): each runs its action as the person while a tile has the keys, never while something is typed, and
+//!   only on the kinds it says. `peek` lists them with the rows (`from: screen`). A key is named there as screens
+//!   name keys (`L`, `ctrl+l`, `esc`), read as a chord by `chord_named`.
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
 //!   same table.
@@ -28,13 +29,15 @@ use serde_json::{Value, json};
 
 use crate::actions::row::KeyRow;
 use crate::actions::{self, Actor, App, Field, word};
-use crate::actline::Request;
+use crate::actline;
 
 /// Where the person's keys are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
     /// The command bar is open: its line has them.
     Bar,
+    /// A form is open over the window: its fields have them.
+    Form,
     /// A block is open for editing, and the list that completes what is being typed is open over it with rows to
     /// choose from.
     Complete,
@@ -48,13 +51,13 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, complete, said, draft and tile") }
+        match name { "bar" => Layer::Bar, "form" => Layer::Form, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, complete, said, draft and tile") }
     }
     /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
     /// hold, and a list with rows has every key of one that only says something.
-    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Draft => &[Layer::Draft], Layer::Tile => &[Layer::Tile] } }
 }
 
 /// Where the person is: one answer, read by the key table, the actor rule and `peek`.
@@ -92,14 +95,21 @@ impl App {
         let idle = self.last_key().map(|at| at.elapsed());
         if self.bar.open {
             Whereabouts { layer: Layer::Bar, focus, idle, typing_in: Some("bar".into()), busy: true, why: Some("the person is typing in the bar".into()) }
+        } else if self.form.is_some() {
+            Whereabouts { layer: Layer::Form, focus, idle, typing_in: Some("form".into()), busy: true, why: Some("the person is filling in a form".into()) }
         } else if let Some(draft) = self.draft_on(&self.layout.focus) {
-            let tile = self.layout.name(&draft.tile);
-            // The list's own keys are for choosing: one with nothing to choose from keeps only the key that puts it away.
-            let layer = match self.completing(&draft.tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft };
+            let (tile, layer) = (self.layout.name(&draft.tile), self.writing(&draft.tile));
             Whereabouts { layer, focus, idle, why: Some(format!("the person is in an edit on {tile}")), typing_in: Some(tile), busy: true }
         } else {
             Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None }
         }
+    }
+
+    /// The layer the keys are in while a block is written in `tile`: its completion list while that is open, else
+    /// the draft's own. The list's own keys are for choosing: one with nothing to choose from keeps only the key
+    /// that puts it away. `person` and the hint row under the block's field both read this.
+    pub fn writing(&self, tile: &str) -> Layer {
+        match self.completing(tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft }
     }
 }
 
@@ -114,7 +124,7 @@ pub struct Bind {
     pub action: &'static str,
     /// What these keys do, in the row's words.
     pub does: &'static str,
-    /// Where the binding came from: an action's row, until a screen and the person's own file add theirs.
+    /// Where the binding came from: an action's row. (A screen's own are `ScreenBind`s; the person's own file isn't read yet.)
     pub from: &'static str,
 }
 
@@ -164,40 +174,50 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
 pub fn esc(layer: Layer) -> Option<&'static Bind> { esc_steps().into_iter().find(|bind| bind.layer.is_none_or(|own| layer.stack().contains(&own))) }
 
-/// The keys that are a layer's own, with what each does: the hint row under the bar and the editor. What Esc
-/// closes there comes first.
+/// The keys that are a layer's own, with what each does: the hint row under the bar, a form and the editor. What
+/// Esc closes there comes first. A layer with no key of its own but the one that leaves it (a completion list
+/// with nothing to choose from) lists the keys of the layer under it, which still hold.
 pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
-    let esc = esc(layer);
-    esc.into_iter().chain(table().iter().filter(|bind| bind.layer == Some(layer) && !bind.is_escape())).map(|bind| (bind.cap(), bind.does)).collect()
+    let own = |layer: Layer| table().iter().filter(move |bind| bind.layer == Some(layer) && !bind.is_escape());
+    let shown = layer.stack().iter().copied().find(|layer| own(*layer).next().is_some()).unwrap_or(layer);
+    esc(layer).into_iter().chain(own(shown)).map(|bind| (bind.cap(), bind.does)).collect()
 }
 
-/// The table as `peek` and the keys screen read it: the open screen's own keys first, as they are tried first.
-pub fn rows(s: &App) -> Value {
-    let screen = s.screen_keys().into_iter().map(|key| json!({ "chord": key.spec, "line": key.request.line(), "layer": Layer::Tile.name(), "from": "screen", "bound": key.chord.is_some() }));
-    json!(screen.chain(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from }))).collect::<Vec<_>>())
-}
-
-/// A key of the open screen's own: the key as the screen names it, the chord that is here, and the request it runs.
-pub struct ScreenKey {
-    /// The key as its screen wrote it.
+/// A key the open screen binds, as its spec writes it (outline-core's `KeyBinding`): the request it runs is
+/// already read, and never written as a line to be read again.
+pub struct ScreenBind {
+    /// The key as the screen wrote it, in the names screens use (`L`, `ctrl+l`, `esc`).
     pub spec: String,
-    /// None: a key this window has no chord for (a modifier alone, `hyper+…`); it is listed and never pressed.
-    pub chord: Option<Chord>,
-    pub request: Request,
-    /// The kinds of tile it holds over, and the ones it doesn't: none named, every kind.
-    only: Option<Vec<String>>,
-    unless: Vec<String>,
+    /// The chord it is here, or why it is none.
+    pub chord: Result<Chord, String>,
+    pub request: actline::Request,
+    /// The binding as the screen wrote it: the kinds of tile it holds on and off are the spec's to read (`screen::holds_on`).
+    rule: Value,
+}
+
+impl ScreenBind {
+    fn read(bind: &Value) -> Option<ScreenBind> {
+        let (spec, action) = (bind["key"].as_str()?, bind["action"].as_str()?);
+        Some(ScreenBind {
+            spec: spec.to_string(), chord: chord_named(spec).ok_or_else(|| format!("{spec} is no key here")),
+            request: actline::Request { action: action.to_string(), tile: bind["tile"].as_str().map(str::to_string), by: None, args: bind["args"].as_object().cloned().unwrap_or_default() },
+            rule: bind.clone(),
+        })
+    }
+    /// It holds while a tile of `kind` has the keys.
+    fn holds(&self, kind: Option<&str>) -> bool { crate::screen::holds_on(&self.rule, kind) }
 }
 
 /// A key as a screen names it (outline-core's `isKeyName`: `l`, `L`, `,`, `ctrl+l`, `alt+c`, `esc`, `pgup`,
-/// `alt+left`), read as a chord: a capital is Shift with its letter, and the two pages are named in full here. Held
-/// to the names there are by `core-contract.json`. None: no chord here is that key.
+/// `alt+left`), read as a chord: a capital is Shift with its letter, with modifiers before it too, and the two
+/// pages are named in full here. Held to the names there are by `core-contract.json`. None: no chord here is that
+/// key (a modifier alone, Hyper), and it is listed and never pressed.
 pub fn chord_named(key: &str) -> Option<Chord> {
     let (mods, last) = match key.rsplit_once('+') { Some((mods, last)) if !last.is_empty() => (Some(mods), last), _ => (None, key) };
     let mut chars = last.chars();
@@ -208,24 +228,19 @@ pub fn chord_named(key: &str) -> Option<Chord> {
     Chord::parse(&match mods { Some(mods) => format!("{mods}+{name}"), None => name }).ok()
 }
 
-impl App {
-    /// The open screen's own keys, in its order: its spec's as served, read each time (`App::spec_now`).
-    pub fn screen_keys(&self) -> Vec<ScreenKey> {
-        let kinds = |key: &Value, field: &str| key[field].as_array().map(|kinds| kinds.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>());
-        self.spec_now().map_or(&[][..], |spec| spec.keys()).iter().filter_map(|key| {
-            let (spec, action) = (key["key"].as_str()?, key["action"].as_str()?);
-            let request = Request { action: action.to_string(), tile: key["tile"].as_str().map(str::to_string), by: None, args: key["args"].as_object().cloned().unwrap_or_default() };
-            Some(ScreenKey { spec: spec.to_string(), chord: chord_named(spec), request, only: kinds(key, "only"), unless: kinds(key, "unless").unwrap_or_default() })
-        }).collect()
-    }
+/// The open screen's own keys, in the order it lists them.
+pub fn screen_binds(s: &App) -> Vec<ScreenBind> { s.spec_now().map(|spec| spec.keys().filter_map(ScreenBind::read).collect()).unwrap_or_default() }
 
-    /// The screen's key this event is, where the person is: one of its keys whose chord it is and that holds over
-    /// the kind of tile with the keys (the kind the tile carries: the service resolved the screen's names).
-    fn screen_key(&self, e: &KeyEvent, tx: &Tx) -> Option<Request> {
-        let kind = self.kind_of(&self.layout.focus).map(|row| row.kind.clone()).or_else(|| self.spec(&self.layout.focus).map(|spec| spec.kind.clone()));
-        let over = |kinds: &[String]| kind.as_ref().is_some_and(|kind| kinds.contains(kind));
-        self.screen_keys().into_iter().find(|key| key.chord.is_some_and(|chord| chord.matches_tx(e, tx)) && key.only.as_deref().is_none_or(over) && !over(&key.unless)).map(|key| key.request)
-    }
+/// The keys as `peek` and the keys screen read them: the open screen's own first (they are asked first, while a
+/// tile has the keys), then the table's rows.
+pub fn rows(s: &App) -> Value {
+    let screen = screen_binds(s).into_iter().map(|bind| {
+        let mut row = json!({ "chord": bind.spec, "line": bind.request.line(), "layer": Layer::Tile.name(), "from": "screen" });
+        for (word, kinds) in crate::screen::kinds_said(&bind.rule) { row[word] = kinds.clone() }
+        if let Err(why) = &bind.chord { row["problem"] = json!(why) }
+        row
+    });
+    json!(screen.chain(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from }))).collect::<Vec<_>>())
 }
 
 /// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
@@ -264,12 +279,14 @@ pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
     s.held().last = Some(Instant::now());
     let layer = s.person().layer;
     let mut seq = std::mem::take(&mut s.held().seq);
-    // The screen's own keys first, while a tile has the keys and no sequence is under way: its request is run as
-    // it stands, never written as a line to be read again.
-    if layer == Layer::Tile && seq.is_empty() && let Some(request) = s.screen_key(e, tx) {
-        s.act_request(request, Actor::Person);
-        effects(s, tx);
-        return true;
+    // The open screen's own keys first, while a tile has the keys and no sequence is begun: on the kinds each says.
+    if layer == Layer::Tile && seq.is_empty() {
+        let kind = s.spec(&s.layout.focus).map(|spec| spec.kind.clone());
+        if let Some(bind) = screen_binds(s).into_iter().find(|bind| bind.holds(kind.as_deref()) && bind.chord.as_ref().is_ok_and(|chord| chord.matches_tx(e, tx))) {
+            s.act_request(bind.request, Actor::Person);
+            effects(s, tx);
+            return true;
+        }
     }
     seq.push(e.clone());
     match find(layer, &seq, tx) {
@@ -312,7 +329,7 @@ pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
     if let Some(asked) = wanted(s, &names) { return ask(s, asked, tx) }
     let focus = s.layout.name(&s.layout.focus);
     let echo = s.held().asked.as_ref().and_then(|(key, _)| tile_of(key, &names));
-    let pressed = now.as_deref().filter(|_| moved && !s.bar.open).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
+    let pressed = now.as_deref().filter(|_| moved && !s.bar.open && s.form.is_none()).and_then(|key| tile_of(key, &names)).filter(|tile| *tile != focus && Some(tile) != echo.as_ref());
     // The caret is in a draft whose tile hasn't the keys: a press put it there.
     let drafted = s.drafts.iter().find(|draft| draft.buf.takes_keys() && draft.tile != s.layout.focus && !s.bar.open).map(|draft| s.layout.name(&draft.tile));
     let Some(tile) = drafted.or(pressed) else { return false };
@@ -400,7 +417,8 @@ impl Text {
     }
 }
 
-/// What an act asked of the next frame, done: an element brought into view. True when something moved.
+/// What an act asked of the next frame, done: an element brought into view, the window closed. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
+    if s.closing { tx.close_window() }
     match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }

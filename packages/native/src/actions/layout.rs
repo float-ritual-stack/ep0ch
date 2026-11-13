@@ -118,6 +118,17 @@ impl App {
         for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
     }
 
+    /// The whole arrangement leaves the window with its outline (which is parked as it stands: nothing of it goes,
+    /// so nothing is asked of the layout's rules), and the window has none until another is put or laid out.
+    pub(super) fn arrangement_taken(&mut self) -> Layout { std::mem::take(&mut self.st.layout) }
+
+    /// An arrangement that was parked is the window's again, as it was left; or a window just made has its first.
+    pub(super) fn arrangement_put(&mut self, layout: Layout) {
+        self.st.layout = layout;
+        let focus = self.st.layout.focus.clone();
+        for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
+    }
+
     /// The arrangement and what each tile shows, written to the file they are kept in.
     pub(super) fn keep(&self) {
         let Some(path) = &self.kept_in else { return };

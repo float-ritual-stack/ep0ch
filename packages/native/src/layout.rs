@@ -424,6 +424,13 @@ impl Layout {
         Value::Object(out)
     }
 
+    /// An arrangement that is one tile of this one and nothing else, in the saved form: what a tile torn out into a
+    /// window of its own is laid out as. Its wires go with it and name tiles that window hasn't (they say so there).
+    pub fn alone(&self, tile: &str) -> Option<Value> {
+        let spec = self.spec(tile)?;
+        Some(json!({ "focus": self.name(tile), "root": self.leaf_json(spec) }))
+    }
+
     /// A tile as a saved leaf: its kind and name, its own fields, then its fold, its agent level and its wires.
     fn leaf_json(&self, s: &TileSpec) -> Value {
         let mut out = Map::new();

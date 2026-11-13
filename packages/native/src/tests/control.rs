@@ -20,7 +20,7 @@ use crate::control::{self, Job, Ui};
 struct Queue(Sender<Job>);
 
 impl Ui for Queue {
-    fn run(&self, job: Job) { let _ = self.0.send(job); }
+    fn run(&self, _: Option<&str>, job: Job) -> Result<(), String> { let _ = self.0.send(job); Ok(()) }
 }
 
 pub(super) struct Door { pub(super) rt: Runtime<App>, jobs: Receiver<Job>, asked: Asked, _control: control::Control, path: PathBuf, dir: PathBuf }

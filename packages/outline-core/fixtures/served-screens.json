@@ -175,6 +175,8 @@
           "bar.open",
           "bar.open scope=query",
           "bar.open scope=screens",
+          "bar.open scope=extensions",
+          "bar.open scope=outlines",
           "note.new",
           "tile.split",
           "screen.save",
@@ -214,40 +216,89 @@
     },
     {
       "name": "kitchen",
-      "title": "kitchen sink",
+      "title": "Kitchen",
       "from": "extension",
       "extension": "screens",
       "spec": {
         "name": "kitchen",
-        "title": "kitchen sink",
+        "title": "Kitchen",
         "layout": {
           "focus": "reader",
           "root": {
             "t": "split",
             "dir": "row",
             "weights": [
-              0.18,
-              0.42,
-              0.4
+              0.22,
+              0.4,
+              0.38
             ],
             "kids": [
               {
-                "t": "leaf",
-                "kind": "screens.tree",
-                "name": "tree",
-                "wires": [
-                  {
-                    "verb": "select",
-                    "to": "reader"
-                  }
+                "t": "split",
+                "dir": "col",
+                "weights": [
+                  0.4,
+                  0.35,
+                  0.25
                 ],
-                "role": "tree"
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.tree",
+                    "name": "tree",
+                    "wires": [
+                      {
+                        "verb": "select",
+                        "to": "reader"
+                      }
+                    ],
+                    "role": "tree"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.extensions",
+                    "name": "extensions",
+                    "role": "extensions"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.outlines",
+                    "name": "outlines",
+                    "role": "outlines"
+                  }
+                ]
               },
               {
-                "t": "leaf",
-                "kind": "screens.reader",
-                "name": "reader",
-                "role": "reader"
+                "t": "tabs",
+                "active": 0,
+                "tabs": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.reader",
+                    "name": "reader",
+                    "role": "reader"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.props",
+                    "name": "props",
+                    "source": "tile:reader",
+                    "subject": "follows",
+                    "role": "props"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.activity",
+                    "name": "activity",
+                    "wires": [
+                      {
+                        "verb": "select",
+                        "to": "reader"
+                      }
+                    ],
+                    "role": "activity"
+                  }
+                ]
               },
               {
                 "t": "split",
@@ -288,8 +339,11 @@
           "back",
           "bar.open",
           "bar.open scope=screens",
+          "bar.open scope=extensions",
+          "bar.open scope=outlines",
           "edit",
           "comment",
+          "tile.tear",
           "screen.reset"
         ],
         "lands": "reader"
@@ -687,6 +741,38 @@
       "serves": [
         "components"
       ]
+    },
+    {
+      "kind": "screens.extensions",
+      "extension": "screens",
+      "name": "Extensions",
+      "about": "the outline's extensions: the ones installed (a row opens its page), each one's settings, and the ones the repo has that aren't installed (a row installs one); with words typed in its question, removing one too",
+      "drawer": "list",
+      "fields": {
+        "from": "extensions"
+      },
+      "replaces": [
+        "extensions"
+      ],
+      "serves": [
+        "extensions"
+      ]
+    },
+    {
+      "kind": "screens.outlines",
+      "extension": "screens",
+      "name": "Outlines",
+      "about": "the outlines there are to open: this machine's and the ones on the machines it holds a forward to; a row switches the window to one",
+      "drawer": "list",
+      "fields": {
+        "from": "outlines"
+      },
+      "replaces": [
+        "outlines"
+      ],
+      "serves": [
+        "outlines"
+      ]
     }
   ],
   "sources": [
@@ -927,6 +1013,30 @@
         {
           "name": "drawers",
           "about": "the drawers the asker has"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "extensions",
+      "about": "Extensions",
+      "placeholder": "An extension's name · typed, it can be removed too",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or of what it does"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "outlines",
+      "about": "Outlines",
+      "placeholder": "An outline's name, or a machine's",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or its machine's"
         }
       ],
       "bar": {}

@@ -350,7 +350,7 @@ fn a_screen_s_own_keys_are_pressed_before_the_table_s_and_listed_first() {
     let mut row = screen_row("seed-list", layout, json!([]));
     row["spec"]["keys"] = json!([
         { "key": "ctrl+l", "action": "bar.open", "args": { "scope": "screens" }, "says": "the screens" },
-        { "key": "K", "action": "tile.focus", "tile": "keys", "only": ["screens.reader"], "says": "to the keys" },
+        { "key": "K", "action": "tile.focus", "tile": "keys", "only": ["reader"], "says": "to the keys" },
         { "key": "hyper+h", "action": "back", "says": "back" },
     ]);
     screens_are(&mut g, json!([row]));
@@ -358,7 +358,7 @@ fn a_screen_s_own_keys_are_pressed_before_the_table_s_and_listed_first() {
     assert!(line(&mut rt, "screen.open name=seed-list").ok);
     // What the screen binds is the table's first rows, a key with no chord here said so and never pressed.
     let table = keys::rows(&rt.state);
-    let bound: Vec<(&str, &str, &str, bool)> = table.as_array().unwrap().iter().take_while(|row| row["from"] == "screen").map(|row| (row["chord"].as_str().unwrap(), row["line"].as_str().unwrap(), row["layer"].as_str().unwrap(), row["bound"] == true)).collect();
+    let bound: Vec<(&str, &str, &str, bool)> = table.as_array().unwrap().iter().take_while(|row| row["from"] == "screen").map(|row| (row["chord"].as_str().unwrap(), row["line"].as_str().unwrap(), row["layer"].as_str().unwrap(), row["problem"].is_null())).collect();
     assert_eq!(bound, [("ctrl+l", "bar.open scope=screens", "tile", true), ("K", "tile.focus tile=keys", "tile", true), ("hyper+h", "back", "tile", false)]);
     // The keys list of this screen: the service's rows for it, then the actions' own. Chord for chord, line for line.
     let rows = rt.state.rows_of(&rt.state.layout.named("keys").unwrap()).to_vec();
@@ -384,7 +384,7 @@ fn a_screen_s_own_keys_are_pressed_before_the_table_s_and_listed_first() {
     assert_eq!((rt.state.person().focus.as_str(), rt.state.steps.len()), ("keys", steps), "the key doesn't hold over this kind of tile");
     // Another screen has other keys: the same chord is the table's own again.
     assert!(line(&mut rt, "screen.open name=desk").ok);
-    assert!(rt.state.screen_keys().is_empty());
+    assert!(keys::screen_binds(&rt.state).is_empty());
     chord(&mut rt, Key::Command('l'), primary());
     assert!(rt.state.bar.open && rt.state.bar.scope == "query", "{:?}", rt.state.bar.scope);
 }
@@ -425,7 +425,7 @@ fn the_hint_row_under_a_field_says_the_keys_of_where_the_person_is() {
     typed(&mut rt, "See [[s");
     assert_eq!(rt.state.person().layer, Layer::Complete);
     let said = hints(&rt);
-    assert!(said.iter().any(|does| does == "write the lit row") && said.iter().any(|does| does == "put the list away") && !said.iter().any(|does| does == "save"), "{said:?}");
+    assert!(said.iter().any(|does| does == "write the lit row") && said.iter().any(|does| does == "put the list away") && !said.iter().any(|does| does == "leave the editor, when everything is saved"), "{said:?}");
     chord(&mut rt, Key::Escape, Mods::default());
     assert!(hints(&rt).iter().any(|does| does == "save"), "the list put away, the keys are the editor's again");
 }

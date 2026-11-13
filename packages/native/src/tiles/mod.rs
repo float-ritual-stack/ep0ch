@@ -3,8 +3,8 @@
 //! - **A kind row** says what a tile kind is: the drawer that draws it and the fields a tile of it starts with. The
 //!   service serves the rows (`screen::KindRow`, an extension's `tiles[]`); this window holds no catalogue of kinds
 //!   and names none: a screen names kinds, a kind names a drawer.
-//! - **A drawer** draws one answer shape, and there are two: `page` (a note's page) and `list` (one list, whatever
-//!   it is of). It is given a `TileCx`: the store to read, its tile's spec, its kind's row and its own state, and
+//! - **A drawer** draws one answer shape, and there are three: `page` (a note's page), `list` (one list, whatever
+//!   it is of) and `view` (what an extension's script draws for a tile, as primitives). It is given a `TileCx`: the store to read, its tile's spec, its kind's row and its own state, and
 //!   one way out: `cx.act(line)`, an act line run in its tile (a row's own, a button's, one of this window's
 //!   actions). It gets no layout to change and no socket: a drawer can ask and can say, and nothing else.
 //! - **A kind this window has no drawer for** is drawn as its spec, as data, with what the service said is wrong.
@@ -13,6 +13,7 @@ pub mod list;
 pub mod page;
 pub mod picture;
 pub mod prim;
+pub mod rendered;
 
 use rune::{El, col, text};
 use rune_kit::Kit;
@@ -70,7 +71,7 @@ pub struct Drawer {
     pub over: Option<fn(&TileCx, Option<[f32; 4]>, &Kit, &mut Vec<El>)>,
 }
 
-pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &list::DRAWER];
+pub static DRAWERS: &[&Drawer] = &[&page::DRAWER, &list::DRAWER, &rendered::DRAWER];
 
 pub fn drawer(id: &str) -> Option<&'static Drawer> { DRAWERS.iter().copied().find(|drawer| drawer.id == id) }
 

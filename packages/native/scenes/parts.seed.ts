@@ -60,5 +60,10 @@ await create(`Frost watch\nCover what is in the ((${shed.id})) on a cold night.`
 // The note the `draft` scene opens to be written: two paragraphs, so an agent's tidy of the first lands in the draft
 // while the person types in the second.
 await create(["Frost fleece [type::chore]", "Cover the pea trays  on a cold  night.", "", "Fold it away in the morning."].join("\n"));
+// What the `settings` scene's Waiting tile lists: asks still waiting for an answer, the oldest sent five days ago.
+const sent = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 16).replace("T", " ");
+for (const [title, who, days] of [["Jars for the cellar", "Ada: which shelf do the jars go on?", 5], ["Seed swap", "Ada: are the broad beans still spare?", 2], ["The loan of the rotavator", "Bram: is Saturday still good?", 1]] as const) {
+  await create(`${title} [type::outbox-item] [outbox::waiting] [waiting-on::${who}] [sent::${sent(days)}]`);
+}
 console.log(plan.id);
 process.exit(0);

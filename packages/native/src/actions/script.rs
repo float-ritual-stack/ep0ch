@@ -60,9 +60,11 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (at, client) = (app.at.clone(), app.store.client().to_string());
     // The run answers when it has ended, and its acts come back here meanwhile: its answer is never waited for in
     // place, even by a window that waits for every other (a headless render), or the run would wait on this window.
-    let waits = std::mem::replace(&mut app.store.blocking, false);
+    let waits = app.blocking;
+    app.store.set_blocking(false);
+    app.store.pressing(&at);
     app.store.write(&at, "scripts.sequence", json!({ "blockId": block, "line": line, "clientId": client }), by, ran, json!({ "tile": tile, "block": block, "line": line, "label": label }));
-    app.store.blocking = waits;
+    app.store.set_blocking(waits);
     say(app, &tile, &block, line, format!("{label}: running…"), true);
     Outcome::answer(json!({ "ran": "service", "block": block, "line": line }))
 }

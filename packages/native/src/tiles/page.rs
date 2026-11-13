@@ -17,7 +17,7 @@ use super::{Drawer, TileCx};
 use super::picture::Shown;
 use crate::actions::{self, Actor, App, Field};
 use crate::draft::{DraftSession, Hold};
-use crate::keys::{self, Layer};
+use crate::keys;
 use crate::page::Page;
 use crate::parts;
 use crate::store::Ask;
@@ -62,8 +62,8 @@ fn facts(cx: &TileCx) -> Value {
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&cx.ui.note, cx.ui.history.len(), cx.app.loading_of(cx.id), cx.ui.said.as_ref().map(|said| (&said.block, said.line, &said.words))).hash(&mut h);
-    // (The hint row says the keys of where the person is: the editor's, or the open list's.)
-    if let Some(draft) = draft_of(cx) { (cx.app.completing(cx.id).map(|found| found.rows.is_empty()), &draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did))).hash(&mut h) }
+    // (The hint row says the keys of the layer they are in: the editor's, or the open list's.)
+    if let Some(draft) = draft_of(cx) { (&draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
     // A picture that finished decoding is drawn: how each of the page's pictures stands is part of what is shown.
     for picture in cx.app.shown_of(cx.id).into_iter().flat_map(|page| page.pictures()) {
         match cx.app.picture(picture) { Some(Shown::Ready { image, .. }) => (2u8, image.size().is_some()).hash(&mut h), Some(Shown::Failed(why)) => (1u8, why).hash(&mut h), _ => 0u8.hash(&mut h) }
@@ -143,11 +143,9 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let status = col().grow(1.0).min_w(0.0).gap(2.0).children(told).children(how);
     // What a comment or a reply is on, over its field: the words it quotes, the comment it answers.
     let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
-    // What the keys do where the person is, from the table: in the editor, the save that keeps you here and the Esc
-    // that leaves; while the list that completes a word is open over it, that list's own keys (they come first).
-    let layer = Some(cx.app.person().layer).filter(|layer| cx.focused && *layer != Layer::Tile).unwrap_or(Layer::Draft);
-    let saves = keys::bind_of("edit.save").filter(|_| layer == Layer::Draft).map(|bind| (bind.cap(), bind.does));
-    let hints = saves.into_iter().chain(keys::hints(layer)).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
+    // What the keys do where they are now, from the table: the save that keeps you here, then the draft's own (the
+    // Esc that leaves), or the list's while one is open over the block (the Esc that puts it away, the keys that choose).
+    let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(cx.app.writing(cx.id))).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
         line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
     });
     let framed = if draft.is_block() { col().key(cx.key("editor")).w_full().gap(8.0) } else { col().key(cx.key("editor")).w_full().gap(8.0).padding(12.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_focus) };

@@ -14,6 +14,7 @@ import type { AgentToolsClient } from "./agent-tools";
 import { validateInsert, type ExtensionActRequest, type ExtensionActResult } from "./extension-calls";
 import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
+import { settingProps } from "./extension-settings";
 import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
 import { hostApi, renderTriedToWrite, type HostApi, type HostStep } from "./host-api";
@@ -200,7 +201,8 @@ export class ScriptRuns {
     let hiddenQueryRoot = false;
     let machinery = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
-    const props = { ...input.site?.props, ...slotProps(input.argument) };
+    // A script an extension ships reads that extension's settings as props; what its tile or its line says comes over them.
+    const props = { ...settingProps(this.registry.shipperOf(source)), ...input.site?.props, ...slotProps(input.argument) };
     // The script's note supplies self as well as code, so it follows the same visibility cut as an embed.
     if (source.blockId) {
       input.onCandidates?.([source.blockId]);

@@ -32,6 +32,9 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("screen.save", _) => vec!["screen.save name=Beds"],
         // A list's own actions run on a list tile: the garden's own screen has one, named as the examples name it.
         ("list.pick" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
+        // An extension's settings are changed, and it is removed, once it is installed; a form's keys need the form.
+        ("extensions.uninstall" | "extensions.configure", _) => vec!["extensions.install id=waiting"],
+        ("form.save" | "form.close", _) => vec!["extensions.install id=waiting", "extensions.configure id=waiting"],
         _ => vec![],
     };
     match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), _ => {} }
@@ -151,7 +154,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.resize", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

@@ -81,7 +81,65 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
 /// A made-up outline: Plot › (Lift the onions › Take the fork, Water the beans), Shed. `saves`: how `update` answers.
 /// `screens`: the rows the host's `screens.list` answers beside the shipped ones, for a test to set (then
 /// `screens_are`). `shipped`: whether the screens extension is installed there.
-pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>>, pub shipped: Rc<std::cell::Cell<bool>> }
+pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>>, pub shipped: Rc<std::cell::Cell<bool>>, pub elsewhere: Elsewhere }
+
+/// What the hosts of the other outlines a window switched to were asked and said, by the outline's name: a link each.
+pub type Elsewhere = Rc<RefCell<std::collections::HashMap<String, (Asked, Said)>>>;
+
+/// The outlines the stand-in host says there are (`outlines.known`): the garden's own, one more on this machine, and
+/// one on a machine it holds a forward to.
+pub fn known() -> Value { json!({ "outlines": [{ "name": "allotment" }, { "name": "garden", "here": true }, { "name": "orchard", "machine": "shed-box" }] }) }
+
+/// The made-up extension the stand-in host has: installed or not, and its one setting.
+#[derive(Clone)]
+struct Waiting { installed: Rc<std::cell::Cell<bool>>, warn: Rc<std::cell::Cell<Option<i64>>> }
+
+impl Waiting {
+    fn settings(&self) -> Value {
+        let mut field = json!({ "name": "warn-days", "type": "integer", "description": "A wait longer than this many days is drawn as a warning", "default": 3, "state": "default" });
+        if let Some(days) = self.warn.get() { field["value"] = json!(days); field["state"] = json!("set") }
+        json!({ "file": "extensions/waiting/config.json", "exists": self.warn.get().is_some(), "state": if self.warn.get().is_some() { "set" } else { "default" }, "fields": [field], "secrets": [], "config": {} })
+    }
+    /// `extensions.list`, as far as a window reads it.
+    fn listed(&self) -> Value {
+        let screen = json!({ "name": "waiting", "title": "waiting on others" });
+        let tile = json!({ "kind": "waiting.list", "name": "Outbox waiting", "description": "the outbox items still waiting for an answer", "render": "waiting" });
+        let compost = json!({ "id": "compost", "name": "Compost", "state": "active", "screens": [], "tiles": [], "bar": [], "actions": [{ "id": "turn", "name": "ext.compost.turn", "label": "Turn the heap", "description": "Turns the heap and says when" }] });
+        let waiting = json!({ "id": "waiting", "name": "Waiting", "state": "active", "settings": self.settings(), "screens": [screen], "tiles": [tile], "actions": [], "bar": [] });
+        if self.installed.get() { json!({ "extensions": [compost, waiting], "available": [{ "id": "moon", "name": "Moon" }] }) } else { json!({ "extensions": [compost], "available": [{ "id": "moon", "name": "Moon" }, { "id": "waiting", "name": "Waiting" }] }) }
+    }
+    /// Its screen and its kind, as `screens.list` serves them while it is installed.
+    fn served(&self) -> (Vec<Value>, Vec<Value>) {
+        if !self.installed.get() { return (Vec::new(), Vec::new()) }
+        let layout = json!({ "focus": "waiting", "root": { "t": "split", "dir": "row", "weights": [0.5, 0.5], "kids": [
+            { "t": "leaf", "kind": "waiting.list", "role": "waiting", "name": "waiting", "wires": [{ "verb": "select", "to": "reader" }] }, { "t": "leaf", "kind": "screens.reader", "role": "reader", "name": "reader" }] } });
+        (vec![json!({ "name": "waiting", "title": "waiting on others", "from": "extension", "extension": "waiting", "spec": { "name": "waiting", "title": "waiting on others", "lands": "reader", "layout": layout }, "problems": [] })],
+         vec![json!({ "kind": "waiting.list", "extension": "waiting", "name": "Outbox waiting", "about": "the outbox items still waiting for an answer", "drawer": "view", "replaces": ["waiting"], "serves": ["waiting"] })])
+    }
+    /// `tiles.view` for its kind: one ask waiting two days, a warning once its setting says a day is long.
+    fn view(&self, kind: &str) -> Result<Value, (&'static str, String)> {
+        if !self.installed.get() || !["waiting.list", "waiting"].contains(&kind) { return Err(("not-found", format!("no extension here serves a {kind} tile · the bar's Extensions lists what is installed and what can be"))) }
+        let mut row = json!({ "id": "beans", "label": "  2d which shelf do the jars go on?", "group": "ada", "do": { "open": "beans" }, "act": opens("beans") });
+        if self.warn.get().is_some_and(|days| days < 2) { row["tone"] = json!("warn") }
+        let title = "outbox · 1 waiting on 1 person";
+        Ok(json!({ "kind": "waiting.list", "extension": "waiting", "title": title, "anyChange": true,
+            "view": { "type": "list", "title": title, "groups": [{ "name": "ada", "label": "Ada · 1 waiting · longest 2d", "count": 1 }], "rows": [row], "empty": "Nobody owes you an answer." } }))
+    }
+    /// The bar's Extensions (`lists.read from=extensions`), as the service lists them: a row a thing to do with one.
+    fn rows(&self, words: &str) -> Value {
+        let run = |id: &str, label: &str, group: &str, act: String| json!({ "id": id, "label": label, "group": group, "mark": "waiting", "act": act });
+        let mut rows = vec![json!({ "id": "compost", "label": "Compost", "group": "installed", "mark": "compost" })];
+        if self.installed.get() {
+            rows.push(json!({ "id": "waiting", "label": "Waiting", "group": "installed", "mark": "waiting", "do": { "open": "shed" }, "act": opens("shed") }));
+            rows.push(run("settings:waiting", "Settings of Waiting", "settings", "extensions.configure id=\"waiting\"".into()));
+            if !words.is_empty() { rows.push(run("remove:waiting:keep", "Remove Waiting", "remove", "extensions.uninstall id=\"waiting\" demo=\"keep\"".into())) }
+        } else {
+            rows.push(run("install:waiting", "Install Waiting", "available", "extensions.install id=\"waiting\"".into()));
+        }
+        let rows: Vec<Value> = rows.into_iter().filter(|row| words.is_empty() || format!("{} {}", row["label"].as_str().unwrap(), row["mark"].as_str().unwrap()).to_lowercase().contains(&words.to_lowercase())).collect();
+        json!({ "type": "list", "arrange": "rows", "rows": rows, "empty": "No extension matches." })
+    }
+}
 
 /// What the service answers with the screens extension installed: its screens, its kind rows and the list sources.
 pub fn served() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/served-screens.json")).expect("the served fixture is JSON") }
@@ -99,7 +157,7 @@ fn under(parent: Option<&str>) -> &'static [(&'static str, &'static str, bool)] 
 fn opens(id: &str) -> String { format!("open id=\"{id}\"") }
 
 /// `lists.read`, as the host would answer it for the garden: a row says what it shows and the act line a pick runs.
-fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: bool) -> Result<Value, (&'static str, String)> {
+fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: bool, waiting: &Waiting) -> Result<Value, (&'static str, String)> {
     let from = ask["from"].as_str().unwrap_or("");
     let words = ask["query"].as_str().unwrap_or("");
     let note = |id: &str, label: &str, detail: &str| json!({ "id": id, "label": label, "detail": detail, "do": { "open": id }, "act": opens(id) });
@@ -237,6 +295,11 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
             Ok(json!({ "from": from, "list": { "type": "list", "arrange": "rows", "title": "Components · 2", "groups": [{ "name": "layout", "label": "layout", "count": 1 }, { "name": "figures", "label": "figures", "count": 1 }],
                 "rows": [{ "id": "callout", "label": "Callouts", "detail": "`> [!type]` at the start of a quote", "mark": "callout", "group": "layout", "folds": true }, stat] }, "open": open.iter().filter(|id| **id == "graph-stat").collect::<Vec<_>>(), "anyChange": true }))
         }
+        "extensions" => answer(waiting.rows(words)),
+        "outlines" => answer(json!({ "type": "list", "arrange": "rows", "empty": "No outline by that name: this lists the ones there are and makes none.", "rows": known()["outlines"].as_array().unwrap().iter().filter(|o| words.is_empty() || o["name"].as_str().unwrap().contains(words)).map(|o| {
+            let (name, machine) = (o["name"].as_str().unwrap(), o["machine"].as_str());
+            json!({ "id": machine.map_or(name.to_string(), |m| format!("{m}/{name}")), "label": name, "detail": machine.map_or("on this machine".to_string(), |m| format!("on {m}")), "act": match machine { Some(m) => format!("outline.switch name=\"{name}\" machine=\"{m}\""), None => format!("outline.switch name=\"{name}\"") } })
+        }).collect::<Vec<_>>() })),
         other => Err(("invalid", format!("lists.read lists children, search, query, lanes, facets, links, properties, activity, clients, screens (from=sources says what each reads), not \"{other}\""))),
     }
 }
@@ -264,18 +327,22 @@ pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_sc
 /// The garden, in a window that keeps its arrangement (and what is being written) in `kept` between runs.
 pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept)) }
 
-fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>) -> Garden {
+/// A stand-in host for one outline: the link to it, and what a test reads and says on it.
+struct Host { link: Standin, asked: Asked, said: Said, screens: Rc<RefCell<Value>>, shipped: Rc<std::cell::Cell<bool>> }
+
+fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, outline: &'static str) -> Host {
     let (asked, said): (Asked, Said) = Default::default();
     let texts: Rc<RefCell<std::collections::HashMap<String, (u64, String)>>> = Default::default();
     let screens: Rc<RefCell<Value>> = Rc::new(RefCell::new(json!([])));
     let listed = screens.clone();
     let shipped = Rc::new(std::cell::Cell::new(with_screens));
     let installed = shipped.clone();
+    let waiting = Waiting { installed: Rc::new(std::cell::Cell::new(false)), warn: Rc::new(std::cell::Cell::new(None)) };
     let answers: Answers = Box::new(move |ask| {
         let note = ask["blockId"].as_str().unwrap_or("").to_string();
         let titled = |id: &str| match id { "plot" => "Plot", "onions" => "Lift the onions", "beans" => "Water the beans", "shed" => "Shed", "new" => "", _ => "Take the fork" }.to_string();
         match ask["action"].as_str().unwrap_or("") {
-            "ping" => Ok(json!({ "status": "ready", "protocolVersion": PROTOCOL, "location": { "machine": "box" }, "outline": { "name": "garden" } })),
+            "ping" => Ok(json!({ "status": "ready", "protocolVersion": PROTOCOL, "location": { "machine": "box" }, "outline": { "name": outline } })),
             "notes.page" => {
                 let (revision, text) = texts.borrow().get(&note).cloned().unwrap_or((3, format!("{} [type::chore]\nBefore the rain.", titled(&note))));
                 Ok(page(&note, &titled(&note), revision, &text))
@@ -296,13 +363,34 @@ fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_scre
             "screens.save" => Ok(json!({ "name": "beds", "title": "Beds", "id": "screen-note", "revision": ask["base"]["revision"].as_u64().map_or(1, |r| r + 1), "created": ask["base"].is_null() })),
             // The screens and kinds every door ships, as the service answers them with the screens extension
             // installed (outline-core's fixture, written by the outliner's own test), then the outline's own
-            // screens: none, until a test's host says otherwise (`screens_are`).
+            // screens: none, until a test's host says otherwise (`screens_are`); then what the made-up extension
+            // serves while it is installed.
             "screens.list" => {
+                let (theirs, kinds) = waiting.served();
                 let mut screens = if shipped.get() { served()["screens"].as_array().cloned().unwrap_or_default() } else { Vec::new() };
                 screens.extend(listed.borrow().as_array().cloned().unwrap_or_default());
-                Ok(json!({ "screens": screens, "kinds": if shipped.get() { served()["kinds"].clone() } else { json!([]) }, "problems": [], "anyChange": true }))
+                screens.extend(theirs);
+                let mut all = if shipped.get() { served()["kinds"].as_array().cloned().unwrap_or_default() } else { Vec::new() };
+                all.extend(kinds);
+                Ok(json!({ "screens": screens, "kinds": all, "problems": [], "anyChange": true }))
             }
-            "lists.read" => list(ask, &titled, &listed.borrow(), shipped.get()),
+            "lists.read" => list(ask, &titled, &listed.borrow(), shipped.get(), &waiting),
+            // The extensions, as the service lists, installs, removes and configures them: its own words on each.
+            "extensions.list" => Ok(waiting.listed()),
+            "extensions.install" => match ask["extension"].as_str() {
+                Some("waiting") => { waiting.installed.set(true); Ok(json!({ "id": "waiting", "page": "shed", "lines": ["copied it into this outline's extensions", "wrote its page and 2 demo notes under Extensions"] })) }
+                other => Err(("not-found", format!("no extension {} in the repo", other.unwrap_or("")))),
+            },
+            "extensions.uninstall" => { waiting.installed.set(false); Ok(json!({ "id": "waiting", "removed": true, "settingsKept": true, "demo": { "trashed": 0, "kept": [], "left": 2 }, "lines": ["removed its folder", "kept its 2 demo notes under its page", "kept its settings for a reinstall"] })) }
+            "extensions.configure" => {
+                // Checked against its schema, as the service does: a whole number of days, one at least.
+                if let Some(days) = ask["set"].get("warn-days") { match days.as_i64().filter(|days| *days >= 1) { Some(days) => waiting.warn.set(Some(days)), None => return Err(("invalid", "config.json: config doesn't match the config schema in extension.json (warn-days must be >= 1)".into())) } }
+                if ask["unset"].as_array().is_some_and(|names| names.iter().any(|name| name == "warn-days")) { waiting.warn.set(None) }
+                Ok(json!({ "id": "waiting", "settings": waiting.settings() }))
+            }
+            "extensions.act" => Ok(json!({ "extension": ask["extension"], "action": ask["extensionAction"], "message": "turned the heap" })),
+            "tiles.view" => waiting.view(ask["kind"].as_str().unwrap_or("")),
+            "outlines.known" => Ok(known()),
             "events.subscribe" => Ok(json!({ "subscribed": true })),
             // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
             "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "running", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
@@ -338,11 +426,27 @@ fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_scre
             action => Err(("failed", format!("no action {action}"))),
         }
     });
-    let mut app = App::new(Box::new(Standin { answers, asked: asked.clone(), said: said.clone() }), "garden");
+    Host { link: Standin { answers, asked: asked.clone(), said: said.clone() }, asked, said, screens, shipped: installed }
+}
+
+fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>) -> Garden {
+    let Host { link, asked, said, screens, shipped } = host(saves, with_screens, "garden");
+    let elsewhere: Elsewhere = Default::default();
+    let (links, beside) = (elsewhere.clone(), kept.map(std::path::Path::to_path_buf));
+    // The way to any other outline is another stand-in host, as the rule would find one: the same made-up notes
+    // under another name, on a link of its own. One on a machine nobody reaches says so.
+    let ways: crate::actions::Ways = Rc::new(move |at: &crate::store::OutlineAt| {
+        if !at.machine.is_empty() { return Err(format!("can't reach the outline host on {}: no route to it from here", at.machine)) }
+        let name: &'static str = Box::leak(at.outline.clone().into_boxed_str());
+        let there = host(ok(), true, name);
+        links.borrow_mut().insert(at.outline.clone(), (there.asked.clone(), there.said.clone()));
+        Ok(crate::client::Way { link: Box::new(there.link), kept: beside.as_ref().map(|path| path.with_file_name(format!("native-{}.layout.json", at.outline))) })
+    });
+    let mut app = App::new(Box::new(link), "garden").reaching(ways);
     if let Some(kept) = kept { app = app.arranged_in(kept.to_path_buf()) }
     app.start();
     app.settle();
-    Garden { app, asked, said, screens, shipped: installed }
+    Garden { app, asked, said, screens, shipped, elsewhere }
 }
 
 /// The host's screens are `rows` now, and it says so: the watched `screens.list` is read again.

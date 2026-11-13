@@ -40,6 +40,21 @@ fn a_key_is_bound_and_a_chord_is_read_only_in_keys_rs() {
 }
 
 #[test]
+fn where_the_keys_are_is_said_once_and_a_hint_row_reads_it() {
+    // Which layer has the keys is `App::person` (and `App::writing` for a block's draft and the list over it): a
+    // drawer that names a layer of its own shows another layer's keys (the editor's hint row did, under an open list).
+    none("a layer named by a drawer: ask App::writing or App::person", strays("Layer::", |path| !path.starts_with("tiles/")));
+    // The bar and the form draw their own hint rows, each under the one field it is the keys of.
+    let named: Vec<String> = strays("Layer::", |path| path == "keys.rs").into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert!(named.iter().all(|path| path == "bar.rs"), "a layer named outside keys.rs and the bar's own two hint rows: {named:?}");
+    // A screen's own keys are read off its spec in one place, and bound in keys.rs with the rows'.
+    none("a screen's keys read outside the spec's own reader", strays("[\"keys\"]", |path| path == "screen.rs"));
+    none("a screen's keys bound outside keys.rs", strays(".keys()", |path| path == "keys.rs").into_iter().filter(|found| found.contains("spec")).collect());
+    // Which kinds a rule of a screen holds on (`only`, `unless`) is read once, for a key and for a new-note rule alike.
+    none("the kinds a screen's rule holds on matched outside the spec's own reader (`screen::holds_on`)", ["\"only\"", "\"unless\""].iter().flat_map(|key| strays(key, |path| path == "screen.rs")).collect());
+}
+
+#[test]
 fn state_changes_only_under_actions_and_the_store() {
     let texts = sources();
     let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("the App is defined under actions/").1;
@@ -48,7 +63,9 @@ fn state_changes_only_under_actions_and_the_store() {
     none("App handed out to write: only Deref", strays("DerefMut", |_| false));
     none("the state handed out to write", strays("&mut State", |_| false));
     none("the store handed out to write", strays("&mut Store", |path| path == "store.rs"));
-    none("state behind a cell, where a view could write it", strays("RefCell", |_| false).into_iter().chain(strays("Cell<", |path| path == "store.rs")).collect());
+    // (The store's hub is behind one: the windows of a run share it, and a window's views read the answers as that
+    // window last took them, never the hub itself.)
+    none("state behind a cell, where a view could write it", strays("RefCell", |path| path == "store.rs").into_iter().chain(strays("Cell<", |path| path == "store.rs")).collect());
     // The ways in that are not acts are the kit's own hands and the link's life, each with the callers named here.
     for (hand, callers) in [
         (".field(", vec!["keys.rs"]),
@@ -214,9 +231,13 @@ fn kinds_screens_and_a_list_s_rows_are_the_service_s_and_the_window_keeps_no_cop
     for gone in ["src/tiles/tree.rs", "src/tiles/about.rs"] { assert!(!manifest.join(gone).exists(), "{gone}: a tree and what is about a note are lists, drawn by tiles/list.rs") }
     none("a screen or a kind catalogue compiled in", strays("include_str!(", |path| path == "main.rs"));
     // Rows come from one read. The reads the window mapped to rows itself are asked by nobody here.
-    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\"", "\"extensions.list\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\""].iter().flat_map(|read| strays(read, |_| false)).collect());
     none("lists.read asked from somewhere new (`App::ask_of` makes every one: a tile's and the bar's)", strays("\"lists.read\"", |path| path == "actions/app.rs"));
     none("the screens asked from somewhere new", strays("\"screens.list\"", |path| path == "actions/app.rs"));
+    // What the extensions add is held as the service lists it (`ext.rs`: a setting's schema for its form, an
+    // action's name), asked in one place; the bar's rows about extensions are a list the service answers.
+    none("the extensions asked from somewhere new", strays("\"extensions.list\"", |path| path == "actions/app.rs"));
+    none("a bar row made from the extensions here: `lists.read from=extensions` lists them", strays("BarRow {", |path| path == "bar.rs"));
     // A row's act line is the row's own: nothing anywhere writes an open for a row, a child or a link.
     none("an act line written for a row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line(", "tile.emit"].iter().flat_map(|line| strays(line, |_| false)).collect());
     // A kind is found by the service's row (`App::kind_row`), never compared by name.
@@ -444,7 +465,7 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // A press leaves a selection as it is in one place, the toolbar (its button that comments is pressed for the words
     // selected), and the words are let go without the reader saying so in one, the bar put away.
     none("a press that keeps the selection outside the toolbar", strays("keeps_text_selection", |path| path == "shell.rs"));
-    none("the words selected let go outside the bar's own actions", calls("let_go", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
+    none("the words selected let go outside the bar's own actions", calls("unselect", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
     // One name a send: made in one place, and a request is named by it in one.
     none("a send named outside the session and the action that sends", calls("send_name", |path| path == "draft.rs" || path == "actions/review.rs"));
     none("a request about a note named outside the action that sends it", calls("request_id", |path| path == "actions/review.rs"));
@@ -454,7 +475,38 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
     assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));
     // A screen's own keys: read from its spec by the key table alone, each key's name read as a chord by one reader.
-    none("a screen's keys read outside the key table (`App::screen_keys`, through `Spec::keys`)", strays("[\"keys\"]", |path| path == "screen.rs").into_iter().chain(calls("screen_keys", |path| path == "keys.rs")).collect());
+    none("a screen's keys read outside the key table (`keys::screen_binds`, through `Spec::keys`)", strays("[\"keys\"]", |path| path == "screen.rs").into_iter().chain(calls("screen_binds", |path| path == "keys.rs")).collect());
     none("a key's name read as a chord outside the key table", calls("chord_named", |path| path == "keys.rs"));
     none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
+}
+
+/// W7: a window, an outline and an extension each have one owner.
+#[test]
+fn a_window_an_outline_and_an_extension_each_have_one_owner() {
+    // A window is opened by the shell, over the state an act made for it, and taken from the turn's own poll.
+    none("a window opened outside the shell", strays("open_window(", |path| path == "shell.rs"));
+    none("the windows an act asked for taken somewhere new", strays(".born()", |path| path == "main.rs"));
+    // One store a run: a window's is a face on the first window's hub, made by the action that tears a tile out.
+    none("a second store made: `Store::beside` shares the hub", strays("Store::new()", |path| ["actions/app.rs", "store.rs"].contains(&path)));
+    none("a window's face on the store made outside the action that tears a tile", strays(".beside(", |path| ["actions/window.rs", "store.rs"].contains(&path)));
+    // Which window a request is for is the control socket's to say, by the one registry of them.
+    none("the windows' registry kept outside control.rs", strays("AppHandle<", |path| path == "control.rs"));
+    // An outline is reached by the rule every client opens one by, asked through one function; which outlines there
+    // are is the service's list, asked by the switch itself; and only the switch moves a window to another.
+    none("the way to an outline asked outside the one place", strays("client::way(", |path| path == "main.rs"));
+    none("the outlines asked from somewhere new", strays("\"outlines.known\"", |path| path == "actions/outline.rs"));
+    none("a window moved to another outline outside its action", strays("st.at =", |path| path == "actions/outline.rs"));
+    // An extension is installed, removed, configured and run by its own actions, which nothing else names; a
+    // rendered tile is asked in one place.
+    none("an extension changed outside its own actions", ["\"extensions.install\"", "\"extensions.uninstall\"", "\"extensions.configure\"", "\"extensions.act\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/ext.rs")).collect());
+    none("a rendered tile asked from somewhere new", strays("\"tiles.view\"", |path| path == "actions/app.rs"));
+    // Whose a script's act or a draft's ask is, the store is told by the action that knows; it reads no request to guess.
+    none("the store told whose an event is from somewhere new", [".pressing(", ".holding("].iter().flat_map(|call| strays(call, |path| ["actions/script.rs", "actions/draft.rs", "store.rs"].contains(&path))).collect());
+    let texts = sources();
+    let store = &texts.iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
+    assert!(!store.contains("\"scripts.sequence\"") && !store.contains("\"drafts.hold\""), "the store sniffs no request for whose its answer's events are");
+    // The form holds what is typed; what a field is comes from the schema each time it is drawn.
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("app.rs").1;
+    let field = app.split("pub struct FormField {").nth(1).and_then(|rest| rest.split('}').next()).expect("FormField");
+    assert!(!field.contains("description") && !field.contains("choices") && !field.contains("default"), "a form's field keeps no copy of its schema: {field}");
 }

@@ -137,7 +137,7 @@ fn with_no_screens_extension_the_window_says_so_and_opens_when_it_is_installed()
     let (shipped, screens, asked, said) = (g.shipped.clone(), g.screens.clone(), g.asked.clone(), g.said.clone());
     let mut rt = window(g.app);
     assert!(rt.find("notice").is_some() && keyed(&rt, "tile/").is_empty());
-    let mut g = Garden { app: rt.state, asked, said, screens, shipped };
+    let mut g = Garden { app: rt.state, asked, said, screens, shipped, elsewhere: Default::default() };
     // The bar still lists what this window has of its own, and the service's own words for the screens.
     assert!(act(&mut g.app, "bar.open scope=screens").ok);
     assert!(crate::bar::rows(&g.app).is_empty());
