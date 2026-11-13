@@ -455,9 +455,10 @@ extension or saving a screen note, never by building the window again.
 `cargo test -- --ignored live` runs the same window against a scratch host: among them the draft's whole sentence
 (written with completions from the service's own sources while an agent patches it over the control socket, the
 window ended mid-word, the text found back), what is about a note (a comment on words of it, a reply, the
-thread resolved; words selected across each form of link, a reference drawn as its note's title, bold text and two
-paragraphs, each comment anchored to the source they were drawn from, and words not in the note refused with the
-comment kept; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
+thread resolved; words dragged over with the mouse from one paragraph into the next, across a link and bold text;
+words selected across each form of link, a reference drawn as its note's title, bold text, two paragraphs and a
+rule between two, each comment anchored to the source they were drawn from, and words not in the note refused with
+the comment kept; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
 keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
 bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
 removed by an agent's act; then a switch to a second outline of the same host and back), and the tree's folds (beds
@@ -565,7 +566,8 @@ toolbar button is
 - Comments: words one part of a note draws twice can't be told apart by a selection (the window knows the part a
   selection is in, not where in it), so such a comment is refused with why until a few more words are selected; and
   words a part shows that the note's text doesn't hold (a figure's numbers, a list's rows, another note's text
-  embedded) are no passage of it. No mark is drawn in the note where a thread is anchored; a posted comment isn't edited here, nor a thread marked seen or kept; highlights and
+  embedded) are no passage of it. A drag that starts on a link's label selects nothing (the press is the link's):
+  a selection across a link starts beside it. No mark is drawn in the note where a thread is anchored; a posted comment isn't edited here, nor a thread marked seen or kept; highlights and
   the agent that answers in threads have no press. A reply is written in the reader, not in the list.
 - Proposals: a proposal that also makes or moves notes says how many such changes it holds and doesn't list them;
   "resolve against the note now" (the outline agent's) has no press here.
