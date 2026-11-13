@@ -189,6 +189,8 @@ const QUOTED: { name: string; text: string; passage: QuotedPassage }[] = [
   { name: "words nobody wrote", text: PLOT_TEXT, passage: { quote: "words nobody wrote" } },
   { name: "a stand-in page that draws more than its note's text holds: the words are not in the note", text: PLOT_TEXT,
     passage: { quote: "Before the rain. See the shed and seeds.", drawn: true, within: { start: 19, end: 35 } } },
+  { name: "a selection that starts on a year and its full stop, mid-sentence: the whole of it, once (no list's number is read into it)", text: "The frost came late in 2026. Then it rained for a week.\n\nThen it rained again in May.",
+    passage: { quote: "2026. Then it rained", drawn: true } },
 ];
 
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */

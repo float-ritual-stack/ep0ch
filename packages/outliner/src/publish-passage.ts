@@ -9,7 +9,7 @@
 // side agree most with what the page sent is the place. A reference drawn as another note's title has no words of
 // its own on a page's reading: a selection across it isn't found. Pure: no I/O.
 
-import { drawnPlaces, drawnSpan, drawnText, drawnWords, type DrawnText } from "@ep0ch/outline-core/drawn-passage";
+import { drawnPlaces, drawnSpan, drawnText, quoteReadings, type DrawnText } from "@ep0ch/outline-core/drawn-passage";
 import { passageAt, type Passage } from "@ep0ch/outline-core/passage";
 
 /** One block the page shows: its id, revision and source. */
@@ -41,17 +41,18 @@ function agreement(a: string, b: string, fromStart: boolean): number {
  * or once among repeats by the drawn words around it; anything else is refused with why.
  */
 export function findPagePassage(blocks: readonly ShownBlock[], selection: DrawnSelection): FoundPassage {
-  if (!drawnWords(selection.quote)) return { ok: false, why: "nothing is selected: select some words first" };
-  const prefix = drawnWords(selection.prefix ?? ""), suffix = drawnWords(selection.suffix ?? "");
+  if (!quoteReadings(selection.quote).length) return { ok: false, why: "nothing is selected: select some words first" };
+  // The words around are read as the quote is: as they are, and as the source is read (a selection's edge may be mid-line).
+  const prefixes = quoteReadings(selection.prefix ?? ""), suffixes = quoteReadings(selection.suffix ?? "");
+  const most = (readings: string[], agrees: (words: string) => number) => Math.max(0, ...readings.map(agrees));
   type Hit = { block: ShownBlock; drawn: DrawnText; index: number; length: number; score: number };
   const hits: Hit[] = [];
   for (const block of blocks) {
     const drawn = drawnText(block.text), { words, places } = drawnPlaces(drawn, selection.quote);
     if (words.length > 4000) return { ok: false, why: "that selection is too long to mark: select at most a few paragraphs" };
     for (const index of places) {
-      const before = drawn.text.slice(Math.max(0, index - prefix.length), index).trimEnd();
-      const after = drawn.text.slice(index + words.length, index + words.length + suffix.length).trimStart();
-      const score = agreement(before, prefix.trimEnd(), false) + agreement(after, suffix.trimStart(), true);
+      const score = most(prefixes, prefix => agreement(drawn.text.slice(Math.max(0, index - prefix.length), index).trimEnd(), prefix, false))
+        + most(suffixes, suffix => agreement(drawn.text.slice(index + words.length, index + words.length + suffix.length).trimStart(), suffix, true));
       hits.push({ block, drawn, index, length: words.length, score });
     }
   }

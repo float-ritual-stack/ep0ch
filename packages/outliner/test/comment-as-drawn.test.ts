@@ -11,6 +11,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { createBlockComment } from "../src/block-comments";
+import { findPagePassage } from "../src/publish-passage";
 import type { AnnotationThread, Block, BlockCommentPassage, WorkspaceSnapshot } from "../src/types";
 
 async function fixture(run: (client: OutlinerClient) => Promise<void>) {
@@ -173,3 +174,17 @@ test("where a drawn passage is in the source has one owner", () => {
   expect(owner).toContain("findPassage(drawn.text, words");
   expect(owner).toContain("quotePlaces(drawn.text, words");
 });
+
+// A selection's edge may be mid-line: what a line would start with (a list's number, a dash) is words there. The
+// service's comment and the published page's finder read the quote, and the words around it, the same two ways.
+test("a selection that starts on a year and its full stop is the whole of it, in a comment and on a published page", () => fixture(async c => {
+  const text = "The frost came late in 2026. Then it rained for a week.\n\nThen it rained again in May.";
+  const bed = await c.request<Block>({ action: "create", text: `Rain log\n${text}` });
+  expect(await anchored(c, bed, { quote: "2026. Then it rained", drawn: true })).toBe("2026. Then it rained");
+  const page = findPagePassage([{ id: bed.id, revision: bed.revision, text: bed.text }], { quote: "2026. Then it rained" });
+  expect(page.ok && page.passage.quote).toBe("2026. Then it rained");
+  // The words after a selection say which repeat it is, a year among them.
+  const twice = "the beds in 2026. Then it rained.\n\nthe beds in 2027. Then it rained.";
+  const second = findPagePassage([{ id: "b", revision: 1, text: twice }], { quote: "the beds in", prefix: "", suffix: " 2027. Then it" });
+  expect(second.ok && second.passage.start).toBe(twice.lastIndexOf("the beds"));
+}));

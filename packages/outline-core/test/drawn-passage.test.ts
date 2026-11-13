@@ -170,3 +170,28 @@ test("a comment's refusal says its kind and the nearest words", () => {
   expect(a?.message).toStartWith("Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId (");
   expect(b?.message).toStartWith("Comment quote or context was not found; read the current source and select it again (");
 });
+
+test("a quote that starts with what looks like a line's marker keeps it when the note has those words", () => {
+  // A selection that starts mid-sentence, on a year and its full stop: no list was selected.
+  const text = "The frost came late in 2026. Then it rained for a week.\n\nThen it rained again in May.";
+  expect(at(text, "2026. Then it rained")).toBe("2026. Then it rained");
+  // As it was read before (a list's number, not drawn), the words left were in the note twice.
+  const stripped = findDrawnPassage(text, "Then it rained");
+  expect(isMiss(stripped) && stripped.count).toBe(2);
+  // The same for a dash, a quote's mark and a heading's, and for a line of dashes selected out of a sentence.
+  expect(at("Sow peas - beans wait.\n\nbeans wait for May.", "- beans wait")).toBe("- beans wait");
+  expect(at("Is 3 > 2 in this bed? 2 in this bed is enough.", "> 2 in this bed")).toBe("> 2 in this bed");
+  expect(at("Bed # 4 is fallow. 4 is fallow too.", "# 4 is fallow")).toBe("# 4 is fallow");
+  expect(at("Cut here --- and here.", "---")).toBe("---");
+  // The words drawn after a passage say which repeat it is, read the same way.
+  const twice = "the beds in 2026. Then it rained.\n\nthe beds in 2027. Then it rained.";
+  expect(findDrawnPassage(twice, "the beds in", { suffix: " 2027. Then" })).toEqual({ start: twice.lastIndexOf("the beds"), end: twice.lastIndexOf("the beds") + 11 });
+  // A reader that copies an item with its marker still finds the item: the marker is in no drawn text.
+  const list = "Sow:\n\n1. Peas in March\n2. Beans in May";
+  expect(at(list, "1. Peas in March\n2. Beans")).toBe("Peas in March\n2. Beans");
+  expect(at("- Peas in March\n- Beans in May", "- Beans in May")).toBe("Beans in May");
+  expect(at("# Sowing\n\nPeas first.", "# Sowing\n\nPeas")).toBe("Sowing\n\nPeas");
+  // As a comment's quote, drawn or said no way.
+  expect(findQuoted(text, { quote: "2026. Then it rained", drawn: true })).toEqual({ start: text.indexOf("2026."), end: text.indexOf("2026.") + 20 });
+  expect(findQuoted(text, { quote: "2026.  Then it *rained*" })).toEqual({ start: text.indexOf("2026."), end: text.indexOf("2026.") + 20 });
+});
