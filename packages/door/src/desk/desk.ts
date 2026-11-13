@@ -86,6 +86,7 @@ import {
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
+import { reviveWires } from "./saved-wires";
 import { frameTitle, tileNote, tileTitle } from "./tile-title";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -1280,28 +1281,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (kept.length) { adopt?.kept.push(...kept.map(id => `${names.get(id)} ${kindOf(old.get(id)!)?.workWords?.(old.get(id)!) ?? "holds work"}`));
       tree = keptInDock(tree, kept);   // one dock keeps them all, with what an earlier undo kept (PIE-1575)
     }
-    const wires: TileWire[] = [];
-    this.selectSeeds.clear();
-    const across: import("./screen-layout").AcrossWire<number>[] = [];
-    const sourceWires: typeof wantWires = [];
-    for (const [to, savedSource] of wantSources) {
-      const source = references.get(savedSource) ?? savedSource;
-      const src = [...names].find(([id, n]) => this.tileId(id) === source || n === source)?.[0];
-      const container = node(tree, source);
-      if (container || src === undefined) this.selectSeeds.set(to, source);
-      for (const from of src !== undefined ? [src] : container ? leaves(container) : []) sourceWires.push({ from, verb: "select", to: this.tileId(to) });
-    }
-    for (const { from, verb, to: savedTo, rule } of [...sourceWires, ...wantWires]) {
-      const pane = this.panes.get(from);
-      if (pane instanceof ScreenTile && pane.group) continue;
-      for (let i = wires.length - 1; i >= 0; i--) if (verb !== "select" && wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
-      for (let i = across.length - 1; i >= 0; i--) if (verb !== "select" && across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
-      const to = references.get(savedTo) ?? savedTo;
-      const target = [...names].find(([id, n]) => this.tileId(id) === to || n === to)?.[0];
-      if (target === undefined) { if (!across.some(w => w.from === from && w.verb === verb && w.to === to)) across.push({ from, to, verb, rule }); continue; }
-      if (target === from && !own && !rule && verb !== "open") continue;   // an open wired to itself is in place (PIE-1516): kept through a restart and into a group
-      if (!wires.some(w => w.from === from && w.verb === verb && w.to === target)) wires.push({ from, verb, to: target, ...(rule ? { rule } : {}) });
-    }
+    // The saved wires and select sources, as this layout's wires, wires across and seeds (saved-wires.ts).
+    const { wires, across, seeds } = reviveWires({ sources: wantSources, wires: wantWires }, { tree, names, references, tileId: id => this.tileId(id), group: id => { const p = this.panes.get(id); return p instanceof ScreenTile && !!p.group; }, own });
+    this.selectSeeds.clear(); for (const [id, source] of seeds) this.selectSeeds.set(id, source);
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
     const policy = { ...policyOf(spec.policy), ...(spec.rule === "next" ? { opens: "next" as const } : {}) };
     const restorePolicy = (p: Policy | undefined) => {
