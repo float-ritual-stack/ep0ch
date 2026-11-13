@@ -85,5 +85,20 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       expect(p.capture()).toContain("Pin: □ not pinned · p pins");
     } finally { p.close(); }
   }, 60_000);
+
+  // One key's undo said "put the layout back · 2 steps": how many entries it took is the mechanism, not what Evan did.
+  test("one ^W B after a tile left a group for the drawer says what it put back, not how many steps", async () => {
+    const p = await doors.pane(await doors.create("Pea sticks\ncut birch"), "Pea sticks", 120, 30);
+    try {
+      p.keys("C-w", "v"); await until(() => deskOf(p).length === 2, "two tiles");
+      p.keys("C-w", "G"); await until(() => p.capture().includes("gather into a group"), "the question");
+      p.keys("Down"); p.keys("Enter"); await until(() => layers(p).some(l => l.screen === "group"), "the group");
+      p.keys("C-w", "e"); await until(() => p.capture().includes("in the group"), "in the group");
+      p.keys("C-w", "a"); await until(() => layers(p).find(l => l.drawer)?.tiles.length === 2, "one tile in the drawer");
+      p.keys("C-w", "B");
+      await until(() => p.capture().includes("put the layout back"), "the undo said");
+      expect(p.capture()).not.toMatch(/put the layout back · \d+ steps/);
+    } finally { p.close(); }
+  }, 60_000);
 });
 

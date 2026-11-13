@@ -1017,7 +1017,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const entries = this.steps.takeBack(this, actor, txn);
     if (!Array.isArray(entries)) throw new ActionRefused(entries.refused);
     const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.party === "you" ? entries[0]!.first ?? entries[0]!.what : entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };   // the person's own key says what it did (PIE-1782)
   }
 
   /**
