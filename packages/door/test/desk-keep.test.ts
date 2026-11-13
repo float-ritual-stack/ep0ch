@@ -52,6 +52,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       const ls = layers(p), group = ls.find(l => l.screen === "group");
       console.log(JSON.stringify(ls.map(l => [l.screen, l.tiles.map(t => t.name)])));
       expect(group?.tiles.map(t => t.name).sort()).toEqual(["answer", "detail3"]);
+      // Its fold runs in its reader, on the desk around the group (CodeRabbit on #1492: it was refused as "not on this screen").
+      const answer = group!.tiles.find(t => t.name === "answer")!;
+      const fold = p.act("answer.fold", `tile=${answer.tile}`);
+      expect({ ok: fold.ok, said: fold.ok ? "" : fold.out.split("\n")[0] }).toEqual({ ok: true, said: "" });
     } finally { p.close(); }
   }, 90_000);
 

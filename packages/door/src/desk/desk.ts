@@ -3151,9 +3151,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
-    const id = this.idOf(p);
-    if (p && id === undefined) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
-    return this.dispatch.act({ action, args, ...(id !== undefined ? { tile: this.tileId(id) } : {}) }, by);
+    const d = p && this.idOf(p) === undefined ? this.relatives().find(x => x.idOf(p) !== undefined) : this, id = d?.idOf(p);   // a tile of the family (a grouped answer's reader, outside the group) runs on its own desk
+    if (p && (!d || id === undefined)) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
+    return d!.dispatch.act({ action, args, ...(id !== undefined ? { tile: d!.tileId(id) } : {}) }, by);
   }
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked(p: Pane): Pane | undefined {
