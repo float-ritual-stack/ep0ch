@@ -1,3 +1,4 @@
+import { TXN } from "./surface/txn";
 import { drawerFootEsc } from "./esc-door";
 import { DoorKeys, keysThrough, wayOut, type KeysLayer, type WayOut } from "./desk/keys-fact";
 import { StepRecord } from "./desk/step-record";
@@ -664,8 +665,10 @@ export class AgentDrawer {
    * the terminal host kept for it as the desk is made, the rest starting as first drawn. A drawer never saved before
    * gets one agent tab running the last agent picked.
    */
-  get desk(): Desk | null {
-    if (this.d) return this.d;
+  // Made outside any transaction it's first asked in (PIE-1798): a pair's first move into a fresh drawer made it, its
+  // shell's start a step of that move, and ^W B took the shell back with the move.
+  get desk(): Desk | null { return this.d ?? TXN.exit(() => this.makeDesk()); }
+  private makeDesk(): Desk | null {
     const ctx = this.host.ctx?.();
     if (!ctx) return null;
     // The App learns its outline after construction; choose only when the drawer can use that context.
