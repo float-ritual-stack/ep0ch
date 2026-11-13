@@ -100,5 +100,26 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       expect(p.capture()).not.toMatch(/put the layout back · \d+ steps/);
     } finally { p.close(); }
   }, 60_000);
+
+  // PIE-1777: in the drawer, ^W x on a reader tab hands its note to its preview (the close heir); the preview takes the
+  // closed tab's place in front, and the shell tab doesn't come forward. On main c0ef616 this already holds: proof.
+  test("in the drawer, a closed reader tab's preview takes its note in the tab's place", async () => {
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 120, 30);
+    try {
+      const drawer = () => layers(p).find(l => l.drawer)!;
+      p.keys("C-w", "v"); await until(() => deskOf(p).length === 2, "a preview");
+      expect(p.act("tile.open", "kind=reader").ok).toBe(true);
+      await until(() => deskOf(p).length === 3, "a third tile");
+      p.keys("C-w", "h"); await Bun.sleep(300);
+      p.keys("C-w", "a"); await until(() => drawer().tiles.some(t => t.name === "detail"), "detail in the drawer");
+      expect(p.act("tile.drawer", "tile=detail-preview").ok).toBe(true);
+      await until(() => drawer().tiles.some(t => t.name === "detail-preview"), "its preview in the drawer");
+      await until(() => drawer().tiles.find(t => t.focused)?.name === "detail", "his keys on detail, where ^W a left them");
+      p.keys("C-w", "x");
+      await until(() => !drawer().tiles.some(t => t.name === "detail"), "detail closed");
+      const front = drawer().tiles.find(t => t.focused)!;
+      expect({ name: front.name, showing: front.showing?.title }).toEqual({ name: "detail-preview", showing: "Seed tray" });
+    } finally { p.close(); }
+  }, 60_000);
 });
 
