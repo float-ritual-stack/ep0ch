@@ -1,15 +1,14 @@
 // Write receipts, read-your-writes and outline_query on the remote MCP gateway (PIE-648), end to end over real HTTP, on
 // the same footing as mcp-writes.test.ts: a "here" scratch host the gateway writes directly, and a far box standing in
-// for the laptop, whose outline the gateway serves from a mirror, queues writes for, and which pulls them over the fake
+// for the laptop, whose outline the gateway serves from its copy here (a follower of its change log), queues writes for, and which pulls them over the fake
 // ssh. Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
-import { OutlineMirror } from "../src/mcp-mirror";
+import { OutlineFollower } from "../src/mcp-mirror";
 import { pullNetmail, type NetmailReceipt } from "../src/mcp-netmail";
 import { pendingOverlay, receiptStatus } from "../src/mcp-receipts";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
@@ -40,15 +39,9 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     boards.push(b);
     return b;
   };
-  // The mirror looks for a newer copy every 15 seconds of its clock; a follow moves the clock past that.
-  let clock = Date.now();
-  const follow = (name: string) => {
-    clock += 16_000;
-    const target = join(mirrors, FAR, `${name}.sqlite`);
-    rmSync(target, { force: true });
-    const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
-    try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
-  };
+  let mirror: OutlineFollower;
+  /** The copy here takes what the far box's log holds now (its follower asks at once, as it does on the far box's events). */
+  const follow = async () => { await mirror.pull(); };
   const token = async (sub: string) => new SignJWT({ client_id: CLIENT, scope: "profile" })
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(sub).setAudience(RESOURCE)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
@@ -90,7 +83,6 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     dir = scratchDir("ep0ch-mcpr-");
     mirrors = join(dir, "mirrors");
     mkdirSync(join(mirrors, FAR), { recursive: true });
-    follow("attic-notes");
     mkdirSync(join(dir, "bin")); mkdirSync(join(dir, "hub-home")); mkdirSync(join(dir, "hub-outlines"));
     writeFileSync(join(dir, "bin", "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test", "fake-ssh.ts")} "$@"\n`);
     writeFileSync(join(dir, "bin", "ep0ch"), `#!/bin/sh\nEP0CH_MCP_MIRROR_DIR=${mirrors} exec ${process.execPath} ${join(DOOR, "src/main.ts")} "$@"\n`);
@@ -102,7 +94,8 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
 
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: `${PERSON},${OTHER}` });
     if ("error" in config) throw new Error(config.error);
-    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), () => clock, async () => null);
+    mirror = new OutlineFollower("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, { reach: async () => far.sock });
+    await follow();
     const outlines = machineOutlines(undefined, line => logs.push(line), async name => ["garden-notes", "quiet-notes"].includes(name) ? boardOn(here, name, HERE) : { error: "no such outline" },
       [mirror], async () => ["garden-notes", "quiet-notes"], join(mirrors, ".netmail.sqlite"));
     closeOutlines = outlines.close;
@@ -141,7 +134,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     expect((await textOf(far, "attic-notes", FAR, proposed.proposal.split("/").at(-1)!)).properties).toContainEqual({ key: "proposal-status", values: ["open"] });
 
     // The mirror catches up with the proposal open: still proposed. Its owner dismisses it: the next copy says rejected.
-    follow("attic-notes");
+    await follow();
     expect((await tool("outline_write_status", { queueId: q2.json.queueId })).json.state).toBe("proposed");
     const proposalId = proposed.proposal.split("/").at(-1)!;
     const proposalBlock = await textOf(far, "attic-notes", FAR, proposalId);
@@ -149,7 +142,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
       // Without a holding door the dismissal is the status chip: the same property the door's action sets.
       await boardOn(far, "attic-notes", FAR).request("update", { blockId: proposalId, text: proposalBlock.text.replace("[proposal-status::open]", "[proposal-status::dismissed]"), expectedRevision: proposalBlock.revision, mutation: { author: "user" } });
     });
-    follow("attic-notes");
+    await follow();
     expect((await tool("outline_write_status", { queueId: q2.json.queueId })).json).toMatchObject({ state: "rejected", reason: "its owner dismissed the proposal", proposal: proposed.proposal });
   }, 90_000);
 
@@ -160,7 +153,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     const a = await tool("outline_patch", { uri: uriOf("trunk"), revision: boxes.json.revision, patches: [{ observed: "A brass key", replacement: "A brass key, tarnished" }] });
     await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.trunk!, text: trunkNow.text.replace("A brass key", "A brass key, found on the far box"), expectedRevision: trunkNow.revision, mutation: { author: "user" } });
     expect((await pull()).ok).toBe(true);
-    follow("attic-notes");
+    await follow();
     expect((await tool("outline_write_status", { queueId: a.json.queueId })).json.state).toBe("proposed");
     const fresh = await tool("outline_read", { uri: uriOf("trunk") });
     const b = await tool("outline_patch", { uri: uriOf("trunk"), revision: fresh.json.revision, patches: [{ observed: "A brass key", replacement: "A brass key, polished" }] });
@@ -182,7 +175,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
   }, 60_000);
 
   test("read your writes: the writer's read lays its queued edits over the mirror, marked pending per span; nobody else sees them", async () => {
-    follow("attic-notes");
+    await follow();
     const read = await tool("outline_read", { uri: uriOf("trunk") });
     const q = await tool("outline_patch", { uri: uriOf("trunk"), revision: read.json.revision, patches: [{ observed: "Three candles", replacement: "Four candles" }] });
     const prop = await tool("outline_set_property", { uri: uriOf("trunk"), revision: read.json.revision, key: "room", value: "cellar" });
@@ -198,15 +191,12 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     const theirs = (await callAs(OTHER, "outline_read", { uri: uriOf("trunk") })).json;
     expect(theirs.pending).toBeUndefined();
     expect(theirs.record.body).toContain("Three candles");
-    // Once the far box pulls it and the mirror follows, the overlay is gone: the mirror has it.
+    // Once the far box pulls it, its change log brings the edit here (the follower is woken by the far box's events),
+    // and the overlay is gone: the copy has it.
     const pulled = await pull();
     expect(pulled.settled.map(s => s.state)).toEqual(["applied", "applied"]);
-    // Applied on the far box, not in the mirror yet: the writer still reads its edit, marked as applied there.
-    const between = (await tool("outline_read", { uri: uriOf("trunk") })).json;
-    expect(between.pending.entries).toEqual([expect.objectContaining({ queueId: q.json.queueId, state: "applied" }), expect.objectContaining({ queueId: prop.json.queueId, state: "applied" })]);
-    expect(between.pending.body).toContain("Four candles");
     expect((await callAs(OTHER, "outline_read", { uri: uriOf("trunk") })).json.pending).toBeUndefined();
-    follow("attic-notes");
+    await follow();
     const after = (await tool("outline_read", { uri: uriOf("trunk") })).json;
     expect(after.pending).toBeUndefined();
     expect(after.record.body).toContain("Four candles");

@@ -10,7 +10,6 @@ import { runbookText } from "./runbook";
 import { isRunbook } from "@ep0ch/outline-core/runbook";
 import { subtitleOf, valueOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
-import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import { likeEscaped, resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
@@ -21,6 +20,7 @@ import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
+import { endLogTransactionsOn, OutlineLog } from "./change-log";
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
@@ -64,7 +64,7 @@ import {
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { doneDay, roadmapStageOf, stageMoveText, ticketOf, ticketStageText } from "./work-stage-follows";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { openSchema } from "./schema";
+import { openSchema, SCHEMA_VERSION } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import { notEmptyWhy } from "./note-move";
@@ -699,6 +699,7 @@ export class OutlinerStore {
   /** The last graph `loadGraph` read or patched, and the other connections' commits (`data_version`) it is current for. */
   private graph: { version: number; graph: LoadedGraph } | undefined;
 
+  readonly log = new OutlineLog(() => this.database, SCHEMA_VERSION, () => { this.graph = undefined; }); // ADR 0009: ranges, cursor, apply, compaction
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
     mkdirSync(dirname(path), { recursive: true });
@@ -707,7 +708,7 @@ export class OutlinerStore {
     try {
       this.database = database = new Database(path, { create: true });
       this.configureTransactions();
-      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+      this.database.exec("PRAGMA foreign_keys = ON;");
       const created = this.prepareDatabase(path) === "created";
       noteGraphWrites(this.database);
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
@@ -2252,7 +2253,7 @@ export class OutlinerStore {
 
   /** Forgets every stored result of an extension's handler lines (its folder is gone). */
   forgetExtensionOutputs(extensionId: string): number {
-    return this.database.query("DELETE FROM extension_outputs WHERE extension_id = ?").run(extensionId).changes;
+    return this.database.query("DELETE FROM extension_outputs WHERE extension_id = ? RETURNING 1").all(extensionId).length;
   }
 
   /**
@@ -3151,7 +3152,6 @@ export class OutlinerStore {
         try {
           return this.resolveBlockRef(target).id;
         } catch (error) {
-          if (isSqliteBusy(error)) throw error;
           throw new BlockQueryError(`${atom}:${target} names no block (${error instanceof Error ? error.message : String(error)}). Name a page, a block id or a Work ID that exists, like ${atom}:[[projects]]`);
         }
       },
@@ -4277,7 +4277,6 @@ export class OutlinerStore {
         selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
         if (matches.machineryHidden) Object.assign(result, { machineryHidden: matches.machineryHidden });
       } catch (error) {
-        if (isSqliteBusy(error)) throw error;
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
       const blocks = format === "tree"
@@ -4983,13 +4982,14 @@ export class OutlinerStore {
   }
 
   /**
-   * Reserve the writer before reading: a deferred read-to-write upgrade can fail without waiting for busy_timeout.
-   * Read-only snapshots explicitly use deferred; repositories sharing this connection inherit immediate writes.
+   * Writes take the writer before they read (immediate); read-only snapshots say deferred. The outermost one that logged
+   * ends its change-log transaction (change-log.ts `endLogTransactionsOn`, ADR 0009).
    * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the graph
    * may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then, if it wrote: a read
    * of a gone note undoes nothing, and a whole read again holds pie's host 760 ms on float-2 (PIE-1610).
    */
   private configureTransactions(): void {
+    endLogTransactionsOn(this.database);
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
     type Run = (...args: unknown[]) => unknown;

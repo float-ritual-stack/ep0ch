@@ -1,28 +1,29 @@
-// The backup relay (PIE-645): when a machine can't reach the restic repository (the laptop on a work VPN that blocks
-// Hetzner object storage), its backup job hands each snapshot to the hub over the ssh path the netmail pull uses
-// (EP0CH_MCP_HUB, float-2). The hub, which can reach the bucket, verifies it, installs it as its mirror of that machine
-// (never an older schema, never an older change) and uploads it to that machine's repository on its behalf.
+// The backup relay (PIE-645, ADR 0009): when a machine can't reach the restic repository (the laptop on a work VPN that
+// blocks Hetzner object storage), its backup job hands each outline's archived log to the hub over the ssh path the
+// netmail pull uses (EP0CH_MCP_HUB, float-2). The hub, which can reach the bucket, adds what its own archive of that
+// machine's outline lacks (never over a log that differs) and uploads it to that machine's repository on its behalf.
 //
-//   sender    a consistent copy (the host's, jobs.ts hostCopy) streamed over ssh to `ep0ch backup receive` in a login shell;
-//             no scp: the file travels on the ssh command's stdin, so the fake ssh and the real one carry it the same
-//   receiver  `ep0ch backup receive --machine <m> --outline <n> --seq N --schema V --sha256 H` with the file on stdin:
-//             into a private incoming folder, checked (sha256, integrity_check, user_version, change feed), then the
-//             mirror (one rename) and the upload (restic with `--host <m>`, then retention)
+//   sender    the outline's archive of its current log (log-archive.ts `archivedRanges`), one range a line, streamed
+//             over ssh to `ep0ch backup receive` in a login shell; no scp: it travels on the ssh command's stdin
+//   receiver  `ep0ch backup receive --machine <m> --outline <n> --sha256 H` with the ranges on stdin: into a private
+//             incoming folder, checked (sha256, one log, meeting the archive), appended to `<state>/log/<m>/<n>/`, then
+//             the upload (restic with `--host <m>`, then retention)
 //
 // Secrets stay on each machine: the hub uses its own keys for the upload; nothing here reads or prints them.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { LogRange } from "@ep0ch/outliner/change-log";
+import { appendToArchive, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { lastJson, ssh } from "../mcp-netmail";
-import { type BackupState, readBackupState, writeBackupState } from "./alert";
 import { type BackupConfig, MACHINE_NAME } from "./config";
-import { changeSeq, ensureRepo, integrity, mirrorFolder, newer, replaceMirror, schemaVersion, takeLock } from "./jobs";
-import { backupFile, forget, OUTLINE_NAME } from "./restic";
+import { archiveRoot, ensureRepo, takeLock } from "./jobs";
+import { backupFolder, forget, OUTLINE_NAME } from "./restic";
 
-/** The hub's answer to a relayed copy. */
+/** The hub's answer to a relayed log. */
 export interface Received {
   ok: boolean;
-  /** `installed` as the mirror, `current` (the mirror already had this change or a later one), `older` (a newer schema is there). */
-  mirror?: "installed" | "current" | "older";
+  /** The newest entry the hub's archive holds now. */
+  lsn?: number;
   /** The snapshot the hub made in the machine's repository, or why it couldn't. */
   snapshot?: string;
   uploadError?: string;
@@ -37,16 +38,16 @@ export async function unreachable(repo: string, timeoutMs = 8_000): Promise<stri
   catch (e) { return `${m[2]} doesn't answer (${(e as Error).name === "TimeoutError" ? `no reply in ${Math.round(timeoutMs / 1000)}s` : (e as Error).message.split("\n")[0]})`; }
 }
 
-const sha256 = (path: string) => new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
+const sha256 = (bytes: Uint8Array | string) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 
-/** One outline's checked copy sent to the hub; what the hub made of it. */
-export async function relay(c: BackupConfig, hub: string, copy: string, o: { outline: string; seq: number | null; schema: number | null; timeoutMs?: number }): Promise<Received> {
+/** One outline's archived log sent to the hub; what the hub made of it. */
+export async function relay(c: BackupConfig, hub: string, o: { outline: string; logId: string; schema: number; root: string; timeoutMs?: number }): Promise<Received> {
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
-  if (!MACHINE_NAME.test(c.machine) || !/^\d+$/.test(String(o.seq ?? 0)) || !/^\d+$/.test(String(o.schema ?? 0))) return { ok: false, error: "the relay's arguments aren't plain names and numbers" };
+  if (!MACHINE_NAME.test(c.machine)) return { ok: false, error: "the relay's arguments aren't plain names" };
   // Read once: the checksum is of exactly the bytes sent.
-  const bytes = readFileSync(copy);
-  const argv = `--machine ${c.machine} --outline ${o.outline}${o.seq !== null ? ` --seq ${o.seq}` : ""}${o.schema !== null ? ` --schema ${o.schema}` : ""} --sha256 ${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`;
-  const r = await ssh(c.env, hub, `ep0ch backup receive ${argv}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
+  const text = archivedRanges(o.root, o.outline, o.logId).map(r => JSON.stringify(r)).join("\n") + "\n";
+  const bytes = new TextEncoder().encode(text);
+  const r = await ssh(c.env, hub, `ep0ch backup receive --machine ${c.machine} --outline ${o.outline} --sha256 ${sha256(bytes)}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
   try { return lastJson(r.out) as Received; } catch { /* no answer from the command itself */ }
   const why = r.code === 255 ? `${hub} doesn't answer over ssh` : r.code === 127 || /not found/.test(r.err) ? `${hub} has no ep0ch on a login shell's PATH` : `ep0ch backup receive on ${hub} failed (${r.code}): ${r.err.trim().split("\n").at(-1) ?? ""}`;
   return { ok: false, error: why };
@@ -83,60 +84,36 @@ async function lockFor(c: BackupConfig, waitMs: number): Promise<(() => void) | 
 }
 
 /**
- * The receiving side: a copy at `part` (already written under `incomingDir`), claimed to be `outline` of `machine` at
- * `seq`/`schema`. Verified, installed as the mirror, uploaded to `machine`'s repository.
+ * The receiving side: ranges at `part` (already written under `incomingDir`), claimed to be `outline`'s log on
+ * `machine`. Checked, added to this machine's archive of it, uploaded to `machine`'s repository.
  */
-export async function receive(c: BackupConfig, o: { machine: string; outline: string; seq: number | null; schema: number | null; sha256?: string; part: string; lockWaitMs?: number; now?: () => number }): Promise<Received> {
-  const now = o.now ?? Date.now;
+export async function receive(c: BackupConfig, o: { machine: string; outline: string; sha256?: string; part: string; lockWaitMs?: number }): Promise<Received> {
   if (!MACHINE_NAME.test(o.machine) || o.machine === c.machine) return { ok: false, error: `${o.machine} isn't another machine's name` };
-  if (!c.mirrors.some(m => m.machine === o.machine)) return { ok: false, error: `${c.machine} doesn't mirror ${o.machine}: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` };
+  if (!c.mirrors.some(m => m.machine === o.machine)) return { ok: false, error: `${c.machine} doesn't take ${o.machine}'s relays: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` };
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
-  if (o.sha256 && sha256(o.part) !== o.sha256) return { ok: false, error: "the copy arrived damaged (sha256 differs); the next run sends it again" };
-  const verdict = integrity(o.part);
-  if (verdict !== "ok") return { ok: false, error: `the copy failed its integrity check: ${verdict}` };
-  const got = schemaVersion(o.part), seq = changeSeq(o.part);
-  // A file with no readable change feed has no order to compare by: it never replaces a mirror.
-  if (seq === null || got === null) return { ok: false, error: "the copy has no readable change feed or schema version, so it can't be ordered against the mirror" };
-  if (o.schema !== null && got !== o.schema) return { ok: false, error: `the copy is schema ${got ?? "?"}, not the ${o.schema} it was sent as` };
-  if (o.seq !== null && seq !== o.seq) return { ok: false, error: `the copy is at change ${seq ?? "?"}, not the ${o.seq} it was sent as` };
+  const text = readFileSync(o.part, "utf8");
+  if (o.sha256 && sha256(text) !== o.sha256) return { ok: false, error: "the log arrived damaged (sha256 differs); the next run sends it again" };
+  let ranges: LogRange[];
+  try { ranges = text.split("\n").filter(Boolean).map(l => JSON.parse(l) as LogRange); }
+  catch { return { ok: false, error: "the log that arrived isn't one range a line" }; }
+  if (!ranges.length) return { ok: false, error: "no log arrived" };
+  if (ranges.some(r => r.logId !== ranges[0]!.logId || !Array.isArray(r.entries))) return { ok: false, error: "the ranges that arrived aren't of one log" };
   const release = await lockFor(c, o.lockWaitMs ?? 90_000);
   if (typeof release === "string") return { ok: false, error: `${release}; the next run sends it again` };
-  const tmpFiles: string[] = [];
   try {
-    const s: BackupState = readBackupState(c.state);
-    const key = `${o.machine}/${o.outline}`, m = s.mirrors[key] ??= {};
-    const folder = await mirrorFolder(c, o.machine, o.outline);
-    mkdirSync(folder, { recursive: true, mode: 0o700 });
-    const file = join(folder, `${o.outline}.sqlite`);
-    const have = existsSync(file) ? schemaVersion(file) : null, haveSeq = existsSync(file) ? changeSeq(file) : null;
-    let mirror: NonNullable<Received["mirror"]>;
-    // A newer schema there stays; the same schema takes a later change, never an earlier one (#286's rule).
-    if (have !== null && got < have) mirror = "older";
-    else if (!existsSync(file) || (have !== null && got > have) || haveSeq === null || newer({ seq }, { seq: haveSeq })) {
-      const tmp = join(folder, `.${o.outline}.sqlite.incoming-${process.pid}`);
-      tmpFiles.push(tmp);
-      copyFileSync(o.part, tmp); chmodSync(tmp, 0o600);
-      if (integrity(tmp) !== "ok") return { ok: false, error: "the copy failed its integrity check after it was copied into the mirror folder" };
-      replaceMirror(tmp, file);
-      m.folder = folder;
-      Object.assign(m, { seq, at: new Date(now()).toISOString(), source: "relay", refreshed: new Date(now()).toISOString() });
-      delete m.snapshot; delete m.behindSince; delete m.error;
-      mirror = "installed";
-    } else mirror = "current";
-    writeBackupState(c.state, s);
+    const root = archiveRoot(c, o.machine);
+    let lsn: number;
+    try { lsn = appendToArchive(root, o.outline, ranges).lsn; } catch (e) { return { ok: false, error: (e as Error).message }; }
     // The upload, for the machine that can't make it: its repository, its host name, then its retention.
     const repo = c.repoOf(o.machine);
     const problem = await ensureRepo(c, repo, () => {});
-    if (problem) return { ok: true, mirror, uploadError: problem };
-    const up = await backupFile(c, repo, o.part, o.outline, seq, got, o.machine);
-    if ("error" in up) return { ok: true, mirror, uploadError: up.error };
+    if (problem) return { ok: true, lsn, uploadError: problem };
+    const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId);
+    if ("error" in up) return { ok: true, lsn, uploadError: up.error };
     // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
     await forget(c, repo, { host: o.machine, wait: "30s" });
-    return { ok: true, mirror, snapshot: up.id };
-  } finally {
-    for (const f of tmpFiles) rmSync(f, { force: true });
-    release();
-  }
+    return { ok: true, lsn, snapshot: up.id };
+  } finally { release(); }
 }
 
 /** All of stdin, read through node's stream: `Bun.stdin.stream()` throws "Non-regular files aren't supported yet" when
@@ -147,20 +124,19 @@ async function readStdin(): Promise<Blob> {
   return new Blob([Buffer.concat(parts)]);
 }
 
-/** `ep0ch backup receive …` (over ssh, from the relaying machine's job): the file on stdin; one JSON line out. */
+/** `ep0ch backup receive …` (over ssh, from the relaying machine's job): the ranges on stdin; one JSON line out. */
 export async function receiveCommand(args: readonly string[], c: BackupConfig, io: { out: (s: string) => void }, stdin: () => ReadableStream<Uint8Array> | Blob | Promise<Blob> = readStdin): Promise<number> {
   const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-  const num = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : null);
   const machine = flag("--machine") ?? "", outline = flag("--outline") ?? "";
   const say = (r: Received) => { io.out(JSON.stringify(r)); return r.ok ? 0 : 1; };
-  if (!MACHINE_NAME.test(machine) || !OUTLINE_NAME.test(outline) || outline.includes("..")) return say({ ok: false, error: "ep0ch backup receive --machine <name> --outline <name> [--seq N] [--schema V] [--sha256 H], the file on stdin" });
+  if (!MACHINE_NAME.test(machine) || !OUTLINE_NAME.test(outline) || outline.includes("..")) return say({ ok: false, error: "ep0ch backup receive --machine <name> --outline <name> [--sha256 H], the log's ranges on stdin" });
   const dir = incomingDir(c, machine);
   mkdirSync(dir, { recursive: true, mode: 0o700 }); chmodSync(dir, 0o700);
-  const part = join(dir, `.${outline}.sqlite.part-${process.pid}`);
+  const part = join(dir, `.${outline}.jsonl.part-${process.pid}`);
   try {
     await Bun.write(part, new Response(await stdin() as BodyInit));
     chmodSync(part, 0o600);
-    return say(await receive(c, { machine, outline, seq: num(flag("--seq")), schema: num(flag("--schema")), ...(flag("--sha256") ? { sha256: flag("--sha256")! } : {}), part }));
+    return say(await receive(c, { machine, outline, ...(flag("--sha256") ? { sha256: flag("--sha256")! } : {}), part }));
   } catch (e) { return say({ ok: false, error: (e as Error).message }); }
   finally { rmSync(part, { force: true }); }
 }

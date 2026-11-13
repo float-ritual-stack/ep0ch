@@ -10,7 +10,7 @@ import { isPrivateDatabase, ownerLockOf } from "./workspace-ownership";
  * replaced, and stay put otherwise.
  *
  * It lives in the database, so it survives a reboot and a new inode at the same path, which mean nothing replaced
- * it. What a replacement looks like from inside (a `cp` of a backup over the file, sqlite's `.restore`, a Litestream
+ * it. What a replacement looks like from inside (a `cp` of a backup over the file, sqlite's `.restore`, a hand
  * restore, a fork copied back) is the backup's own UUID, and a backup's UUID is the live one's. So each open leaves a
  * record beside the file (`<database>.instance.json`, never copied with it): the instance id, a token written into
  * the database at that open, whether that open has ended, and the sequence it closed at. The next open keeps the id
@@ -44,6 +44,10 @@ function writeRecord(path: string, record: InstanceRecord): void {
   renameSync(temporary, path);
 }
 
+function isFollower(database: Database): boolean {
+  try { return (database.query("SELECT role FROM log_state WHERE id = 1").get() as { role: string } | null)?.role === "follower"; } catch { return false; }
+}
+
 export type OutlineInstance = {
   readonly id: string;
   /** At a clean close: records that this open ended, at `sequence`. */
@@ -56,7 +60,8 @@ export type OutlineInstance = {
  * A memory database has no file to be replaced: its id is its metadata's.
  */
 export function openOutlineInstance(path: string, database: Database, sequence: () => number, created: boolean): OutlineInstance {
-  if (isPrivateDatabase(path)) {
+  // A follower's copy is its home's instance (ADR 0009): the id is the home's, replicated with the rest.
+  if (isPrivateDatabase(path) || isFollower(database)) {
     const id = readOutlineInstanceId(database, path);
     return { id, close() {} };
   }
@@ -80,20 +85,4 @@ export function openOutlineInstance(path: string, database: Database, sequence: 
       writeRecord(recordPath, { instanceId: id, openToken, open: false, sequence: current });
     },
   };
-}
-
-/**
- * Makes the database at `path` keep the instance id it carries when it is next opened, as a clean close of that very
- * database would. For a private copy of an outline (the MCP gateway's mirror, served read-only from a snapshot of the
- * home machine's file): a copy is the same instance as its source, so it must say the source's id, not a fresh one.
- * Nothing else may call this: a restore that kept its old id is exactly what the record exists to catch.
- */
-export function adoptOutlineInstance(path: string): void {
-  const database = new Database(path);
-  try {
-    const meta = (key: string) => (database.query("SELECT value FROM metadata WHERE key = ?").get(key) as { value: string } | null)?.value;
-    const id = meta("outline_instance_id"), token = meta(OUTLINE_OPEN_TOKEN_KEY);
-    if (!id || !token) return;
-    writeRecord(ownerLockOf(path).instance, { instanceId: id, openToken: token, open: false, sequence: Number(meta("sequence") ?? 0) });
-  } finally { database.close(); }
 }

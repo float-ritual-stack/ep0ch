@@ -1,0 +1,16 @@
+# Written by `ep0ch install` from scripts/backup/ep0ch-follow.service in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=ep0ch followers: other machines' outlines applied from their change logs within seconds (ADR 0009)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH={{PATH}}
+ExecStart={{BUN}} {{MAIN}} backup follow
+Restart=always
+RestartSec=10
+Nice=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

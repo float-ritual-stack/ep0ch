@@ -13,6 +13,7 @@ import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 import { keptBecause, laterSummary, park, parkedAt, revive } from "../src/work-later";
 import { setWorkStage } from "../src/work-tools";
+import { entriesFor, followedSince } from "./log-follows";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -65,7 +66,12 @@ test("the cut parks only the stale item nobody holds; a decided, a high and a 3-
   // Under the stale cutoff (30 days by default), the 3-day-old one isn't a candidate at all; with none, it's kept by age.
   expect((await park(c, { olderThanDays: 0 })).rows.find(r => r.id === fresh.id)).toMatchObject({ outcome: "kept", why: "3 days old (under 14)" });
   expect(stage(stale.id)).toBe("queued");
+  const unparked = store.log.cursor().lsn;
   const done = await park(c, { apply: true });
+  // The park and its groom records reached the change log: a machine following it has the item parked (PIE-1751).
+  const logged = followedSince(store, unparked);
+  expect(entriesFor(logged, "blocks", stale.id).some(e => e.op === "u" && e.row!.includes("[work-stage::later]"))).toBe(true);
+  expect(logged.some(e => e.tbl === "blocks" && e.op === "i" && e.row!.includes("groom-later"))).toBe(true);
   expect(laterSummary(done)).toContain("1 parked · 2 kept");
   expect(laterSummary(done)).toContain("decided: by the gate, Evan said");
   for (const kept of [decided, high, fresh]) expect(stage(kept.id)).toBe("queued");
@@ -85,7 +91,10 @@ test("a one-line comment's words keep a property written as code", async () => {
   const fresh = store.require(parked.id), [head, ...rest] = fresh.text.split("\n");
   store.update(parked.id, [head, `[wreckage::${ago(10).slice(0, 10)}]`, ...rest].join("\n"), fresh.revision);
   store.create("Please keep `[work-stage::later]` as written [type::annotation]", parked.id);
+  const unrevived = store.log.cursor().lsn;
   await revive(c, { jev: false, apply: true });
+  // Restored by one properties.patch whose `line` carries the why (PIE-1760): logged, the line and all (PIE-1751).
+  expect(entriesFor(followedSince(store, unrevived), "blocks", parked.id).filter(e => e.op === "u").at(-1)!.row).toContain("nudged: a comment");
   expect(store.require(parked.id).text).toContain("nudged: a comment");
   expect(store.require(parked.id).text).toContain("Please keep `[work-stage::later]` as written · ((");
 });

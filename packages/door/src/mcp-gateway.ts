@@ -22,7 +22,7 @@ import { type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel 
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
-import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
+import { mirrorsConfig, OutlineFollower } from "./mcp-mirror";
 import { countsOf, drainNetmail, Netmail, netmailFile, readSummaries } from "./mcp-netmail";
 import { CALL_PATTERN, mintCallId } from "@ep0ch/outline-core/attribution";
 import { levelFor, mcpSetting, pathCap, writesAt } from "./mcp-writes";
@@ -163,22 +163,22 @@ const localNames = async () => {
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string; kind?: RefusalKind }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin, o: { drainEveryMs?: number; writeWaitMs?: number } = {}): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string; kind?: RefusalKind }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineFollower[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin, o: { drainEveryMs?: number; writeWaitMs?: number } = {}): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string; kind?: RefusalKind }>>();
   const usedBoards = new Set<NotesBoard>();
   let grammarSaid = false;
   /** An outline's machine as answers name it: what it calls itself once its host has answered live, else its ssh name. */
-  const nameOf = (m: OutlineMirror) => m.homeName() ?? m.machine;
+  const nameOf = (m: OutlineFollower) => m.homeName() ?? m.machine;
   const mirrored = () => mirrors.map(m => `${m.outline}@${nameOf(m)}`).join(", ");
-  const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+  const mirrorRead = async (mirror: OutlineFollower): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const read = await mirror.read();
     if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.`, ...(read.access ? { access: read.access } : {}) };
     const which = `${read.copy.file}, last changed here ${read.copy.copiedAt}; its newest change is ${read.asOf}`;
-    const migrated = read.migrated ? `; this gateway migrated its own working copy from schema ${read.migrated.from} to ${read.migrated.to} (the mirror is untouched, and ${mirror.machine}'s next backup run brings a current one)` : "";
+    const migrated = read.migrated ? `; the copy here was migrated from schema ${read.migrated.from} to ${read.migrated.to}, and is made again from ${mirror.machine}'s log once its own migration has run` : "";
     const note = read.stale
-      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
-      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its backups${migrated}`;
+      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing${migrated}`
+      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its change log${migrated}`;
     return { board: read.board, served: { source: "mirror", asOf: read.asOf, copy: read.copy, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
   };
   /**
@@ -189,8 +189,8 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * `fresh`: a write's, tried even inside the backoff.
    */
   /** A mirror's board as answers name it (its machine's own name once known), kept for the grammar notice. */
-  const namedFor = <T extends McpBoard>(mirror: OutlineMirror, b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
-  const routed = async (mirror: OutlineMirror, how: { fresh?: boolean } = {}): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+  const namedFor = <T extends McpBoard>(mirror: OutlineFollower, b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
+  const routed = async (mirror: OutlineFollower, how: { fresh?: boolean } = {}): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const named = <T extends McpBoard>(b: T): T => namedFor(mirror, b);
     if (!live) { const r = await mirrorRead(mirror); return "error" in r ? r : named(r); }
     const a = await live.board(mirror.machine, mirror.outline, how);
@@ -209,13 +209,13 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     return named({ ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) }, ...(staleSince ? { staleSince } : {}) } });
   };
   /** A mirror older than a write made live through this server: said, with what it made. */
-  const newerWrite = (mirror: OutlineMirror, copy: McpBoard) => {
+  const newerWrite = (mirror: OutlineFollower, copy: McpBoard) => {
     const wrote = netmailAt ? lastLiveWrite(mirror) : null;
     return wrote && Date.parse(wrote.at) > Date.parse(copy.served.copy?.copiedAt ?? copy.served.asOf)
       ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
   };
   /** The mirror's copy, whether or not its machine answers (`board`'s `copy`), named as answers name it. */
-  const copyOf = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+  const copyOf = async (mirror: OutlineFollower): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const r = await mirrorRead(mirror);
     if ("error" in r) return r;
     namedFor(mirror, r);
@@ -223,7 +223,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     return staleSince ? { ...r, served: { ...r.served, staleSince } } : r;
   };
   /** Whether writes wait for this mirror's outline (the store opened only when there is one). */
-  const waitingFor = (mirror: OutlineMirror): boolean => {
+  const waitingFor = (mirror: OutlineFollower): boolean => {
     if (!netmailAt) return false;
     store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null;
     return !!store?.summaries().find(s => s.machine === mirror.machine)?.byOutline[mirror.outline];
@@ -233,7 +233,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * now that its host answers, one drain per outline at a time (a second caller waits for the first's).
    */
   const draining = new Map<string, Promise<void>>();
-  const drain = (mirror: OutlineMirror, board: NotesBoard): Promise<void> => {
+  const drain = (mirror: OutlineFollower, board: NotesBoard): Promise<void> => {
     const key = `${mirror.machine}/${mirror.outline}`;
     let running = draining.get(key);
     if (!running) {
@@ -269,7 +269,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * own timeout on the call; what still misses it is queued and drained within seconds of the link coming back.
    */
   const writeWait = o.writeWaitMs ?? WRITE_WAIT_MS;
-  const routedForWrite = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+  const routedForWrite = async (mirror: OutlineFollower): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const until = Date.now() + writeWait;
     for (;;) {
       const r = await routed(mirror, { fresh: true });
@@ -278,7 +278,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     }
   };
   /** The newest write made live to this mirror's outline through this server, if any. */
-  const lastLiveWrite = (mirror: OutlineMirror) => {
+  const lastLiveWrite = (mirror: OutlineFollower) => {
     store ??= existsSync(netmailAt!) ? new Netmail(netmailAt!) : null;
     const w = store?.lastApplied(mirror.machine, mirror.outline);
     return w?.live ? w : null;
@@ -620,7 +620,7 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   if ("error" in config) { err(`ep0ch: ${config.error}`); return 2; }
   const mirrorConfig = mirrorsConfig(io.env ?? process.env);
   if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
-  const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
+  const mirrors = mirrorConfig.mirrors.map(m => new OutlineFollower(m.outline, m.machine, mirrorConfig.folder, err));
   const live = mirrors.length ? liveFromEnv(io.env ?? process.env, err) : null;
   const ms = (v: string | undefined) => { const n = Number(v); return v?.trim() && Number.isFinite(n) && n >= 0 ? n : undefined; };
   const env = io.env ?? process.env;

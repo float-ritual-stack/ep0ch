@@ -7,8 +7,10 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { blockCount, drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, mirror, runAll, snapshot, takeLock } from "./jobs";
-import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
+import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock } from "./jobs";
+import { replayArchive, type Replayed } from "@ep0ch/outliner/log-archive";
+import { hostUnitCommands } from "@ep0ch/outliner/schema";
+import { restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
 import { programStatusEmitter } from "@ep0ch/outliner/program-status-emit";
@@ -49,7 +51,7 @@ export function statusLines(c: BackupConfig, now = Date.now(), o: { verbose?: bo
   return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail });
 }
 
-async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
+async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
   const say = (s: string) => io.out(s);
   switch (sub) {
     case "snapshot": {
@@ -58,13 +60,6 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
       if (r.uploaded.length) await maintain(c, s, { uploaded: true, say });
       writeBackupState(c.state, s);
       return r.failed.length ? 1 : 0;
-    }
-    case "mirror": {
-      if (!c.mirrors.length) { io.err(`ep0ch backup: no mirrors here; EP0CH_BACKUP_MIRRORS=<machine>[=<ssh-name>] in ${c.file} names them`); return 2; }
-      const s = readBackupState(c.state);
-      await mirror(c, s, { say });
-      writeBackupState(c.state, s);
-      return Object.entries(s.mirrors).some(([, m]) => m.error) ? 1 : 0;
     }
     case "drill": {
       // From here, or through the hub when the repository is out of reach (jobs.ts drillHere).
@@ -89,13 +84,13 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
 export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> = {
   run: { bare: ["--drill", "--verbose"], value: [] },
   snapshot: { bare: ["--force", "--verbose"], value: [] },
-  mirror: { bare: [], value: [] },
   drill: { bare: ["--json"], value: ["--machine"] },
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
   restore: { bare: [], value: ["--machine", "--at", "--to"] },
   copy: { bare: [], value: [] },
-  receive: { bare: [], value: ["--machine", "--outline", "--seq", "--schema", "--sha256"] },
+  receive: { bare: [], value: ["--machine", "--outline", "--sha256"] },
+  follow: { bare: ["--once"], value: [] },
 };
 
 /** The refusal for the first flag a subcommand doesn't take, or null. */
@@ -131,12 +126,17 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     return d.ok ? 0 : 1;
   }
   // The parts that write the job's state run one at a time, as the timer's run does (takeLock).
-  if (sub === "snapshot" || sub === "mirror" || sub === "drill") {
+  if (sub === "snapshot" || sub === "drill") {
     const release = takeLock(c);
     if (typeof release === "string") { io.err(`ep0ch backup: ${release}`); return 1; }
     try { return await stateful(sub, args, c, io); } finally { release(); }
   }
   switch (sub) {
+    case "follow": {
+      // The followers (ADR 0009): each outline EP0CH_MCP_MIRRORS names, applied from its home's log as it changes.
+      const { followCommand } = await import("./follow");
+      return followCommand(c, io, { once: args.includes("--once"), env });
+    }
     case "receive": {
       // The relay's receiving side, run over ssh by a machine that can't reach the repository (relay.ts): the file on stdin.
       const { receiveCommand } = await import("./relay");
@@ -174,7 +174,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const list = await snapshots(c, c.repoOf(machine), { all: true, outline });
       if ("error" in list) { io.err(`ep0ch backup: can't list ${c.repoOf(machine)}: ${list.error}`); return 1; }
       if (!list.length) { io.err(`ep0ch backup: no snapshot of ${outline} in ${c.repoOf(machine)}`); return 1; }
-      for (const x of list) say(`${x.id.slice(0, 8)}  ${hhmm(x.time)}  change ${x.seq ?? "?"}`);
+      for (const x of list) say(`${x.id.slice(0, 8)}  ${hhmm(x.time)}  log entry ${x.seq ?? "?"}`);
       return 0;
     }
     case "copy": {
@@ -199,35 +199,46 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       if (existsSync(dest) || (() => { try { lstatSync(dest); return true; } catch { return false; } })()) { io.err(`ep0ch backup: ${dest} exists; restore writes a new file (pick another --to, or move that one away)`); return 2; }
       if (isInside(c.outlines, dest) || isInside(c.mirrorsDir, dest)) {
         const live = join(c.outlines, `${outline}.sqlite`);
-        const stop = process.platform === "darwin" ? "launchctl bootout gui/$(id -u)/<the host's and Litestream's agents>" : "systemctl --user stop outliner-host.service litestream.service";
-        const start = process.platform === "darwin" ? "launchctl bootstrap gui/$(id -u) <each agent's plist>" : "systemctl --user start litestream.service outliner-host.service";
-        io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere and swap it in with the host and Litestream stopped, keeping Litestream's .${outline}.sqlite-litestream folder (never litestream reset):\n`
-          + `  ep0ch backup restore ${outline} --to /tmp/${outline}.sqlite\n  ${stop}\n  mv ${live} ~/backups/ && rm -f ${live}-wal ${live}-shm && cp /tmp/${outline}.sqlite ${live}\n  ${start}`);
+        const { stop, start } = hostUnitCommands(process.platform);
+        io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere and swap it in with the host stopped:\n`
+          + `  ep0ch backup restore ${outline} --to /tmp/${outline}.sqlite\n  ${stop}\n  mkdir -p ~/backups/${outline}-before-restore && mv ${live}* ~/backups/${outline}-before-restore/ && cp /tmp/${outline}.sqlite ${live}\n  ${start}`);
         return 2;
       }
       const when = at === undefined ? null : parseAt(at);
       if (at !== undefined && when === null) { io.err(`ep0ch backup: --at ${at} isn't a time (2026-10-06T14:00, 3h, 2d)`); return 2; }
       const repo = c.repoOf(machine);
+      // The newest archive holds the log since its newest genesis; --at replays up to that moment, from an earlier
+      // snapshot when the moment is before it (ADR 0009 §6).
       const list = await snapshots(c, repo, { all: true, outline });
       if ("error" in list) { io.err(`ep0ch backup: can't list ${repo}: ${list.error}`); return 1; }
-      const snap = pick(list, when);
-      if (!snap) { io.err(`ep0ch backup: no snapshot of ${outline}${when !== null ? ` at or before ${hhmm(when)}` : ""} in ${repo}${list.length ? `; the oldest is ${hhmm(list[0]!.time)}` : ""}`); return 1; }
+      if (!list.length) { io.err(`ep0ch backup: no archive of ${outline} in ${repo}`); return 1; }
       mkdirSync(dirname(dest), { recursive: true });
       // Staged in a private folder beside it (the same file system), then linked in: link never replaces a file
       // that appeared meanwhile.
       const stage = mkdtempSync(join(dirname(dest), ".restore-"));
-      const tmp = join(stage, "restored.sqlite");
+      let replayed: Replayed | null = null, snap = list.at(-1)!, why = "";
+      const skipped: string[] = [];
       try {
-        const r = await dumpTo(c, repo, snap, tmp);
-        const verdict = "error" in r ? r.error : integrity(tmp);
-        if (verdict !== "ok") { io.err(`ep0ch backup: restoring ${snap.id.slice(0, 8)} failed: ${verdict}`); return 1; }
-        try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
+        for (const candidate of [...list].reverse()) {
+          const tmp = join(stage, `${candidate.id}.sqlite`);
+          const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
+          if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; skipped.push(why); continue; }
+          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(candidate.logId ? { logId: candidate.logId } : {}) }); snap = candidate; }
+          catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; skipped.push(why); continue; }
+          const verdict = integrity(tmp);
+          if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
+          try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
+          break;
+        }
+        if (!replayed) { io.err(`ep0ch backup: ${why}`); return 1; }
       } finally { rmSync(stage, { recursive: true, force: true }); }
-      say(`✓ ${outline} from ${machine}'s snapshot ${snap.id.slice(0, 8)} (${hhmm(snap.time)}, change ${snap.seq ?? "?"}, ${blockCount(dest) ?? "?"} blocks) → ${dest}; integrity ok`);
+      say(`✓ ${outline} from ${machine}'s archive ${snap.id.slice(0, 8)}, replayed to entry ${replayed.lsn}${replayed.at ? ` (${hhmm(replayed.at)})` : ""}, ${replayed.rows.blocks ?? "?"} blocks → ${dest}; integrity ok`);
+      // Not the newest: said, with how far it reaches, so a restore that falls short of --at never reads as complete.
+      if (skipped.length) say(`! ${skipped.length} newer archive${skipped.length === 1 ? "" : "s"} couldn't be used (${skipped.join("; ")}): this one was taken ${hhmm(snap.time)}${when !== null && Date.parse(snap.time) < when ? `, before --at ${hhmm(when)}, so the changes after it are not in this copy` : ""}`);
       return 0;
     }
     default:
-      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, mirror, drill, status, list, restore, copy, receive\n${BACKUP_USAGE}`);
+      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, follow, drill, status, list, restore, copy, receive\n${BACKUP_USAGE}`);
       return 2;
   }
 }
