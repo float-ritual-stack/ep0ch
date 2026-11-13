@@ -864,7 +864,8 @@ function bindScreens(served: readonly ExtensionEntry[], problems: string[]) {
     if (boundScreens.has(name)) continue;
     if (screenNames().includes(name)) {
       // A screen the door makes from its own state (the desk's named layouts, the board's hub) stands under its name.
-      if (!builtinScreen(name)) problems.push(`${w.extension}'s screen ${name} isn't registered: ${screenHolder(name)} has that name`);
+      // The shipped extension's own copy of it stands down without a word; anyone else's is told the name is taken.
+      if (!builtinScreen(name) || w.extension !== SHIPPED_EXTENSION) problems.push(`${w.extension}'s screen ${name} isn't registered: ${screenHolder(name)} has that name`);
       continue;
     }
     const data = specData(w.spec);

@@ -282,7 +282,7 @@ export const ACTIONS = {
   "navigation.state": {},
   "notes.address": { ext: "read", async: true },
   "notes.create": { event: (_, { result }) => content((result as NewNoteReceipt).block.id) },
-  "notes.page": { async: true, watch: "later" },
+  "notes.page": { read: true, async: true, watch: "later" },
   "notes.render": { ext: "read", async: true },
   "notes.route": {},
   "outline.snapshot": { copy: true, async: true },
@@ -368,7 +368,7 @@ export const ACTIONS = {
   "shares.tunnel": { async: true },
   // A screen is a note or an extension's (screens.ts): listed with its problems, saved in the block form. `screens.list` is
   // watched as `notes.page` is: its answer takes a turn (`QueryWatches.askLater`).
-  "screens.list": { read: true, async: true, watch: "later" },
+  "screens.list": { read: true, async: true, watch: "later", machineryBlind: true },
   "screens.save": { async: true },
   // One list, whatever it is of (list-producers.ts): a tree, a query's matches, a search, a note's links, lanes, facets,
   // the screens. Watched as `notes.page` is.

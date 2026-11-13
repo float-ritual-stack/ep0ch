@@ -3,7 +3,7 @@
   "id": "screens",
   "version": 1,
   "name": "Screens",
-  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions, activity, extensions, outlines and programs tiles they are made of. Fork it to change what a door opens on.",
+  "description": "The screens and tile kinds every door ships. Fork it to change what a door opens on: the desk, the navigator, the board, last callers, who's online, the keys and the library, made of the outline, reader, query, links, comments, proposals, revisions, activity, extensions, outlines and programs tiles.",
   "defaultOn": true,
   "tiles": [
     {
@@ -21,7 +21,7 @@
     {
       "kind": "reader",
       "name": "Reader",
-      "description": "a reader of notes: it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "description": "a reader of notes: it keeps the note opened into it (note=<id> starts it on one, mode=pinned keeps it there)",
       "drawer": "page",
       "replaces": [
         "reader"
@@ -30,7 +30,7 @@
     {
       "kind": "query",
       "name": "Query",
-      "description": "the notes a saved view lists (view=<the virtual branch's block id>), or the matches of a question in the views' grammar (query=\"type=bed\"; source=tile:<its home reader> when it was opened from a reader); a board's lane is one",
+      "description": "the notes a saved view lists (view=<its block id>) or a question matches (query=\"type=bed\"); a board's lane is one",
       "drawer": "list",
       "fields": {
         "from": "query"
@@ -42,7 +42,7 @@
     {
       "kind": "backlinks",
       "name": "Links",
-      "description": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until it is aimed again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values a door that groups them by stage uses, in that order (others are said as other, never hidden)",
+      "description": "the links of the note its home reader shows (source=tile:<name>): outlinks, resources, backlinks and children",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -67,7 +67,7 @@
     {
       "kind": "facets",
       "name": "Facets",
-      "description": "the properties the notes have, each opening to its values with how often and how lately each is used; a value picked narrows the question (values of one property are ORed, properties ANDed), and the selection reads as a query in the views' grammar; query=<a starting query>",
+      "description": "the properties the notes have, each opening to its values; a value picked narrows the question",
       "drawer": "list",
       "fields": {
         "from": "facets"
@@ -79,7 +79,7 @@
     {
       "kind": "matches",
       "name": "Matches",
-      "description": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first, in a tile of its own beside it; its select and open wires say where a pick is shown and where it opens",
+      "description": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first",
       "drawer": "list",
       "fields": {
         "from": "query",
@@ -179,7 +179,7 @@
     {
       "kind": "extensions",
       "name": "Extensions",
-      "description": "the outline's extensions: the ones installed (a row opens its page), each one's settings, and the ones the repo has that aren't installed (a row installs one); with words typed in its question, removing one too",
+      "description": "the outline's extensions: a row opens an installed one's page or settings, or installs one the repo has",
       "drawer": "list",
       "fields": {
         "from": "extensions"

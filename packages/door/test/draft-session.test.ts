@@ -17,6 +17,8 @@ import type { Key } from "../src/term";
 import type { Msg } from "../src/board";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
+// The door's action sets, as the running door has them: a refusal names a way out only for an action that is a row.
+import "../src/desk/tile-actions";
 
 const AGENT: Actor = { kind: "agent", id: "tidy" };
 const OTHER: Actor = { kind: "agent", id: "sorter" };

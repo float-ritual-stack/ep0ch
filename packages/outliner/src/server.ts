@@ -2584,7 +2584,7 @@ export class OutlinerServer {
           break;
         }
         case "blocks.read":
-          result = wired(action, this.store.readBlocks(request.ids ?? this.store.children(request.under ?? null).map(child => child.id), request.fields));
+          result = wired(action, this.store.readBlocks(request.ids ?? this.store.children(request.under ?? null).map(child => child.id), request.fields, request.ids === undefined));
           break;
         case "blocks.grep":
           result = wired(action, grepBlocks(this.store.liveBlocks(), request));

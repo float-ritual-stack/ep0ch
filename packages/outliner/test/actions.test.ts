@@ -43,14 +43,15 @@ test("each list main kept is now one column of the table", () => {
   // outlines.backup: the host's copy of an outline, so nothing else opens its file (PIE-1750).
   expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
   // log.range: a follower answers its home's log onward (ADR 0009).
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "log.range", "screens.list", "lists.read", "tiles.view", "outlines.known", ...MARKS.reads]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "log.range", "screens.list", "lists.read", "tiles.view", "outlines.known", "notes.page", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "properties.patch", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",
     // PIE-1711: yo reads a find's words into a query, as the facets tile's query line does.
     "query.suggest", "screens.list", "lists.read",
     // Plain reads as those two are: what a script renders for a tile, and the names of the outlines there are.
-    "tiles.view", "outlines.known"]));
+    // A note as parts is a read like them: a read-only copy answers it, and an extension may ask it.
+    "tiles.view", "outlines.known", "notes.page"]));
 });
 
 test("a read a module answers and keeps watched says so on its row, and is listed with the rest", () => {

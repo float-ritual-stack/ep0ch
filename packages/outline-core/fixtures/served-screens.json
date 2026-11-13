@@ -546,7 +546,7 @@
       "kind": "screens.reader",
       "extension": "screens",
       "name": "Reader",
-      "about": "a reader of notes: it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "about": "a reader of notes: it keeps the note opened into it (note=<id> starts it on one, mode=pinned keeps it there)",
       "drawer": "page",
       "replaces": [
         "reader"
@@ -559,7 +559,7 @@
       "kind": "screens.query",
       "extension": "screens",
       "name": "Query",
-      "about": "the notes a saved view lists (view=<the virtual branch's block id>), or the matches of a question in the views' grammar (query=\"type=bed\"; source=tile:<its home reader> when it was opened from a reader); a board's lane is one",
+      "about": "the notes a saved view lists (view=<its block id>) or a question matches (query=\"type=bed\"); a board's lane is one",
       "drawer": "list",
       "fields": {
         "from": "query"
@@ -575,7 +575,7 @@
       "kind": "screens.backlinks",
       "extension": "screens",
       "name": "Links",
-      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until it is aimed again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values a door that groups them by stage uses, in that order (others are said as other, never hidden)",
+      "about": "the links of the note its home reader shows (source=tile:<name>): outlinks, resources, backlinks and children",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -608,7 +608,7 @@
       "kind": "screens.facets",
       "extension": "screens",
       "name": "Facets",
-      "about": "the properties the notes have, each opening to its values with how often and how lately each is used; a value picked narrows the question (values of one property are ORed, properties ANDed), and the selection reads as a query in the views' grammar; query=<a starting query>",
+      "about": "the properties the notes have, each opening to its values; a value picked narrows the question",
       "drawer": "list",
       "fields": {
         "from": "facets"
@@ -624,7 +624,7 @@
       "kind": "screens.matches",
       "extension": "screens",
       "name": "Matches",
-      "about": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first, in a tile of its own beside it; its select and open wires say where a pick is shown and where it opens",
+      "about": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first",
       "drawer": "list",
       "fields": {
         "from": "query",
@@ -756,7 +756,7 @@
       "kind": "screens.extensions",
       "extension": "screens",
       "name": "Extensions",
-      "about": "the outline's extensions: the ones installed (a row opens its page), each one's settings, and the ones the repo has that aren't installed (a row installs one); with words typed in its question, removing one too",
+      "about": "the outline's extensions: a row opens an installed one's page or settings, or installs one the repo has",
       "drawer": "list",
       "fields": {
         "from": "extensions"

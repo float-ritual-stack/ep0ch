@@ -4492,8 +4492,8 @@ export class OutlinerStore {
   }
 
   /** Reads many blocks in one consistent read, reduced to the requested fields. */
-  readBlocks(ids: unknown, fields?: unknown): BlockReadCollection {
-    const requestedIds = normalizeBlockReadIds(ids);
+  readBlocks(ids: unknown, fields?: unknown, whole = false): BlockReadCollection {
+    const requestedIds = whole ? ids as string[] : normalizeBlockReadIds(ids); // whole: the store's own list of a note's blocks, any length
     const projection = normalizeBlockReadFields(fields);
     return this.database.transaction((): BlockReadCollection => {
       const placeholders = requestedIds.map(() => "?").join(", ");

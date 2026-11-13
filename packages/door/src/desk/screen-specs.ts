@@ -14,7 +14,8 @@ import { SETTINGS_INDEX_KIND, settingsScreenSpec } from "./settings-index";
 import { echoKinds, echonetSpec } from "../echonet/screen";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec, type DeskOpts } from "./desk";
-import { groupSpec, mountProblem, partSpec, registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
+import { extensionScreen, forgetScreen, groupSpec, mountProblem, partSpec, registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
+import { SHIPPED_EXTENSION } from "./shipped";
 import { holdShippedScreens } from "./shipped-screens";
 import type { Pane } from "./panes";
 import { outlineState, readState } from "../state";
@@ -35,7 +36,12 @@ export function pinnedSpec(args: { address?: unknown; label?: unknown } = {}): S
 export function registerBuiltinScreens(): void {
   for (const k of [...welcomeKinds(), briefKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, SETTINGS_INDEX_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
-  const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
+  // A name the shipped extension's served copy took before this module loaded (a test that binds extensions first)
+  // is the door's own again: a built-in stands under its name whichever loaded first.
+  const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => {
+    if (have.has(name) && extensionScreen(name) === SHIPPED_EXTENSION) { forgetScreen(name); have.delete(name); }
+    if (!have.has(name)) registerScreen(name, of, target ? { target } : {});
+  };
   add("desk", () => deskSpec());
   add("welcome", () => welcomeSpec());
   add("brief", () => briefSpec());

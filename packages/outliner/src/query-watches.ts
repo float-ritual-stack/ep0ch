@@ -173,6 +173,8 @@ export class QueryWatches {
   }
 
   get size(): number { return this.all.size; }
+  /** The newest ask under each slot whose answer is still on its way (`askLater`). */
+  private readonly asking = new Map<string, number>();
 
   private id(connection: WatchConnection): number {
     let id = this.connections.get(connection);
@@ -224,9 +226,17 @@ export class QueryWatches {
     const slot = `${this.id(connection)}\0${key}`;
     const held = this.all.get(slot);
     if (held && held.signature === signature) return this.reply(request.id, held);
+    const turn = (this.asking.get(slot) ?? 0) + 1;
+    this.asking.set(slot, turn);
     const response = await later({ ...question, id: request.id } as Request);
+    const newest = this.asking.get(slot) === turn;
+    if (newest) this.asking.delete(slot);
     if (!response.ok) return response;
-    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, later };
+    const blind = this.options.machineryBlind?.(question as Request, response);
+    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, later, ...(blind ? { blind } : {}) };
+    // The answer took a turn: a newer question under this key, or the connection going away, happened meanwhile.
+    // The asker still gets its answer; only the newest question of a connection that is still here is kept.
+    if (!newest || !this.connections.has(connection)) return this.reply(request.id, watch);
     this.all.set(slot, watch);
     this.bound(connection);
     return this.reply(request.id, watch);

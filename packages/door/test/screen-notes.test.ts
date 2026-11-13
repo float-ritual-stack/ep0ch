@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { forgetScreenNotes, loadScreenNotes, readScreenNote, screenNoteProblems, screenNoteText } from "../src/desk/screen-notes";
-import { builtinScreen, madeScreen, readSpec, screenNames } from "../src/desk/screen-spec";
+import { builtinScreen, madeScreen, readSpec, screenNames, screenSpec } from "../src/desk/screen-spec";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -205,7 +205,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("a screen saved as blocks under its note (screens.save, the native window's save) opens here as it was arranged", async () => {
-    const spec = { name: "Seed bench", title: "Seed bench", newNote: [{ opens: "tab", only: ["reader"] }, { opens: "lands" }], layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
+    const spec = { name: "Seed bench", title: "Seed bench", keys: [{ key: "g", label: "zoom", action: "tile.zoom", only: ["reader"] }, { key: "y", label: "fold", action: "tile.collapse", unless: ["tree"] }], newNote: [{ opens: "tab", only: ["reader"] }, { opens: "lands" }], layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
       { t: "leaf", kind: "tree", name: "tree", wires: [{ verb: "select", to: "reader" }] },
       { t: "split", dir: "col", weights: [0.6, 0.4], kids: [{ t: "leaf", kind: "reader", name: "reader" }, { t: "leaf", kind: "backlinks", name: "roots", source: "tile:reader", subject: "follows" }] }] } } };
     const saved = await board.request("screens.save", { spec, mutation: { author: "agent", actorId: "seedling-agent" } });
@@ -225,6 +225,9 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     expect(top().newNoteRule()).toMatchObject({ opens: "tab" });
     await mine("tile.focus", {}, "tree");
     expect(top().newNoteRule()).toMatchObject({ opens: "lands" });
+    // Its keys that hold only over some kinds are served the same way, and are the door's own kinds here too: a key
+    // bound only in the reader fires there, and one bound unless the tree stays out of the tree.
+    expect(screenSpec("seed-bench")!.keys!.map(k => [k.key, k.only, k.unless])).toEqual([["g", ["reader"], undefined], ["y", undefined, ["tree"]]]);
   });
 
   test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {

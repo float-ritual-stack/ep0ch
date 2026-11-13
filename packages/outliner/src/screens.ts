@@ -16,6 +16,7 @@
  */
 import { addressProblems, readScreenNote, screenNoteBlocks, screenNoteName, SCREEN_TYPE, type NoteBlock, type WrittenBlock } from "@ep0ch/outline-core/screen-note";
 import { canonKind, canonLeaf, readSpec, savedNodes, screenNameProblem, screenSlug, type ScreenSpec } from "@ep0ch/outline-core/screen-spec";
+import { isNoteUnder } from "@ep0ch/outline-core/derived";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { MutationProvenance } from "./types";
 
@@ -110,11 +111,24 @@ async function byProp(own: Own, key: string, value: string, limit: number): Prom
   return (await own.request<{ blocks: Read[] }>({ action: "blocks.query", query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" } } })).blocks;
 }
 
+/**
+ * The blocks under a note that are its notes: a comment on a screen note and an edit proposed beside it are blocks
+ * under it and no part of its layout (outline-core's `isNoteUnder`, the one answer), so a read leaves them out and a
+ * save leaves them be.
+ */
+async function notesOf(own: Own, parentId: string): Promise<Read[]> {
+  const all = await own.request<Read[]>({ action: "children", parentId });
+  if (!all.length) return all;
+  const { blocks } = await own.request<{ blocks: { id: string; properties?: { key: string; value: string }[] }[] }>({ action: "blocks.read", ids: all.map(b => b.id), fields: ["properties"] });
+  const beside = new Set(blocks.filter(b => !isNoteUnder(b.properties?.find(p => p.key === "type")?.value)).map(b => b.id));
+  return all.filter(b => !beside.has(b.id));
+}
+
 /** A note with every block under it, as the reader takes one. */
 async function subtree(own: Own, block: Read, depth = 0): Promise<NoteBlock> {
   // A layout nests a handful of levels; one nested deeper than this is no layout.
   if (depth > 12) return { id: block.id, text: block.text, revision: block.revision, children: [] };
-  const blocks = await own.request<Read[]>({ action: "children", parentId: block.id });
+  const blocks = await notesOf(own, block.id);
   return { id: block.id, text: block.text, revision: block.revision, children: await Promise.all(blocks.map(child => subtree(own, child, depth + 1))) };
 }
 
@@ -252,7 +266,7 @@ export async function saveScreen(own: Own, request: Extract<ScreensRequest, { ac
   // written again, a block the layout no longer has goes to the Trash and one it gained is made. A save after a
   // border moved writes one block, and nothing a save didn't change is trashed and made again.
   const settle = async (parentId: string, blocks: readonly WrittenBlock[]): Promise<void> => {
-    const old = await own.request<Read[]>({ action: "children", parentId });
+    const old = await notesOf(own, parentId);
     for (const [i, block] of blocks.entries()) {
       const was = old[i];
       if (!was) { const at = await create(parentId, block.text); await under(at.id, block.children); continue; }

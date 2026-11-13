@@ -84,13 +84,15 @@ export function register(n: ScreenNote) {
   registerScreen(n.name, () => ownKinds(readSpec(specData(n.spec))), { made: { id: n.id, revision: n.revision, title: n.title } });
 }
 /**
- * A served spec's new-note rules name kinds as the service resolved them (`screens.reader`, as it serves a tile's):
- * each as the door's own kind, by the registry's one lookup (`resolveKind`, as `canonSpec` reads a tile's), so the
- * rule is asked with the kind a tile here carries.
+ * A served spec's new-note rules and its keys name kinds as the service resolved them (`screens.reader`, as it serves
+ * a tile's): each as the door's own kind, by the registry's one lookup (`resolveKind`, as `canonSpec` reads a tile's),
+ * so a rule and a key are asked with the kind a tile here carries (a key bound only in the reader fires in it).
  */
 function ownKinds(spec: ScreenSpec): ScreenSpec {
-  if (!spec.newNote?.some(rule => rule.only || rule.unless)) return spec;
-  return { ...spec, newNote: spec.newNote.map(rule => ({ ...rule, ...(rule.only ? { only: rule.only.map(resolveKind) } : {}), ...(rule.unless ? { unless: rule.unless.map(resolveKind) } : {}) })) };
+  const own = <T extends { only?: string[]; unless?: string[] }>(over: T): T => ({ ...over, ...(over.only ? { only: over.only.map(resolveKind) } : {}), ...(over.unless ? { unless: over.unless.map(resolveKind) } : {}) });
+  const scoped = (list?: readonly { only?: string[]; unless?: string[] }[]) => !!list?.some(over => over.only || over.unless);
+  if (!scoped(spec.newNote) && !scoped(spec.keys)) return spec;
+  return { ...spec, ...(spec.newNote ? { newNote: spec.newNote.map(own) } : {}), ...(spec.keys ? { keys: spec.keys.map(own) } : {}) };
 }
 /** One screen note taken out. */
 function unregister(name: string) { writes++; forgetScreen(name); notes.delete(name); }
