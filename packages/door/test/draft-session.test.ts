@@ -467,6 +467,34 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     } finally { delete (board as any).request; }
   }, 30_000);
 
+  // Codex on #1508: a touch that fired before the service granted the hold (grants run up to 250 ms, later under load) was
+  // dropped, and nothing sent it after the grant: the service never read the draft, and an @name line typed then waited
+  // for the next keystroke. It's kept, and sent once the hold is granted.
+  test("a touch before the hold is granted is sent once it is", async () => {
+    const id = await create("Thin the carrots");
+    const m = (await board.get(id))!;
+    const sent: string[] = [], request = board.send.bind(board);
+    let grant!: () => void;
+    const granted = new Promise<void>(r => { grant = r; });
+    (board as any).request = async (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => {
+      sent.push(action);
+      const r = await request(action, ...rest);
+      if (action === "drafts.hold") await granted;
+      return r;
+    };
+    const touchMs = process.env.EP0CH_DRAFT_TOUCH_MS;
+    process.env.EP0CH_DRAFT_TOUCH_MS = "50";
+    try {
+      const hold = board.holdDraft(id, m.revision!, () => ({ kind: "busy" } as unknown as DraftAnswer))!;
+      hold.touched?.();
+      await Bun.sleep(200);   // the touch's window passed while the grant is still out
+      expect(sent).toEqual(["drafts.hold"]);
+      grant();
+      await until(() => sent.includes("drafts.touch"), "the touch, sent once the hold is granted", 3000);
+      hold.release();
+    } finally { delete (board as any).request; if (touchMs === undefined) delete process.env.EP0CH_DRAFT_TOUCH_MS; else process.env.EP0CH_DRAFT_TOUCH_MS = touchMs; }
+  }, 30_000);
+
   test("a block: saved against its revision, held while open; a stale one is refused and kept; ctrl+r starts over", async () => {
     const id = await create("Prune the apple\nin winter");
     const m = (await board.get(id))!;
