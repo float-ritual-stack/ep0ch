@@ -5634,10 +5634,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const target = o.node !== undefined ? nodeById(this.root, o.node) ?? node(this.root, o.node) : null;
     if (o.node !== undefined && !target) throw new ActionRefused(`there's no container ${o.node} on the ${this.title}; layout.get names them`);
-    const w = o.with !== undefined ? this.tile(o.with) : null;
+    const w = o.with !== undefined ? this.tile(o.with) : null; if (!target && !w && this.inGroup() && new Set(leaves(this.root)).size === 1) throw new ActionRefused(`${t.name} is a group of one already: gathering it would nest another · ctrl+] out, then shift+click a neighbour and ^W G`);
     const inside = target ? leaves(target) : [t.id];
-    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`);
-    const ids = [...inside, ...(w ? [w.id] : [])];
+    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`); const ids = [...inside, ...(w ? [w.id] : [])];
     return this.gather(t, target, ids, w, o, actor);
   }
   /** `tile.group` for the tiles selected: `ids` (in the layout's order) whole, as the group of them. */

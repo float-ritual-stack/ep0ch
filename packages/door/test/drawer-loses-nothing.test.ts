@@ -30,4 +30,23 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
       expect(p.capture()).toContain("goes with its reader");
     } finally { p.close(); }
   }, 90_000);
+
+  // Inside a group of one (at 44 columns the common shape), ^W G asked nothing and nested a second group of one:
+  // group/group/tile. Now it says why not, and nothing nests.
+  test("^W G inside a group of one doesn't nest another", async () => {
+    const p = await doors.pane(await doors.create("Leek trench\ndig it deep"), "Leek trench", 44, 30);
+    try {
+      const desk = () => layers(p).find(l => !l.drawer)!.tiles;
+      for (let i = 0; i < 3 && desk().length < 3; i++) { p.keys("C-w", "v"); await Bun.sleep(800); }
+      await until(() => desk().length >= 3, "three tiles");
+      p.keys("C-w", "G"); await until(() => p.capture().includes("gather into a group"), "the question");
+      p.keys("Enter"); await until(() => layers(p).some(l => l.screen === "group"), "a group of one");
+      p.keys("C-w", "e"); await until(() => p.capture().includes("in the group"), "in the group");
+      p.keys("C-w", "G");
+      await Bun.sleep(1200);
+      expect(layers(p).filter(l => l.screen === "group").length).toBe(1);
+      expect(p.capture()).toContain("a group of one");
+    } finally { p.close(); }
+  }, 60_000);
 });
+
