@@ -10,7 +10,11 @@
 //!   bytes, and the core answers the program's queries); the terminal itself is started here first (`hc.rs`), so
 //!   it is nobody's child, outlives what started it and starts at its tile's size, under the labels Moonframe's
 //!   backend finds its own by. Where that start fails, Moonframe's own start is what runs. What each terminal
-//!   reports of itself, and what else the core runs, is the core's list, asked on a thread of its own.
+//!   reports of itself, and what else the core runs, is the core's list.
+//! - **What a keeper keeps is asked off the frame** (`Kept::hear`): once when anything first reads it (so a
+//!   launch lists what the one before left, with no terminal opened yet), when a terminal is opened or ended,
+//!   and every little while by a thread of the host's own. A read (`listed`) is what the keeper last said and
+//!   asks nobody: a tile reads it every frame, and tmux's answer is a process.
 //! - **A program is the person's shell.** A tile's command is typed into it once it reads a line
 //!   (`Session::type_when_ready`), and never into one found still running: whether it was is asked of what keeps
 //!   it (the core's list, tmux's sessions) before it is opened, not remembered.
@@ -44,10 +48,13 @@ const PTY: &str = "pty";
 /// How often the core's list is asked while a window is open.
 const LISTED_EVERY: Duration = Duration::from_secs(2);
 
-/// What the core keeps, as it last said, and the thread that asks.
+/// What keeps this app's programs (the core, else its tmux server), what it last said it keeps, and the thread
+/// that asks it.
 struct Kept {
     namespace: String,
     endpoint: Option<hc::Endpoint>,
+    backends: Backends,
+    preference: Preference,
     listed: Mutex<Vec<Listed>>,
     moved: AtomicU64,
     asking: AtomicBool,
@@ -55,6 +62,38 @@ struct Kept {
 }
 
 impl Kept {
+    /// herdr-core is the backend a terminal would open on.
+    fn on_core(&self) -> bool { matches!(self.preference, Preference::Auto | Preference::HerdrCore) && self.backends.herdr_core().is_some() }
+
+    /// tmux is the backend a terminal would open on.
+    fn on_tmux(&self) -> bool { !self.on_core() && self.preference != Preference::Pty && self.backends.tmux().is_some() }
+
+    fn tmux(&self, args: &[&str]) -> Option<String> {
+        let output = Command::new(TMUX).args(["-L", &self.namespace, "-f", "/dev/null"]).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// The sessions this app's own tmux server runs, asked of it now. (No server runs when no session does.)
+    fn sessions(&self) -> Vec<String> { self.tmux(&["list-sessions", "-F", "#{session_name}"]).map(|out| out.lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect()).unwrap_or_default() }
+
+    /// Asks what keeps the programs what it keeps now, and holds the answer: the core's terminals, else this
+    /// app's tmux sessions, else nothing (a plain pty keeps none). A core that doesn't answer leaves what it last
+    /// said. Never from a frame: a process is started for tmux's answer, and the core's is a round trip.
+    fn hear(&self) {
+        let now = if self.on_core() {
+            match self.ask() { Some(terminals) => self.read(terminals), None => return }
+        } else if self.on_tmux() {
+            self.sessions().into_iter().map(|session| Listed { key: Some(session.clone()), address: session.clone(), name: session, backend: TMUX.to_string(), ..Listed::default() }).collect()
+        } else {
+            Vec::new()
+        };
+        self.took(now);
+    }
+
+    /// Nothing is to be heard between two opens: no core, and a tmux server that keeps nothing (it runs only what
+    /// this app starts, and a start is heard as it is made).
+    fn quiet(&self) -> bool { !self.on_core() && self.listed.lock().unwrap().is_empty() }
+
     /// The core's terminals as the window lists them: this app's by their key, everybody else's by none.
     fn read(&self, terminals: Vec<hc::Terminal>) -> Vec<Listed> {
         terminals.into_iter().map(|terminal| {
@@ -85,8 +124,6 @@ impl Kept {
 }
 
 pub struct Mux {
-    backends: Backends,
-    preference: Preference,
     kept: Arc<Kept>,
 }
 
@@ -96,40 +133,30 @@ impl Mux {
 
     /// The same for another namespace or one backend by name: a test's own programs, apart from the person's.
     pub fn of(namespace: &str, preference: Preference, wake: Waker) -> Mux {
-        let kept = Kept { namespace: namespace.to_string(), endpoint: hc::Endpoint::found(), listed: Mutex::default(), moved: AtomicU64::new(0), asking: AtomicBool::new(false), wake };
-        Mux { backends: Backends::for_app(namespace), preference, kept: Arc::new(kept) }
+        let kept = Kept { namespace: namespace.to_string(), endpoint: hc::Endpoint::found(), backends: Backends::for_app(namespace), preference, listed: Mutex::default(), moved: AtomicU64::new(0), asking: AtomicBool::new(false), wake };
+        Mux { kept: Arc::new(kept) }
     }
-
-    /// herdr-core is the backend a terminal would open on.
-    fn on_core(&self) -> bool { matches!(self.preference, Preference::Auto | Preference::HerdrCore) && self.backends.herdr_core().is_some() }
-
-    /// tmux is the backend a terminal would open on.
-    fn on_tmux(&self) -> bool { !self.on_core() && self.preference != Preference::Pty && self.backends.tmux().is_some() }
-
-    fn tmux(&self, args: &[&str]) -> Option<String> {
-        let output = Command::new(TMUX).args(["-L", &self.kept.namespace, "-f", "/dev/null"]).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
-    }
-
-    /// The sessions this app's own tmux server runs. (No server runs when no session does.)
-    fn sessions(&self) -> Vec<String> { self.tmux(&["list-sessions", "-F", "#{session_name}"]).map(|out| out.lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect()).unwrap_or_default() }
 
     /// The core's terminal this app keeps under `key`, when it still runs.
     fn ours(&self, terminals: &[hc::Terminal], key: &str) -> Option<String> {
         terminals.iter().find(|terminal| terminal.labels.get(LABEL).is_some_and(|theirs| theirs == key) && terminal.labels.get(APP).is_some_and(|app| *app == self.kept.namespace)).map(|terminal| terminal.address.clone())
     }
 
-    /// The core is asked for its list every little while from now on, on a thread that ends with this host.
-    fn keep_asking(&self) {
-        if self.kept.asking.swap(true, Ordering::AcqRel) { return }
+    /// What keeps the programs is asked what it keeps: here, the first time anything reads it (a launch lists
+    /// what the one before left before it opens a terminal), and every little while from then on, on a thread
+    /// that ends with this host. True: it was asked just now, for the first time.
+    fn hearing(&self) -> bool {
+        if self.kept.asking.swap(true, Ordering::AcqRel) { return false }
+        self.kept.hear();
         let kept: Weak<Kept> = Arc::downgrade(&self.kept);
         let _ = std::thread::Builder::new().name("terminal-listed".into()).spawn(move || {
             loop {
                 std::thread::sleep(LISTED_EVERY);
                 let Some(kept) = kept.upgrade() else { return };
-                if let Some(terminals) = kept.ask() { let now = kept.read(terminals); kept.took(now) }
+                if !kept.quiet() { kept.hear() }
             }
         });
+        true
     }
 }
 
@@ -148,7 +175,7 @@ impl Host for Mux {
         let cwd = start.cwd.as_deref().map(expand);
         // Found still running, or to be started: asked of what keeps it, now.
         let mut attached = false;
-        if self.on_core() {
+        if self.kept.on_core() {
             let terminals = self.kept.ask().unwrap_or_default();
             attached = self.ours(&terminals, &start.key).is_some();
             if !attached && let Some(endpoint) = &self.kept.endpoint {
@@ -158,11 +185,11 @@ impl Host for Mux {
                 let mut run = hc::Run { name: hc::name_for(&format!("{}/{}", self.kept.namespace, start.key)), cwd: cwd.as_ref().filter(|cwd| cwd.is_dir()).map(|cwd| cwd.to_string_lossy().into_owned()), labels, cols: start.cols, rows: start.rows };
                 let _ = hc::Core::connect(endpoint).and_then(|mut core| core.run(&run).or_else(|_| { run.name = None; core.run(&run) }));
             }
-        } else if self.on_tmux() {
-            attached = self.sessions().iter().any(|session| *session == start.key);
+        } else if self.kept.on_tmux() {
+            attached = self.kept.sessions().iter().any(|session| *session == start.key);
         }
         let open = Open { key: start.key.clone(), cwd, size, env: Vec::new() };
-        let (opened, backend) = self.backends.open(self.preference, &open)?;
+        let (opened, backend) = self.kept.backends.open(self.kept.preference, &open)?;
         let moved = Arc::new(AtomicU64::new(0));
         let counted = moved.clone();
         let session = Session::start(opened, Engine::Alacritty, size, Arc::new(move || {
@@ -172,31 +199,28 @@ impl Host for Mux {
         // (Opened on a backend other than the one asked about, what was found there says nothing of this program.)
         let attached = attached && backend != PTY;
         if !attached && let Some(command) = &start.command { session.type_when_ready(format!("{command}\r").into_bytes()) }
-        if backend == HERDR_CORE {
-            if let Some(terminals) = self.kept.ask() { let now = self.kept.read(terminals); self.kept.took(now) }
-            self.keep_asking();
-        }
+        // What keeps it says so from now: the list has the program before its first frame.
+        if !self.hearing() { self.kept.hear() }
         // Every backend but the plain pty keeps its program when the handle goes.
         Ok(Opened { term: Box::new(MuxTerm { session, moved }), backend: backend.to_string(), keeps: backend != PTY, attached })
     }
 
     fn listed(&self) -> Vec<Listed> {
-        let mut listed = self.kept.listed.lock().unwrap().clone();
-        if self.on_tmux() { listed.extend(self.sessions().into_iter().map(|session| Listed { key: Some(session.clone()), address: session.clone(), name: session, backend: TMUX.to_string(), ..Listed::default() })) }
-        listed
+        self.hearing();
+        self.kept.listed.lock().unwrap().clone()
     }
 
     fn end(&self, key: &str) {
-        if self.on_core() {
+        if self.kept.on_core() {
             let Some(endpoint) = &self.kept.endpoint else { return };
             let Ok(mut core) = hc::Core::connect(endpoint) else { return };
             let Ok(terminals) = core.list() else { return };
             // Only the terminal this app's labels name: never one somebody else started.
             if let Some(address) = self.ours(&terminals, key) { let _ = core.kill(&address); }
-            if let Ok(terminals) = core.list() { let now = self.kept.read(terminals); self.kept.took(now) }
-        } else if self.on_tmux() {
-            self.tmux(&["kill-session", "-t", &format!("={key}")]);
+        } else if self.kept.on_tmux() {
+            self.kept.tmux(&["kill-session", "-t", &format!("={key}")]);
         }
+        self.kept.hear();
     }
 
     fn moved(&self) -> u64 { self.kept.moved.load(Ordering::Relaxed) }

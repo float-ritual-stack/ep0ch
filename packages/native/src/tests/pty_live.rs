@@ -10,10 +10,11 @@
 //!   where the core listens from the process's environment: so "detaches, returns" is two launches, as it is for
 //!   a person. What the stand-in was asked is what is asserted: a terminal started to outlive its starter at its
 //!   tile's size, attached to and never started twice, only this window's ended.
-//! - **tmux** comes with the mux as its second choice and is not run here.
+//! - **tmux**, the mux's second choice, on a server of the test's own (`tmux -L ep0ch-test-<pid>`, ended with the
+//!   test), where the machine has tmux: two windows one after the other, and no frame asking tmux anything.
 //!
 //! Nothing here reaches a core, a tmux server or a terminal the test did not start: the pty test names the plain
-//! pty outright, and the stand-in is the only core its windows can find.
+//! pty outright, the tmux test its own server, and the stand-in is the only core its windows can find.
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -444,6 +445,134 @@ fn herdr_core_keeps_a_shell_and_an_agent_across_two_launches() {
     assert!(ours[0].live && !ours[1].live && state.terminals[0].live && state.terminals[0].typed.is_empty());
     assert!(!state.calls.iter().any(|(method, params)| method == "terminal.attach" && params["terminal"] == "t9"), "the terminal somebody else started was never attached to");
     drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A launch that leaves nothing on screen: an agent beside the note, detached, and the window gone.
+#[test]
+#[ignore = "a launch of a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept"]
+fn leaving_launch() {
+    let Some((mut rt, _)) = launched() else { return };
+    let agent = line(&mut rt, "terminal.open agent=true command=\"seedbot --plan beds\"");
+    assert!(agent.ok, "{}", agent.said);
+    until(&mut rt, "the agent's line to run", |rt| shows(rt, "agent", "seedbot: planning the beds"));
+    let detached = line(&mut rt, "terminal.detach tile=agent");
+    assert!(detached.ok && detached.answer["keeps"] == true, "{}", detached.said);
+    assert!(rt.find("tile/agent").is_none());
+    let till = Instant::now() + Duration::from_millis(1500);
+    until(&mut rt, "the stream to be let go", |_| Instant::now() > till);
+}
+
+/// The launch after it: no tile is a terminal's, so no terminal is opened, and the list still says what the core
+/// kept: the agent with no tile, by the name and the line it was started with, and its row gives it a tile.
+#[test]
+#[ignore = "a launch of a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept"]
+fn returning_launch() {
+    let Some((mut rt, asked)) = launched() else { return };
+    assert!(rt.find("tile/agent").is_none() && rt.find("tile/shell").is_none(), "the arrangement came back with no terminal tile");
+    assert!(line(&mut rt, "bar.open scope=programs").ok);
+    until(&mut rt, "the core's list, with no terminal opened", |rt| { let _ = rt; handed(&asked).iter().any(|p| p["key"] == "garden-1") });
+    let said = handed(&asked);
+    assert_eq!(said.iter().map(|p| (p["key"].as_str().unwrap(), p["name"].as_str().unwrap(), p["command"].as_str(), p["status"].as_str(), p["tile"].as_str(), p["mine"].as_bool())).collect::<Vec<_>>(), vec![
+        ("garden-1", "Agent", Some("seedbot --plan beds"), Some("working"), None, None), ("", "compost", None, Some("idle"), None, Some(false)),
+    ]);
+    press(&mut rt, "bar/row/programs/garden-1");
+    until(&mut rt, "the agent's screen", |rt| rt.find("tile/agent").is_some() && shows(rt, "agent", "seedbot: planning the beds"));
+    assert_eq!((facts(&rt, "agent")["attached"].as_bool(), rt.state.person().typing_in.as_deref()), (Some(true), Some("agent")));
+}
+
+/// "Detaches, returns, and jumps between agents from a list", when nothing was left on screen: the window that
+/// returns has no terminal tile, so nothing opens a terminal, and what herdr-core kept is listed all the same.
+#[test]
+fn a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept() {
+    let dir = scratch("core-kept");
+    for folder in ["home", "state", "config", "run", "data"] { std::fs::create_dir_all(dir.join(folder)).unwrap(); }
+    let core = Standin::start(&dir);
+    let said = |out: &std::process::Output| format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let first = launch("leaving_launch", &dir, &core.socket);
+    assert!(first.status.success() && said(&first).contains("1 passed"), "the launch that leaves:\n{}", said(&first));
+    let second = launch("returning_launch", &dir, &core.socket);
+    assert!(second.status.success() && said(&second).contains("1 passed"), "the launch that returns:\n{}", said(&second));
+    let state = core.state.lock().unwrap();
+    assert_eq!(state.calls_of("terminal.run").len(), 1, "the agent was started once, and attached to when its row was picked");
+    let ours: Vec<&Fake> = state.terminals.iter().filter(|t| t.labels.get("moonframe-app").is_some_and(|app| app == "ep0ch-native")).collect();
+    assert_eq!(String::from_utf8_lossy(&ours[0].typed), "seedbot --plan beds\r", "its line was typed once");
+    assert!(state.calls_of("terminal.kill").is_empty() && ours[0].live);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── tmux, on a server of the test's own ─────────────────────────────────────────────────────────────────────
+
+/// The test's own tmux server (`tmux -L <namespace>`), ended with the test whatever it found.
+struct Server(String);
+
+impl Server {
+    fn tmux(&self, args: &[&str]) -> Option<String> {
+        let out = std::process::Command::new("tmux").args(["-L", &self.0, "-f", "/dev/null"]).args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+    fn sessions(&self) -> Vec<String> { self.tmux(&["list-sessions", "-F", "#{session_name}"]).map(|out| out.lines().map(str::to_string).collect()).unwrap_or_default() }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) { self.tmux(&["kill-server"]); }
+}
+
+/// tmux, the mux's second choice (a machine with `tmux` and no `hc`), under two windows one after the other: an
+/// agent's tile detached runs on in a session of the test's own server, the window that returns lists it with no
+/// tile and its row attaches to it with nothing typed a second time, and a close ends its session. tmux is asked
+/// when a terminal is opened or ended and by a thread of the host's own, never by a frame: what a list or a tile
+/// reads is what tmux last said. Skipped where no tmux is installed.
+#[test]
+fn tmux_keeps_a_program_between_two_windows_and_no_frame_asks_it() {
+    if !std::process::Command::new("tmux").arg("-V").output().is_ok_and(|out| out.status.success()) { eprintln!("no tmux on this machine: not run"); return }
+    let server = Server(format!("ep0ch-test-{}", std::process::id()));
+    let dir = scratch("tmux");
+    let script = dir.join("beds.sh");
+    std::fs::write(&script, "printf 'bed 1: carrots\\n'\nprintf 'bed 2: leeks\\n'\n").unwrap();
+    let kept = dir.join("native-garden.layout.json");
+    // tmux by name, on the test's own server: no core is looked for, and the person's own tmux is never reached.
+    let on_tmux = |g: &Garden| -> Box<dyn pty::Host> { Box::new(pty::moonframe::Mux::of(&server.0, moonframe_mux::Preference::Tmux, g.app.store().waker())) };
+
+    let mut g = garden_kept(ok(), &kept);
+    let host = on_tmux(&g);
+    g.app = g.app.running_on(host);
+    let mut rt = window(g.app);
+    let opened = line(&mut rt, &format!("terminal.open agent=true command=\"sh {}\"", script.display()));
+    assert!(opened.ok, "{}", opened.said);
+    assert_eq!((opened.answer["backend"].as_str(), opened.answer["keeps"].as_bool(), opened.answer["program"].as_str()), (Some("tmux"), Some(true), Some("garden-1")));
+    assert_eq!(facts(&rt, "agent")["kept"], "tmux · outlives this window");
+    until(&mut rt, "the script's lines", |rt| shows(rt, "agent", "bed 2: leeks"));
+    assert_eq!(server.sessions(), ["garden-1"], "its session is on the test's own server");
+    // What the list and the tile read is what tmux last said: reading it three hundred times starts no process
+    // (a `tmux list-sessions` a read is a process a frame while a program prints).
+    let at = Instant::now();
+    for _ in 0..300 { let _ = rt.state.store().programs_said(); }
+    assert!(at.elapsed() < Duration::from_millis(150), "the programs were read 300 times in {:?}: a read asks tmux nothing", at.elapsed());
+    let detached = line(&mut rt, "terminal.detach tile=agent");
+    assert!(detached.ok && detached.answer["keeps"] == true, "{}", detached.said);
+    drop(rt);
+    assert_eq!(server.sessions(), ["garden-1"], "the window is gone and its program is not");
+
+    // The window that returns: no terminal tile, and the agent in the list by what tmux keeps.
+    let mut g = garden_kept(ok(), &kept);
+    let host = on_tmux(&g);
+    g.app = g.app.running_on(host);
+    let asked = g.asked.clone();
+    let mut rt = window(g.app);
+    assert!(rt.find("tile/agent").is_none());
+    assert!(line(&mut rt, "bar.open scope=programs").ok);
+    let said = handed(&asked);
+    assert_eq!(said.iter().map(|p| (p["key"].as_str().unwrap(), p["name"].as_str().unwrap(), p["backend"].as_str(), p["tile"].as_str())).collect::<Vec<_>>(), vec![("garden-1", "Agent", Some("tmux"), None)]);
+    press(&mut rt, "bar/row/programs/garden-1");
+    until(&mut rt, "the agent's screen, as tmux kept it", |rt| rt.find("tile/agent").is_some() && shows(rt, "agent", "bed 2: leeks"));
+    assert_eq!(facts(&rt, "agent")["attached"], true);
+    assert_eq!(lines(&rt, "agent").concat().matches("bed 1: carrots").count(), 1, "its line was not typed into it a second time: {:?}", lines(&rt, "agent"));
+    // A close ends it, in tmux.
+    assert!(line(&mut rt, "tile.leave").ok && line(&mut rt, "tile.close tile=agent").ok);
+    until(&mut rt, "tmux to end the session", |_| server.sessions().is_empty());
+    drop(rt);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
