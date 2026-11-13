@@ -72,6 +72,25 @@ test("a laptop dials out, carries simultaneous outline reads and writes, refuses
   } finally { board?.close(); other?.close(); connector?.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
 
+test("a connector with the right key isn't timed out while an SSH attempt holds the machine's forward lock", async () => {
+  // float-2, Nov 12: with the laptop's link down, every reader fell back to SSH (10 s to fail), each holding this lock;
+  // the link's proof was right, but its 5 s timer ran on through the wait for the lock, so the link never came up.
+  const here = new ScratchHost(), laptop = new ScratchHost();
+  await here.start(); await laptop.start(); await laptop.create("garden");
+  const { forwardPaths } = await import("@ep0ch/outline-core/machine");
+  const lock = `${forwardPaths(here.outlines, "travel").control}.lock`;
+  const messages: string[] = [];
+  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log: line => messages.push(line) });
+  writeFileSync(lock, String(process.pid));
+  const connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, log() {} });
+  try {
+    await Bun.sleep(6500);
+    rmSync(lock, { force: true });
+    await until(() => linkStates(here.outlines).length === 1, "link up once the lock is free");
+    expect(messages.filter(m => m.includes("authentication timeout"))).toEqual([]);
+  } finally { rmSync(lock, { force: true }); connector.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
+}, 30_000);
+
 test("an unanswered link falls through to SSH and an unreachable machine explains both repairs", async () => {
   const here = new ScratchHost(), laptop = new ScratchHost();
   await here.start(); await laptop.start(); await laptop.create("garden");
