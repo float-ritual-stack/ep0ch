@@ -7415,12 +7415,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
       whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
-    this.overlay(new ListPicker<{ label: string; run: () => unknown }, Desk>({
-      name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
-      row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-      choose: it => void it.run(),
+    const ask: ListPicker<{ label: string; run: () => unknown }, Desk> = new ListPicker<{ label: string; run: () => unknown }, Desk>({   // a question, not a mode: no gathering card beside it; ^W leaves it for its chord
+      name: "gather", items: () => rows, clickChooses: true, row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)], choose: it => void it.run(),
+      keys: (k, d) => { if (k.kind !== "char" || !k.ctrl || k.ch !== "w") return false; ask.close(d, "esc"); d.key(k, d.ctx); return true; },
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
-    }));
+    }); this.overlay(ask);
     return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }
 

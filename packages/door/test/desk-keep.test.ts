@@ -54,5 +54,21 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       expect(group?.tiles.map(t => t.name).sort()).toEqual(["answer", "detail3"]);
     } finally { p.close(); }
   }, 90_000);
+
+  // ^W G on a tile in a split asks "this tile or the whole split?". It drew the gathering card beside the question (two
+  // overlays at once), and the question took every key until Esc: a ^W chord typed next went nowhere.
+  test("^W G's question is one overlay, and a ^W chord typed next leaves it and runs", async () => {
+    const p = await doors.pane(await doors.create("Onion sets\nplant out"), "Onion sets", 44, 30);
+    try {
+      p.keys("C-w", "v");
+      await until(() => deskOf(p).length === 2, "a tile beside");
+      p.keys("C-w", "G");
+      await until(() => p.capture().includes("this tile or the whole split"), "the question");
+      expect(p.capture()).not.toContain("Gathering");
+      p.keys("C-w", "z");
+      await until(() => !p.capture().includes("gather into a group"), "the question left", 3000);
+      await until(() => JSON.parse(p.act("layout.get").out).zoom !== null, "the zoom the chord asked for", 3000);
+    } finally { p.close(); }
+  }, 60_000);
 });
 
