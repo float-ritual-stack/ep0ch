@@ -126,20 +126,36 @@ export class AnswerTile implements Pane {
    * does, unless the reader is back by the time the close comes round, with no undo step of its own. Drawn, it sees that
    * itself; a tab behind its reader isn't drawn, so the desk says so as the reader goes (PIE-1757).
    */
-  readerLeft(desk: Pick<DeskApi, "paneNamed" | "pane" | "dismiss">) {
-    if (this.closing || readerOf(desk, this.source) instanceof ReaderPane) return;
+  readerLeft(desk: Pick<DeskApi, "paneNamed" | "pane" | "dismiss" | "nameOfPane">) {
+    if (this.closing || this.readerOn(desk) instanceof ReaderPane) return;
     this.closing = true;
-    queueMicrotask(() => { if (this.closing && !(readerOf(desk, this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+    queueMicrotask(() => { if (this.closing && !(this.readerOn(desk) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+  }
+  /** The reader it last stood beside (render, or a pair's move): found again under the name it has now. */
+  private seen?: ReaderPane;
+  /** It goes on beside `r` (a pair's move, PIE-1794), whatever `r` is named where it lands or comes back to. */
+  goesWith(r: ReaderPane) { this.seen = r; }
+  /**
+   * Its reader on `desk`: by the name it reads, else the reader it last stood beside, under the name it has there now (a
+   * move or its undo renamed it, PIE-1794), which it then reads by.
+   */
+  readerOn(desk: Pick<DeskApi, "paneNamed" | "pane" | "nameOfPane">): Pane | undefined {
+    const r = readerOf(desk, this.source);
+    if (r instanceof ReaderPane || !this.seen) return r;
+    const now = desk.nameOfPane?.(this.seen);
+    if (!now) return r;
+    this.source = now;
+    return this.seen;
   }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
   private shownLive: boolean | null = null;
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
-    const reader = readerOf(desk, this.source);
+    const reader = this.readerOn(desk);
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
     // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
     // back). The next ask opens one beside the reader where it is now.
     if (!(reader instanceof ReaderPane)) { this.readerLeft(desk); return this.said("The answer's reader has gone.", w, h); }
-    this.closing = false;   // beside its reader again (moved with it, PIE-1794): a close on its way from where it was is off
+    this.closing = false; this.seen = reader;   // beside its reader again (moved with it, PIE-1794): a close on its way from where it was is off
     this.closing = false;
     // Its reader hasn't read its note yet (a door just restored, CodeRabbit on #1435): nothing is gone, and nothing is
     // known yet that a save should change.
@@ -291,10 +307,15 @@ export interface PairHost {
 export function movePair(d: Desk, host: PairHost, pair: { reader: ReaderPane; answer: AnswerTile }, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
   const h = d.holder, up = h?.desk();
   if (h && up && d.inGroup() && d.layoutGet(false).tiles.length === 2) return up.drawerTile(up.nameOfPane(h.tile), undefined, to, where, actor);
-  const txn = TXN.getStore()?.txn ?? `drawer:${crypto.randomUUID()}`, touched = new Set<Desk>([d]);
+  const inDrawer = host.isDrawer(d), reader = d.nameOfPane(pair.reader), answer = d.nameOfPane(pair.answer);
+  // Whether the answer can follow, asked before anything moves: its own take, and a screen the two would leave blank.
+  const stays = d.takeRefusal(answer, actor) ?? (!inDrawer && !d.inGroup() && d.layoutGet(false).tiles.length === 2 ? "the screen would be blank: it keeps a tile" : null);
+  if (stays) throw new ActionRefused(`${reader} and its answer move together, and ${stays}`);
+  // Its own transaction, even inside a caller's (txn=): a rollback takes back the pair's move and nothing before it.
+  const txn = `drawer:${crypto.randomUUID()}`, touched = new Set<Desk>([d]);
+  pair.answer.goesWith(pair.reader);
   try {
     return TXN.run({ ...TXN.getStore(), txn }, () => {
-      const inDrawer = host.isDrawer(d), reader = d.nameOfPane(pair.reader), answer = d.nameOfPane(pair.answer);
       const done = inDrawer ? host.take(reader, to, where, actor, [pair.answer]) : host.put(d, reader, actor, false, to, where, false, [pair.answer]);
       const there = host.resolveTile(done.tile)?.desk;
       if (!there) return done;
@@ -307,5 +328,5 @@ export function movePair(d: Desk, host: PairHost, pair: { reader: ReaderPane; an
       catch (e) { pair.answer.source = reader; d.undoLayout(actor, txn, true); throw new ActionRefused(`${reader} and its answer move together, and ${e instanceof Error ? e.message : String(e)}`); }
       return { ...done, with: there.nameOfPane(pair.answer) };
     });
-  } finally { if (!TXN.getStore()?.txn) for (const x of touched) x.history.close(txn); }
+  } finally { for (const x of touched) x.history.close(txn); }
 }

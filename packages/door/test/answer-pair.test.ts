@@ -19,14 +19,14 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
   afterAll(() => doors.stop());
 
   /** A detail screen at `cols`: the reader "detail" with its answer beside it, and a spare reader so the screen keeps a tile. */
-  async function pairDesk(cols: number) {
+  async function pairDesk(cols: number, spareBeside = "detail") {
     const p = await doors.pane(await doors.create("Pea sticks\ncut hazel"), "Pea sticks", cols, 40);
     p.keys("e"); await until(() => p.capture().includes("editing"), "the edit");
     await doors.ask(p, "@tally the sticks");
     p.keys("C-s"); await until(() => !p.capture().includes("editing"), "saved");
     await until(() => answers(p).length === 1, "its answer beside it");
     await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
-    expect(p.act("tile.open", "kind=reader", "name=spare", "to=detail", "where=down").ok).toBe(true);
+    expect(p.act("tile.open", "kind=reader", "name=spare", `to=${spareBeside}`, "where=down").ok).toBe(true);
     await until(() => screen(p).some(t => t.name === "spare"), "a spare reader");
     return p;
   }
@@ -109,4 +109,25 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
       expect(names(p)).toContain("group/detail");
     } finally { p.close(); }
   }, 90_000);
+
+  // CodeRabbit on #1498: a pair move refused halfway rolled back the whole transaction it ran in, so an agent's earlier
+  // change in the same txn= went too. Only the pair's own step is taken back.
+  test("a refused pair move takes back only itself, not the transaction's earlier changes", async () => {
+    const p = await pairDesk(177, "answer");
+    try {
+      await keysOn(p, "spare");
+      await Bun.sleep(2200);
+      // The answer's own container locked, so the reader may go but its answer can't follow.
+      expect(p.act("layout.policy", "tile=answer", "locked=true").ok).toBe(true);
+      const earlier = p.act("tile.open", "kind=reader", "name=extra", "to=detail", "where=down", "txn=walk-1");
+      expect([earlier.ok, earlier.out]).toEqual([true, expect.any(String)]);
+      await until(() => screen(p).some(t => t.name === "extra"), "the earlier change");
+      const r = p.act("tile.drawer", "tile=detail", "txn=walk-1");
+      expect(r.ok).toBe(false);
+      await Bun.sleep(800);
+      expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/extra"]));
+      expect(answers(p)).toHaveLength(1);
+    } finally { p.close(); }
+  }, 90_000);
 });
+
