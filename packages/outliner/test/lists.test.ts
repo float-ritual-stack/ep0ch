@@ -230,3 +230,19 @@ test("a watched list is asked again when the outline changes, and says its answe
   const again = await until(line => line.id === "w2");
   expect(labels(again)).toEqual(["Beds", "Seed list", "Shed", "Compost heap"]);
 });
+
+// What the notes under a note are has one answer (outline-core's `isNoteUnder`, the reading `CHILDREN_QUERY` is made
+// from): a comment on a note and an edit proposed beside it are blocks under it and no notes of it. The tree, the
+// page's own list and a links list's Children all ask it, so none lists one the others leave out.
+test("children: a comment on a note and a proposal beside it are no notes under it, in the tree, on its page and in its links", async () => {
+  const { client, list, north, rows } = await setup();
+  await client.request({ action: "annotations.batch", requestId: "c1", operations: [{ operationId: "1", type: "block-comment", input: { blockId: north.id, expectedRevision: north.revision, body: "Too early for peas?", source: "user" } }], author: "user" } as never);
+  const proposed = await client.request<{ outcome: string }>({ action: "draft.patch", propose: true, blockId: north.id, revision: north.revision, patches: [{ observed: "North bed", replacement: "North bed, by the wall" }], mutation: { author: "agent", actorId: "tidy-agent" } } as never);
+  expect(proposed.outcome).toBe("proposed");
+  const under = (await list("children", { of: north.id })).list.rows.map(r => r.label);
+  const page = await client.request<{ children: { id: string }[]; under?: { rows: { id: string }[] } }>({ action: "notes.page", blockId: north.id } as never);
+  const links = await list("links", { of: north.id, linkGroups: "children" });
+  expect(under).toEqual(["First row"]);
+  expect([page.children.map(c => c.id), page.under?.rows.map(r => r.id)]).toEqual([[rows.id], [rows.id]]);
+  expect(links.list.rows.map(r => r.id)).toEqual([rows.id]);
+});

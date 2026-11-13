@@ -9,7 +9,7 @@ import { componentAt, componentStarts, type ComponentAt } from "@ep0ch/outline-c
 import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figurePrimitive } from "@ep0ch/outline-core/figure-primitive";
 import { figureResultsMarkdown } from "@ep0ch/outline-core/figure-results";
-import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
+import { isNoteUnder } from "@ep0ch/outline-core/derived";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { ListGroup, ListRow } from "@ep0ch/outline-core/list-row";
@@ -50,9 +50,10 @@ export async function servedPage(
   const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasChildren ? { hasChildren: true } : {}) });
   const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children, ["properties"])]);
   const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
-  // A comment on the note is a block under it and no note of it (outline-core's `isMarkType`): its threads list it
-  // (`lists.read from=threads`), as a published page leaves it out of the notes under.
-  const under = ordered(record.children, kids.filter(kid => !isMarkType(kid.properties?.find(p => p.key === "type")?.value)));
+  // A comment on the note and an edit proposed beside it are blocks under it and no notes of it (outline-core's
+  // `isNoteUnder`, the one answer): its threads and its proposals list them (`lists.read from=threads|proposals`), as
+  // a published page and the tree leave them out of the notes under.
+  const under = ordered(record.children, kids.filter(kid => isNoteUnder(kid.properties?.find(p => p.key === "type")?.value)));
   return {
     blockId: block.id, revision: block.revision, title: self[0]?.title ?? "", chips: headerLine(block.text).chips.map(c => ({ key: c.key, value: c.value })),
     properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, ...body,

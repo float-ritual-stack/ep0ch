@@ -22,6 +22,7 @@ import { listRowMatches, type ListAnswer, type ListGroup, type ListPrimitive, ty
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { QuestionFacet, QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { clauseText } from "@ep0ch/outline-core/query-clauses";
+import { isNoteUnder } from "@ep0ch/outline-core/derived";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { ABOUT_PRODUCERS } from "./about-producers";
@@ -35,9 +36,14 @@ export type { ListsRequest } from "./list-producer";
 const NOTE_FIELDS = ["title", "hasChildren"] as const;
 const day = (iso: string | undefined) => iso?.slice(0, 10) ?? "";
 
-/** The notes under `parent` (null: the top level), in outline order, each with its list title. */
+/**
+ * The notes under `parent` (null: the top level), in outline order, each with its list title. A comment on the note
+ * and an edit proposed beside it are blocks under it and no notes of it (outline-core's `isNoteUnder`, the one answer:
+ * a page's own list and a links list's Children leave out the same ones).
+ */
 async function level(own: Own, parent: string | null): Promise<Listed[]> {
-  return (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", under: parent, fields: [...NOTE_FIELDS] })).blocks;
+  const { blocks } = await own.request<{ blocks: (Listed & { properties?: { key: string; value: string }[] })[] }>({ action: "blocks.read", under: parent, fields: [...NOTE_FIELDS, "properties"] });
+  return blocks.filter(block => isNoteUnder(block.properties?.find(p => p.key === "type")?.value)).map(({ properties: _, ...note }) => note);
 }
 
 /**
