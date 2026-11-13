@@ -88,7 +88,7 @@ test("the terminal extension: installed as a person does, its kinds are rows a t
 
   // Each kind names the drawer and what a tile of it starts with: the agent's command is its row's, and no door's.
   const served = (await screens(["list", "page", "pty"])).kinds.filter(k => k.extension === "terminal");
-  expect(served.map(k => [k.kind, k.name, k.drawer, k.fields ?? null, k.about])).toEqual(MANIFEST.tiles.map(t => [`terminal.${t.kind}`, t.name, t.drawer, t.fields ?? null, t.description]));
+  expect(served.map(k => [k.kind, k.name, k.drawer, k.fields ?? null, k.about])).toEqual(MANIFEST.tiles.map(t => [`terminal.${t.kind}`, t.name, t.drawer, t.fields ?? null, t.description]) as never);
   expect(served.map(k => k.drawer)).toEqual(["pty", "pty"]);
   expect(served.find(k => k.kind === "terminal.agent")!.fields).toEqual({ command: "claude" });
   // What a door built without its terminal says of the tile is the row's: it says how the terminal is built in.
