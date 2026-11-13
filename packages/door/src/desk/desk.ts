@@ -860,7 +860,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
-      ...(k?.opensOnScreen ? { opensOut: true } : {}),
+      ...(k?.opensOnScreen ? { opensOut: true } : {}), ...(k?.handsKeys ? { handsKeys: true } : {}),
       ...(home !== undefined ? { home } : {}),
       ...(p && (holds || holdsKeys || this.holdsWork(p)) ? { holds: true } : {}),
     };
@@ -3171,8 +3171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
     const exited = this.waitsOnExit(), busy = exited ? this.holdsOtherKeys() : this.holdsKeys();   // an exited program isn't typed in and holds nobody back (PIE-1563)
     const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!this.keptOpen() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
-    const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
-    const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
+    const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null, address = inner?.address ?? (f ? this.tileId(this.focus) : null);   // the nearest tile with an address: an emptied mount's is its own
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
     return { focus: name, address, typingIn: typing ? name : null, busy, ...(why ? { why } : {}) };
@@ -3316,7 +3315,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A reader named is picked before the note is fetched: `expected=` was checked against the layout as it is now, so a
     // `#2` means this layout's second tile, not whatever moved there while the service answered. None on the screen: placement makes one (PIE-1641).
     const place = !t && (o.tile === "detail" || o.tile === "new-detail" || o.tile === "float") && d.hasPlaces() ? d.layout.policy.opensInto! : undefined;
-    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow() && d.namedReaders().length > 0)) ? d.pickReader(o.tile) : undefined;
+    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow() && d.focusedReader() !== null)) ? d.pickReader(o.tile) : undefined;   // naming none, placement says where, but for the reader the keys are on
     const m = r ? await readNote(this.ctx, id) : o.standing === false && !t && !place && !o.fresh ? await readNote(this.ctx, id) : d.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     if (r && (!d.all().includes(r.id) || d.panes.get(r.id) !== r.pane)) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
@@ -3326,7 +3325,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       : r ? { from: d.focus, to: r.id, note: m.id }
       : o.fresh ? d.landingRequest(d.focus, m.id, true)
       : o.standing === false ? d.landingRequest(d.focus, m.id)
-      : { from: d.focus, note: m.id };
+      : { from: d.focus, note: m.id, handsKeys: true };
     const landed = d.placeNote(m, request, actor);
     if (!landed) throw new ActionRefused(place ? `no reader in ${place} takes this open` : "no reader takes this open; tile.open kind=reader gives it a destination");
     if (place) d.memory.into(place).active = landed.id;
@@ -3927,6 +3926,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
   /** The desk the person's keys are in: this one, or the focused group's or mounted screen's (its focused tile has them). */
+  /** The one walk to the desk the person's keys are in, down this desk's focused groups (not folded): what keys(), Esc, undo and chords read; the App's keys record (focusedDesk) is built from it. */
   private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner && !this.contentCover(this.focus).fold ? f.inner.keysDesk() : this; }
   /**
    * Where the person types in a program, as Esc asks it (PIE-1431): `typing`, a terminal tile has their keys here or in a
@@ -4521,7 +4521,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (focusedDesk, PIE-1346) when it is this one or down in its groups, else this desk's focused tile.
    */
   private keysTile(): { desk: Desk; id: number } | null {
-    const at = this.focusedDesk(), desk = at && this.descend().includes(at) ? at : this;
+    const desk = this.keysDesk();
     return desk.panes.has(desk.focus) ? { desk, id: desk.focus } : null;
   }
   /** The focused tile's menu rows the ^W panel's own group was drawn from (PIE-1338), and the desk the tile is on. */
@@ -4598,7 +4598,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const mode: Prefix | undefined = ({ "^W": "wm", "^W o": "add", "^W O": "addtab" } as const)[prefix as "^W"];
     if (!mode) throw new ActionRefused(`no panel for ${prefix}: choose ^W, "^W o" or "^W O"`);
     const panel = this.panelOf(mode);
-    if (actor.kind !== "agent") { this.prefix = mode; this.panelWait.arm(mode, 0); this.redraw(); }
+    if (this.dispatch.takesKeys(actor)) { this.prefix = mode; this.panelWait.arm(mode, 0); this.redraw(); }
     return { prefix, groups: panel.groups };
   }
 
@@ -5282,7 +5282,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
       const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
       const re = wKey(RESIZE_ALIAS[rc] ?? rc);
-      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
+      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.focusId()); }
       this.leaveResize();
       this.redraw();
       return this.key(k, this.ctx);
@@ -5310,7 +5310,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
       case "run": { const up = holdingDesk(e, this.holder);   // a key about the group or mount holding this desk is that desk's (a group's resize keys size the group, PIE-1771)
-        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
+        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.focusId() : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
         if (e.sticky) { this.armResize(); this.ctx.flash(`resize${up && e.holder ? " the group" : ""} · - + < > · h j k l · = evens · esc done`, RESIZE_IDLE_MS); }
         return done;
@@ -5621,7 +5621,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...(t.args && !t.screen && t.inner === undefined ? { args: t.args } : {}), ...(t as Partial<TileSpec>).linkGroups ? { linkGroups: (t as Partial<TileSpec>).linkGroups } : {}, ...(t as Partial<TileSpec>).subject ? { subject: (t as Partial<TileSpec>).subject } : {}, ...this.mountFields(t) };
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
-    if (wrong && k.choices && actor.kind !== "agent") {
+    if (wrong && k.choices && this.dispatch.takesKeys(actor)) {
       await this.askChoices(t.kind, more => this.run("tile.open", { ...t, ...more, to: base.name, ...(typeof where === "string" ? { where } : {}) }, base.name));
       return { ...this.tileAnswer(base.id), picking: t.kind };
     }
@@ -6378,7 +6378,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async saveScreen(name: string | undefined, actor: Actor): Promise<Record<string, unknown>> {
     if (name === undefined || !name.trim()) {
-      if (actor.kind === "agent") throw new ActionRefused("screen.save needs name=<the screen's name>, as a person would type it (daily test saves as daily-test)");
+      if (!this.dispatch.takesKeys(actor)) throw new ActionRefused("screen.save needs name=<the screen's name>, as a person would type it (daily test saves as daily-test)");
       this.overlays.push(screenSaver(this.layoutName ? screenTitle(this.layoutName) : ""));
       this.redraw();
       return { prompt: true, name: this.layoutName };
@@ -6459,7 +6459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   loadLayout(name: string | undefined, actor: Actor): { layout?: string; saved?: boolean; rule?: OpenRule; tiles?: string[]; kept?: string[]; picker?: boolean; layouts?: ReturnType<typeof layoutNames> } {
     if (name === undefined || !name.trim()) {
-      if (actor.kind === "agent") throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
+      if (!this.dispatch.takesKeys(actor)) throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
       this.overlays.push(layoutPicker(layoutNames()));
       this.redraw();
       return { picker: true, layouts: layoutNames() };
@@ -6818,12 +6818,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
 
   /** A tile by its number on screen (the one `peek` shows), its name, or the focused one; `n` its number. */
-  private tileNumbered(sel?: string): { name: string; n: string; id: number } {
-    const t = this.tileNamed(sel, false);
-    if (t) return { name: t.name, n: String(this.numberOf(t.id)), id: t.id };
-    const ids = this.all();
-    throw new ActionRefused(`no tile ${sel} on the screen; tiles: ${ids.map((_, i) => i + 1).join(", ")}, their names, or focused`);
-  }
+  /** Tile `sel` (tileNamed, its one lookup and refusal) with its number on the screen. */
+  private tileNumbered(sel?: string): { name: string; n: string; id: number } { const t = this.tile(sel); return { name: t.name, n: String(this.numberOf(t.id)), id: t.id }; }
 
   /** A program or supplied tile that ended is gone; its normal close rules no longer apply. */
   private closeId(id: number, step = true) {
@@ -7054,7 +7050,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
-    if (actor.kind === "agent" || !this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
+    if (!this.dispatch.takesKeys(actor, "tile")) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
     this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);

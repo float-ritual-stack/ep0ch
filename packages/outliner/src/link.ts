@@ -175,7 +175,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
               // Its own listener first, at its own path; the shared socket is routed to it below, by ensureForward.
               const linkSocket = linkSocketOf(paths);
               io.remove(linkSocket);
-              const streams = p.streams = new LinkStreams(data => ws.send(data));
+              const streams = p.streams = new LinkStreams(data => ws.send(data), undefined, { buffered: () => ws.getBufferedAmount() });
               p.listener = createServer(socket => streams.open(socket));
               await new Promise<void>((resolve, reject) => { p.listener!.once("error", reject); p.listener!.listen(linkSocket, resolve); });
               if (p.closed) { p.listener.close(); return; }
@@ -217,6 +217,8 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
           }
         } catch (error) { p.reason = (error as Error).message; o.log(`link refused: ${p.reason}`); ws.close(1008, p.reason); }
       },
+      // The WebSocket's buffer drained: streams held on it send again (LinkStreams' SEND_BUFFER).
+      drain(ws) { ws.data.streams?.drained(); },
       close: cleanup,
     },
   });
@@ -342,7 +344,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           clearTimeout(timeout); delay = 1000;
           if (message.compatible) {
             streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, target =>
-              target === "" ? o.host : target.startsWith("door:") ? o.doorSocket?.(target.slice(5)) ?? null : null);
+              target === "" ? o.host : target.startsWith("door:") ? o.doorSocket?.(target.slice(5)) ?? null : null, { buffered: () => socket.bufferedAmount });
             // Which door sessions run here, said now and again when it changes (PIE-1242).
             if (o.doors) {
               let said = "";

@@ -514,11 +514,7 @@ export class TreePane implements Pane {
       if (r.role === "more" && b) { await this.loadBranch(b.def, desk, "more"); return { row: i + 1, view: r.view, matches: b.items.length }; }
       return { row: i + 1, ...this.setDepth(i, undefined, desk, !standing) };
     }
-    const land = (m: Msg) => {
-      const routed = desk.routes?.(this);
-      desk.openFromTile(m, { from: this, link: true, fresh, by: actor });
-      if (!routed && !agent && !fresh) desk.focusKind("reader", actor);
-    };
+    const land = (m: Msg) => { desk.openFromTile(m, { from: this, link: true, fresh, by: actor }); };
     if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
     // A link: its note, a ticket's block, or a Resource registered if it must be and shown (the shared model's open).
     if (r.kind === "resource" && !r.link.recordBlockId) desk.ctx.flash(`reading ${r.link.label}…`);

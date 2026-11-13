@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
+import { alertMark, type BackupState, CHECK_LATE_MS, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
@@ -748,4 +748,18 @@ describe.skipIf(!outliner)("the door's status bar", () => {
     A.backupRead.at = -Infinity;
     expect(bar()).not.toContain("✗ backup");
   }, 30_000);
+});
+
+test("only a copy something follows is reported: listed, or asked for by a running process; a leftover status file isn't (PIE-1779)", async () => {
+  // float-2, Nov 12: doctor showed eight copies nobody follows any more as followed (one ✓, one stale at schema 8),
+  // from their old status files.
+  const { scratchDir } = await import("./scratch");
+  const mirrors = scratchDir("follow-status-"), follow = join(mirrors, "travel", ".follow");
+  mkdirSync(follow, { recursive: true });
+  const status = JSON.stringify({ cursor: 7, copiedAt: "2026-11-12T00:00:00.000Z", stale: null });
+  for (const name of ["garden", "orchard", "attic"]) writeFileSync(join(follow, `${name}.json`), status);
+  writeFileSync(join(follow, `orchard.${process.pid}.want`), "");
+  try {
+    expect(followedCopies(mirrors, ["garden@travel"]).map(c => c.key)).toEqual(["garden@travel", "orchard@travel"]);
+  } finally { rmSync(mirrors, { recursive: true, force: true }); }
 });
