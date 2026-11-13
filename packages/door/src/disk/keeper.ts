@@ -101,7 +101,10 @@ export const OWNERS: readonly Owner[] = [
 export function ownerOf(place: string): Owner {
   const p = place.replace(/ \(files\)$/, "");
   const hit = [...OWNERS].sort((a, b) => b.path.length - a.path.length).find(o => p === o.path || p.startsWith(o.path + "/"));
-  return hit ?? { path: p, owner: "nobody", moves: false, how: "no part of ep0ch reclaims it", fix: `du -xh -d1 ${p} | sort -h | tail   (offload ${p} moves it to the storage box, if it's cold)` };
+  if (hit) return hit;
+  // A folder's own files (beside the folders listed under it): the largest first, to see which one grew.
+  if (place.endsWith(" (files)")) return { path: p, owner: "nobody", moves: false, how: "files directly in this folder", fix: `ls -lhS ${p} | head   (offload <file> moves one to the storage box, if it's cold)` };
+  return { path: p, owner: "nobody", moves: false, how: "no part of ep0ch reclaims it", fix: `du -xh -d1 ${p} | sort -h | tail   (offload ${p} moves it to the storage box, if it's cold)` };
 }
 
 export interface Growth { place: string; bytes: number; owner: Owner }

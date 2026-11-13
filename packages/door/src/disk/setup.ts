@@ -67,7 +67,7 @@ export function diskPlan(f: DiskSetupFacts): DiskPlan {
   if (!f.box) return { status: "skip", why: "no storage box named for cold files here: EP0CH_DISK_BOX=<its ssh name> ep0ch install --apply turns the disk keeper on", commands: [], writes: [] };
   const { writes, foreign } = unitWrites(f.units);
   if (foreign.length) {
-    return { status: "manual", why: `${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "Written by \`ep0ch install\`" line): mkdir -p ~/backups/units && mv ${foreign.join(" ")} ~/backups/units/ && ep0ch install --apply`, commands: [], writes: [] };
+    return { status: "manual", why: `${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "Written by \`ep0ch install\`" line): systemctl --user disable --now ${foreign.map(p => p.slice(p.lastIndexOf("/") + 1)).join(" ")}; mkdir -p ~/backups/units && mv ${foreign.join(" ")} ~/backups/units/ && ep0ch install --apply`, commands: [], writes: [] };
   }
   const all: DiskPlan["writes"] = [...writes];
   if (f.offload.older) all.push({ path: f.offload.installed, text: readFileSync(f.offload.source, "utf8"), mode: 0o755 });

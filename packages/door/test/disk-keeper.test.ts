@@ -138,6 +138,20 @@ describe("the disk keeper on a made-up disk", () => {
     expect(announced[0]!.fix).toStartWith("ssh storagebox true");
   }, 60_000);
 
+  test("offload takes a folder outside home (a volume's) to root/<path> on the box, and brings it back", () => {
+    const parked = join(root, "volume/claude-archive");
+    mkdirSync(join(parked, "proj"), { recursive: true });
+    writeFileSync(join(parked, "proj/old.jsonl"), "x".repeat(4096));
+    const out = Bun.spawnSync([env.EP0CH_OFFLOAD!, parked], { env });
+    expect(out.exitCode).toBe(0);
+    expect(existsSync(parked)).toBe(false);
+    expect(readFileSync(`${parked}.offloaded`, "utf8")).toContain(`offload --restore ${parked}`);
+    expect(boxFiles().some(f => f.endsWith(`/root${parked}/proj/old.jsonl`))).toBe(true);
+    expect(Bun.spawnSync([env.EP0CH_OFFLOAD!, "--restore", parked], { env }).exitCode).toBe(0);
+    expect(readFileSync(join(parked, "proj/old.jsonl"), "utf8")).toHaveLength(4096);
+    expect(existsSync(`${parked}.offloaded`)).toBe(false);
+  }, 30_000);
+
   test("under the line: no sweep, nothing moved", async () => {
     const a = file(`${project}/${session}.jsonl`, 1024, 10);
     fillTo(60);
