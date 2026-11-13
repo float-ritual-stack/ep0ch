@@ -45,6 +45,7 @@ export class TallyDoors {
       return r.stdout.toString();
     };
     tmux("new-session", "-d", "-s", "door", "-x", String(cols), "-y", String(rows), "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
+    tmux("set-option", "-t", "door", "remain-on-exit", "on");
     const capture = () => tmux("capture-pane", "-p", "-t", "door");
     await until(() => capture().includes(title), "the pane's reader", 15_000).catch(e => { tmux("kill-session", "-t", "door"); throw e; });
     const type = (text: string) => { tmux("send-keys", "-t", "door", "-l", text); };

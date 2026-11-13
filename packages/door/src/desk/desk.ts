@@ -5282,7 +5282,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
       const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
       const re = wKey(RESIZE_ALIAS[rc] ?? rc);
-      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
+      if (re?.sticky && re.how.k === "run") { this.armResize(); const up = holdingDesk(re, this.holder); return up ? up.run(re.how.action, re.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.focusId()); }
       this.leaveResize();
       this.redraw();
       return this.key(k, this.ctx);
@@ -5310,7 +5310,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
       case "run": { const up = holdingDesk(e, this.holder);   // a key about the group or mount holding this desk is that desk's (a group's resize keys size the group, PIE-1771)
-        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
+        const done = up ? up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile)) : this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.focusId() : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
         if (e.sticky) { this.armResize(); this.ctx.flash(`resize${up && e.holder ? " the group" : ""} · - + < > · h j k l · = evens · esc done`, RESIZE_IDLE_MS); }
         return done;
@@ -6818,12 +6818,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
 
   /** A tile by its number on screen (the one `peek` shows), its name, or the focused one; `n` its number. */
-  private tileNumbered(sel?: string): { name: string; n: string; id: number } {
-    const t = this.tileNamed(sel, false);
-    if (t) return { name: t.name, n: String(this.numberOf(t.id)), id: t.id };
-    const ids = this.all();
-    throw new ActionRefused(`no tile ${sel} on the screen; tiles: ${ids.map((_, i) => i + 1).join(", ")}, their names, or focused`);
-  }
+  /** Tile `sel` (tileNamed, its one lookup and refusal) with its number on the screen. */
+  private tileNumbered(sel?: string): { name: string; n: string; id: number } { const t = this.tile(sel); return { name: t.name, n: String(this.numberOf(t.id)), id: t.id }; }
 
   /** A program or supplied tile that ended is gone; its normal close rules no longer apply. */
   private closeId(id: number, step = true) {
