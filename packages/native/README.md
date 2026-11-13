@@ -366,7 +366,8 @@ prints what a key costs in a long block (PROBES.md §12).
 `src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
 its form (a value refused keeps the form) and removed; a switch of outline and back to a block as it was being
 written (a name nobody has refused, nothing made); a tile torn into a second window drawn headless, two links in
-one store, and the control socket naming the window an act is for.
+one store, and the control socket naming the window an act is for; a torn window that switches outline keeping
+no arrangement there and its words in a file of its own; and a window closed mid-block holding nothing afterwards.
 
 The service's side is `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
 lists, a rendered tile's view, a setting reaching the script its extension ships), `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,

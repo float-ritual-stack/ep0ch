@@ -127,6 +127,7 @@ fn a_window_switches_outline_and_comes_back_to_a_block_as_it_was_being_written()
     let there = elsewhere.borrow()["allotment"].0.clone();
     assert!(there.borrow().iter().all(|a| a["outline"] == "allotment") && actions(&there).contains(&"screens.list".to_string()) && actions(&there).contains(&"events.subscribe".to_string()));
     assert_eq!(app.notice.as_ref().and_then(|notice| notice.undo.clone()).as_deref(), Some("outline.switch name=garden machine=\"\""), "the notice carries the way back");
+    assert_eq!(crate::actions::label("outline.switch name=garden machine=\"\""), "Switch outline", "and its button is called what the action's row calls it, never the action's id");
     assert!(dir.join("native-allotment.layout.json").exists(), "each outline's arrangement is a file of its own");
 
     // Back: the arrangement as it was left, the block in its tile with every word, held again; nothing was asked of anybody.
@@ -235,4 +236,51 @@ fn the_control_socket_names_which_window_an_act_is_for() {
     assert_eq!((nobody["ok"].clone(), nobody["error"].clone()), (json!(false), json!("no window named greenhouse: the windows are main, reader")));
     drop(ask);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_torn_window_that_switches_outline_keeps_no_arrangement_there_and_what_is_written_in_it_is_its_own() {
+    let dir = std::env::temp_dir().join(format!("ep0ch-native-torn-switch-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let Garden { mut app, .. } = garden_kept(ok(), &dir.join("native-garden.layout.json"));
+    act(&mut app, "open id=shed");
+    act(&mut app, "tile.tear tile=reader");
+    let mut second = app.born().pop().expect("the act asked for a window");
+    second.settle();
+    // The torn window goes to another outline: it keeps no arrangement there either (that file is the first
+    // window's), and a block written in it there is kept in a file of this window's own.
+    act(&mut second, "outline.switch name=allotment");
+    assert_eq!(second.at.outline, "allotment");
+    assert!(!dir.join("native-allotment.layout.json").exists(), "a torn window wrote the arrangement the first window keeps for that outline");
+    act(&mut second, "open id=beans");
+    assert!(act(&mut second, "edit").ok);
+    write(&mut second, "Water the beans [type::chore]\nBefore the rain, and after");
+    assert!(dir.join("native-allotment.reader.drafts.json").exists() && !dir.join("native-allotment.drafts.json").exists(), "its words are kept in its own file: {:?}", std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.file_name()).collect::<Vec<_>>());
+    // The first window comes to that outline while the block is being written in the other: it takes nothing of it.
+    act(&mut app, "outline.switch name=allotment");
+    assert_eq!((app.at.outline.as_str(), app.drafts.len(), app.recovered.len()), ("allotment", 0, 0), "a block being written in another window is not brought back in this one");
+    assert_eq!(words(&second), "Water the beans [type::chore]\nBefore the rain, and after");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_window_closed_while_a_block_was_written_in_it_holds_nothing_afterwards() {
+    let Garden { mut app, .. } = garden(ok());
+    act(&mut app, "open id=shed");
+    act(&mut app, "tile.tear tile=reader");
+    let mut second = app.born().pop().expect("the act asked for a window");
+    second.settle();
+    assert!(act(&mut second, "edit").ok);
+    // Closed by its own button, the block still open in it: the store forgets the window and what it held.
+    drop(second);
+    act(&mut app, "tile.split");
+    act(&mut app, "open id=shed");
+    // Another tile torn out is another window: it never held that block.
+    act(&mut app, "tile.split");
+    let torn = act(&mut app, "tile.tear");
+    assert!(torn.ok, "{}", torn.said);
+    let _third = app.born().pop().expect("the act asked for a window");
+    act(&mut app, "open id=shed");
+    let edit = act(&mut app, "edit");
+    assert!(edit.ok, "the block is nobody's now: {}", edit.said);
 }

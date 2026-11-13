@@ -13,7 +13,7 @@
 use serde_json::{Value, json};
 
 use super::app::Parked;
-use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
+use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
 use super::{About, Action, Actor, App, Notice, Outcome, word};
 use crate::actline::Args;
 use crate::draft::Recovery;
@@ -23,6 +23,7 @@ use crate::store::{OutlineAt, Reply};
 static SWITCH: ActionRow = ActionRow::new("outline.switch", Touches::Screen, "this window opens another outline: one this machine has, or one on a machine it holds a forward to (machine=, that machine's ssh name). Only an outline the service lists is opened: a name nobody has is refused with the ones there are, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; switched back to, it is as it was left")
     .args(&[("name", ArgSpec::text("the outline's name, as the bar's Outlines lists it")), ("machine", ArgSpec::text("the ssh name of the machine it is on, when that isn't this one").optional())])
     .keys(&[KeyRow::via("a press on its row in the bar's Outlines")])
+    .menu(&[MenuRow::new("Switch outline", "Outline", None)])
     .examples(&[Example { act: "outline.switch name=allotment", does: "opens the allotment outline in this window, the one left kept as it was", safe: Some(true) }]);
 
 pub static ACTIONS: &[Action] = &[Action { row: &SWITCH, run: switch, about: About::Nothing }];
@@ -69,6 +70,10 @@ impl App {
         // The way there first: nothing here changes until it is known. (A link already there is used: this one is dropped.)
         let way = ways(&to)?;
         let from = self.at.clone();
+        // An outline's arrangement, and the file of what is written there, are the run's first window's. A window
+        // torn from it keeps no arrangement where it goes either, and what is written in it in a file of its own.
+        let window = self.store.window();
+        let keeps = window == crate::store::MAIN;
         self.keep();
         self.remember();
         // Nobody is in front of the blocks being written here now: their holds are let go, their words stay.
@@ -92,14 +97,17 @@ impl App {
                 self.arrangement_put(back.layout);
             }
             // The first time here: as the file kept it when there is one, and what a window left unsaved comes back.
-            None => {
-                if let Some(path) = way.kept {
+            None => match way.kept {
+                Some(path) if keeps => {
                     let recovery = Recovery::beside(&path);
                     st.recovered = recovery.read();
                     (self.kept_in, self.recovery) = (Some(path), Some(recovery));
                     self.restore();
                 }
-            }
+                // Only what is written in it is kept, in a file of this window's own.
+                Some(path) => self.recovery = super::window::own_drafts(&path, &window),
+                None => {}
+            },
         }
         if !self.store.linked(&to) { self.store.link(&to, way.link) }
         let back = format!("outline.switch name={} machine={}", word(&from.outline), word(&from.machine));

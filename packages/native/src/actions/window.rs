@@ -36,11 +36,19 @@ impl App {
         app.st.screen = Screen { name: window.to_string(), title: window.to_string(), from: From::Torn, spec: None, problems: Vec::new() };
         if let Some(tile) = app.layout.all().first().cloned() { app.st.tiles.insert(tile, shown); }
         app.ways = ways;
-        // (`native-<outline>.layout.json` → `native-<outline>.<window>.drafts.json`: read back by the next run's first window.)
-        app.recovery = self.kept_in.as_ref().and_then(|path| Some(path.with_file_name(format!("{}.{window}.layout.json", path.file_name()?.to_str()?.strip_suffix(".layout.json")?)))).map(|path| Recovery::beside(&path));
+        app.recovery = self.kept_in.as_ref().and_then(|path| own_drafts(path, window));
         app.start();
         app
     }
+}
+
+/// Where a window that keeps no arrangement keeps what is written in it: a file of its own beside the outline's
+/// arrangement (`native-<outline>.layout.json` → `native-<outline>.<window>.drafts.json`), read back by the next
+/// run's first window on that outline. A window torn from another, on the outline it was torn on and on any it
+/// switches to.
+pub(super) fn own_drafts(arrangement: &std::path::Path, window: &str) -> Option<Recovery> {
+    let stem = arrangement.file_name()?.to_str()?.strip_suffix(".layout.json")?;
+    Some(Recovery::beside(&arrangement.with_file_name(format!("{stem}.{window}.layout.json"))))
 }
 
 fn tear(app: &mut App, _: &Args, by: &Actor) -> Outcome {

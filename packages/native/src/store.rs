@@ -510,6 +510,9 @@ impl Drop for Store {
         hub.windows.remove(&window);
         hub.shown.retain(|(theirs, _), _| *theirs != window);
         hub.out.retain(|_, out| !matches!(out, Out::Reply { window: theirs, .. } if *theirs == window));
+        // What it held and pressed is nobody's: the next window made may be given its number.
+        hub.holders.retain(|_, theirs| *theirs != window);
+        hub.pressed.retain(|_, theirs| *theirs != window);
         hub.wakers.lock().unwrap().remove(&window);
     }
 }
