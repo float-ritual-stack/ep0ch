@@ -264,6 +264,8 @@ fn example_window(component: &Value) -> rune::Runtime<crate::actions::App> {
     let mut app = crate::actions::App::new(Box::new(Standin { answers, asked, said }), "garden").blocking(true);
     app.start();
     app.settle();
+    // The one note is opened, as a pick of its row in the tree opens it.
+    assert!(act(&mut app, "open id=example").ok);
     let mut rt = window(app);
     rest(&mut rt);
     rt

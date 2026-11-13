@@ -119,12 +119,13 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     let tall = r.tall();
     let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
     let mut line = row().w_full().gap(6.0).center_y();
-    let fold = if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT };
+    // The fold's mark is the row's own word (`folds`, the service's: in a list of notes, that a note is under it), so
+    // a mark drawn always opens onto something; a row that folds nothing has a dot in a tree, and nothing elsewhere.
+    let fold = || rune::icon(if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 14.0).color(c.text_faint).key(format!("{}/fold", at.row_key(cx, &r.id)));
     if tree {
-        let icon = if !r.folds { &DOT } else { fold };
-        line = line.child(el().w(r.depth.min(12) as f32 * 14.0)).child(rune::icon(icon, 14.0).color(c.text_faint));
+        line = line.child(el().w(r.depth.min(12) as f32 * 14.0)).child(if r.folds { fold() } else { rune::icon(&DOT, 14.0).color(c.text_faint) });
     } else if r.folds && at.unfolds(cx) {
-        line = line.child(rune::icon(fold, 14.0).color(c.text_faint));
+        line = line.child(fold());
     }
     if let Some(mark) = &r.mark { line = line.child(text(mark.clone()).font(k.ty.small).color(c.text_faint)) }
     line = line.child(label);
@@ -330,9 +331,10 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
     // Why there is no list: the service's own words when it refused, else what the tile is waiting for.
     if let Some(refusal) = ask.as_ref().and_then(|ask| cx.store().refusal(ask)) { return col().key(cx.key("refused")).w_full().padding(12.0).child(text(refusal.error.clone()).font(k.ty.small).color(k.c.warning.fg).wrap()) }
     let Some(answer) = cx.app.list_of(cx.id) else {
-        // A list about the note another tile shows has nothing to ask while no note is open there.
-        let waiting = if ask.is_none() && cx.app.waits_for_a_note(cx.id) && cx.app.subject_of(cx.id).is_none() { "Nothing is open to list anything about." } else if cx.app.online { "Calling the outline…" } else { "Offline: nothing is listed." };
-        return said(cx, waiting, k);
+        // A list about the note another tile shows has nothing to ask while no note is open there: it says what it
+        // is, in its kind's own words, as an empty reader does.
+        if ask.is_none() && cx.app.waits_for_a_note(cx.id) && cx.app.subject_of(cx.id).is_none() { return super::waiting(cx, None, k) }
+        return said(cx, if cx.app.online { "Calling the outline…" } else { "Offline: nothing is listed." }, k);
     };
     let at = Place::tile(cx);
     let view = Rc::new(answer.list.clone());

@@ -112,10 +112,18 @@ fn selected(change: &rune::SelectionChange) -> String {
     }
 }
 
+/// A reader with no page to draw. Told no note, it is empty and says so in its kind's own words (`tiles::waiting`),
+/// with the ways to give it a note under them, each a button its action's row labels and the key table caps; told
+/// one whose page is on its way (or with the outline still being called), that.
 fn empty(cx: &TileCx, k: &Kit) -> El {
-    let cap = |line: &str| keys::cap(line).unwrap_or_else(|| actions::label(line));
-    let said = if cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty()) { "Calling the outline…".to_string() } else if cx.app.note_of(cx.id).is_none() { format!("Nothing here yet. {} starts a note.", cap("note.new")) } else { format!("Pick a note, or find one with {}.", cap("bar.open")) };
-    col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(said).font(k.ty.body).color(k.c.text_muted))
+    let calling = cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty());
+    if !calling && cx.app.note_of(cx.id).is_none() {
+        let ways = row().key(cx.key("empty/ways")).gap(8.0).center_y()
+            .child(button(cx, "bar.open", ButtonVariant::Ghost).build(k).key(cx.key("empty/find")))
+            .child(button(cx, "note.new", ButtonVariant::Ghost).build(k).key(cx.key("empty/new")));
+        return super::waiting(cx, Some(ways), k);
+    }
+    col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(if calling { "Calling the outline…" } else { "Offline: the note isn't read yet." }).font(k.ty.body).color(k.c.text_muted))
 }
 
 /// What is being written in this tile, in its one field: a block's Blockdown source where the block stands (what

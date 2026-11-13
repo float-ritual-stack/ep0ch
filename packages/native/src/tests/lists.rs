@@ -149,5 +149,40 @@ fn with_no_screens_extension_the_window_says_so_and_opens_when_it_is_installed()
     screens_are(&mut g, json!([]));
     assert_eq!((g.app.screen.name.as_str(), names(&g.app)), ("desk", vec!["tree".to_string(), "reader".to_string(), "props".to_string(), "backlinks".to_string(), "threads".to_string(), "proposals".to_string(), "revisions".to_string()]));
     assert!(g.app.notice.is_none() && g.app.journal.is_empty(), "{:?}", g.app.notice);
-    assert_eq!(g.app.page().map(|p| p.title.as_str()), Some("Plot"));
+    assert_eq!((g.app.reader().map(|id| g.app.layout.name(&id)).as_deref(), g.app.subject()), (Some("reader"), None), "its reader is there, told no note and showing none");
+}
+
+/// A fold's mark is the row's own word, and the service says it of a note only when a note is under it (its
+/// `hasNotes`, by outline-core's `isNoteUnder`). The beans have a comment thread under them and no note: their row
+/// has no mark, a press on it opens them and folds nothing, and the tree is never asked to list under them. The
+/// onions have a note under them: their row has the mark, and unfolding it lists that note.
+#[test]
+fn the_tree_marks_a_fold_only_on_a_row_that_opens_onto_notes() {
+    let g = garden(ok());
+    let asked = g.asked.clone();
+    let mut rt = window(g.app);
+    let opened = |asked: &Asked| -> Vec<String> { asked_lists(asked, "children").iter().flat_map(|ask| ask["open"].as_array().cloned().unwrap_or_default()).filter_map(|id| id.as_str().map(str::to_string)).collect() };
+    // The plot is the open note and a folder: a press on its row unfolds it.
+    press(&mut rt, "tile/tree/row/plot");
+    assert_eq!(listed(&rt.state), [(0, "Plot".to_string()), (1, "Lift the onions".to_string()), (1, "Water the beans".to_string()), (0, "Shed".to_string())]);
+    let marked: Vec<String> = keyed(&rt, "tile/tree/row/").into_iter().filter(|key| key.ends_with("/fold")).collect();
+    assert_eq!(marked, ["tile/tree/row/plot/fold", "tile/tree/row/onions/fold"], "a mark on the rows the service says fold, and on no other");
+    // The beans: a comment is under them (their thread is listed where comments are), and no note.
+    press(&mut rt, "tile/tree/row/beans");
+    assert_eq!(rt.state.subject().as_deref(), Some("beans"));
+    assert_eq!(asked_lists(&asked, "threads").pop().map(|ask| ask["of"].clone()), Some(json!("beans")), "their comments are asked for, as a list about them");
+    press(&mut rt, "tile/tree/row/beans");
+    let tree = rt.state.layout.named("tree").unwrap();
+    assert!(!rt.state.ui(&tree).unfolded.contains("beans") && !opened(&asked).contains(&"beans".to_string()), "a row with no fold opens its note and unfolds nothing: {:?}", rt.state.ui(&tree).unfolded);
+    assert!(rt.find("tile/tree/row/beans/fold").is_none());
+    // The onions: the mark opens onto their note.
+    press(&mut rt, "tile/tree/row/onions");
+    assert!(rt.state.ui(&tree).unfolded.contains("onions") && opened(&asked).contains(&"onions".to_string()));
+    assert_eq!(listed(&rt.state), [(0, "Plot".to_string()), (1, "Lift the onions".to_string()), (2, "Take the fork".to_string()), (1, "Water the beans".to_string()), (0, "Shed".to_string())]);
+    assert!(rt.find("tile/tree/row/fork").is_some() && rt.find("tile/tree/row/fork/fold").is_none(), "what the fold opened onto is on screen: {:?}", keyed(&rt, "tile/tree/row/"));
+    // Every mark on screen is on a row with rows under it, once it is open.
+    let rows = rt.state.tree().to_vec();
+    for (at, row) in rows.iter().enumerate().filter(|(_, row)| row.folds && row.open) {
+        assert!(rows.get(at + 1).is_some_and(|next| next.depth == row.depth + 1), "{} is open onto nothing", row.label);
+    }
 }

@@ -175,6 +175,7 @@ fn a_closed_reader_s_note_stays_on_screen_in_the_reader_its_opens_land_in() {
     assert!(act(&mut g.app, "open id=plot tile=beds").ok && act(&mut g.app, "open id=shed tile=beds").ok);
     assert_eq!((note_in(&g.app, "bed").as_deref(), g.app.ui(&spare).note.as_deref()), (Some("shed"), None), "the tree's picks land in the bed; the spare reader was told nothing");
     assert_eq!(g.app.facts(&spare).showing, None, "a reader told no note shows none, as the layout's rules read it");
+    assert_eq!((g.app.note_of(&spare), g.app.shown_of(&spare).is_some(), g.asked.borrow().iter().filter(|a| a["action"] == "notes.page").map(|a| a["blockId"].as_str().unwrap().to_string()).collect::<std::collections::BTreeSet<_>>()), (None, false, ["plot".to_string(), "shed".to_string()].into()), "and it draws none: no page but the ones opened was asked for, so the heir's note replaces nothing");
     let closed = act(&mut g.app, "tile.close tile=bed");
     assert!(closed.ok, "{}", closed.said);
     assert_eq!((closed.answer["heir"].as_str(), closed.answer["note"].as_str()), (Some("spare"), Some("shed")), "the layout says who keeps the note: {}", closed.answer);

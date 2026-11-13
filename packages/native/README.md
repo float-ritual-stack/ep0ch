@@ -50,7 +50,8 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 
 | Do | How |
 |---|---|
-| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it |
+| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words, with Find and New note under them |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
@@ -274,6 +275,11 @@ src/ (Rust, Rune)                                      the outline host
   The window never works out what a change touches.
 - **The tree is one list** (`lists.read from=children`, with the folders that are open): only what's unfolded is
   listed, and only the rows in view are built, so a large outline costs what's on screen.
+- **A fold's mark is the row's own word** (`folds`), and the service says it of a note only when a note is under
+  it: the reading that lists the notes under a note (outline-core's `isNoteUnder`: a comment, a reply and a
+  proposed edit are none) is the one that says whether there are any (`blocks.read`'s `hasNotes`, the outliner's
+  `notes-under.ts`). The tree, a question's matches and a page's own rows all fold by it, so a mark never opens
+  onto nothing. The window draws the mark in one place and decides nothing.
 - **The bar's sources are the service's too** (`bar.rs`). What a bar can list is what the list producers say of
   themselves (`lists.read from=sources`): the notes by the service's search, a question's matches, the screens.
   Their rows, facets and hint are one list answer each, asked as a tile's list is (`App::ask_of`); the window's
@@ -329,6 +335,12 @@ src/ (Rust, Rune)                                      the outline host
   note while the reader moved on puts nothing into another note's editor.
 - **A closed reader's note stays on screen** when the layout says a reader is its heir (`close_heir`, the door's
   rule by contract: the empty reader its opens land in). `tile.close` shows it there, with the way back.
+- **A reader shows the note it was told, and no other** (`App::note_of`). One told none shows none: the layout's
+  rules read that (`Facts.showing`) and the tile draws that, so a close's heir and an open's landing replace
+  nothing that was on screen. What an empty tile says is its kind's own row (`tiles::waiting`: the name and the
+  description the service serves for the kind), for a reader and for a list about a note nobody shows alike; a
+  window opens on its screen with its reader empty, and the arrangement kept between runs brings back what each
+  reader showed.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
   list is asked, `App::ask_of`) and the name of the screen it has open, and the service answers them as rows, the
   line each key runs written by outline-core's one writer: that screen's own keys first (the service's spec, the
@@ -415,7 +427,9 @@ reader a list speaks for, makes the person the actor of somebody else's act or n
 outside the renderer seam (`shell.rs`, `tiles/`, `bar.rs`, `list.rs`, `keys.rs`, `control.rs`, `main.rs`: the
 model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the same deciders by what the window does
 (sweep 3's: a pressed script acts as the script on its press's invitation, a list speaks for one reader, a closed
-reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here), and
+reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here;
+F2's are in `lists.rs` and `shell.rs`: a fold's mark only on a row the service says opens onto notes, and a reader
+told no note drawn as empty in its kind's own words), and
 `review.rs` has what is about a note (the tiles
 that follow the reader, a comment written on words selected in the window, a reply and a thread resolved by the
 row's own presses, a proposal applied and dismissed on the wire, a revision opened and put back, the keys screen made
@@ -437,7 +451,9 @@ window ended mid-word, the text found back), what is about a note (a comment on 
 thread resolved; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
 keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
 bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
-removed by an agent's act; then a switch to a second outline of the same host and back). `cargo test --release measure_a_long_block -- --ignored --nocapture`
+removed by an agent's act; then a switch to a second outline of the same host and back), and the tree's folds (beds
+with only a comment, only a proposed edit and both under them drawn with no mark, the one with a note among them
+unfolded onto it, and the window's reader empty until a note is opened). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
 
 `src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
@@ -446,7 +462,7 @@ written (a name nobody has refused, nothing made); a tile torn into a second win
 one store, and the control socket naming the window an act is for; a torn window that switches outline keeping
 no arrangement there and its words in a file of its own; and a window closed mid-block holding nothing afterwards.
 
-The service's side is `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
+The service's side is `packages/outliner/test/notes-under.test.ts` (whether a note has notes under it, said on the row: the tree, a question's matches and a page), `packages/outliner/test/list-extensions.test.ts` (the bar's Extensions and Outlines as
 lists, a rendered tile's view, a setting reaching the script its extension ships), `packages/outliner/test/draft-place.test.ts` (a patch placed for a holder that places none,
 and `completion.rows` for a text and a cursor), `packages/outline-core/test/draft-patch-place.test.ts` (whether a
 patch may land in a live draft: the door's rule and the service's), `packages/outliner/test/notes-page.test.ts`, `test/component-pages.test.ts` (each component's
@@ -474,9 +490,13 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A reader closed: its note stays on screen, in the reader its opens were wired to](docs/heir-dark.png)
 
-A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
+![A fold's mark opens onto notes: the bean rows, with only a comment and a proposed edit under them, have none, and the folder the open note is in is unfolded; the reader told no note is empty, in its kind's own words](docs/caret-dark.png)
+
+A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
+outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
+`caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by

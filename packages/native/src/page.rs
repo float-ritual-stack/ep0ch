@@ -4,7 +4,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-/// A note in a list, as every list names one: its id, its title as lists show it, whether anything is under it.
+/// A note in a list, as every list names one: its id, its title as lists show it, whether notes are under it (the
+/// service's answer, as a row's `folds` is: a comment on it and an edit proposed beside it are none).
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct NoteRow {
     pub id: String,
@@ -46,7 +47,8 @@ pub struct ListRow {
     /// The act line a pick runs. None: a header, or a row that only copies.
     #[serde(default)]
     pub act: Option<String>,
-    /// In a tree: how deep it sits, whether anything is under it, whether that is listed after it.
+    /// In a tree: how deep it sits, whether it folds (the service's word: a note is under it, so a fold opens onto
+    /// one), whether what is under it is listed after it.
     #[serde(default)]
     pub depth: usize,
     #[serde(default)]

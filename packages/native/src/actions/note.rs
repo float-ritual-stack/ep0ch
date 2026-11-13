@@ -121,7 +121,7 @@ fn trashed(app: &mut App, reply: Reply) {
     app.st.notice = Some(Notice { undo: Some(format!("note.untrash id={}", word(&note))), ..Notice::info(said) });
     // A note on screen is gone: each reader that showed it moves to the note above it, whoever trashed it.
     for tile in app.layout.all() {
-        if app.ui(&tile).note.as_deref() == Some(note.as_str()) || (app.ui(&tile).note.is_none() && app.reads_notes(&tile) && app.note_of(&tile).as_deref() == Some(note.as_str())) { app.ui_mut(&tile).note = parent.clone() }
+        if app.note_of(&tile).as_deref() == Some(note.as_str()) { app.ui_mut(&tile).note = parent.clone() }
         if app.ui(&tile).history.contains(&note) { app.ui_mut(&tile).history.retain(|id| *id != note) }
     }
     app.wrote(&[parent]);

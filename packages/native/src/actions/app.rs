@@ -25,7 +25,7 @@ use crate::tiles::{self, TileCx};
 /// A tile's own state: what it was last told to show. Kept by the tile's id, so it outlives a move or a rename.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TileUi {
-    /// A reader's note. None: the outline's first, once the top level has come.
+    /// A reader's note: the one it was told to show. None: it shows none, and draws as empty.
     pub note: Option<String>,
     /// The notes a reader showed before, oldest first: where `back` goes.
     pub history: Vec<String>,
@@ -461,11 +461,10 @@ impl App {
         }
     }
 
-    /// The note a reader shows: the one it was told, else the outline's first, as the first tree lists it.
-    pub fn note_of(&self, tile: &str) -> Option<String> {
-        // (A list that follows a note asks for that note first: it is never where the first note comes from.)
-        self.ui(tile).note.clone().or_else(|| self.layout.all().into_iter().filter(|tile| !self.attached(tile) && !self.waits_for_a_note(tile)).find(|tile| self.is_tree(tile)).and_then(|tree| self.rows_of(&tree).first().map(|row| row.id.clone())))
-    }
+    /// The note a reader shows: the one it was told, and no other. A reader told none shows none: it is drawn as
+    /// empty, with what it waits for in its kind's own words (`tiles::waiting`), and that is what the layout's rules
+    /// read of it too (`Facts.showing`), so what a tile draws and what a close or an open finds there never differ.
+    pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone() }
     /// The reader a tile that reads no notes speaks for, and the one answer to it: the tile it names as its source
     /// (`source: tile:<name>`) when that reads notes, else the reader its selection feeds, else where the screen says
     /// opens land, else the reader an act about the open note means. Its subject when it follows, the note it marks
@@ -645,10 +644,9 @@ impl App {
         // it speaks for (`home_of`, the one answer), never a list it follows.
         let notes = drawer.is_some_and(|d| d.notes);
         let home = if notes { None } else { self.home_of(tile).map(|id| self.layout.name(&id)) };
-        // The note a reader was told to show. One told none shows none, as the layout's rules read it (it takes a
-        // closed reader's note, and no open is "already shown" in it): what it draws meanwhile, the outline's first
-        // note, is what an empty reader looks like here (`note_of`), not a note it holds.
-        let showing = if notes { self.ui(tile).note.clone() } else { None };
+        // The note a reader shows (`note_of`: the one it was told). One told none shows none and is drawn as empty:
+        // it takes a closed reader's note, and no open is "already shown" in it.
+        let showing = if notes { self.note_of(tile) } else { None };
         layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, ..layout::Facts::default() }
     }
 
