@@ -618,7 +618,13 @@ fn spells_a_key(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let caret = chars.windows(2).enumerate().any(|(i, pair)| pair[0] == '^' && pair[1].is_ascii_uppercase() && chars.get(i + 2).is_none_or(|next| !next.is_ascii_alphanumeric()));
     let held = ["ctrl+", "alt+", "shift+", "super+", "hyper+", "cmd+", "mod+"].iter().any(|held| text.match_indices(held).any(|(at, _)| text[at + held.len()..].chars().next().is_some_and(|next| !next.is_whitespace())));
-    caret || held || text.chars().any(|c| "⏎⌫✦⌘⌥⌃⇧".contains(c))
+    // A key that is one letter (the door's `p`, `q`, `e`) is spelled where a way would start: a clause that begins
+    // with a word of one character, after the reason's separator or a way before it ("· p in bed unpins it").
+    let bare = [" · ", ", or ", ", then ", "(or "].iter().any(|lead| text.match_indices(lead).any(|(at, _)| {
+        let mut rest = text[at + lead.len()..].chars();
+        matches!((rest.next(), rest.next()), (Some(key), Some(' ')) if (key.is_ascii_alphabetic() && !"aAI".contains(key)) || "?!".contains(key))
+    }));
+    caret || held || bare || text.chars().any(|c| "⏎⌫✦⌘⌥⌃⇧".contains(c))
 }
 
 /// The actions a sentence spells: every dotted name in it that is an action of this window's or of the door's.
@@ -644,10 +650,10 @@ fn no_sentence_in_the_layout_spells_a_key_or_an_action() {
     }).collect();
     none("a sentence in the layout that names a key or spells an action: name the way out as an act", spelled);
     // The scan finds what it is for, and passes what a reason and an act are.
-    for sentence in ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "mod+i shows the dock", "no split s7; layout.get gives each split's id"] {
+    for sentence in ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "mod+i shows the dock", "no split s7; layout.get gives each split's id", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"] {
         assert!(spells_a_key(sentence) || spells_an_action(sentence, &actions), "the scan misses: {sentence}");
     }
-    for fine in ["reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "no container s9 in the layout (s<n> is a split, g<n> a tab set)", "{} is a float: {what} needs a tile in the layout"] {
+    for fine in ["reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "no container s9 in the layout (s<n> is a split, g<n> a tab set)", "{} is a float: {what} needs a tile in the layout", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"] {
         assert!(!spells_a_key(fine) && !spells_an_action(fine, &actions), "the scan takes a reason for a way: {fine}");
     }
     assert_eq!(literals("let x = no(format!(\"a \\\"b\\\" c\"), \"d\");\n    // \"a comment's words\""), ["a \"b\" c", "d"], "a literal is read whole, escapes and all; a comment's line is no code");

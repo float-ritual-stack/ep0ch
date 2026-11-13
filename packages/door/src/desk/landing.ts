@@ -146,7 +146,7 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
   const floats = (why: string): D | Why => {
     const d = attempt(s, { ...op, at: { kind: "float" } }, ctx);
     // (How it is placed after is a way, an act the asker's door words: `ways` beside the answer's `why`.)
-    if (!("reason" in d)) d.answer = { ...d.answer, where: "float", why: `${why}, so it floats`, ways: [way("layout.move", "places it (to=<a tile>)")] };
+    if (!("reason" in d)) d.answer = { ...d.answer, where: "float", why: `${why}, so it floats`, ways: [way("layout.move", "places it beside a tile")] };
     return d;
   };
   if (!first) {

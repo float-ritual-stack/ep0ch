@@ -2,8 +2,8 @@ import { wrapReturn, type ReturnShell } from "./return-place";
 import { besideAttempt, closeHeir, landing, personsTile, readerTakes } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
-import { ids, nodeOf, refuse, Refused, saidBy, turnsOn, unlockWays, way, whyNot, SCREEN_SELF, type LayoutSelf, type Way, type Why } from "./layout-refusal";
-export { lockChipText, saidBy, SCREEN_SELF, unlockWays, type LayoutSelf, type Way, type Why } from "./layout-refusal";
+import { ids, nodeOf, pinnedWhy, refuse, Refused, saidBy, turnsOn, unlockWays, way, whyNot, SCREEN_SELF, type LandedWhy, type LayoutSelf, type Way, type Why } from "./layout-refusal";
+export { landedSaid, lockChipText, saidBy, SCREEN_SELF, unlockWays, type LayoutSelf, type Way, type Why } from "./layout-refusal";
 import type { AltRule } from "./layout";
 // A screen layout changes only through apply(state, op, ctx): one actor, one operation, the new state or a refusal.
 //
@@ -505,12 +505,11 @@ export interface PlacementRequest<I = number> {
   /** Only asked where it lands (a header, a hint row, a wire's words, every frame): a spine's room isn't measured. */
   inspect?: true;
 }
-export type NotePlacement<I = number> = {
+export type NotePlacement<I = number> = LandedWhy & {
   destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true; screen?: true } | { kind: "action"; action: string } | { kind: "none"; reason: string; ways?: Way[]; refused?: true };
   keep?: { tile: I; at: At<I> };
   merge?: I;
   reuse?: { reveal: boolean };
-  why?: string;
   /** The person's open (their standing): the outline's cursor goes to the note too. An agent's never moves it. */
   reveal: boolean;
   route: ReturnType<typeof landing<I>>;
@@ -680,11 +679,11 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       // Reuse an idle reader, empty first, before splitting the pinned one's space (PIE-1207).
       const idle = visible(s.tree).filter(id => id !== target && takesOpen(s, ctx, id) && ctx.tile(id).held);
       const free = idle.find(id => !ctx.tile(id).showing) ?? idle[0];
-      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
+      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, ...pinnedWhy(name, `in ${String(s.names.get(free))}`) };
       // A floating one has no split beside it: a float near it takes the open.
       result.destination = { kind: "new", at: isFloat(s, target) ? { kind: "float", near: target } : { kind: "split", target, dir: "right" } };
       result.besideOf = target;
-      result.why = `${name} is pinned: opened beside it · p in ${name} unpins it`;
+      Object.assign(result, pinnedWhy(name, "beside it"));
       return result;
     }
     // Following a wire into a preview leaves the invoking reader's keys where they are.

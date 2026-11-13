@@ -20,13 +20,15 @@ export type WPrefix = "add" | "addtab" | "move" | "tab";
  * What a key does: `run` an action (its args, and its tile: `n` the focused tile's number, `-` none, else the focused
  * one by name); `focus` the tile that way (h j k l); `edge` take the tile to that outer edge (H J K L); `prefix` wait
  * for another key; `special` something the desk does itself (a panel, a swap, the shell, the popup), whose handler
- * the desk must have (its type is checked).
+ * the desk must have (its type is checked). A special key whose handler always runs its action with some arguments says
+ * them (`args`), so it is only that act's key (`wChordOf`): T takes a tab out to the right, and is no key for a move
+ * that names no place.
  */
 export type WHow =
   | { k: "run"; action: string; args?: Record<string, unknown>; tile?: "n" | "-" }
   | { k: "focus" } | { k: "edge" }
   | { k: "prefix"; mode: WPrefix }
-  | { k: "special" };
+  | { k: "special"; args?: Record<string, unknown> };
 
 export interface WKey {
   /** The key typed after ^W (the space bar is " "). */
@@ -66,7 +68,7 @@ const W_TABLE = [
   { key: "l", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the right" },
   { key: "m", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "move" }, label: "move beside a tile (then h j k l)" },
   { key: "t", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "tab" }, label: "move into a tile's tabs (then h j k l)" },
-  { key: "T", group: "focus & move", action: "layout.move", how: { k: "special" }, label: "take this tab out of its tab set" },
+  { key: "T", group: "focus & move", action: "layout.move", how: { k: "special", args: { where: "right" } }, label: "take this tab out of its tab set" },
   { key: "H", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the left edge" },
   { key: "J", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the bottom edge" },
   { key: "K", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the top edge" },
@@ -153,7 +155,7 @@ export function wChordOf(action: string, args: Readonly<Record<string, unknown>>
   let best: { key: string; n: number } | undefined;
   for (const e of wNow()) {
     if (e.action !== action || (e.how.k !== "run" && e.how.k !== "special")) continue;
-    const runs = e.how.k === "run" ? Object.entries(e.how.args ?? {}) : [];
+    const runs = Object.entries(e.how.args ?? {});
     // An argument the key gives its run is one the act has; a key that asks (`ask: true`) runs it for the person alone.
     if (!runs.every(([k, v]) => String(args[k]) === String(v))) continue;
     if (!best || runs.length > best.n) best = { key: e.key, n: runs.length };

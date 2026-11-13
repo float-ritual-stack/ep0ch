@@ -126,3 +126,24 @@ fn the_keys_go_home_when_their_dock_shuts_as_the_screen_says() {
     assert_eq!(went(json!({ "home": "bed" })), ("bed".to_string(), Some("home".to_string())), "the screen's home takes the keys, and the answer says so");
     assert_eq!(went(json!({})).0, "beds", "with no home said, the first tile shown does");
 }
+
+/// Why an open landed elsewhere names what undoes it as an act too (a pinned reader's pin let go: the door's `p`
+/// was spelled in the sentence). Said here it is the reason alone: this window has no such action, so it names
+/// none, and no key of the door's.
+#[test]
+fn why_an_open_landed_elsewhere_names_no_key_of_the_door_s() {
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../outline-core/fixtures/place-contract.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    let held: Vec<&Value> = table["cases"].as_array().unwrap().iter().filter(|case| case["placement"]["ways"].is_array()).collect();
+    assert!(held.len() >= 3, "the pinned rows hold a way beside their reason: {}", held.len());
+    for case in held {
+        let reason = case["placement"]["why"].as_str().expect("why it landed there");
+        assert!(!reason.contains(" · "), "{}: the reason is the reason alone: {reason}", case["name"]);
+        let why = Refusal::new(reason).ways(case["placement"]["ways"].as_array().unwrap().iter().map(|way| Way::read(way).expect("a way")));
+        for by in [Actor::Person, agent()] {
+            let said = says(&why, &by);
+            let here = why.ways.iter().any(|way| actions::find(&way.act).is_some());
+            assert_eq!(said == reason, !here, "{}: a way is said exactly when its action is a row here: {said}", case["name"]);
+            assert!(dotted(&said[reason.len()..]).iter().all(|id| actions::find(id).is_some()), "{}: {said}", case["name"]);
+        }
+    }
+}

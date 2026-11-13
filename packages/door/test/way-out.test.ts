@@ -40,6 +40,11 @@ describe("a refusal's way out, said in the door's own words", () => {
     expect(wayKey(way("tile.float", "", { args: { on: false } }))).toBe("^W f");
     expect(wayKey(way("tile.float", "", { args: { to: "glass" } }))).toBe("^W U");
     expect(wayKey(way("layout.move", "", { args: { to: "shelf", where: "right" } }))).toBe("^W T");
+    // A key the desk handles itself is an act's key only when the act has what that key's run always has: ^W T takes
+    // a tab out to the right, so a move that names no place is not it (a float told "^W T places it" was told a key
+    // that answers "isn't in a tab set"). It is said by the key the action's own row declares.
+    expect(wayKey(way("layout.move", "places it beside a tile"))).toBe("^W m");
+    expect(waySaid(way("layout.move", "places it beside a tile"), PERSON)).toBe("^W m places it beside a tile");
     expect(wayKey(way("tile.close", ""))).toBe("^W x");
     // A key the action's own row declares, where the ^W table has none for it.
     expect(wayKey(way("host.toggle", ""))).toBe("alt+a");
@@ -58,6 +63,18 @@ describe("a refusal's way out, said in the door's own words", () => {
     expect(waySaid(theirs, PERSON)).toBe("a click on its chip (or ^W g) frees it");
     // Another way, not a step after the first: "or".
     expect(refusalSaid(whyNot("sown stays", way("tile.collapse", "folds it to a spine", { tile: "sown" }), way("layout.policy", "turns closable on", { at: "there" })), PERSON)).toBe("sown stays · ^W c folds it to a spine, or ^W P there turns closable on");
+  });
+
+  test("why an open landed elsewhere names what undoes it as an act too: a pinned reader's key is read from the keymap", () => {
+    const pinned = whyNot("pinboard is pinned: opened beside it", way("reader.pin", "unpins it", { args: { on: false }, tile: "pinboard", at: "in pinboard" }));
+    expect(refusalSaid(pinned, PERSON)).toBe("pinboard is pinned: opened beside it · p in pinboard unpins it");
+    expect(refusalSaid(pinned, AGENT)).toBe("pinboard is pinned: opened beside it · reader.pin tile=pinboard on=false unpins it");
+    setKeys("reader.pin", ["u"]);
+    try { expect(refusalSaid(pinned, PERSON)).toBe("pinboard is pinned: opened beside it · u in pinboard unpins it"); } finally { resetKeys("reader.pin"); }
+    // The tables hold it so: the placement's reason, and the way beside it.
+    const held = table<{ cases: { placement: { why?: string; ways?: Way[] } }[] }>("place-contract.json").cases.filter(c => c.placement.ways?.length);
+    expect(held.length).toBeGreaterThanOrEqual(3);
+    for (const c of held) expect(refusalSaid(whyNot(c.placement.why!, ...c.placement.ways!), PERSON)).toBe(`${c.placement.why} · p in pinboard unpins it`);
   });
 
   test("an action the door hasn't is not said: the reason stands alone, and with other ways they are said without it", () => {

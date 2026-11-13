@@ -76,7 +76,9 @@ pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) 
     app.keep();
     // The person's open puts the bar away; an agent's never closes what the person has open.
     if app.stands(by) { app.st.bar.open = false }
-    // Why it landed where it did, when that isn't where it was aimed, is said.
+    // Why it landed where it did, when that isn't where it was aimed, is said, with the way to undo the reason
+    // where the layout names one and this window has it (`says`).
+    let why = why.map(|why| super::says(&Refusal::new(why).ways(landing.placement.ways.clone()), by));
     if let (Some(why), true) = (&why, app.stands(by)) { app.st.notice = Some(Notice::info(why.clone())) }
     Outcome { said: why.clone().unwrap_or_default(), ..Outcome::answer(json!({ "tile": name, "why": why })) }
 }

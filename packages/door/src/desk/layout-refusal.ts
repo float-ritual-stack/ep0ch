@@ -32,6 +32,17 @@ export const unlockWays = (self: LayoutSelf = SCREEN_SELF): Way[] => {
 export const nodeOf = (by: string | undefined): { node?: string } => (by !== undefined && (by === "screen" || /^[sgdcf]\d+$/.test(by)) ? { node: by } : {});
 /** The way out of a policy that says no: its flag turned on at the layer that says it (the policy panel's row, for the person with their keys there). */
 export const turnsOn = (flag: string, by: string | undefined): Way => way("layout.policy", `turns ${flag} on`, { args: { ...nodeOf(by), [flag]: true }, at: "there" });
+/** Why an open landed somewhere other than where it was aimed, and what undoes that, each an act (a pinned reader's pin let go). */
+export interface LandedWhy { why?: string; ways?: Way[] }
+/** An open aimed at pinned reader `name` landed `where` ("beside it", "in spare"): why, and its pin let go as the way back (the reader's own key, with the keys in it). */
+export const pinnedWhy = (name: string, where: string): Required<LandedWhy> => ({ why: `${name} is pinned: opened ${where}`, ways: [way("reader.pin", "unpins it", { args: { on: false }, tile: name, at: `in ${name}` })] });
+/** Why an open landed elsewhere, as the asker's door says it (the reason, then what undoes it): told through `tell` and answered. Undefined: it landed where it was aimed. */
+export const landedSaid = (ctx: { says?(why: Why): string }, plan: LandedWhy, tell: (said: string) => void): string | undefined => {
+  if (plan.why === undefined) return undefined;
+  const said = saidBy(ctx, { reason: plan.why, ways: plan.ways ?? [] });
+  tell(said);
+  return said;
+};
 /** The read that names every container: what a refusal about an id nothing has points at. */
 export const ids = (does: string): Way => way("layout.get", does);
 

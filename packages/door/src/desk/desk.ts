@@ -82,7 +82,7 @@ import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, answerLands, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, saidBy, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, landedSaid, lockChipText, saidBy, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
@@ -2329,8 +2329,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.memory.goBeside(plan.besideOf, dest.tile);
     this.save(); this.redraw();
-    if (plan.why) this.ctx.flash(plan.why);
-    return { desk: this, id: landed, ...(plan.why ? { why: plan.why } : {}) };
+    const why = landedSaid(this.layoutCtx(by), plan, said => this.ctx.flash(said));   // why it landed elsewhere, with what undoes that, as the door says it to whoever opened
+    return { desk: this, id: landed, ...(why ? { why } : {}) };
   }
 
   /**

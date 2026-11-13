@@ -333,7 +333,9 @@ describe("one owner for each decision about a layout (native W0: the contract bo
  */
 const WAY_FILES = ["desk/screen-layout.ts", "desk/layout-refusal.ts", "desk/landing.ts", "whereabouts.ts", "surface/agent-level.ts"];
 /** A key spelled out: a ^W chord, a modifier with its key, a keycap's glyph. */
-const CHORD = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]/u;
+// (A key of one letter, the door's `p`, `q`, `e`, is spelled where a way would start: a clause that begins with a word
+// of one character after the reason's separator or a way before it, "· p in bed unpins it".)
+const CHORD = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]|(?: · |, or |, then |\(or )(?:(?![aAI])[A-Za-z]|[?!]) /u;
 /** The string literals of a line of code: quoted and template text, as written. */
 const literals = (line: string) => [...line.matchAll(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g)].map(m => m[0].slice(1, -1));
 
@@ -352,8 +354,8 @@ describe("a way out is an act: the layout spells no key and no action in a sente
 
   test("the scan finds what it is for", () => {
     const hits = (text: string) => /\s/.test(text) && (CHORD.test(text) || named.test(text));
-    for (const sentence of ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "alt+a puts your drawer away"]) expect(hits(sentence), sentence).toBe(true);
-    for (const fine of ["layout.policy", "reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it"]) expect(hits(fine), fine).toBe(false);
+    for (const sentence of ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "alt+a puts your drawer away", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"]) expect(hits(sentence), sentence).toBe(true);
+    for (const fine of ["layout.policy", "reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"]) expect(hits(fine), fine).toBe(false);
   });
 });
 

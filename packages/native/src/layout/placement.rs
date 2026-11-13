@@ -104,6 +104,9 @@ pub struct Placement {
     /// A tile that shows the note already takes the open: whether it is brought out.
     pub reuse: Option<bool>,
     pub why: Option<String>,
+    /// What undoes the reason it landed elsewhere, each an act (a pinned reader's pin let go): said after `why` by
+    /// the asker's door, in its own key.
+    pub ways: Vec<Way>,
     pub reveal: bool,
     pub route: Option<Route>,
     /// The tile the keys go to.
@@ -122,6 +125,7 @@ impl Placement {
         if let Some(merge) = &self.merge { out.insert("merge".into(), json!(merge)); }
         if let Some(reveal) = self.reuse { out.insert("reuse".into(), json!({ "reveal": reveal })); }
         if let Some(why) = &self.why { out.insert("why".into(), json!(why)); }
+        if !self.ways.is_empty() { out.insert("ways".into(), json!(self.ways.iter().map(Way::json).collect::<Vec<_>>())); }
         out.insert("reveal".into(), json!(self.reveal));
         out.insert("route".into(), self.route.as_ref().map_or(Value::Null, Route::json));
         if let Some(keys) = &self.keys { out.insert("keys".into(), json!(keys)); }
@@ -236,6 +240,9 @@ fn spine_fits(s: &Layout, keep: &(Id, At), area: Rect) -> bool {
     })
 }
 
+/// The way a pinned reader takes opens again: its pin let go, by the act (a door words its own key for it).
+fn unpins(name: &str) -> Way { Way::new("reader.pin", "unpins it").arg("on", false).tile(name).at(format!("in {name}")) }
+
 fn hand_out(screen: &Option<String>) -> Destination {
     match screen { None => Destination::None { reason: "this screen has no tiles to open it in".into(), ways: vec![Way::new("screen.back", "goes back to one")], refused: true }, Some(screen) => Destination::Across { target: screen.clone(), rule: "tile".into(), source: true, screen: true } }
 }
@@ -277,7 +284,7 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     }
     let keys = ctx.keys;
     let from_tile = to.is_none() && !request.act && !request.default && request.container.is_none() && request.at.is_none() && request.new_note.is_none() && !request.history && verb != "hover";
-    let base = |route: &Option<Route>| Placement { destination: Destination::None { reason: "no reader takes this open".into(), ways: Vec::new(), refused: false }, keep: None, merge: None, reuse: None, why: None, reveal: false, route: route.clone(), keys: None, next_from: None, give_new_keys: false, beside_of: None, no_spine: false };
+    let base = |route: &Option<Route>| Placement { destination: Destination::None { reason: "no reader takes this open".into(), ways: Vec::new(), refused: false }, keep: None, merge: None, reuse: None, why: None, ways: Vec::new(), reveal: false, route: route.clone(), keys: None, next_from: None, give_new_keys: false, beside_of: None, no_spine: false };
     if from_tile && fresh && let Some(action) = &ctx.fresh_action { return Placement { destination: Destination::Action { action: action.clone() }, ..base(&route) } }
     let routed = if fresh { wire.is_some() || open_wire.is_some() || s.wires.iter().any(|w| w.from == *from && (w.verb == "alt" || w.verb == "open")) || landing(s, from, "open", ctx, None).is_some() } else { route.is_some() };
     if from_tile && !routed && let Some(screen) = &ctx.screen && facts(from).opens_out { return Placement { destination: hand_out(screen), ..base(&route) } }
@@ -385,12 +392,13 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
                 if let Some(again) = beside_reader(s, ctx, &target) { return again_with(Request { keys: quiet(&result), default: false, to: Some(again), keep: Some(false), ..request.clone() }, &route) }
                 let idle: Vec<Id> = s.tree().visible().into_iter().filter(|id| *id != target && takes_open(s, ctx, id) && facts(id).held).collect();
                 if let Some(free) = idle.iter().find(|id| facts(id).showing.is_none()).or(idle.first()).cloned() {
-                    let why = format!("{name} is pinned: opened in {} · p in {name} unpins it", s.name(&free));
-                    return Placement { beside_of: Some(target), why: Some(why), ..again_with(Request { keys: quiet(&result), default: false, to: Some(free), keep: Some(false), ..request.clone() }, &route) };
+                    let why = format!("{name} is pinned: opened in {}", s.name(&free));
+                    return Placement { beside_of: Some(target), why: Some(why), ways: vec![unpins(&name)], ..again_with(Request { keys: quiet(&result), default: false, to: Some(free), keep: Some(false), ..request.clone() }, &route) };
                 }
                 result.destination = Destination::New { at: if s.is_float(&target) { At::Float { rect: None, near: Some(target.clone()) } } else { At::Split { target: target.clone(), dir: Dir::Right, pair: false, weight: None } } };
                 result.beside_of = Some(target);
-                result.why = Some(format!("{name} is pinned: opened beside it · p in {name} unpins it"));
+                result.why = Some(format!("{name} is pinned: opened beside it"));
+                result.ways = vec![unpins(&name)];
                 return result;
             }
             if to.is_none() && !fresh && f.follower { result.give_new_keys = false }
@@ -558,7 +566,7 @@ pub(super) fn beside_attempt(s: &Layout, op: &Op, b: &Beside, ctx: &Ctx) -> Resu
         d.answer.insert("where".into(), json!("float"));
         d.answer.insert("why".into(), json!(format!("{why}, so it floats")));
         // (How it is placed after is a way, an act the asker's door words: `ways` beside the answer's `why`.)
-        d.answer.insert("ways".into(), json!([Way::new("layout.move", "places it (to=<a tile>)").json()]));
+        d.answer.insert("ways".into(), json!([Way::new("layout.move", "places it beside a tile").json()]));
         Ok(d)
     };
     let typing_there = ctx.protect_typing && ctx.typing_in.as_ref() == Some(&b.target);
