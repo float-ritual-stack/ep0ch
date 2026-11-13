@@ -184,6 +184,11 @@ export function answersWith(panes: ReadonlyMap<number, Pane>, ids: readonly numb
   const names = new Set(ids.filter(id => { const r = panes.get(id); return r instanceof ReaderPane && !r.surface.draft; }).map(nameOf));
   return [...ids, ...[...panes].filter(([id, p]) => p instanceof AnswerTile && names.has(p.source) && !ids.includes(id)).map(([id]) => id)];
 }
+/** Why a gather of `ids` built from a container or a named pair (node=, with=) would leave out an answer `all` adds, or null: it has no place there, so it would close. */
+export function answerLeftOut(panes: ReadonlyMap<number, Pane>, all: readonly number[], ids: readonly number[], nameOf: (id: number) => string): string | null {
+  const out = all.find(i => !ids.includes(i)), a = out === undefined ? undefined : panes.get(out);
+  return a instanceof AnswerTile ? `${nameOf(out!)}, ${a.source}'s answer, would be left out of the group and close: gather ${a.source} alone (it takes its answer), or ${nameOf(out!)} with it` : null;
+}
 export const FOLD_WHERE = { edit: "in the edit", note: "in the reader" } as const;
 
 export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
@@ -237,10 +242,10 @@ export const ANSWER_TILE: TileKind = {
   // behind by it beside other tiles, it would close (PIE-1792). Not refused: a reader with its edit open, whose ask brings
   // the answer beside it wherever it goes (PIE-1585); one left alone, whose group empties and goes as groups leave
   // nothing behind (PIE-1775), the move's undo bringing both. A gather takes it with its reader (answersWith).
-  carryRefusal: (p, from, to, goes, stays) => {
+  carryRefusal: (p, from, to, goes, empties) => {
     const src = (p as AnswerTile).source, r = readerOf(from, src);
     if (!(r instanceof ReaderPane)) return null;
-    if (!goes.has(p)) return goes.has(r) && !r.surface.draft && stays.some(q => q !== p) ? `${src} goes with its answer: moved alone, the answer would close · ^W G gathers both, or ^W x on the answer first` : null;
+    if (!goes.has(p)) return goes.has(r) && !r.surface.draft && !empties ? `${src} goes with its answer: moved alone, the answer would close · ^W G gathers both, or ^W x on the answer first` : null;
     return !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null;
   },
   actions: ANSWER_ACTIONS,

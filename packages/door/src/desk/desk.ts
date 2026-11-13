@@ -95,7 +95,7 @@ import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
-import { AnswerTile, answersWith } from "./answer-tile";
+import { AnswerTile, answerLeftOut, answersWith } from "./answer-tile";
 import { AttachedTilePane, type Attachment } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, TYPED_WHILE_OPENING, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
@@ -5654,7 +5654,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Links between a gathered tile and one that stays are kept (PIE-696), by path across the group's edge.
    */
   private gather(t: { id: number; name: string }, target: LNode | null, ids: number[], w: { id: number; name: string } | null, o: { node?: string; where?: Dir; name?: string; label?: string }, actor: Actor): TileDone {
-    this.resolveExt(); ids = answersWith(this.panes, ids, i => this.nameOf(i)); const lost = carryLoses(this.top().descend(), d => d.panes.values(), ids.map(i => this.panes.get(i)!), this); if (lost) throw new ActionRefused(lost);
+    this.resolveExt(); const all = answersWith(this.panes, ids, i => this.nameOf(i)), out = target || w ? answerLeftOut(this.panes, all, ids, i => this.nameOf(i)) : null; if (out) throw new ActionRefused(out); ids = all; const lost = carryLoses(this.top().descend(), d => d.panes.values(), ids.map(i => this.panes.get(i)!), this); if (lost) throw new ActionRefused(lost);
     const inside = new Set(ids);
     for (const id of ids) this.bindFollows(id, this.panes.get(id)!);
     const specs = (id: number) => this.specIn(id, inside);
@@ -7274,7 +7274,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!shown) throw new ActionRefused("the drawer shows nothing to bring here");
       return host.take(shown, to ?? t.name, where, actor);
     }
-    return { ...host.put(this, t.name, actor, false, to, where), ...(host.isDrawer(this.top()) ? { ownTab: true } : {}) };   // from a group in the drawer: a tab of its own (PIE-1792)
+    return { ...host.put(this, t.name, actor, false, to, where), ...(host.isDrawer(this.top()) && (where === undefined || where === "tabs") ? { ownTab: true } : {}) };   // from a group in the drawer, as a tab: one of its own (PIE-1792)
   }
 
   /** Why tile `sel` can't leave this screen now, or null (nothing is done). `heir`: a new tile would take its place. */

@@ -164,5 +164,64 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
       expect(p.capture()).toContain("⏎ takes the lit row");
     } finally { p.close(); }
   }, 60_000);
+
+  // CodeRabbit on #1495: a screen of only a reader and its answer let the reader go alone (the answer the one tile left),
+  // and the answer closed. Only a group that empties lets its last answer go with it.
+  test("a screen of only a reader and its answer refuses ^W a on the reader", async () => {
+    const p = await doors.pane(await doors.create("Pea sticks\ncut hazel"), "Pea sticks", 120, 30);
+    try {
+      p.keys("e"); await until(() => p.capture().includes("editing"), "the edit");
+      await doors.ask(p, "@tally the sticks");
+      p.keys("C-s"); await until(() => !p.capture().includes("editing"), "saved");
+      const screen = () => layers(p).find(l => !l.drawer)!.tiles;
+      await until(() => screen().map(t => t.name).join() === "detail,answer", "only the reader and its answer").catch(e => { throw new Error(`${e.message}: ${names(p).join()}`); });
+      if (screen().find(t => t.focused)?.name !== "detail") p.keys("C-w", "h");
+      await until(() => screen().find(t => t.focused)?.name === "detail", "his keys on the reader");
+      p.keys("C-w", "a");
+      await Bun.sleep(1200);
+      expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer"]));
+      expect(p.capture()).toContain("goes with its answer");
+    } finally { p.close(); }
+  }, 60_000);
+
+  // CodeRabbit on #1495: a gather that names its other tile (with=) or a container (node=) built the group from those
+  // alone, so an answer the gather took along had no place in it and was lost. Refused with why now.
+  test("a gather with= that would leave a reader's answer out is refused, and nothing is lost", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
+      expect(p.act("tile.focus", "tile=detail2").ok).toBe(true);   // his keys off the tiles it gathers
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "detail2", "his keys on detail2");
+      await Bun.sleep(2200);
+      const r = p.act("tile.group", "tile=detail3", "with=detail");
+      expect([r.ok, r.out]).toEqual([false, expect.stringContaining("its answer")]);
+      expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer", "detail/detail3"]));
+      expect(layers(p).some(l => l.screen === "group")).toBe(false);
+    } finally { p.close(); }
+  }, 90_000);
+
+  // CodeRabbit on #1495: from a drawer's group, a move to a split of the drawer (where=right) said "a tab of its own".
+  test("a move from a drawer's group to a split there doesn't call it a tab", async () => {
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 120, 30);
+    try {
+      const drawer = () => layers(p).find(l => l.drawer)!;
+      p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
+      await Bun.sleep(2200);
+      expect(p.act("tile.open", "kind=reader").ok).toBe(true);
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 3, "a third tile");
+      expect(p.act("tile.focus", "tile=reader").ok).toBe(true);
+      for (const n of ["detail-preview", "detail"]) { expect(p.act("tile.drawer", `tile=${n}`).ok).toBe(true); await until(() => drawer().tiles.some(t => t.name === n), `${n} in the drawer`); }
+      const id = (n: string) => drawer().tiles.find(t => t.name === n)!.tile;
+      expect(p.act("tile.group", `tile=${id("detail")}`, `with=${id("detail-preview")}`).ok).toBe(true);
+      await until(() => layers(p).some(l => l.screen === "group"), "a group in the drawer");
+      const inGroup = layers(p).find(l => l.screen === "group")!.tiles.find(t => t.name === "detail")!;
+      const r = p.act("tile.drawer", `tile=${inGroup.tile}`, "to=shell", "where=right");
+      expect([r.ok, r.out]).toEqual([true, expect.any(String)]);
+      await until(() => p.capture().includes("your drawer"), "what it did", 5000);
+      expect(p.capture()).not.toContain("a tab of its own");
+    } finally { p.close(); }
+  }, 60_000);
 });
 
