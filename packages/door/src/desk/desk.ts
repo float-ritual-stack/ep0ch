@@ -3171,7 +3171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
     const exited = this.waitsOnExit(), busy = exited ? this.holdsOtherKeys() : this.holdsKeys();   // an exited program isn't typed in and holds nobody back (PIE-1563)
     const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!this.keptOpen() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
-    const deeper = this.keysDesk(), address = (deeper !== this ? deeper.keys().address : null) ?? (f ? this.tileId(this.focus) : null);   // a group's keys are its tile's (keysDesk: the one walk)
+    const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null, address = inner?.address ?? (f ? this.tileId(this.focus) : null);   // the nearest tile with an address: an emptied mount's is its own
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
     return { focus: name, address, typingIn: typing ? name : null, busy, ...(why ? { why } : {}) };
@@ -3325,7 +3325,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       : r ? { from: d.focus, to: r.id, note: m.id }
       : o.fresh ? d.landingRequest(d.focus, m.id, true)
       : o.standing === false ? d.landingRequest(d.focus, m.id)
-      : { from: d.focus, note: m.id };
+      : { from: d.focus, note: m.id, handsKeys: true };
     const landed = d.placeNote(m, request, actor);
     if (!landed) throw new ActionRefused(place ? `no reader in ${place} takes this open` : "no reader takes this open; tile.open kind=reader gives it a destination");
     if (place) d.memory.into(place).active = landed.id;

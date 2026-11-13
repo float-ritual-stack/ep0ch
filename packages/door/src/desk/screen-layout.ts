@@ -500,7 +500,7 @@ export function freeName(taken: Iterable<string>, base: string): string { const 
 export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, other: readonly string[] = []): string { return freeName([...s.names.values(), ...other], kind); }
 
 export interface PlacementRequest<I = number> {
-  where?: ListOpenWhere; verb?: "hover";
+  where?: ListOpenWhere; verb?: "hover"; /** The person's open handed in (the power bar, `ep0ch open`), not a list's own: its reader takes the keys. */ handsKeys?: true;
   /** How it was opened, for the one door.open it emits: left out, the action's own (`openMethod`). */ method?: "link" | "alt";
   /** An act's `from=` (a program naming its tile): the tile's wires and the screen's rule, never its kind's hand-off or the screen's fresh action. */ act?: true;
   from: I;
@@ -581,7 +581,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
   const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
   if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && (!ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && (!ctx.person.busy && (to !== undefined || !!request.handsKeys || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
   if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
     const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];
