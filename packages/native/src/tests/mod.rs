@@ -43,4 +43,5 @@ mod store;
 mod support;
 mod sweep2;
 mod sweep3;
+mod ways;
 mod window;

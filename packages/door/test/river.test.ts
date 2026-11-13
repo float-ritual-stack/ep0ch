@@ -191,7 +191,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     // x doesn't close it and says how to get in.
     key(char("x"));
     expect(paneOf(beansR)).toBeTruthy();
-    expect((app as any).message).toContain("e or ⏎ enters it");
+    expect((app as any).message).toContain("e enters it");
     expect(await act("edit.save", {}, beansR)).toMatchObject({ saved: true });
     expect(await lastBy(notes.beans.id, "agent")).toEqual(["agent", AS]);
     expect(screen()).toContain(`an agent (${AS}) saved this note`);
@@ -622,8 +622,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("the Library stays (the river is made around it), so a restarted river comes back with its columns (round 3, B-M2)", async () => {
     const o: any = await act("open", { id: notes.squash.id, from: lib() });
     await until(() => !!paneOf(o.name).root, "the squash column");
-    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it · .*\^W P there turns closable on/);
-    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/turns closable on/);
+    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it · .*layout\.policy node=g\d+ closable=true turns closable on/);
+    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/\^W P there turns closable on/);   // the person reads the key, from the ^W table
     // The hint row offers x only where it closes something: in the note column, not in the Library.
     const hintRow = (name: string) => {
       const rows = screen().split("\n"), r = river.rectOf(paneOf(name))!;

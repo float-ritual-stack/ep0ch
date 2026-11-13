@@ -290,7 +290,7 @@ export const unlockWays = (self: LayoutSelf = SCREEN_SELF): Way[] => {
   const unlock = (more: Omit<Way, "act" | "does" | "args"> = {}) => way("layout.lock", "unlocks it", { args: { on: false }, ...more });
   // A refusal names a control the person can see (PIE-1455): one under the drawer or a lifted tile is reached past it.
   if (self.chip && self.covered === "drawer") return [way("host.toggle", "puts the drawer away", { args: { open: false } }), unlock({ at: `with the keys in ${self.name}`, on: chip, then: true })];
-  if (self.chip && self.covered === "lift") return [way("agent.lift", "drops the lifted tile", { args: { on: false } }), unlock({ on: chip, then: true })];
+  if (self.chip && self.covered === "lift") return [way("agent.lift", "drops the lifted tile", { args: { on: false } }), unlock({ at: `with the keys in ${self.name}`, on: chip, then: true })];
   return [self.chip ? unlock({ on: chip }) : unlock({ at: "in it" })];
 };
 /** A policy's layer as `layout.policy` names it: the screen, or a container by its id. A kind's own default is no node. */

@@ -558,14 +558,14 @@ own functions on made-up garden layouts and never edited by hand.
 
 | Table | Asks | Holds the answer of |
 |---|---|---|
-| `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal in words; for the close that commits, who keeps the closed reader's note (`closeHeir`: a tile here, one across an edge, none) |
+| `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal as data (its reason, and each way out as an act: an action, its arguments, what it does; never a key); for the close that commits, who keeps the closed reader's note (`closeHeir`: a tile here, one across an edge, none) |
 | `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves |
 | `act-lines.json` | an act line; a `tile=` | the line's words, its request, its arguments typed by the action; the address it is |
 | `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
 | `actor-contract.json` | an action's row (`touches`, `while`, `person`), who runs it (the person, an agent, a script's run with and without the invitation a press minted) and where the person is | `actorRule`: whether they may, with the door's sentence when not. Cargo asks each row of the window's `rule()` and holds it to whether, not to the words |
-| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName` (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
+| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName`, and a refusal said from its reason and each way's own words (`whySaid`) (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows
@@ -578,6 +578,27 @@ scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check
 - **Read without the door:** outline-core's `test/screen-spec.test.ts` reads every table through `screen-spec.ts`,
   `action-row.ts` and `action-line.ts`. Cargo runs every row of the layout, place, address, actor and core tables (`native/src/tests/contract.rs`) and reads the act lines and action rows (`tests/actline.rs`).
 - **Where the door decides today:** `LAYOUT_FAMILIES` in the door's `test/one-owner.test.ts`.
+
+**What naming the way out as an act found (F3).** The tables held each refusal to the door's sentence, so a second
+door had to say the door's keys (`^W P`, `^W x`) and the door's actions to pass, where it has neither. A refusal is
+now `{reason, ways}` in both layout tables (outline-core's `way-out.ts`): each way an action, its arguments, the tile
+it is run in and what it does, with where the person's keys are for a key to mean it (`at`), a control drawn on
+screen that does the same (`on`), that it follows the way before it (`then`) and that only the person takes it
+(`theirs`). Each door says a way in its own words: the door reads its key from its tables with the keymap applied
+(`surface/way-out.ts`), the window from its key table (`actions::says`), and a door without the action says nothing.
+The table's head says the act its rows were asked with for getting the person's attention (`attention`: the door's
+mark on the block); the window tells its layout its own (a comment on the note), so a typing guard here names an
+action that is a row here. Four things turned up on the way:
+
+- **One way had no act.** A reader that holds an edit said "e or ⏎ enters it": the door matches those two keys in
+  code, with no action behind them. The way is named as `edit`, whose key is `e`; the ⏎ is no longer said.
+- **Three sentences named an action as their subject** (`tile.collapse: dir is v…`, `layout.policy: clear names…`).
+  The reason now starts at what is wrong: whoever ran the act knows which act it was.
+- **The window told its layout almost nothing beside the layout.** Wiring what placement remembers changed what the
+  window does, as the door's rule says: the reader opened beside a block being written takes the next open aimed
+  there too, where each open made one more reader. One test held the unwired behaviour and was re-aimed.
+- **The service's `draft.patch` is no row of the door's.** The dispatcher's two sentences that point an agent at it
+  keep it as words in the reason; the door's own ways after it are acts.
 
 **What the actor table found (sweep 3):** the window let an agent's act that moves the screen through while the person typed, when nothing said why they were held; the door refuses it whenever they are busy. One row of 240.
 

@@ -57,15 +57,20 @@ pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) 
     // one of that container's and where its next open lands; a reader made beside one that is written in, or
     // beside one the layout says takes its opens beside it, takes the next open aimed there too.
     let plan = &landing.placement;
-    let made = landing.new.then(|| tile.clone());
+    // The tile made for this open: the one the note is read in, or the spine a reader's old note stays in.
+    let spine = landing.keeps.as_ref().and_then(|keeps| done.layout.named(keeps));
+    let made = if landing.new { Some(tile.clone()) } else { spine.clone() };
+    let prior = spine.as_ref().and_then(|_| app.ui(&tile).note.clone());
     let aimed = request.to.clone().unwrap_or_else(|| request.from.clone());
-    let editing = made.is_some() && app.facts(&aimed).editing.is_some();
+    let editing = landing.new && app.facts(&aimed).editing.is_some();
     let into = request.container.clone().or_else(|| match &plan.destination { Destination::New { at: layout::At::In { key, .. } } => Some(key.clone()), _ => None }).or_else(|| plan.keep.as_ref().and_then(|(kept, _)| app.memory.into_of(kept).map(str::to_string)));
     if let (Some(made), Some(key)) = (&made, &into) { app.st.memory.opened_into(key).ids.push(made.clone()) }
     if let (Some(made), Destination::New { at: layout::At::In { key, .. } }) = (&made, &plan.destination) { app.st.memory.opened_into(key).active = Some(made.clone()) }
-    if let (Some(made), true) = (&made, editing) { app.st.memory.go_beside(&aimed, made) }
-    if let Some(beside) = &plan.beside_of { match (&made, &plan.destination) { (Some(made), _) => app.st.memory.go_beside(beside, made), (None, Destination::Swap { tile, .. }) => app.st.memory.go_beside(beside, tile), _ => {} } }
+    if editing { app.st.memory.go_beside(&aimed, &tile) }
+    if let Some(beside) = &plan.beside_of { app.st.memory.go_beside(beside, &tile) }
     app.arranged(done.layout, done.changed);
+    // A reader's old note stays in the spine made for it: the spine is told that note (it would show none).
+    if let (Some(spine), Some(prior)) = (&spine, &prior) { app.show(spine, prior, false) }
     // (A tile a block is being written in is never where this lands: the layout's rule puts the open beside it.)
     app.show(&tile, &id, remember);
     app.keep();

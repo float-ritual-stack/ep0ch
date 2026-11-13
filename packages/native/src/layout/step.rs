@@ -100,7 +100,7 @@ impl Step<'_, '_> {
         let unlock = || Way::new("layout.lock", "unlocks it").arg("on", false);
         match (chip.is_some(), covered.as_deref()) {
             (true, Some("drawer")) => vec![Way::new("host.toggle", "puts the drawer away").arg("open", false), unlock().at(format!("with the keys in {name}")).on(said).then()],
-            (true, Some("lift")) => vec![Way::new("agent.lift", "drops the lifted tile").arg("on", false), unlock().on(said).then()],
+            (true, Some("lift")) => vec![Way::new("agent.lift", "drops the lifted tile").arg("on", false), unlock().at(format!("with the keys in {name}")).on(said).then()],
             (true, _) => vec![unlock().on(said)],
             _ => vec![unlock().at("in it")],
         }

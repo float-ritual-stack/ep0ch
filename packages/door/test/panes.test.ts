@@ -408,7 +408,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {
     await fresh();
     // The lanes keep their tiles (draggable off): a header drag and layout.move are refused, and say why.
-    await expect(act("layout.move", { to: "preview", where: "right" }, "Doing")).rejects.toThrow(/keeps its tiles in place · \^W P there turns draggable on/);
+    await expect(act("layout.move", { to: "preview", where: "right" }, "Doing")).rejects.toThrow(/keeps its tiles in place · layout\.policy node=c\d+ draggable=true turns draggable on/);   // an agent reads the act; the person, its key (way-out.test.ts)
     // Only query tiles join the columns; another kind goes beside them.
     await expect(act("tile.open", { kind: "activity", to: "Doing", where: "right" })).rejects.toThrow(/takes only query/);
     const opened = await act("tile.open", { kind: "activity", name: "recent", where: "edge-right" }) as any;

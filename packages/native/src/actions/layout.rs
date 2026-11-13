@@ -26,6 +26,7 @@ static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a
 /// The read that names every container. One namer of a split's id: `layout.resize`'s row points here, and so does
 /// the layout's refusal about a split nothing has (its way out is this act, by this row's name).
 static GET: ActionRow = ActionRow::new("layout.get", Touches::Nothing, "the arrangement as data: its revision (rev), and the tile tree in the saved form, each split, tab set and dock with its id (s2, g3, d1) and each tile by its name. Nothing changes")
+    .keys(&[KeyRow::via("its row in the command bar: it reads the arrangement and changes nothing, so no key is kept for it")])
     .examples(&[Example { act: "layout.get", does: "answers the arrangement: each container's id, each tile's name and kind, and the revision", safe: Some(true) }]);
 
 static RESIZE: ActionRow = ActionRow::new("layout.resize", Touches::Shape, "move the border between two tiles of a split: share is the part of the two the first one gets. The split is named by its id (layout.get gives each one's)")

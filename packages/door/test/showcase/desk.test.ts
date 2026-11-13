@@ -597,7 +597,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       expect(stage.layoutGet().locked).toBeFalsy();
       await until(() => screen().includes("▣ drawer locked"), "the drawer's frame says it is locked");
       // Closing a tile in it is refused in the drawer's name, with its own way out; the screen's tiles close as ever.
-      await expect(app.act({ action: "tile.close", tile: "@drawer/reader", as: "test-agent" })).rejects.toThrow("your drawer is locked: closing reader is refused · a click on ▣ drawer locked (or ^W P) unlocks it");
+      await expect(app.act({ action: "tile.close", tile: "@drawer/reader", as: "test-agent" })).rejects.toThrow("your drawer is locked: closing reader is refused · layout.lock on=false unlocks it");   // an agent reads the act that unlocks it
     } finally {
       await app.act({ action: "layout.lock", tile: "@drawer/reader", args: { on: false }, as: "test-agent" });
     }
@@ -1149,7 +1149,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // Saved with the layout: the edit tile's own level in its spec.
     expect(JSON.stringify(stage().layoutSpec())).toContain('"agents":"edit"');
     // Refused, naming the policy and the person's command; nothing moved.
-    await expect(app.act({ action: "open", tile: "edit", args: { id: recipe }, as: "test-agent" })).rejects.toThrow(/edit is edit only for agents: open is refused .*tile\.agent policy=free tile=edit/);
+    await expect(app.act({ action: "open", tile: "edit", args: { id: recipe }, as: "test-agent" })).rejects.toThrow(/edit is edit only for agents: open is refused .*the person's \^W g \(tile\.agent tile=edit policy=free\) frees it/);
     await expect(app.act({ action: "open", tile: "off", args: { id: recipe }, as: "test-agent" })).rejects.toThrow(/off is hands off for agents: open is refused · peek reads it/);
     await expect(app.act({ action: "tile.close", tile: "edit", as: "test-agent" })).rejects.toThrow(/tile\.close is refused/);
     expect(stage().pane("edit").msg.title ?? stage().pane("edit").title()).not.toContain("Lentil");

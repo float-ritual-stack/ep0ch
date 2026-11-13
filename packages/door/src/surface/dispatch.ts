@@ -327,7 +327,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // whose the draft is), unless they invited it (their `@name` line: the draft rule checks the invitation).
       const t = at.tile;
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
-        return refusalSaid(def.draft === "replace" ? typingIn(t.label ?? t.name, "replace their text", [way("draft.patch", "lands in their draft"), way("comment", "on the note gets their attention"), MARK_THEM]) : typingIn(t.label ?? t.name, "replace their text until it's sent or closed"), actor);
+        return refusalSaid(def.draft === "replace" ? // (`draft.patch` is the service's, no action of this door: said as it is. The door's own ways are acts.)
+        typingIn(t.label ?? t.name, "replace their text · draft.patch lands in their draft", [way("comment", "on the note gets their attention"), MARK_THEM]) : typingIn(t.label ?? t.name, "replace their text until it's sent or closed"), actor);
       }
       if (standing && t && where.typingIn === t.name) return refusalSaid(typingIn(t.label ?? t.name, "change or close their draft"), actor);
       return standing ? null : at.draft?.() ?? null;

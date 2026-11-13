@@ -8,11 +8,15 @@
 import { waysSaid, whySaid, type Way, type Why } from "@ep0ch/outline-core/way-out";
 import { wChordOf } from "../desk/wkeys";
 import type { Actor } from "../socket";
+import { hyperLabel } from "../hyper";
 import { allActionSets, chordName, declaredKeys, keyCaption, shownLine } from "./actions";
 import { keysNow } from "./keymap";
 
 /** The ways a key row names that are no key: said by a control's own words (`Way.on`), never as a key. */
 const GESTURES = new Set(["click", "drag", "wheel", "hover", "sideways", "double-click"]);
+
+/** A key as its keycap shows it (`^W x`, `✦p`), as the keys window lists it. */
+const capOf = (key: string) => (key.startsWith("hyper+") ? hyperLabel(key.slice(6)) : keyCaption(key));
 
 /** The def of an action some set of this door has, or undefined: the door hasn't the action. */
 const defOf = (action: string) => allActionSets().find(s => s.has(action))?.def(action);
@@ -26,7 +30,7 @@ export const wayLine = (w: Way): string => shownLine(w.act, w.args ?? {}, w.tile
  */
 export function wayKey(w: Way): string | null {
   const chord = wChordOf(w.act, w.args ?? {});
-  if (chord) return keyCaption(chord);
+  if (chord) return capOf(chord);
   const keys = keysNow(w.act, defOf(w.act)?.keys);
   if (!keys) return null;
   const rows = typeof keys === "string" ? [{ keys }] : keys;
@@ -35,7 +39,7 @@ export function wayKey(w: Way): string | null {
   for (const r of rows) {
     if (!("keys" in r) || !fits(r as { args?: Readonly<Record<string, unknown>> })) continue;
     const key = firstKey(r.keys);
-    if (key) return keyCaption(key);
+    if (key) return capOf(key);
   }
   return null;
 }

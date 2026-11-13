@@ -335,6 +335,23 @@ fn a_caret_beside_a_placed_patch_goes_where_outline_core_s_map_cursor_puts_it() 
 /// A key a screen names (outline-core's `isKeyName`, the door's one name for a key) reads as a chord here: every
 /// name there is, a capital as Shift with its letter. The two this window has no chord for (a modifier alone, and
 /// Hyper, which no key here is) read as none, and such a key is listed and never pressed.
+/// A refusal said: the reason, then its ways joined as outline-core's `whySaid` joins them (", or" for another way,
+/// ", then" for one that follows, a way with no words left out). The window's `ways_said` is that rule by port.
+#[test]
+fn every_refusal_is_said_from_its_reason_and_its_ways_as_outline_core_says_it() {
+    let rows = table("core-contract")["ways"].as_array().unwrap().clone();
+    assert!(rows.len() >= 7);
+    for row in &rows {
+        let ways: Vec<Way> = row["why"]["ways"].as_array().unwrap().iter().map(|way| Way::read(way).expect("a way")).collect();
+        let said: Vec<Option<String>> = row["said"].as_array().unwrap().iter().map(|words| words.as_str().map(str::to_string)).collect();
+        // (Each way's own words are the table's: the window's are its keys and act lines, which `tests/ways.rs` asks.)
+        let joined = crate::actions::ways_said(&ways, |way| ways.iter().position(|each| std::ptr::eq(each, way)).and_then(|at| said.get(at).cloned().flatten()));
+        let reason = row["why"]["reason"].as_str().unwrap();
+        let whole = if joined.is_empty() { reason.to_string() } else { format!("{reason} · {joined}") };
+        assert_eq!(whole, row["whole"].as_str().unwrap(), "{}", row["name"]);
+    }
+}
+
 #[test]
 fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     use crate::keys::chord_named;
