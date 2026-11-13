@@ -743,3 +743,47 @@ test("the poll stops asking about a ticket once no note names it, and asks again
   await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
   expect((await server.extensionSync.for("jira")!.poll()).checked).toBe(1);
 });
+
+// Codex on #1503: the poll's "named" filter compared the key exactly and knew only properties and askers, so a note
+// naming the ticket as `- [jira::pc-1]` or as a Resource link `[PC-1](pi-outliner://resource/<id>)` got no checks.
+// Named is what the authored links resolve to, as a reader resolves them.
+for (const [form, line] of [["a lowercase key", "- [jira::pc-1]"], ["a Resource link", "[PC-1](pi-outliner://resource/{id})"]] as const) {
+  test(`the poll asks about a ticket a note names by ${form}`, async () => {
+    const ctx = await setup();
+    const { fake, store, server, create, edit, recordOf, recordsFor, until } = ctx;
+    const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+    await recordOf(page.id);
+    const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+    await edit(page.id, () => `PC-1 Rollout\nOur plan.\n\n${line.replace("{id}", resourceId)}`);
+    await until("the record to go", () => recordsFor("PC-1").length === 0);
+    const issue = fake.issues.get("PC-1")!;
+    issue.status = "Blocked";
+    issue.updated = new Date().toISOString();
+
+    expect((await server.extensionSync.for("jira")!.poll()).checked).toBe(1);
+    expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+  });
+}
+
+// Codex on #1503: polls went on while no note named the ticket, so the window moved past what changed meanwhile;
+// named again, it was searched only from the last poll. A ticket that joins the poll is read from its own last read.
+test("a ticket named again after a while is caught up from its own last read", async () => {
+  const ctx = await setup();
+  const { fake, store, server, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const sync = server.extensionSync.for("jira")!;
+  await sync.poll();   // no note names it: not asked about, and the window moves on
+  // Read two hours ago; changed in Jira an hour ago, while nothing named it.
+  store.database.query("UPDATE remote_entity_resource_state SET checked_at = ? WHERE resource_id = ?").run(new Date(Date.now() - 2 * 60 * 60_000).toISOString(), resourceId);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  await sync.poll();
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+});

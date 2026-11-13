@@ -399,7 +399,9 @@ function resourceStale(e: Entry): boolean {
   if (unresolved(e) && rAnyAt > e.rat) return true;
   return (e.read?.projections ?? []).some(p => !!p.resourceId && (rChangedAt.get(p.resourceId) ?? 0) > e.rat);
 }
-const stale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || resourceStale(e) || (noteRanAt.get(id) ?? 0) > e.rat;
+/** Whether the outline made answer `e` stale (the note, the notes it reads its keys from, a line that ran): not a Resource's own event. */
+const outlineStale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || (noteRanAt.get(id) ?? 0) > e.rat;
+const stale = (id: string, e: Entry) => outlineStale(id, e) || resourceStale(e);
 
 /**
  * A `resource-catalog` event: the Resource it names changed (null: any may have, e.g. a new Source, or a
@@ -493,10 +495,11 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
     const c = cache;
     c.set(m.id, entry);
     if (c.size > 200) c.delete(c.keys().next().value!);
-    // A note read for the first time, or at a new revision, asks the service to fetch what it lacks (materialize). A read
-    // again because a Resource changed doesn't: a failed fetch's own event asked for the next fetch, and a card strobed
-    // "fetching…" and "can't fetch" while Jira refused (PIE-1796). The poll and r try a failed copy again.
-    const materialize = !hit || hit.askedRev !== m.revision;
+    // A note read first, or again for an outline change (its text, the note above it its key comes from), asks the service
+    // to fetch what it lacks (materialize). A read again only because a Resource changed doesn't: a failed fetch's own
+    // event asked for the next fetch, and a card strobed "fetching…" and "can't fetch" while Jira refused (PIE-1796).
+    // The poll and r try a failed copy again.
+    const materialize = !hit || hit.askedRev !== m.revision || outlineStale(m.id, hit);
     Promise.resolve().then(() => src.board.request("resources.projection.read", { blockId: m.id, materialize })).then(
       read => {
         // Its text is known only when the answer is for the revision asked: otherwise nothing of it may stand in for a later one.

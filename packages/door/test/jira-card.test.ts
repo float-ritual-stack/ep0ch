@@ -17,7 +17,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an open Jira card follows its 
   const doors = new TallyDoors();
   let fake: FakeJira;
   beforeAll(async () => {
-    fake = startFakeJira([{ id: "20001", key: "PC-1", summary: "Rollout checklist for the depot switch", status: "In Review", assignee: "Dana Ortiz", type: "Task", priority: "High", updated: "2026-01-05T09:00:00.000Z" }]);
+    fake = startFakeJira([
+      { id: "20001", key: "PC-1", summary: "Rollout checklist for the depot switch", status: "In Review", assignee: "Dana Ortiz", type: "Task", priority: "High", updated: "2026-01-05T09:00:00.000Z" },
+      { id: "20002", key: "PC-2", summary: "Label printer drops the last line", status: "To Do", assignee: "Lee Park", type: "Bug", priority: "Medium", updated: "2026-01-05T09:00:00.000Z" },
+    ]);
     await installJira(join(doors.scratch.workspace, "extensions"), fake.origin, TOKEN_ENV);
     doors.scratch.hostEnv = { [TOKEN_ENV]: FAKE_TOKEN, OUTLINER_EXTENSION_POLL_MS: "1500" };
     await doors.start();
@@ -104,6 +107,21 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an open Jira card follows its 
       expect(card).toContain("couldn't fetch");
       expect(card).toContain("poll tries again");   // wrapped: "the next / poll tries again, R now"
     } finally { fake.status = null; p.close(); }
+  }, 90_000);
+
+  // Codex on #1503: a note's `jira::` line takes its key from the note above it. Its parent renamed from PC-1 to PC-2,
+  // the child kept its revision, and its card was read again without the fetch that registers PC-2: it never showed.
+  // Only a read again for a Resource's own event skips that fetch.
+  test("a card whose key comes from the note above follows that note to another ticket", async () => {
+    const parent = await doors.create("PC-1 planning");
+    const child = (await doors.board.request("create", { parentId: parent, author: "user", text: "Shift notes\njira::" })).id as string;
+    const p = await doors.pane(child, "Shift notes", 120, 30);
+    try {
+      await until(() => p.capture().includes("Rollout checklist"), "PC-1's card", 15_000);
+      const m = await doors.board.get(parent);
+      await doors.board.update(parent, "PC-2 planning", m!.revision!);
+      await until(() => p.capture().includes("Label printer drops"), "PC-2's card, fetched", 10_000).catch(e => { throw new Error(`${e.message}\n${p.capture().split("\n").slice(4, 12).join("\n")}`); });
+    } finally { p.close(); }
   }, 90_000);
 });
 
