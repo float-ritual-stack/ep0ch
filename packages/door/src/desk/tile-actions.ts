@@ -14,6 +14,8 @@ import { SPINES, ALT_RULES, OPEN_RULES, OPEN_RULE_WORDS, type AltRule } from "./
 import { TXN } from "../surface/txn";
 import { RECORDED_AS, USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
+import { requesterOf } from "../socket";
+import { partyOf } from "../steps";
 import { AGENT_WORDS, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
@@ -994,7 +996,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: { anywhere: { type: "boolean", optional: true, about: "the newest change on any of the person's layouts (the screen, the drawer, a group), not only this one" } },
     examples: [{ act: "layout.undo", does: "takes back the newest change to this layout" }, { act: "layout.undo anywhere=true", does: "takes back the newest change on the screen, the drawer or a group, wherever the keys are" }],
-    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.undoNewest(actor) : (d.steps.deskHolding(TXN.getStore()?.txn, d, () => d.relatives())).undoLayout(actor, TXN.getStore()?.txn)),
+    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.steps.newestDesk(d.relatives(), d, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true) : (d.steps.deskHolding(TXN.getStore()?.txn, d, () => d.relatives())).undoLayout(actor, TXN.getStore()?.txn)),
   }),
   "layout.stop": def({
     summary: "stop the script run that is rearranging this screen (a dance in flight): scripts.stop on it, and the layout it changed is put back, as far as nobody changed it since. The person's Esc does this while a run is moving the screen, and only then (a draft, an overlay, a ^W command or a drag keep their Esc)",
@@ -1002,7 +1004,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     touches: "shape", replay: "ask", says: (r: { stopped: string[] }) => (r.stopped.length ? "stopped the dance" : "nothing to stop"),
     menu: { label: "stop the script rearranging this screen", group: SCREEN, key: "esc", now: ({ d }: On) => (d.runningScripts().length ? null : { hide: true }) },
     args: {},
-    run: (_a, { d }: On, actor: Actor) => d.stopRuns(actor),
+    run: (_a, { d }: On, actor: Actor) => stopRuns(d, actor),
   }),
   "layout.txn.end": def({
     words: "finish a layout change made in steps",
@@ -1064,3 +1066,18 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run: ({ id }, { d }, actor) => untrashNote(d.ctx.board, id, actor, msg => asActor(d.ctx, actor).flash(msg), renamedPagesNote),
   }),
 });
+
+/** `layout.stop`: every script run rearranging this screen asked to stop; each one that ended closes its transaction as stopped. */
+async function stopRuns(d: Desk, actor: Actor): Promise<{ stopped: string[] }> {
+  const runs = d.runningScripts();
+  if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
+  // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
+  // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
+  const failed: string[] = [];
+  const results = await Promise.all(runs.map(run => d.ctx.board.request("scripts.stop", { run, mutation: requesterOf(actor) }).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
+  const stopped: string[] = [];
+  for (const { run, ended, r } of results) if (ended) { try { d.endTxn(run, r?.sequence ? "done" : "stopped", actor); } catch { /* gone */ } stopped.push(run); }
+  asActor(d.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? results.some(r => r.ended && r.r?.sequence) ? "stopped; completed sequence steps remain; ctrl+z undoes what is reversible" : "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
+  d.redraw();
+  return { stopped };
+}

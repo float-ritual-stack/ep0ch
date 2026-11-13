@@ -1001,19 +1001,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
    * is moving.
    */
-  async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
-    const runs = this.runningScripts();
-    if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
-    // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
-    // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
-    const failed: string[] = [];
-    const results = await Promise.all(runs.map(run => this.ctx.board.request("scripts.stop", { run, mutation: requesterOf(actor) }).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
-    const stopped: string[] = [];
-    for (const { run, ended, r } of results) if (ended) { try { this.endTxn(run, r?.sequence ? "done" : "stopped", actor); } catch { /* gone */ } stopped.push(run); }
-    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? results.some(r => r.ended && r.r?.sequence) ? "stopped; completed sequence steps remain; ctrl+z undoes what is reversible" : "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
-    this.redraw();
-    return { stopped };
-  }
 
   /** Whether a change is drawing its way (a test and the status line ask). */
   get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
@@ -1039,7 +1026,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
    * between them kept by identity (`Adopt`), and saved. An agent's undo, ^W B and a carry's leave the person's keys where they are (`keepFocus`), unless their tile went; on one that moved between layouts they go with it (`carriesUndone`).
    */
-  undoNewest(actor: Actor) { return this.steps.newestDesk(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true); }   // `layout.undo anywhere=true`, ^W B
   private undoAcross(entries: LayoutEntry<Desk>[], actor: Actor, keepFocus = false): { steps: number; kept: string[] } {
     const { sides: asked, txns } = this.steps.stepOf(this, entries, this.relatives());
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }
