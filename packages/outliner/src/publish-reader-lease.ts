@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { MAX_WRITE_BYTES, sameOrigin } from "./publish-page";
-import { findDrawnPassage } from "./publish-passage";
+import { findPagePassage } from "./publish-passage";
 import { createBlockComment } from "./block-comments";
 import type { PageHost } from "./publish-page";
 import type { Block, PageAddressFollowResult } from "./types";
@@ -204,7 +204,7 @@ export class ReaderLeases {
     try {
       if (input.block) {
         const block = await this.host.request<Block>({ action: "get", blockId: input.block });
-        const found = findDrawnPassage([block], { quote: input.quote, prefix: "", suffix: "" });
+        const found = findPagePassage([block], { quote: input.quote, prefix: "", suffix: "" });
         if (!found.ok) said = "Saved on the block with your quote; the selection could not be anchored";
         await createBlockComment(this.host, { requestId: crypto.randomUUID(), author: "user", input: {
           blockId: block.id, expectedRevision: block.revision, source: "user", properties,

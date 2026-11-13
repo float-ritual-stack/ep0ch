@@ -558,20 +558,9 @@ export interface AnnotationCreateInput {
   readonly properties?: Readonly<Record<string, string | readonly string[]>>;
 }
 
-/** A quote is exact source text; optional context must identify one occurrence. */
-export interface BlockCommentPassage {
-  /** The words, exactly as the block's text has them. */
-  readonly quote: string;
-  /** Where the quote starts in the block's text, when you know. */
-  readonly start?: number;
-  /** Among repeats, the one nearest this offset (an agent's `near=`). */
-  readonly near?: number;
-  /** Text just before the quote, to tell repeats apart. */
-  readonly prefix?: string;
-  /** Text just after the quote, to tell repeats apart. */
-  readonly suffix?: string;
-  readonly itemId?: string;
-}
+/** A quote is exact source text, or (`drawn`) the words as a reader drew them; optional context must identify one occurrence. */
+export interface BlockCommentPassage extends QuotedPassage {}
+import type { QuotedPassage } from "@ep0ch/outline-core/drawn-passage";
 
 export interface BlockCommentInput {
   readonly blockId: string;

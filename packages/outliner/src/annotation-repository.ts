@@ -402,7 +402,7 @@ export class AnnotationRepository {
             const passage = stale && request.passage ? { ...request.passage, start: undefined, near: undefined } : request.passage;
             let target: AnnotationTarget;
             try {
-              target = blockCommentTarget(block, passage);
+              target = blockCommentTarget(block, passage, id => this.blocks.get(id)?.text);
             } catch (error) {
               // Not found once with its context in the newer text: refused as stale, as one without context is.
               if (stale) throw new Refusal("stale-revision", `Comment source revision is stale; read the current block before commenting (${error instanceof Error ? error.message : String(error)})`);
