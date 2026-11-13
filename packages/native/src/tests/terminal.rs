@@ -335,6 +335,35 @@ fn an_agent_s_act_never_takes_the_keys_of_a_terminal_the_person_types_in() {
     assert!(rt.find("tile/shell").is_none() && running.heard("garden-1").len() == 3);
 }
 
+/// The same over the control socket, as the door's own client sends it: an agent's terminal is opened and typed
+/// into by act lines, recorded as the agent's, and `peek` says whose the keys are and what each terminal shows.
+#[test]
+fn an_agent_runs_a_program_over_the_control_socket_and_peek_says_whose_the_keys_are() {
+    let (g, running) = shed("herdr-core", true);
+    let mut d = super::control::door_over(g.app, g.asked.clone(), "terminal");
+    d.rt.update(|s, _| { s.act("terminal.open", Actor::Person); });
+    rest(&mut d.rt);
+    let peek = d.ask(json!({ "cmd": "peek" }))["result"].clone();
+    assert_eq!(peek["screen"]["whereabouts"]["takesKeys"], true, "the person is in the shell's program: {}", peek["screen"]["whereabouts"]);
+    assert_eq!((peek["screen"]["whereabouts"]["layer"].as_str(), peek["screen"]["whereabouts"]["typingIn"].as_str()), (Some("program"), Some("shell")));
+    // `ep0ch act --door native tile.type tile=shell text=… --as compost-agent`: held back, with why.
+    let held = d.ask(json!({ "cmd": "act", "action": "tile.type", "args": { "text": "seeds\\n" }, "tile": "shell", "as": "compost-agent" }));
+    assert!(held["ok"] == false && held["error"].as_str().is_some_and(|why| why.contains("the person is typing in shell")), "{held}");
+    // Its own terminal, by the same lines: beside the note, without the person's keys, and typed into.
+    let opened = d.ask(json!({ "cmd": "act", "action": "terminal.open", "args": { "name": "helper" }, "as": "compost-agent" }));
+    assert_eq!((opened["ok"].as_bool(), opened["result"]["tile"].as_str(), opened["result"]["backend"].as_str()), (Some(true), Some("helper"), Some("herdr-core")), "{opened}");
+    let typed = d.ask(json!({ "cmd": "act", "action": "tile.type", "args": { "text": "seeds\\n" }, "tile": "helper", "as": "compost-agent" }));
+    assert_eq!(typed["ok"], true, "{typed}");
+    assert_eq!(running.heard("garden-2"), vec!["send:seeds\n"]);
+    let step = d.rt.state.steps.iter().rev().find(|step| step.action == "tile.type" && step.ok).cloned().expect("the act is recorded");
+    assert_eq!(step.by, Actor::Agent("compost-agent".into()));
+    let peek = d.ask(json!({ "cmd": "peek" }))["result"].clone();
+    let helper = peek["screen"]["tiles"].as_array().unwrap().iter().find(|tile| tile["name"] == "helper").expect("peek lists the agent's terminal").clone();
+    assert_eq!((helper["facts"]["typing"].as_bool(), helper["facts"]["kept"].as_str()), (Some(false), Some("herdr-core · outlives this window")));
+    assert!(helper["facts"]["lines"].as_array().unwrap().iter().any(|line| line == "carrots  3 packets"), "peek gives a terminal's lines: {}", helper["facts"]["lines"]);
+    assert_eq!(peek["screen"]["whereabouts"]["typingIn"], "shell", "the person's keys are where they were");
+}
+
 // ── a window built without its terminal ─────────────────────────────────────────────────────────────────────
 
 #[test]

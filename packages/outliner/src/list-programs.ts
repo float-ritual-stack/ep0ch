@@ -59,7 +59,7 @@ export interface ProgramSaid {
 
 const SHOWN = "In a tile", DETACHED = "Running, in no tile", THEIRS = "Not this window's";
 /** A program that waits on a person, or failed, is said in a tone; the words are the program's own. */
-const TONES: Readonly<Record<string, ListTone>> = { blocked: "warn", error: "danger" };
+const TONES: Readonly<Record<string, ListTone>> = { blocked: "warn", error: "bad" };
 
 /**
  * The asker's programs (`programs`), the ones in a tile first, then the ones still running that no tile shows, then

@@ -3,7 +3,7 @@
   "id": "terminal",
   "version": 1,
   "name": "Terminal",
-  "description": "A shell and an agent in a tile beside your notes: the tile kinds a door's terminal drawer draws, each a row that says what runs. Fork it to change the agent, or add a row for another program.",
+  "description": "A shell and an agent in a tile beside your notes. Each is a row that says what runs: fork it to change the agent, or add a row for another program.",
   "defaultOn": true,
   "tiles": [
     {
@@ -19,7 +19,7 @@
     {
       "kind": "agent",
       "name": "Agent",
-      "description": "an agent in a terminal beside your notes: your shell with the agent's command typed into it (command=<another program> runs that instead; the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "description": "an agent in a terminal beside your notes: your shell, with the agent's command typed into it (the native window draws it when it is built with its terminal: cargo build --features pty)",
       "drawer": "pty",
       "fields": {
         "command": "claude"

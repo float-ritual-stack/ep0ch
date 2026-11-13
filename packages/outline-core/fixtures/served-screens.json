@@ -788,7 +788,7 @@
       "kind": "screens.programs",
       "extension": "screens",
       "name": "Programs",
-      "about": "the programs this door runs in its terminal tiles, and the ones still running that no tile shows: what each is, what it reports of itself, what keeps it running and where it is; a row takes the keys to its program, in a tile beside the note when it has none. What their keeper runs that this door never started is listed after them",
+      "about": "the programs this door runs in its terminal tiles, each with what it reports of itself; a row takes the keys to its program",
       "drawer": "list",
       "fields": {
         "from": "programs"
@@ -811,7 +811,7 @@
       "kind": "terminal.agent",
       "extension": "terminal",
       "name": "Agent",
-      "about": "an agent in a terminal beside your notes: your shell with the agent's command typed into it (command=<another program> runs that instead; the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "about": "an agent in a terminal beside your notes: your shell, with the agent's command typed into it (the native window draws it when it is built with its terminal: cargo build --features pty)",
       "drawer": "pty",
       "fields": {
         "command": "claude"

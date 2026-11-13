@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
 
   test("installed, the door opens its screens as the host serves them; removed by the bar's row and by act, the service lists none, and it comes back the same two ways", async () => {
     // On from the start: the service lists its screens and kinds, and the door's three are the served ones.
-    expect(await theirs()).toEqual({ screens: ["board", "desk", "keys", "kitchen", "lastcall", "library", "navigator", "who"], kinds: 16 });
+    expect(await theirs()).toEqual({ screens: ["board", "desk", "keys", "kitchen", "lastcall", "library", "navigator", "who"], kinds: 17 });
     for (const name of ["navigator", "lastcall", "who"]) expect(extensionScreen(name), name).toBe("screens");
     expect(app.describe().messages.filter(m => /screens/.test(m.message) && /isn't registered/.test(m.message))).toEqual([]);
     // Used once: last callers opens from its name, its tiles the door's own kinds under the names the rows serve.
@@ -114,7 +114,7 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
 
     // Back by act, as an agent installs it.
     await app.act({ action: "extensions.install", args: { id: "screens" }, as: "test-agent" });
-    await serves(16);
+    await serves(17);
     expect((await theirs()).screens).toEqual(["board", "desk", "keys", "kitchen", "lastcall", "library", "navigator", "who"]);
 
     // And the other way round: removed by act, installed by the bar's row.
@@ -123,7 +123,7 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
     await serves(0);
     await app.loadExtensions(true);
     await pick("install:screens");
-    await serves(16);
+    await serves(17);
     await app.loadExtensions(true);
     for (const name of ["navigator", "lastcall", "who"]) expect(extensionScreen(name), name).toBe("screens");
   }, 120_000);

@@ -1,31 +1,34 @@
 # Terminal
 
-A shell and an agent in a tile beside your notes. The extension is two rows, and no code: each is a tile kind a
+A shell and an agent in a tile beside your notes. The extension is two rows and no code: each is a tile kind a
 door's terminal drawer (`pty`) draws, and the row says what runs.
 
 - **Shell** (`terminal.shell`): your login shell. Nothing is typed into it.
-- **Agent** (`terminal.agent`): your shell with the agent's command typed into it once it is ready for a line
-  (`command` in the row's `fields`). Leaving the agent leaves you in the shell.
+- **Agent** (`terminal.agent`): your shell, with the agent's command typed into it once it reads a line.
+- **The command** is the row's `fields.command`. Leaving the agent leaves you in the shell.
 
-A tile's own fields win over its kind's, so one tile runs something else without a new kind:
-`terminal.open command="seedbot --plan beds" cwd=~/plots`. To change the agent for every tile, fork the extension
-(`ep0ch ext add terminal`) and edit `fields.command`; to add another program, add a row.
+## Run something else
 
-**Any extension's program is a row too.** A tile kind an extension declares with `run` is served to a door with the
-terminal drawer as the line that starts it, the folder it starts in and the machine that folder is on
-(`screens.list`'s `kinds`), so the drawer draws it with no code for that program.
+- **One tile:** `terminal.open command="seedbot --plan beds" cwd=~/plots`. A tile's own fields win over its kind's.
+- **Every agent tile:** fork the extension (`ep0ch ext add terminal`) and edit `fields.command`.
+- **Another program:** add a row.
+- **Any extension's program** is a row too: a tile kind declared with `run` is served bound to the same drawer.
 
-**Which door draws it.** The native window, when it is built with its terminal (`cargo build --features pty`, see
-`packages/native/README.md`): on herdr-core where the machine has `hc`, which keeps a program running when the
-window goes, else tmux, else a plain pty. Built without, a tile of these kinds says so, in the row's own words. The
-door has terminal tiles of its own (its `pty` kind) and no `pty` drawer for these rows: a tile of them there says
-that. The two doors don't share a program yet (the door's terminal host has one client).
+## Which door draws it
 
-**The list.** `lists.read from=programs` lists the programs a door hands over, a row each with the jump as its pick
-(`terminal.jump key=`): what each is, what it reports of itself, what keeps it and where it shows. What its keeper
-runs that the door never started is listed after them, with no pick. The `programs` tile kind over it is the
-screens extension's, beside its other lists, and the kitchen screen has it with the buttons that open a shell and
-an agent.
+- **The native window,** built with its terminal: `cargo build --features pty` (`packages/native/README.md`).
+- **What keeps the program:** herdr-core where the machine has `hc`, else tmux, else a plain pty.
+- **Built without,** a tile of these kinds says so, in the row's own words.
+- **The door** has terminal tiles of its own (its `pty` kind) and no drawer for these rows.
+- **The two doors share no program yet:** the door's terminal host has one client.
+
+## The list
+
+- **`lists.read from=programs`** lists the programs a door hands over.
+- **A row's pick is the jump:** `terminal.jump key=`.
+- **A row says** what the program is, what it reports of itself and what keeps it.
+- **What the door never started** is listed after its own, with no pick.
+- **The `programs` tile kind** is the screens extension's; the kitchen screen has it.
 
 It is on wherever the service runs. Uninstalled, a tile of its kinds says the kind is gone;
 `extensions.install id=terminal` brings it back.
