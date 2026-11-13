@@ -669,6 +669,11 @@ declare module "@ep0ch/outline-core/note-page" {
       truncated?: true;
       /** A button whose press is the service's to run (several steps, or a script): `scripts.sequence` with `block` and `line`. */
       sequence?: true;
+      /**
+       * What is attached to its drawn words (part-anchor.ts): a comment thread's passage, each where its words are in the
+       * text `view` is drawn from, with the act a press on them runs. A client tints the words and shows the thing beside them.
+       */
+      marks?: import("@ep0ch/outline-core/part-anchor").PartMark[];
       /** The slots a button's line leaves empty (`{bed}` with `bed=` unwritten): a press has nothing to run until each is written or asked for. Any other `error` on a button is said and stops no press. */
       needs?: string[];
       view: PagePrimitive;
@@ -714,6 +719,28 @@ declare module "@ep0ch/outline-core/code-ranges" {
   export interface SourceRange {
       start: number;
       end: number;
+  }
+}
+
+declare module "@ep0ch/outline-core/part-anchor" {
+  /**
+   * A place in a part's drawn words: the range of the text its view is drawn from (`view.text`; `end` exclusive).
+   * Neither: the part whole (a figure, a list, a button: something drawn from more than words).
+   */
+  export interface PartAnchor {
+      start?: number;
+      end?: number;
+  }
+  /**
+   * Something attached to a part's drawn words: where (its anchor), what it is, the thing by its id, and the act a
+   * press on the marked words runs (the service's word, as a row's `act` is). `kind` is open: a client draws the kinds
+   * it knows and leaves the rest.
+   */
+  export interface PartMark extends PartAnchor {
+      kind: "thread";
+      id: string;
+      /** What a press on it runs. */
+      act?: string;
   }
 }
 

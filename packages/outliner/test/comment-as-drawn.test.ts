@@ -135,7 +135,7 @@ test("a quote of the source as written lands where it always did, and one that s
 // window's cargo tests run) are about a made-up note served as a page: that page is what this service answers for its
 // text, and each row is what this service does with the passage.
 test("the contract's quoted note is the page the service answers, and each quoted row is what the service does", () => fixture(async c => {
-  type Row = { name: string; text?: string; passage: BlockCommentPassage; found?: { start: number; end: number; exact: string }; refused?: { kind: string; error: string } };
+  type Row = { name: string; text?: string; passage: BlockCommentPassage; found?: { start: number; end: number; exact: string }; whole?: { start: number; end: number; exact: string; quote: string; widened: boolean }; refused?: { kind: string; error: string } };
   const contract = JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/core-contract.json"), "utf8")) as
     { quotedNote: { text: string; title: string; chips: unknown; parts: { kind: string; line: number; span: unknown; view: unknown }[] }; quoted: Row[] };
   const note = await c.request<Block>({ action: "create", text: contract.quotedNote.text });
@@ -147,10 +147,80 @@ test("the contract's quoted note is the page the service answers, and each quote
     const text = row.text ?? contract.quotedNote.text;
     if (!notes.has(text)) notes.set(text, await c.request<Block>({ action: "create", text }));
     const on = await c.request<Block>({ action: "get", blockId: notes.get(text)!.id });
+    // Asked before anything is written (`passages.find`): the same passage as whole words, or the same refusal.
+    const asked = c.request<Record<string, unknown>>({ action: "passages.find", blockId: on.id, passage: row.passage, whole: "words" });
+    if (row.refused) await expect(asked, row.name).rejects.toMatchObject({ kind: row.refused.kind, message: row.refused.error });
+    else expect(await asked, row.name).toEqual({ blockId: on.id, revision: on.revision, ...row.whole! });
     const sent = createBlockComment(c, { requestId: crypto.randomUUID(), author: "user", input: { blockId: on.id, expectedRevision: on.revision, body: "Here.", source: "user", passage: row.passage } });
     if (row.refused) await expect(sent, row.name).rejects.toMatchObject({ kind: row.refused.kind, message: row.refused.error });
     else expect((await sent).annotations[0]!.originalTarget.anchor, row.name).toMatchObject({ kind: "text-quote", start: row.found!.start, end: row.found!.end, exact: row.found!.exact });
   }
+}));
+
+// A passage picked by hand is whole words. A press on a first letter lands past its middle as often as not, and the
+// selection then starts after it: asked with `whole: "words"`, the service answers the passage the person meant, with
+// the quote to send for it, whether it starts a paragraph, a list item or a styled run. One that was whole is
+// answered with the asker's own words, and without `whole` nothing is widened.
+test("a passage that starts or ends inside a word is found as the whole words", () => fixture(async c => {
+  const peas = await c.request<Block>({ action: "create", text: "Early peas [type::crop]\nSown under glass." });
+  const text = ["North bed [type::bed]", "Action Define looks the words up.", "", "- PDF and web pages are read here.", `- **Peas** and the ((${peas.id})) go in first.`].join("\n");
+  const bed = await c.request<Block>({ action: "create", text });
+  const find = (quote: string, whole?: "words") => c.request<{ start: number; end: number; exact: string; quote: string; widened: boolean }>({ action: "passages.find", blockId: bed.id, passage: { quote, drawn: true }, ...(whole ? { whole } : {}) });
+  // The first letter of a paragraph and of a list item, each one press late; the last word cut short.
+  expect(await find("ction Define looks the wor", "words")).toMatchObject({ exact: "Action Define looks the words", quote: "Action Define looks the words", widened: true, start: text.indexOf("Action") });
+  expect(await find("DF and web pages", "words")).toMatchObject({ exact: "PDF and web pages", quote: "PDF and web pages", widened: true });
+  // Across two list items, as a Markdown view copies them: the passage is the source of both, the quote their words.
+  expect(await find("DF and web pages are read here.\n- Peas and the Early pea", "words")).toMatchObject({ exact: `PDF and web pages are read here.\n- **Peas** and the ((${peas.id}))`, quote: "PDF and web pages are read here. Peas and the Early peas", widened: true });
+  // A word in a styled run takes its marks with it, as a passage found whole does.
+  expect(await find("eas and the", "words")).toMatchObject({ exact: "**Peas** and the", quote: "Peas and the", widened: true });
+  // Whole already: the asker's own words, untouched. Not asked for: found as it came.
+  expect(await find("Define looks", "words")).toMatchObject({ exact: "Define looks", quote: "Define looks", widened: false });
+  expect(await find("ction Define")).toMatchObject({ exact: "ction Define", quote: "ction Define", widened: false });
+  // What isn't there is said in the comment's own words, before a comment is written.
+  await expect(find("Action Refine", "words")).rejects.toMatchObject({ kind: "not-found" });
+  await expect(c.request({ action: "passages.find", blockId: bed.id, passage: { quote: "Action" }, whole: "lines" })).rejects.toThrow("whole= is words");
+}));
+
+// The words a thread is on are marked where a page draws them: each part its passage reaches into carries a mark,
+// with where those words are in the text the part's view is drawn from (outline-core's part-anchor.ts) and the act a
+// press on them runs. A client tints that range and reads no source. A thread resolved, or whose words are gone,
+// marks nothing; a comment on the whole note marks nothing either.
+test("a note's page marks the words its open threads are on, in each part's own text", () => fixture(async c => {
+  type Mark = { kind: string; id: string; start?: number; end?: number; act?: string };
+  type Part = { kind: string; line: number; marks?: Mark[]; view: { type: string; text?: string; children?: Part[] } };
+  const contract = JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/core-contract.json"), "utf8")) as
+    { quotedNote: { text: string; thread: { id: string; start: number; end: number }; marked: { line: number; marks: Mark[] }[] } };
+  const note = await c.request<Block>({ action: "create", text: contract.quotedNote.text });
+  const page = () => c.request<{ parts: Part[] }>({ action: "notes.page", blockId: note.id });
+  expect((await page()).parts.some(part => part.marks)).toBe(false);
+  // The contract's made-up thread, made: the page marks it as the contract says, by the thread's own id.
+  const { start, end } = contract.quotedNote.thread;
+  const receipt = await createBlockComment(c, { requestId: crypto.randomUUID(), author: "user", input: { blockId: note.id, expectedRevision: note.revision, body: "Which frost?", source: "user", passage: { quote: contract.quotedNote.text.slice(start, end), start } } });
+  const thread = receipt.annotations[0]!.block.id;
+  const renamed = (text: string) => text.replaceAll(contract.quotedNote.thread.id, thread);
+  const marked = (await page()).parts.filter(part => part.marks).map(part => ({ line: part.line, marks: part.marks }));
+  expect(marked).toEqual(JSON.parse(renamed(JSON.stringify(contract.quotedNote.marked))));
+  const first = (await page()).parts[0]!, mark = first.marks![0]!;
+  expect(first.view.text!.slice(mark.start, mark.end)).toBe("the last frost.\n\nWater the beds at dusk.");
+  expect(mark.act).toBe(`thread.toggle thread="${thread}"`);
+  // A passage across a link and bold is marked across both, in the Markdown the part is drawn from; one in a
+  // box is marked on the part written in the box; a figure its words reach is marked whole.
+  const bed = await c.request<Block>({ action: "create", text: ["West bed [type::bed]", "Sow the [[seed list]] peas **before** dusk.", "", "::box", "Net them against pigeons.", "::", "", "::graph-stat", "- beds: 4", "- sown: 3", "::"].join("\n") });
+  const on = async (quote: string) => (await createBlockComment(c, { requestId: crypto.randomUUID(), author: "user", input: { blockId: bed.id, expectedRevision: (await c.request<Block>({ action: "get", blockId: bed.id })).revision, body: "Here.", source: "user", passage: { quote } } })).annotations[0]!.block.id;
+  const linked = await on("the [[seed list]] peas **before** dusk"), boxed = await on("against pigeons"), figure = await on("sown: 3");
+  const parts = (await c.request<{ parts: Part[] }>({ action: "notes.page", blockId: bed.id })).parts;
+  const prose = parts.find(part => part.kind === "prose")!, box = parts.find(part => part.kind === "box")!, stat = parts.find(part => part.kind === "figure")!;
+  expect(prose.marks!.map(m => [m.id, prose.view.text!.slice(m.start, m.end)])).toEqual([[linked, "the [seed list](ep0ch:p/seed%20list) peas **before** dusk"]]);
+  expect(box.marks).toBeUndefined();
+  expect(box.view.children![0]!.marks!.map(m => [m.id, box.view.children![0]!.view.text!.slice(m.start, m.end)])).toEqual([[boxed, "against pigeons"]]);
+  expect(stat.marks).toEqual([{ kind: "thread", id: figure, act: `thread.toggle thread="${figure}"` }]);
+  // Resolved, a thread leaves the margin and its mark goes; the note's words gone, so does the other's.
+  await c.request({ action: "annotations.lifecycle", input: { annotationId: linked, lifecycle: "resolved" } });
+  const now = await c.request<Block>({ action: "get", blockId: bed.id });
+  await c.request({ action: "update", blockId: bed.id, expectedRevision: now.revision, text: now.text.replace("Net them against pigeons.", "Net them."), mutation: { author: "user" } });
+  const after = (await c.request<{ parts: Part[] }>({ action: "notes.page", blockId: bed.id })).parts;
+  expect(after.find(part => part.kind === "prose")!.marks).toBeUndefined();
+  expect(after.find(part => part.kind === "box")!.view.children![0]!.marks).toBeUndefined();
 }));
 
 // One owner: a text is read as drawn in outline-core's drawn-passage.ts and nowhere else, and a drawn quote is looked
@@ -165,6 +235,10 @@ test("where a drawn passage is in the source has one owner", () => {
   expect(holding("drawnText(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/publish-passage.ts"]);
   expect(holding("findDrawnPassage(")).toEqual(["outline-core/src/drawn-passage.ts"]);
   expect(holding("findQuoted(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/block-comments.ts"]);
+  // Where a span of the source is in a text written from it, and a passage as whole words, are that owner's too: the
+  // page asks the first for its marks, `passages.find` the second, and neither reads a text itself.
+  expect(holding("spanIn(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/note-page.ts"]);
+  expect(holding("wholePassage(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/passage-find.ts"]);
   // The page's finder walks no text itself: its places are the owner's (`drawnPlaces`, passage.ts's `quotePlaces`).
   const page = files.find(f => f.file === "outliner/src/publish-passage.ts")!.text;
   expect(page.includes(".indexOf(") || page.includes("matchAll(") || page.includes("propertyTokenMatches")).toBe(false);
