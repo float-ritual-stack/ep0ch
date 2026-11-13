@@ -6,6 +6,16 @@
 //! in place of what is drawn from it (its title and chips, its parts), in the same column and the same scroll, with
 //! the rest of the page around it (the way to it above, the notes under it below). The list that completes what is
 //! being typed is drawn over the window at the caret (`over`), the service's rows as it merged them.
+//!
+//! What is written about the note (a comment, a reply) is written where its words are too: its field stands in the
+//! page under the part that holds the passage's end, or carries its thread's mark, and at the top for the whole
+//! note. Words picked in the note have their own actions by them, under the same part: the key table's rows for
+//! where the keys are then, each a button its row labels.
+//!
+//! What is attached to the note's words (`parts::Mark`: a comment thread's passage) is beside them: the words are
+//! tinted where they are drawn (`prim.rs`), and the thing itself is the row of the list the mark names, drawn by the
+//! list drawer as a card, in a margin when the tile is wide enough for one, else under the part. Folded, a card is
+//! the row's line; a press on it, or on the words, shows it whole (`thread.toggle`, the mark's own act).
 use std::hash::{Hash, Hasher};
 
 use rune::{Align, El, ScrollSpec, Side, col, el, row, text};
@@ -24,7 +34,10 @@ use crate::store::Ask;
 
 pub static DRAWER: Drawer = Drawer { id: "page", about: "one note as the service answers it: read, and written in place, a block's source where it stands", notes: true, lists: false, asks, draw, facts, takes_keys: false, version, over: Some(over) };
 
-fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> { cx.app.note_of(cx.id).map(|note| ("page", cx.app.page_ask(&note))).into_iter().collect() }
+/// What its tile reads: the note's page, and the lists the things attached to that page's words are rows of.
+fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> {
+    cx.app.note_of(cx.id).map(|note| ("page", cx.app.page_ask(&note))).into_iter().chain(cx.app.beside_asks(cx.id).into_iter().map(|ask| ("beside", ask))).collect()
+}
 
 /// The draft written in this tile, when it is of the note the tile shows.
 fn draft_of<'a>(cx: &'a TileCx) -> Option<&'a DraftSession> { cx.app.draft_on(cx.id) }
@@ -56,14 +69,23 @@ fn facts(cx: &TileCx) -> Value {
             "kind": part["kind"], "line": parts::line_of(part), "name": part["name"], "title": part["title"], "error": part["error"], "draws": parts::ty(&part["view"]), "label": part["view"]["label"],
         })) });
     }
-    json!({ "note": cx.app.note_of(cx.id), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": cx.app.loading_of(cx.id), "editing": editing, "back": cx.ui.history, "parts": framed, "said": cx.ui.said.as_ref().map(|said| &said.words) })
+    // What is attached to its words, each as the service marked it, with whether its card is shown whole and whether
+    // the row it is has come; and the words picked in it, with what the service said of them.
+    let marked: Vec<Value> = page.into_iter().flat_map(|p| &p.parts).flat_map(parts::marks_under).map(|mark| json!({
+        "kind": mark.kind, "id": mark.id, "part": mark.at.part + 1, "range": mark.at.range.map(|(start, end)| json!([start, end])), "act": mark.act, "from": mark.from,
+        "whole": cx.ui.unfolded.contains(&mark.id), "says": cx.app.attached_row(cx.id, &mark).map(|row| &row.label),
+    })).collect();
+    let picked = cx.ui.passage.as_ref().map(|quoted| json!({ "words": quoted.words, "found": quoted.found.as_ref().and_then(|found| found.as_ref().ok()).map(|(start, end)| json!([start, end])), "refused": quoted.refused() }));
+    json!({ "note": cx.app.note_of(cx.id), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": cx.app.loading_of(cx.id), "editing": editing, "back": cx.ui.history, "parts": framed, "marks": marked, "picked": picked, "said": cx.ui.said.as_ref().map(|said| &said.words) })
 }
 
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&cx.ui.note, cx.ui.history.len(), cx.app.loading_of(cx.id), cx.ui.said.as_ref().map(|said| (&said.block, said.line, &said.words))).hash(&mut h);
+    // The cards shown whole, and the words picked (their actions stand by them, where the service found them).
+    (&cx.ui.unfolded, cx.ui.passage.as_ref().map(|quoted| (&quoted.words, quoted.ends_at()))).hash(&mut h);
     // (The hint row says the keys of the layer they are in: the editor's, or the open list's.)
-    if let Some(draft) = draft_of(cx) { (&draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
+    if let Some(draft) = draft_of(cx) { (draft.writes.quoted().map(|quoted| (quoted.ends_at(), quoted.refused().map(str::to_string))), &draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
     // A picture that finished decoding is drawn: how each of the page's pictures stands is part of what is shown.
     for picture in cx.app.shown_of(cx.id).into_iter().flat_map(|page| page.pictures()) {
         match cx.app.picture(picture) { Some(Shown::Ready { image, .. }) => (2u8, image.size().is_some()).hash(&mut h), Some(Shown::Failed(why)) => (1u8, why).hash(&mut h), _ => 0u8.hash(&mut h) }
@@ -88,23 +110,77 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     let from = cx.name.clone();
     // Each part's span of the note's text, as its frame says it, by the part's place: what a selection is within.
     let (parts, spans) = (format!("/{}", cx.key("part/")), page.map(|page| page.parts.iter().map(parts::span_of).collect::<Vec<_>>()).unwrap_or_default());
-    let mut body = col().key(cx.key("note")).w_full().max_w(820.0).padding(24.0).gap(14.0)
+    // A page with something attached to its words has a margin beside its measure for what that is.
+    let margin = page.is_some_and(|page| page.parts.iter().any(|part| !parts::marks_under(part).is_empty()));
+    let mut body = col().key(cx.key("note")).w_full().max_w(if margin { MEASURE + GUTTER + MARGIN + 2.0 * PAD } else { MEASURE + 2.0 * PAD }).padding(PAD).gap(14.0)
         .on_selection_change(move |s: &mut App, change: &rune::SelectionChange, _| if !change.dragging() { s.act_in(&selected(change, &parts, &spans), &from, Actor::Person); });
     let (mut head, mut foot) = (Vec::new(), Vec::new());
     if let Some(page) = page { (head, foot) = parts::around(page) }
     // The block's own text being written, or something else written about it.
     let (own, aside) = (draft.filter(|draft| draft.is_block()), draft.filter(|draft| !draft.is_block()));
-    for prim in head.iter().filter(|prim| own.is_none() || prim["source"] != true) { body = body.child(prim::build(prim, &at, k)) }
-    if let Some(aside) = aside { body = body.child(editor(cx, aside, k)) }
+    // Where what is written about the note stands: under the part that holds the end of the words a comment is on,
+    // or that carries the mark of the thread a reply answers; over the note when it is on the whole of it (or the
+    // service hasn't said where its words are). Words picked have their own actions at the same place.
+    let under = aside.zip(page).and_then(|(draft, page)| draft.writes.ends_at().and_then(|end| parts::part_holding(page, end)).or_else(|| draft.writes.answers().and_then(|thread| parts::part_marked(page, thread))));
+    let picked = cx.ui.passage.as_ref().filter(|_| draft.is_none()).zip(page).and_then(|(quoted, page)| quoted.ends_at().and_then(|end| parts::part_holding(page, end)));
+    let held = |built: El| if margin { el().w_full().max_w(MEASURE).child(built) } else { built };
+    for prim in head.iter().filter(|prim| own.is_none() || prim["source"] != true) { body = body.child(held(prim::build(prim, &at, k))) }
+    if let Some(aside) = aside.filter(|_| under.is_none()) { body = body.child(held(editor(cx, aside, k))) }
     match (own, page) {
-        (Some(draft), _) => body = body.child(editor(cx, draft, k)),
-        (None, Some(page)) => for (i, part) in page.parts.iter().enumerate() { body = body.child(prim::build(part, &at.at(format!("part/{i}")), k)) },
+        (Some(draft), _) => body = body.child(held(editor(cx, draft, k))),
+        (None, Some(page)) => for (i, part) in page.parts.iter().enumerate() {
+            body = body.child(beside(cx, part, prim::build(part, &at.at(format!("part/{i}")), k), margin, k));
+            if let Some(aside) = aside.filter(|_| under == Some(i)) { body = body.child(held(editor(cx, aside, k))) }
+            if picked == Some(i) { body = body.children(offered(cx, k).map(&held)) }
+        },
         (None, None) => {}
     }
-    for prim in &foot { body = body.child(prim::build(prim, &at, k)) }
+    for prim in &foot { body = body.child(held(prim::build(prim, &at, k))) }
     // The tile's note is on its way: the last one stays, dimmed, so the tile never blanks.
     let opacity = if cx.app.loading_of(cx.id) && draft.is_none() { 0.55 } else { 1.0 };
     k.scroll_bar(col().key(cx.key("scroll")).w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(row().w_full().justify_center().child(body.opacity(opacity))))
+}
+
+/// The reading measure, the room around it, and the margin beside it for what is attached to the words, in points.
+const MEASURE: f32 = 772.0;
+const PAD: f32 = 24.0;
+const GUTTER: f32 = 16.0;
+const MARGIN: f32 = 300.0;
+/// The narrowest a part is drawn beside its margin, and the narrowest the margin is: narrower, the margin's cards go under the part.
+const MEASURE_LEAST: f32 = 420.0;
+const MARGIN_LEAST: f32 = 220.0;
+
+/// A part of the page with what is attached to its words beside it: on a page with a margin, the part at its
+/// measure and its cards in the margin when the tile is wide enough for both, else under the part (the row wraps).
+/// A page with nothing attached is drawn as it always was.
+fn beside(cx: &TileCx, part: &Value, built: El, margin: bool, k: &Kit) -> El {
+    if !margin { return built }
+    let cards: Vec<El> = parts::marks_under(part).iter().filter_map(|mark| card(cx, mark, k)).collect();
+    if cards.is_empty() { return el().w_full().max_w(MEASURE).child(built) }
+    row().w_full().gap(GUTTER).items_start().flex_wrap()
+        .child(el().grow(4.0).min_w(MEASURE_LEAST).max_w(MEASURE).child(built))
+        .child(cards.into_iter().fold(col().grow(1.0).min_w(MARGIN_LEAST).max_w(MARGIN).gap(8.0), El::child))
+}
+
+/// What is attached to words, beside them: the row of the list the mark names (a thread's), drawn by the list
+/// drawer as a card. Folded it is the row's line and detail; shown whole (`TileUi.unfolded`, by the mark's own act)
+/// it is the row with what it shows under itself and its own presses. A row that hasn't come is nothing yet.
+fn card(cx: &TileCx, mark: &parts::Mark, k: &Kit) -> Option<El> {
+    let listed = cx.app.attached_row(cx.id, mark)?;
+    let whole = cx.ui.unfolded.contains(&mark.id);
+    Some(col().key(cx.key(format!("card/{}", mark.id))).role("note").label(listed.label.clone()).w_full().radius(k.radius.md).fill(k.c.layer_01).border(1.0, if whole { k.alpha(k.c.warning.icon, 0.7) } else { k.c.border_muted })
+        .child(super::list::card(cx, listed, "margin", mark.act.as_deref(), whole, k)))
+}
+
+/// The picked words' own actions, by them: the key table's rows for where the keys are while words are picked
+/// (`App::offered`), each a button its row labels and caps. A press on one leaves the selection as it is,
+/// so the action finds the words it is for. None while no such row is bound.
+fn offered(cx: &TileCx, k: &Kit) -> Option<El> {
+    let lines = cx.app.offered(cx.id);
+    if lines.is_empty() { return None }
+    Some(lines.into_iter().fold(row().key(cx.key("picked")).w_full().gap(6.0).center_y().flex_wrap().keeps_text_selection(), |offered, line| {
+        offered.child(button(cx, line, ButtonVariant::Outline).build(k).key(cx.key(format!("picked/{line}"))))
+    }))
 }
 
 /// The act line a selection in the note says: the words selected, as copying takes them, and the span of the note's
@@ -163,8 +239,10 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let told = draft.told.as_ref().map(|told| text(told.line()).key(cx.key("told")).font(k.ty.small).color(c.info.fg).wrap());
     let how = Some(held(draft)).filter(|held| !held.is_empty()).map(|held| text(held).key(cx.key("held")).font(k.ty.small).color(c.text_faint).wrap());
     let status = col().grow(1.0).min_w(0.0).gap(2.0).children(told).children(how);
-    // What a comment or a reply is on, over its field: the words it quotes, the comment it answers.
+    // What a comment or a reply is on, over its field: the words it quotes (a long passage by its start and its
+    // end), the comment it answers; and, when the service says those words are no passage of the note, why.
     let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
+    let unfound = draft.writes.quoted().and_then(|quoted| quoted.refused()).map(|why| text(why.to_string()).key(cx.key("on-problem")).font(k.ty.small).color(c.danger.fg).wrap());
     // What the keys do where they are now, from the table: the save that keeps you here, then the draft's own (the
     // Esc that leaves), or the list's while one is open over the block (the Esc that puts it away, the keys that choose).
     let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(cx.app.writing(cx.id))).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
@@ -173,6 +251,7 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let framed = if draft.is_block() { col().key(cx.key("editor")).w_full().gap(8.0) } else { col().key(cx.key("editor")).w_full().gap(8.0).padding(12.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_focus) };
     framed
         .children(on)
+        .children(unfound)
         .child(field)
         .child(row().w_full().gap(10.0).child(status).child(buttons))
         .child(hints)

@@ -114,6 +114,7 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `up` | `complete.move by=-1` | complete | the row before |
 | `escape` | `complete.dismiss` | said | put the list away |
 | `mod+shift+m` | `comment` | everywhere | comment on the selected words, or on the note |
+| `a then c` | `comment` | selection | comment on the selected words |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |

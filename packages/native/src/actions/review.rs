@@ -13,6 +13,17 @@
 //!   of the note's text the page's parts say it was drawn within), or `quote=`. Where those words are in the note,
 //!   and whether they are there once, is the service's to find (outline-core's drawn-passage.ts): nothing here
 //!   anchors, and nothing here reads the note's source to say what a link or a bold run was written as.
+//! - **Where the picked words are is asked when they are picked** (`passages.find`, with `whole: words`): the service
+//!   answers the passage they are, as whole words (a press past the middle of a first letter starts a selection
+//!   after it), with the quote to send for it. What the window then shows as the words a comment is on, and sends, is
+//!   that quote; words the note doesn't hold, or holds twice, are said over the comment's field before it is written.
+//!   The window widens nothing and reads no text to do it.
+//! - **A comment is written where its words are**: its field stands in the page under the part that holds the
+//!   passage's end (`parts::part_holding`), as a block's draft stands where the block is read; one on the whole
+//!   note stands at the top. Sent by the person, the tile that lists the note's comments comes to the front of its
+//!   tab set (`threads`, run by the dispatcher as theirs); an agent's comment moves no tab.
+//! - **The words a comment is on are marked on the page** by the service (`notes.page`'s `marks`, `parts::Mark`); a
+//!   press on them, or on the comment's card beside them, opens the card whole (`thread.toggle`).
 //! - **A revision is restored into the editor**, never over the note: its text goes into the block's draft as one
 //!   step of the field's own way back, and nothing is written until the person saves.
 use serde_json::json;
@@ -21,7 +32,8 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
 use super::{About, Action, Actor, App, Field, Notice, Outcome};
 use crate::actline::Args;
 use crate::draft::{self, Quoted, Writes};
-use crate::layout::Id;
+use crate::layout::tree;
+use crate::layout::{Id, Op};
 use crate::store::Reply;
 
 /// Whose a selection is, for the row that hears one.
@@ -48,7 +60,9 @@ static COMMENT: ActionRow = ActionRow::new("comment", Touches::Draft, "comment o
         ("body", ArgSpec::text("the comment's words, sent at once; left out, they are written in the reader").optional()),
         ("near", ArgSpec::number("when the words are there more than once: the offset (UTF-16) to be nearest").optional()),
     ])
-    .keys(&[KeyRow::keys("mod+shift+m", "comment on the selected words, or on the note")])
+    // (The door's keys for it while words are selected, `a` then `c`, hold here the same: `selection` is where the
+    // keys are while a reader with the keys has words picked. Its own chord holds everywhere, in a draft too.)
+    .keys(&[KeyRow::keys("mod+shift+m", "comment on the selected words, or on the note"), KeyRow::on("a then c", "selection", "comment on the selected words")])
     .menu(&[MenuRow::new("Comment", "Note", Some("mod+shift+m"))])
     .examples(&[Example { act: "comment body=\"Which rain? Friday's.\" quote=\"Before the rain.\"", does: "comments on those words of the open note", safe: None }]);
 
@@ -81,6 +95,20 @@ static RESTORE: ActionRow = ActionRow::new("revision.restore", Touches::Draft, "
     .keys(&[KeyRow::via("Restore on a revision, in the list of a note's revisions")])
     .examples(&[Example { act: "revision.restore revision=2", does: "puts revision 2's text in the editor, to save or drop", safe: None }]);
 
+/// The list source a note's comment threads are read from (`lists.read from=threads`): what the tile `threads`
+/// brings forward lists.
+const THREADS: &str = "threads";
+
+static SHOW: ActionRow = ActionRow::new("threads", Touches::Shape, "show the comment threads of the note a reader shows: the tile that lists them comes to the front of its tab set. A comment the person sends runs this as theirs; an agent's comment moves no tab, and its own call is the layout's to allow (it never hides the tab the person has)")
+    .keys(&[KeyRow::via("a comment sent by the person, or its row in the bar")])
+    .menu(&[MenuRow::new("Comments", "Note", None)])
+    .examples(&[Example { act: "threads", does: "brings the open note's comments to the front of their tabs", safe: Some(true) }]);
+
+static TOGGLE: ActionRow = ActionRow::new("thread.toggle", Touches::Nothing, "open a comment's card beside the words it is on in the note a reader shows (the comment whole, its replies, and its own Reply and Resolve), or fold it back to its first words: thread= its id, as the page's mark and the list of threads give it; expand=true or false sets it. How a note is read, not what it says: anybody may, and it moves no keys")
+    .args(&[("thread", ArgSpec::text("the thread's id")), ("expand", ArgSpec::flag("open it (true) or fold it (false); left out, the other way").optional())])
+    .keys(&[KeyRow::via("a press on the words a comment is on, or on its card beside them")])
+    .examples(&[Example { act: "thread.toggle thread=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens that comment beside its words, or folds it", safe: Some(true) }]);
+
 pub static ACTIONS: &[Action] = &[
     Action { row: &SELECT, run: select, about: About::Notes },
     Action { row: &COMMENT, run: comment, about: About::Notes },
@@ -89,6 +117,8 @@ pub static ACTIONS: &[Action] = &[
     Action { row: &APPLY, run: accept, about: About::Nothing },
     Action { row: &DISMISS, run: decline, about: About::Nothing },
     Action { row: &RESTORE, run: restore, about: About::Notes },
+    Action { row: &SHOW, run: show, about: About::Notes },
+    Action { row: &TOGGLE, run: toggle, about: About::Notes },
 ];
 
 /// How the wire names who wrote a comment (`AnnotationSource`): the store records the rest.
@@ -115,12 +145,46 @@ fn free(app: &App, tile: &str) -> Result<(), Outcome> {
     }
 }
 
-fn select(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+fn select(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(tile) = app.about() else { return Outcome::refused("there is no reader here to select in") };
     // The span the words were drawn within: both ends, in order, or none.
     let within = args.number("from").zip(args.number("to")).map(|(from, to)| (from.max(0.0) as usize, to.max(0.0) as usize)).filter(|(from, to)| to > from);
-    app.ui_mut(&tile).passage = args.text("quote").filter(|quote| !quote.trim().is_empty()).map(|quote| Quoted::drawn(quote, within));
+    let picked = args.text("quote").filter(|quote| !quote.trim().is_empty()).map(|quote| Quoted::drawn(quote, within));
+    // The same words picked again (a selection's release says them once more) keep what the service said of them.
+    if app.ui(&tile).passage.as_ref().is_some_and(|had| picked.as_ref().is_some_and(|now| had.within == now.within && (had.words == now.words || had.asked.as_deref() == Some(now.words.as_str())))) { return Outcome::done() }
+    app.ui_mut(&tile).passage = picked;
+    locate(app, &tile, by);
     Outcome::done()
+}
+
+/// The service is asked where the words picked in `tile` are in its note (`passages.find`), as whole words: what
+/// it answers is what a comment on them shows and sends. Asked once for words as they were picked; a note whose
+/// page hasn't come is asked nothing, and a comment on those words is sent as they are.
+fn locate(app: &mut App, tile: &str, by: &Actor) {
+    let Some(quoted) = app.ui(tile).passage.clone().filter(|quoted| quoted.found.is_none()) else { return };
+    let Some(note) = app.page_of(tile).map(|page| page.id.clone()) else { return };
+    let at = app.at.clone();
+    // (Words picked by hand are a passage of whole words; ones an act names are taken as it names them.)
+    let mut ask = json!({ "blockId": note, "passage": quoted.passage() });
+    if quoted.drawn { ask["whole"] = json!("words") }
+    app.store.request(&at, "passages.find", ask, by, located, json!({ "tile": tile, "note": note, "words": quoted.words }));
+}
+
+/// The service's word on where picked words are: the words a comment on them shows and sends are the passage it
+/// found, here and in a comment already opened on them; its refusal is said over that comment's field. An answer
+/// about words nobody has picked any more is nobody's.
+fn located(app: &mut App, reply: Reply) {
+    let text = |key: &str| reply.ctx[key].as_str().unwrap_or("").to_string();
+    let (tile, note, words) = (text("tile"), text("note"), text("words"));
+    let said: Result<((usize, usize), String), String> = match &reply.result {
+        Ok(found) => match (found["start"].as_u64(), found["end"].as_u64(), found["quote"].as_str()) { (Some(start), Some(end), Some(quote)) => Ok(((start as usize, end as usize), quote.to_string())), _ => return },
+        Err(refusal) => Err(refusal.error.clone()),
+    };
+    let take = |quoted: &mut Quoted| if quoted.words == words && quoted.found.is_none() {
+        match &said { Ok((span, quote)) => { quoted.asked = Some(words.clone()); quoted.found(*span, quote) } Err(why) => quoted.found = Some(Err(why.clone())) }
+    };
+    if app.note_of(&tile).as_deref() == Some(note.as_str()) && let Some(quoted) = app.ui_mut(&tile).passage.as_mut() { take(quoted) }
+    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile && draft.note == note) && let Writes::Comment { on: Some(quoted) } = &mut draft.writes { take(quoted) }
 }
 
 fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
@@ -128,13 +192,18 @@ fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // The words it is on: the ones named, else the ones selected in this reader, else none (the whole note).
     let near = args.number("near").map(|at| at.max(0.0) as usize);
     let named = args.text("quote").filter(|quote| !quote.trim().is_empty()).map(|quote| Quoted::written(quote, near));
-    let writes = Writes::Comment { on: named.or_else(|| app.ui(&tile).passage.clone()) };
+    let writes = Writes::Comment { on: named.clone().or_else(|| app.ui(&tile).passage.clone()) };
     if let Some(body) = args.text("body") { return post(app, None, &draft::send_name(), &note, revision, &writes, body, by) }
     // Its words are written here, by whoever is at the keys: sent as somebody else, it names them.
     if !app.stands(by) { return Outcome::refused("a comment sent over the control socket names its words: body=") }
     if let Err(no) = free(app, &tile) { return no }
+    // Words an act named (`quote=`) are asked about as picked ones were: where they are says where the comment
+    // stands, and what is wrong with them is said before it is written.
+    if named.is_some() { app.ui_mut(&tile).passage = named; locate(app, &tile, by) }
     app.ui_mut(&tile).passage = None;
-    app.compose(tile, note, revision, writes, by);
+    app.compose(tile.clone(), note, revision, writes, by);
+    // The field is brought into view where it stands in the page, with the words it is on above it.
+    app.st.reveal = Some(format!("tile/{}/editor", app.layout.name(&tile)));
     Outcome::done()
 }
 
@@ -151,8 +220,35 @@ fn reply(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if !app.stands(by) { return Outcome::refused("a reply sent over the control socket names its words: body=") }
     let (tile, note, revision) = match read(app) { Ok(read) => read, Err(no) => return no };
     if let Err(no) = free(app, &tile) { return no }
-    app.compose(tile, note, revision, writes, by);
+    app.compose(tile.clone(), note, revision, writes, by);
+    app.st.reveal = Some(format!("tile/{}/editor", app.layout.name(&tile)));
     Outcome::done()
+}
+
+/// The tile that lists the comment threads of the note `reader` shows: a list of that source, about that note.
+fn listing(app: &App, reader: &str) -> Option<Id> {
+    let note = app.note_of(reader)?;
+    app.layout.all().into_iter().find(|tile| app.field_of(tile, "from").and_then(|from| from.as_str()) == Some(THREADS) && app.subject_of(tile).as_deref() == Some(note.as_str()))
+}
+
+/// The note's comments are brought forward: their tile to the front of its tab set, by the layout's own step for a
+/// tab (which keeps the keys with the set when it had them, and refuses an agent the person's tab); one that stands
+/// alone is brought out (its dock opened, its fold undone).
+fn show(app: &mut App, _: &Args, by: &Actor) -> Outcome {
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader here to show the comments of") };
+    let Some(tile) = listing(app, &reader) else { return Outcome::refused(format!("no tile here lists the comments of the note {} shows", app.layout.name(&reader))) };
+    let op = if tree::tabs_of(app.layout.tree(), &tile).is_some() { Op::Tab { tile, by: None } } else { Op::Reveal { tile } };
+    app.reshape(&op, by)
+}
+
+/// A comment's card beside its words, opened whole or folded: the reader's own reading state, kept with the tile.
+fn toggle(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let Some(tile) = app.about() else { return Outcome::refused("there is no reader here to open a comment in") };
+    let thread = args.text("thread").unwrap_or("").to_string();
+    let open = args.flag("expand").unwrap_or_else(|| !app.ui(&tile).unfolded.contains(&thread));
+    let shown = &mut app.ui_mut(&tile).unfolded;
+    if open { shown.insert(thread.clone()); } else { shown.remove(&thread); }
+    Outcome::answer(json!({ "thread": thread, "expanded": open }))
 }
 
 /// What is being written in `tile` and is no block's own text (a comment, a reply), sent: `edit.save`'s run for one.
@@ -194,9 +290,16 @@ fn posted(app: &mut App, reply: Reply) {
     match reply.result {
         Ok(_) => {
             // (Only its own draft ends: a block opened for editing there since is another session.)
+            let reader = tile.clone();
             if let Some(tile) = tile.filter(|tile| app.draft_on(tile).is_some_and(|draft| !draft.is_block())) { app.end(&tile) }
             if reply.by.is_person() { app.st.notice = Some(Notice::info(format!("The {what} is sent."))) }
             app.wrote(&[]);
+            // The person's own comment is shown them where the note's comments are listed: the tile that lists
+            // them comes forward, by the dispatcher, as their act. Anybody else's moves no tab and no keys.
+            if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some()) {
+                let name = app.layout.name(&reader);
+                app.act_in(SHOW.id, &name, reply.by.clone());
+            }
         }
         Err(refusal) => told(app, &reply.by, &format!("The {what} wasn't sent: {}", refusal.error)),
     }

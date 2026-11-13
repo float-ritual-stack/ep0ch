@@ -81,6 +81,69 @@ pub fn span_of(part: &Value) -> Option<(u64, u64)> {
     part["span"]["start"].as_u64().zip(part["span"]["end"].as_u64()).filter(|(start, end)| end > start)
 }
 
+/// An anchor: a place on drawn text that other things attach to (outline-core's part-anchor.ts). A part of a page,
+/// by the line of its note it starts on, and a range of the text its view is drawn from (UTF-16, as the wire counts;
+/// none: the part whole). The service finds it; nothing here, and nothing that draws, reads a note's source for one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Anchor {
+    pub part: u64,
+    pub range: Option<(usize, usize)>,
+}
+
+/// Something attached at an anchor, as the service says it on the part (`marks`): what it is, the thing by its id,
+/// the act a press on its words runs, and the list whose row by that id is the thing (`lists.read from=`, of the
+/// part's note). A comment thread's passage is the first; a proposal's passage and a range somebody just wrote attach
+/// the same way.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mark {
+    pub at: Anchor,
+    pub kind: String,
+    pub id: String,
+    pub act: Option<String>,
+    pub from: Option<String>,
+}
+
+/// What is attached to one part's own words, in the order the service lists it.
+pub fn marks(part: &Value) -> Vec<Mark> {
+    let Some(line) = part["line"].as_u64() else { return Vec::new() };
+    list(part, "marks").iter().filter_map(|mark| Some(Mark {
+        at: Anchor { part: line, range: mark["start"].as_u64().zip(mark["end"].as_u64()).filter(|(start, end)| end > start).map(|(start, end)| (start as usize, end as usize)) },
+        kind: text(mark, "kind")?.to_string(), id: text(mark, "id")?.to_string(), act: text(mark, "act").map(str::to_string), from: text(mark, "from").map(str::to_string),
+    })).collect()
+}
+
+/// Everything attached to a part's words and to the words of the parts written inside it (a box's), each thing
+/// once, in order: what stands beside that part on a page.
+pub fn marks_under(part: &Value) -> Vec<Mark> {
+    let mut found: Vec<Mark> = Vec::new();
+    walk(part, &mut |prim| if ty(prim) == "part" { for mark in marks(prim) { if !found.iter().any(|seen| seen.id == mark.id && seen.kind == mark.kind) { found.push(mark) } } });
+    found
+}
+
+/// An anchor's range as the lines of `text` it covers, in bytes: one range a line, blank ends left out. A renderer
+/// marks each where it draws that line, so a range across two paragraphs or two list items is a mark on each.
+pub fn lines_of(text: &str, range: (usize, usize)) -> Vec<std::ops::Range<usize>> {
+    let (Some(start), Some(end)) = (crate::draft::byte_of(text, range.0), crate::draft::byte_of(text, range.1)) else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut at = start;
+    for line in text[start..end].split('\n') {
+        let (from, to) = (at + (line.len() - line.trim_start().len()), at + line.trim_end().len());
+        if to > from { out.push(from..to) }
+        at += line.len() + 1;
+    }
+    out
+}
+
+/// The part of a page, by its place among the page's own, that holds `end` of the note's text: an end of a passage,
+/// so the part whose span it is in or closes. Where something written about that passage stands.
+pub fn part_holding(page: &Page, end: usize) -> Option<usize> {
+    page.parts.iter().position(|part| span_of(part).is_some_and(|(from, to)| (from as usize) < end && end <= to as usize))
+}
+
+/// The part of a page, by its place among the page's own, that carries the mark of a thing (or holds the part that
+/// does): where something written about that thing stands.
+pub fn part_marked(page: &Page, id: &str) -> Option<usize> { page.parts.iter().position(|part| marks_under(part).iter().any(|mark| mark.id == id)) }
+
 /// The line a press names a part by: as the door's `button.press line=` counts, from 1 (the wire's `line` is from 0).
 pub fn line_of(part: &Value) -> Option<u64> { part["line"].as_u64().map(|n| n + 1) }
 

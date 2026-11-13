@@ -12,6 +12,7 @@
 //! A type nobody has a builder for is drawn as its data, never hidden; nothing here panics on a shape it didn't
 //! expect: a missing field is an empty one.
 use rune::{El, SurfaceFit, TextStyle, col, el, row, text};
+use rune_kit::markdown::Highlight;
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Kit, Markdown};
 use serde_json::Value;
 
@@ -125,11 +126,42 @@ fn pressable(shown: El, v: &Value, cx: &PrimCx, k: &Kit) -> El {
     }
 }
 
+/// A box `[x, y, w, h]` holds a point.
+fn holds(r: &[f32; 4], [x, y]: [f32; 2]) -> bool { x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3] }
+
+/// The key a mark's words are found under on a page: the thing, the part, and which of the lines it covers there.
+pub fn mark_key(tile: &TileCx, mark: &parts::Mark, line: usize) -> String { tile.key(format!("mark/{}/{}/{line}", mark.id, mark.at.part)) }
+
 fn markdown(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let tile = word(&cx.tile.name);
-    Markdown::new(parts::text(prim, "text").unwrap_or("")).selectable(true).tasks_read_only()
-        .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); })
-        .build(k).key(cx.key())
+    let source = parts::text(prim, "text").unwrap_or("");
+    let mut shown = Markdown::new(source).selectable(true).tasks_read_only()
+        .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); });
+    // What is attached to these words (the marks of the part this is the view of): each range tinted where its
+    // words are drawn, a line of the text a mark of its own, the one whose thing is shown whole beside it stronger.
+    // The ranges are the service's, in this text: nothing here reads what the words were written as.
+    let marks: Vec<parts::Mark> = cx.own.map(parts::marks).unwrap_or_default().into_iter().filter(|mark| mark.at.range.is_some()).collect();
+    let mut lit: Vec<(std::ops::Range<usize>, Highlight)> = Vec::new();
+    let mut spots: Vec<(String, String)> = Vec::new();
+    for mark in &marks {
+        let open = cx.tile.ui.unfolded.contains(&mark.id);
+        for (n, line) in parts::lines_of(source, mark.at.range.unwrap_or_default()).into_iter().enumerate() {
+            let key = mark_key(cx.tile, mark, n);
+            if let Some(act) = &mark.act { spots.push((key.clone(), act.clone())) }
+            lit.push((line, if open { Highlight::current() } else { Highlight::new() }.key(key)));
+        }
+    }
+    if lit.is_empty() { return shown.build(k).key(cx.key()) }
+    shown = shown.highlights(lit);
+    // A press on marked words runs the mark's own act. A highlight is paint, with no press of its own: where the
+    // pointer is, is kept as it moves (nothing is drawn again for it), and a press is asked which mark's words, as
+    // they were last laid out, it is on. (A drag that selects is no press, and a link's press is the link's.)
+    let boxes: Vec<([f32; 4], String)> = spots.into_iter().filter_map(|(key, act)| rune::memo::layout(&key).map(|at| (at, act))).collect();
+    let (at, from) = (std::rc::Rc::new(std::cell::Cell::new([f32::MIN; 2])), cx.tile.name.clone());
+    let moved = at.clone();
+    shown.build(k).key(cx.key())
+        .on_pointer_move_any(move |pointer, tx| { moved.set([pointer.window_x, pointer.window_y]); tx.live_only(); })
+        .on_press(move |s: &mut App| if let Some((_, act)) = boxes.iter().find(|(r, _)| holds(r, at.get())) { s.act_in(act, &from, Actor::Person); })
 }
 
 fn source(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
@@ -316,6 +348,9 @@ fn picture(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let c = &k.c;
     let view = stood(&prim["view"], build(&prim["view"], &cx.view_of(prim), k));
+    // Something attached to the part whole (a thread on a figure's own lines): a rule around it, in the mark's tint.
+    let whole = parts::marks(prim).iter().any(|mark| mark.at.range.is_none());
+    let view = if whole { col().key(cx.sub("marked")).w_full().padding(6.0).radius(k.radius.md).border(1.0, k.alpha(c.warning.icon, 0.55)).child(view) } else { view };
     let Some(name) = parts::text(prim, "name") else { return view.key(cx.frame()) };
     let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name).variant(BadgeVariant::Accent).build(k));
     if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }

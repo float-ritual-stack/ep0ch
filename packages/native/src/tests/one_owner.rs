@@ -471,7 +471,9 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     none("the words selected written outside the action that hears them", strays(".passage = ", |path| path == "actions/review.rs" || path == "actions/app.rs"));
     // A press leaves a selection as it is in one place, the toolbar (its button that comments is pressed for the words
     // selected), and the words are let go without the reader saying so in one, the bar put away.
-    none("a press that keeps the selection outside the toolbar", strays("keeps_text_selection", |path| path == "shell.rs"));
+    // (Since H4, one more: the row of the picked words' own actions the page drawer puts by them. Each is one row.)
+    none("a press that keeps the selection outside the toolbar and the row of a selection's own actions", strays("keeps_text_selection", |path| path == "shell.rs" || path == "tiles/page.rs"));
+    assert_eq!((code("shell.rs").matches("keeps_text_selection").count(), code("tiles/page.rs").matches(".keeps_text_selection()").count()), (1, 1), "one row each keeps the selection through a press");
     none("the words selected let go outside the bar's own actions", calls("unselect", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
     // One name a send: made in one place, and a request is named by it in one.
     none("a send named outside the session and the action that sends", calls("send_name", |path| path == "draft.rs" || path == "actions/review.rs"));
@@ -536,8 +538,9 @@ fn where_a_drawn_passage_is_in_the_source_is_the_service_s_to_find() {
     let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
     // The passage a comment sends is the quote's own form of it, made in one place and sent from one.
     none("a comment's passage built outside the quote's own form (`Quoted::passage`)", ["[\"drawn\"]", "[\"within\"]", "\"within\":"].iter().flat_map(|key| strays(key, |path| path == "draft.rs")).collect());
-    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 1, "the passage is sent by the one action that sends a comment");
-    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()"));
+    // (Since H4 it is also asked about, once, by the action that hears words picked: `passages.find`.)
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 2, "the passage is sent by the one action that sends a comment, and asked about by the one that hears words picked");
+    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()") && code("actions/review.rs").contains("json!({ \"blockId\": note, \"passage\": quoted.passage() })"));
     // How the words were read is said by the two ways there are to name them: a selection in a reader (as drawn),
     // an act's `quote=` (as the note's text has them, which the service reads as drawn when they aren't there).
     none("how a quote was read said outside the action that hears a selection and the one that takes quote=", ["Quoted::drawn(", "Quoted::written("].iter().flat_map(|made| strays(made, |path| path == "actions/review.rs" || path == "draft.rs")).collect());

@@ -144,7 +144,7 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
     const start = Math.max(m.start, span.start), end = Math.min(m.end, span.end);
     if (end <= start) return [];
     const at = kind === "prose" && view.type === "markdown" ? spanIn(note.text.slice(span.start, span.end), { start: start - span.start, end: end - span.start }, view.text, { title: id => titles.get(id) }) : null;
-    return [{ kind: "thread", id: m.id, ...(at ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: m.id } } })! }];
+    return [{ kind: "thread", id: m.id, ...(at ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: m.id } } })!, from: "threads" }];
   });
   /** A part written on lines `from` to `to` (inclusive). */
   const part = (kind: PagePart["kind"], from: number, to: number, view: PagePrimitive, frame: Partial<PagePart> = {}): PagePart => {

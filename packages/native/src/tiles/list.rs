@@ -154,6 +154,17 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     whole
 }
 
+/// One row of a list drawn by itself on a page, beside what it is about (a comment thread's, beside the words it
+/// is on): folded, its line and its detail and no more; whole, as a list draws a row that shows something under
+/// itself, with its own presses. `press`: what a press on its line runs (the act of what it stands beside, as the
+/// service wrote it). Keyed under `under` in the page's tile, as a list on a page is.
+pub fn card(cx: &TileCx, r: &ListRow, under: &str, press: Option<&str>, whole: bool, k: &Kit) -> El {
+    let mut shown = r.clone();
+    shown.act = press.map(str::to_string);
+    if !whole { shown.view = None; shown.cells.clear() }
+    row_el(cx, &Place::page(cx, under), &shown, false, false, k)
+}
+
 fn height(r: &ListRow, tree: bool) -> f32 { if tree || r.detail.as_deref().is_none_or(str::is_empty) { LINE } else { TWO } }
 
 /// A table's row: a cell a column, the first its label when the list gives no cell for it.

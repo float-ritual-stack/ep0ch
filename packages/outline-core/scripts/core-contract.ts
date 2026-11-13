@@ -186,7 +186,7 @@ function quotedNote() {
     const rendered = p.view.type === "markdown" ? (p.view as { text: string }).text : undefined;
     if (end <= start || rendered === undefined) return [];
     const found = spanIn(QUOTED_TEXT.slice(p.span.start, p.span.end), { start: start - p.span.start, end: end - p.span.start }, rendered);
-    return [{ line: p.line, marks: [{ kind: "thread", id: thread.id, ...(found ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: thread.id } } }) }] }];
+    return [{ line: p.line, marks: [{ kind: "thread", id: thread.id, ...(found ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: thread.id } } }), from: "threads" }] }];
   });
   return { id: "sowing", title: "Sowing plan", revision: 3, text: QUOTED_TEXT, chips: [{ key: "type", value: "plan" }], parts, thread, marked };
 }
@@ -209,9 +209,14 @@ const QUOTED: { name: string; text: string; passage: QuotedPassage }[] = [
   { name: "the same from the first letter of a list item, across the next item's marker, as a Markdown view copies two items", text: QUOTED_TEXT,
     passage: { quote: "et the peas against pigeons.\n- Stake the bea", drawn: true, within: within(4) } },
   { name: "a list item selected from its first letter to its last: whole as it came", text: QUOTED_TEXT, passage: { quote: "Net the peas against pigeons.", drawn: true, within: within(4) } },
+  { name: "those whole words, sent as the quote of a comment: the first", text: QUOTED_TEXT, passage: { quote: "Sow the early peas in March", drawn: true, within: within(0) } },
+  { name: "and the second, across the two items", text: QUOTED_TEXT, passage: { quote: "Net the peas against pigeons. Stake the beans", drawn: true, within: within(4) } },
+  { name: "a list selected whole, as a Markdown view copies it: each item after its marker", text: QUOTED_TEXT, passage: { quote: "- Net the peas against pigeons.\n- Stake the beans before the wind.", drawn: true, within: within(4) } },
   { name: "words that are not in the note: refused with the nearest there are", text: QUOTED_TEXT, passage: { quote: "Sow the late peas in May", drawn: true, within: within(0) } },
   { name: "the garden's other notes: words of the note", text: PLOT_TEXT, passage: { quote: "Before the rain." } },
+  { name: "the same words, picked as a reader drew them (an act's passage.select)", text: PLOT_TEXT, passage: { quote: "Before the rain.", drawn: true } },
   { name: "words nobody wrote", text: PLOT_TEXT, passage: { quote: "words nobody wrote" } },
+  { name: "and picked as drawn", text: PLOT_TEXT, passage: { quote: "Peas go in last.", drawn: true } },
   { name: "a stand-in page that draws more than its note's text holds: the words are not in the note", text: PLOT_TEXT,
     passage: { quote: "Before the rain. See the shed and seeds.", drawn: true, within: { start: 19, end: 35 } } },
 ];

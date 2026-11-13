@@ -186,7 +186,7 @@ test("a passage that starts or ends inside a word is found as the whole words", 
 // press on them runs. A client tints that range and reads no source. A thread resolved, or whose words are gone,
 // marks nothing; a comment on the whole note marks nothing either.
 test("a note's page marks the words its open threads are on, in each part's own text", () => fixture(async c => {
-  type Mark = { kind: string; id: string; start?: number; end?: number; act?: string };
+  type Mark = { kind: string; id: string; start?: number; end?: number; act?: string; from?: string };
   type Part = { kind: string; line: number; marks?: Mark[]; view: { type: string; text?: string; children?: Part[] } };
   const contract = JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/core-contract.json"), "utf8")) as
     { quotedNote: { text: string; thread: { id: string; start: number; end: number }; marked: { line: number; marks: Mark[] }[] } };
@@ -213,7 +213,7 @@ test("a note's page marks the words its open threads are on, in each part's own 
   expect(prose.marks!.map(m => [m.id, prose.view.text!.slice(m.start, m.end)])).toEqual([[linked, "the [seed list](ep0ch:p/seed%20list) peas **before** dusk"]]);
   expect(box.marks).toBeUndefined();
   expect(box.view.children![0]!.marks!.map(m => [m.id, box.view.children![0]!.view.text!.slice(m.start, m.end)])).toEqual([[boxed, "against pigeons"]]);
-  expect(stat.marks).toEqual([{ kind: "thread", id: figure, act: `thread.toggle thread="${figure}"` }]);
+  expect(stat.marks).toEqual([{ kind: "thread", id: figure, act: `thread.toggle thread="${figure}"`, from: "threads" }]);
   // Resolved, a thread leaves the margin and its mark goes; the note's words gone, so does the other's.
   await c.request({ action: "annotations.lifecycle", input: { annotationId: linked, lifecycle: "resolved" } });
   const now = await c.request<Block>({ action: "get", blockId: bed.id });

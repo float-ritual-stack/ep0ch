@@ -24,6 +24,9 @@
 //!   same store, a link an outline, and the control socket naming the window an act is for.
 //! - `review.rs`: about the note: the tiles that follow the reader, a comment on a selection, a reply and a thread
 //!   resolved, a proposal applied and dismissed, a revision opened and put back, the keys and library screens.
+//! - `margin.rs`: a comment in place: picked words found as whole words by the service, the comment's field under
+//!   the part its words are in, the words a thread is on marked and its card beside them, the person's send bringing
+//!   the comments forward, and the keys of picked words.
 //! - `terminal.rs`: programs in terminal tiles, over a scripted host: rows cut at wide cells, keys in and rows out,
 //!   the key that leaves, a size, the scrollback, a paste; detached, attached and found by the next launch; the
 //!   list handed over equal to what runs; an agent's act while the person types; a window built without one.
@@ -38,6 +41,7 @@ mod ext;
 mod garden;
 mod lists;
 mod live;
+mod margin;
 mod one_owner;
 mod owners;
 #[cfg(feature = "pty")]

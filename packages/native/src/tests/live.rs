@@ -711,7 +711,6 @@ fn live_waiting_is_installed_used_configured_and_removed_and_the_window_switches
 fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_lands_on_that_passage() {
     use super::support::{chord, draft, primary, rest, typed, window};
     use crate::client::Socket;
-    use crate::draft::Quoted;
     use rune::{Key, Mods, Runtime};
     with_host("quote", |path, root| {
         let mut raw = Socket::connect(path);
@@ -774,7 +773,10 @@ fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_l
             rest(&mut rt);
             assert_eq!(rt.selected_text().as_deref(), Some(*drawn), "{title}");
             let (start, end) = (head.encode_utf16().count(), head.encode_utf16().count() + body.encode_utf16().count());
-            assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn(*drawn, Some((start, end)))), "{title}");
+            // (Where they are is asked as they are picked: the service's answer comes a moment later, and is the part whole.)
+            until(&mut rt, "where the words are", |s| s.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+            let picked = rt.state.ui("reader").passage.clone().unwrap();
+            assert_eq!((picked.words.as_str(), picked.drawn, picked.within, picked.found.clone()), (*drawn, true, Some((start, end)), Some(Ok((start, end)))), "{title}");
             chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
             assert!(draft(&rt.state).is_some_and(|draft| !draft.is_block()), "{title}: {:?}", rt.state.notice);
             typed(&mut rt, "Here.");
