@@ -27,6 +27,7 @@ if (mode === "command") {
   else if (name === "df") console.log(disk);
   else if (name === "ps") console.log(words.includes("pid") ? "4242\n4243\n4244" : top);
   else if (name === "head") console.log(words.some(w => w.startsWith("/proc/")) ? group : (await Bun.stdin.text()).trim().split("\n").slice(0, 3).join("\n"));
+  else if (name === "systemctl" && words.includes("cat")) process.exit(state.keeper ? 0 : 1);
   else if (name === "systemctl") console.log(state.failed ? "garden-cache.service loaded failed failed Cache" : "");
   else if (name === "docker") console.log(`${id} kiln-tempo`);
   else throw new Error(`unknown fake command: ${name}`);

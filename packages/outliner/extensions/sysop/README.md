@@ -43,6 +43,7 @@ The boring infrastructure monk watches your machines and leaves one health note 
   - macOS has no systemd user units; this watch does not invent an equivalent failure state.
 - **A restart:** the recorded user unit or Docker container only; it never kills a pid.
   - Calm waits up to 35 seconds, then samples again; invalid thresholds stay visible and no restart runs.
+- **A disk trip:** where the disk keeper runs (`ep0ch-disk.service`, PIE-1787), Calm runs it now: it sweeps cold files and names what grew and who reclaims it (`ep0ch disk`). Elsewhere a disk trip has nothing safe to run.
 - **Local user units:** inherit the host's systemd session; a failed query is an unavailable sample.
 - **Attribution:** the extension grant records `ext:sysop`, with whoever asked for `calm` beside it.
 - **Door messages:** a manual action answers in that door's message line.

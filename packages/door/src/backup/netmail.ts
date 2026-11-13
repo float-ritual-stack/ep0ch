@@ -18,7 +18,7 @@ type Say = (line: string) => void;
 export function readQueues(c: BackupConfig): NetmailState["queues"] {
   const queues: NonNullable<NetmailState["queues"]> = {};
   // A sign the machine was online: its last pull, or the newest range a follower here took from it.
-  const follows = followedCopies(c.mirrorsDir);
+  const follows = followedCopies(c.mirrorsDir, c.following);
   for (const q of readSummaries(netmailFile(c.env))) {
     const seen = [q.lastPull, ...follows.filter(f => f.key.endsWith(`@${q.machine}`)).map(f => f.copiedAt)].filter((x): x is string => !!x).sort().at(-1) ?? null;
     queues[q.machine] = { waiting: q.waiting, oldest: q.oldest, lastPull: q.lastPull, lastSeen: seen };

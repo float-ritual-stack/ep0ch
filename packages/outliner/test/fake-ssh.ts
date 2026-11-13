@@ -2,8 +2,9 @@
 // HOME and outlines folder, so a test can run `--machine` and `--remote` end to end against a scratch host without an
 // sshd. It does what the door and the outliner ask of ssh, and nothing more:
 //
-//   ssh [opts] -- <machine> <command>              runs <command> in `sh -c` as the other machine (FAKE_SSH_HOME,
-//                                                  FAKE_SSH_OUTLINES, `ep0ch` on PATH from FAKE_SSH_BIN)
+//   ssh [opts] -- <machine> <command…>             runs <command> (its words joined, as ssh does) in `sh -c` as the
+//                                                  other machine, in its home (FAKE_SSH_HOME, FAKE_SSH_OUTLINES,
+//                                                  `ep0ch` on PATH from FAKE_SSH_BIN); rsync -e "<fake> --" works too
 //   ssh -f -N -M -S <ctl> … -L <local>:<remote> -- <machine>
 //                                                  forwards <local> to <remote> from a process of its own (its pid in
 //                                                  <ctl>), once it listens; `StreamLocalBindUnlink` replaces a dead file;
@@ -40,7 +41,8 @@ if (process.env.FAKE_SSH_LOG) appendFileSync(process.env.FAKE_SSH_LOG, JSON.stri
 const opt = (flag: string) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
 const sep = argv.indexOf("--");
 const machine = sep >= 0 ? argv[sep + 1] : undefined;
-const command = sep >= 0 ? argv[sep + 2] : undefined;
+// As ssh does, the words after the machine are joined into one command line (rsync -e "ssh --" sends several).
+const command = sep >= 0 && argv.length > sep + 2 ? argv.slice(sep + 2).join(" ") : undefined;
 const alive = (pid: number) => {
   try {
     if (existsSync("/proc")) {
@@ -132,6 +134,7 @@ if (argv[0] === "--serve") {
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     process.exit(code);
   }
-  const p = Bun.spawn(["sh", "-c", command], { env, stdio: ["inherit", "inherit", "inherit"] });
+  // It starts in the other machine's home, as an ssh login does (rsync's server names paths from there).
+  const p = Bun.spawn(["sh", "-c", command], { env, cwd: env.HOME, stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await p.exited);
 }

@@ -12,7 +12,7 @@ import { formatDoctor, doctorReport } from "./doctor";
 import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, type HostUnit, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
-import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, publisherRestartCommand, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { withSecretsStep, backupDirOf, buildPlan, diskStep, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, publisherRestartCommand, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { resolveTarget, hostLive } from "../discover";
 import type { Handover, UpgradeResult } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
@@ -432,6 +432,17 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(r.platform === "linux" ? "ep0ch-backup.timer enabled: the first run is within 3 minutes (journalctl --user -u ep0ch-backup)" : "io.ep0ch.backup loaded: it runs now and every 15 minutes (~/Library/Logs/ep0ch-backup.log)");
       return;
     }
+    case "disk": {
+      for (const w of step.writes ?? []) {
+        try { mkdirSync(dirname(w.path), { recursive: true, mode: 0o700 }); writeFileSync(w.path, w.text, { mode: w.mode ?? 0o600 }); chmodSync(w.path, w.mode ?? 0o600); }
+        catch (e) { throw new StepFailed(`writing ${w.path} failed: ${(e as Error).message}`, "nothing was loaded; rerun ep0ch install --apply"); }
+        say(`wrote ${w.path}`);
+      }
+      const { loadArgv } = await import("../disk/setup");
+      for (const argv of loadArgv()) await must(argv, `the units are written; load them by hand: ${argv.join(" ")}`, { env, timeoutMs: 30_000, onLine: child });
+      say("ep0ch-disk.timer enabled: the keeper looks within 5 minutes and every 15 (ep0ch disk says what it saw); offload-sweep.timer weekly");
+      return;
+    }
     case "mcp": {
       const m = f.mcp!;
       await restartService({ ...m.unit, outlines: "", stale: [] }, "the MCP gateway", mcpRestartCommand(m), env, child);
@@ -758,6 +769,12 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       const pathDirs = current.pathDirs;
       current = { ...current, restic: await backupSetupFacts({ platform: current.platform, home: current.home, env, bun: current.bun.path, main: current.repo.entry, repoRoot: current.repo.root, run, which: n => Bun.which(n, { PATH: pathDirs.join(":") }) }) };
       step = backupsStep(current) ?? step;
+    }
+    // The disk keeper's units and offload: from the templates the updated checkout has.
+    if (step.id === "disk" && plan.steps.some(s => s.id === "repo" && s.status === "do") && current.disk) {
+      const { diskSetupFacts } = await import("../disk/setup");
+      current = { ...current, disk: await diskSetupFacts({ platform: current.platform, home: current.home, env, bun: current.bun.path, main: current.repo.entry, repoRoot: current.repo.root, run }) };
+      step = diskStep(current) ?? step;
     }
     // The MCP gateway: asked again after the checkout updated (its unit and state now), restarted because of it.
     if (step.id === "mcp" && plan.steps.some(s => s.id === "repo" && s.status === "do")) {

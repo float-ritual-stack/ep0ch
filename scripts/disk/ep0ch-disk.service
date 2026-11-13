@@ -1,0 +1,12 @@
+# Written by `ep0ch install` from scripts/disk/ep0ch-disk.service in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=ep0ch disk keeper: measure the disks, sweep cold files to the storage box at 75%, alert at 85% or a fast fill (PIE-1787)
+
+[Service]
+Type=oneshot
+Environment=PATH={{PATH}}
+EnvironmentFile=-%h/.config/ep0ch/disk.env
+ExecStart={{BUN}} {{MAIN}} disk keep
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=50min

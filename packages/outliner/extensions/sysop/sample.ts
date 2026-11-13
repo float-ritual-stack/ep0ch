@@ -12,6 +12,8 @@ export interface Reading {
   diskTotal: number;
   diskFree: number;
   failedUnits: string[];
+  /** The disk keeper is installed here (ep0ch-disk.service, PIE-1787): a disk crossing's command is to run it now. */
+  keeper?: true;
   /** The three processes with the most resident memory, largest first. */
   top: Process[];
 }
@@ -40,6 +42,7 @@ export const SNIPPET = [
   "echo @@cpus; nproc",
   "echo @@disk; df -B1 -P /",
   "echo @@failed; systemctl --user --failed --no-pager --plain --no-legend || exit 1",
+  "echo @@keeper; systemctl --user cat ep0ch-disk.service >/dev/null 2>&1 && echo yes",
   "echo @@top; ps -eo pid,rss,args --sort=-rss --no-headers 2>/dev/null | head -3",
   "echo @@cgroup; for p in $(ps -eo pid --sort=-rss --no-headers 2>/dev/null | head -3); do echo \"$p $(head -1 /proc/$p/cgroup 2>/dev/null)\"; done",
   "fi",
@@ -94,7 +97,7 @@ export function parseReading(output: string): Reading {
     const command = commandFor(cgroups.get(pid) ?? "", containers);
     top.push({ pid, rss, name, ...(command ? { command } : {}) });
   }
-  return { memoryTotal, memoryFree, load, cpus, diskTotal, diskFree, failedUnits, top };
+  return { memoryTotal, memoryFree, load, cpus, diskTotal, diskFree, failedUnits, top, ...(s.keeper?.[0]?.trim() === "yes" ? { keeper: true as const } : {}) };
 }
 
 /**
@@ -164,7 +167,8 @@ export function crossings(r: Reading, t: Thresholds): Crossing[] {
     out.push({ kind: "load", number: `load ${r.load} on ${r.cpus} cpus (over ${t.loadMax})`, ...(top ? { process: top, ...(top.command ? { command: top.command } : {}) } : {}) });
   }
   if (t.diskFreeMin && r.diskFree < atLeast(t.diskFreeMin, r.diskTotal)) {
-    out.push({ kind: "disk", number: `${bytes(r.diskFree)} free of ${bytes(r.diskTotal)} on / (under ${amount(t.diskFreeMin)})` });
+    // Where the disk keeper runs, it decides the disk (it sweeps, names what grew and who reclaims it): Calm runs it now.
+    out.push({ kind: "disk", number: `${bytes(r.diskFree)} free of ${bytes(r.diskTotal)} on / (under ${amount(t.diskFreeMin)})`, ...(r.keeper ? { command: "systemctl --user restart ep0ch-disk.service" } : {}) });
   }
   if (r.failedUnits.length) {
     const unit = r.failedUnits[0]!;

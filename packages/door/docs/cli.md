@@ -281,6 +281,24 @@ ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>
 an outline's newest snapshot (or the newest at or before --at: an ISO time, or 3h,
 2d ago), integrity-checked, written to a new file; never over an outline in use
 
+## disk
+
+```text
+ep0ch disk [status] [--json]   what the disk keeper last saw: each disk's use, its biggest places with who reclaims
+                               each (offload's sweep, install's retention, journald's cap, or nobody: reported), the
+                               last sweep, and what's open
+ep0ch disk keep [--sweep] [--json]
+                               the keeper's run, as ep0ch-disk.timer runs it every 15 minutes (--sweep: sweep
+                               whatever the share, as offload-sweep.timer runs it weekly): df and du, then
+                               offload --sweep --yes when home's disk is past 75%, measured again and recorded;
+                               85% (and again at 95%), a fill within 12 hours at the last hour's rate, or a sweep
+                               that failed is one incident on the backup alert path (scripts/disk/README.md)
+```
+
+The keeper deletes nothing itself: offload removes only what it copied to the storage box and checked. Its lines are
+settings in `~/.config/ep0ch/disk.env`: `EP0CH_DISK_BOX` (the storage box's ssh name; install writes the keeper only
+where one is named), `EP0CH_DISK_SWEEP_AT`, `EP0CH_DISK_ALERT_AT`, `EP0CH_DISK_WORSE_AT`, `EP0CH_DISK_FILL_HOURS`.
+
 ## install
 
 ```text
