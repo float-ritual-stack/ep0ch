@@ -24,6 +24,7 @@ pub mod row;
 mod screen;
 mod script;
 mod shell;
+mod terminal;
 mod tile;
 mod tree;
 mod window;
@@ -110,13 +111,15 @@ pub enum About {
     Tree,
     /// A tile a block is being written in.
     Drafts,
+    /// A terminal tile: one whose kind's drawer takes the keys, and runs a program.
+    Programs,
     /// A note the layout places: about no tile until it lands, unless it names the one it comes from.
     Placed,
 }
 
 impl About {
     /// How a refusal says the sort: "tree is no tile that reads notes".
-    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", About::Drafts => "tile a block is being written in", _ => "tile" } }
+    fn said(self) -> &'static str { match self { About::Notes => "tile that reads notes", About::Lists => "list", About::Tree => "list arranged as a tree", About::Drafts => "tile a block is being written in", About::Programs => "terminal tile", _ => "tile" } }
 }
 
 /// An action: what it says about itself, what runs, and the sort of tile it is about.
@@ -126,7 +129,7 @@ pub struct Action {
     pub about: About,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }

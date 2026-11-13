@@ -3,7 +3,7 @@
   "id": "screens",
   "version": 1,
   "name": "Screens",
-  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions, activity, extensions and outlines tiles they are made of. Fork it to change what a door opens on.",
+  "description": "The screens and tile kinds every door ships: the desk, the navigator, the board, last callers, who's online, the keys and the library, and the outline, reader, query, links, comments, proposals, revisions, activity, extensions, outlines and programs tiles they are made of. Fork it to change what a door opens on.",
   "defaultOn": true,
   "tiles": [
     {
@@ -198,6 +198,18 @@
       },
       "replaces": [
         "outlines"
+      ]
+    },
+    {
+      "kind": "programs",
+      "name": "Programs",
+      "description": "the programs this door runs in its terminal tiles, each with what it reports of itself; a row takes the keys to its program",
+      "drawer": "list",
+      "fields": {
+        "from": "programs"
+      },
+      "replaces": [
+        "programs"
       ]
     }
   ],
@@ -527,6 +539,9 @@
         "edit",
         "comment",
         "tile.tear",
+        "terminal.open",
+        "terminal.open agent=true",
+        "bar.open scope=programs",
         "screen.reset"
       ],
       "layout": {
@@ -544,9 +559,10 @@
               "t": "split",
               "dir": "col",
               "weights": [
-                0.4,
-                0.35,
-                0.25
+                0.34,
+                0.24,
+                0.2,
+                0.22
               ],
               "kids": [
                 {
@@ -569,6 +585,11 @@
                   "t": "leaf",
                   "kind": "outlines",
                   "name": "outlines"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "programs",
+                  "name": "programs"
                 }
               ]
             },

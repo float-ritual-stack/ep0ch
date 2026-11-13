@@ -216,6 +216,21 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
             walk(ask["of"].as_str(), 0, &open, &mut rows, &mut answered);
             Ok(json!({ "from": from, "list": { "type": "list", "arrange": "tree", "rows": rows, "empty": "No notes yet." }, "open": answered, "anyChange": true }))
         }
+        // The asker's own programs, each as it says of itself (the outliner's `list-programs.ts`): a pick is the
+        // jump for one of its own, and what it did not start has none.
+        "programs" => match ask["programs"].as_array() {
+            None => Err(("invalid", "lists.read from=programs lists the asker's own programs: hand them over as programs=[<each program as it says of itself>]".into())),
+            Some(said) => {
+                let rows: Vec<Value> = said.iter().map(|p| {
+                    let (mine, key) = (p["mine"] != false, p["key"].as_str().unwrap_or(""));
+                    let group = if !mine { "Not this window's" } else if p["tile"].is_string() { "In a tile" } else { "Running, in no tile" };
+                    let mut row = json!({ "id": if mine { key.to_string() } else { format!("theirs:{}", p["address"].as_str().unwrap_or("")) }, "label": p["name"], "mark": if p["state"] == "running" && p["status"].is_string() { p["status"].clone() } else { p["state"].clone() }, "group": group });
+                    if mine { row["act"] = json!(format!("terminal.jump key=\"{key}\"")) }
+                    row
+                }).collect();
+                answer(json!({ "type": "list", "arrange": "rows", "rows": rows, "title": format!("Programs · {} running", said.iter().filter(|p| p["mine"] != false && p["state"] == "running").count()), "empty": "No program runs in a terminal here. terminal.open starts a shell beside the note." }))
+            }
+        },
         "search" if words.trim().is_empty() => answer(json!({ "type": "list", "arrange": "rows", "rows": [], "empty": "Type to search." })),
         "search" => answer(json!({ "type": "list", "arrange": "rows", "rows": [note("beans", &format!("found for {words}"), "Plot")] })),
         "query" | "lanes" | "facets" if words == "type!=chore" => Err(("invalid", "There is no != ; put NOT before the clause.".into())),
@@ -585,7 +600,7 @@ pub fn changed(app: &mut App, said: &Said, key: &str, generation: u64) {
 pub fn window(app: App) -> Runtime<App> {
     let mut rt = Runtime::new(app, view, (1180.0, 760.0), Env { system_dark: false, scale: 1.0 });
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
-    rt.poll = Some(|s, _, tx| { let landed = s.take(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
+    rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
     rt.on_key = Some(crate::keys::press);
     // The tiles' area is measured on the first frame, and the tiles sit in it from the next.
     for _ in 0..3 { rt.frame(0.0); }

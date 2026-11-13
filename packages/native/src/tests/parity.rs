@@ -35,9 +35,16 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         // An extension's settings are changed, and it is removed, once it is installed; a form's keys need the form.
         ("extensions.uninstall" | "extensions.configure", _) => vec!["extensions.install id=waiting"],
         ("form.save" | "form.close", _) => vec!["extensions.install id=waiting", "extensions.configure id=waiting"],
+        // A terminal's own actions run on a terminal tile: a shell beside the note, stepped out of where the key
+        // is the one that steps in, ended where it is run again, detached where it is given a tile again.
+        ("tile.enter", _) => vec!["terminal.open", "tile.leave"],
+        ("tile.type" | "terminal.fit", _) => vec!["terminal.open"],
+        ("tile.restart", _) => vec!["terminal.open", "tile.type text=\"exit\\n\""],
+        ("terminal.attach", _) => vec!["terminal.open", "terminal.open agent=true", "terminal.detach tile=agent"],
+        ("terminal.jump", _) => vec!["terminal.open", "terminal.open agent=true"],
         _ => vec![],
     };
-    match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), _ => {} }
+    match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), Some("program") if !lines.contains(&"terminal.open") => lines.push("terminal.open"), _ => {} }
     lines
 }
 
@@ -69,7 +76,8 @@ fn ready(case: &Case) -> Runtime<App> {
     // The outline has a screen of its own, as the examples name it: a list of the beds beside a reader.
     screens_are(&mut g, serde_json::json!([screen_row("garden-work", serde_json::json!({ "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [
         { "t": "leaf", "kind": "screens.query", "role": "query", "name": "beds", "query": "type=chore", "wires": [{ "verb": "select", "to": "reader" }] }, { "t": "leaf", "kind": "screens.reader", "role": "reader", "name": "reader" }] } }), serde_json::json!([]))]));
-    let mut app = g.app;
+    // Its terminal tiles run a made-up shell: a program is the same every run.
+    let mut app = g.app.running_on(Box::new(crate::pty::canned::Canned::read(&serde_json::json!({ "backend": "herdr-core", "keeps": true }))));
     for line in setup(case.action, &case.line, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
     let mut rt = window(app);
     rest(&mut rt);
@@ -113,6 +121,8 @@ fn event(chord: &rune::Chord) -> rune::KeyEvent {
         ChordKey::Down => Key::Down,
         ChordKey::Left => Key::Left,
         ChordKey::Right => Key::Right,
+        ChordKey::PageUp => Key::PageUp,
+        ChordKey::PageDown => Key::PageDown,
         other => panic!("the parity table has no key event for {other:?} yet"),
     };
     rune::KeyEvent { key, mods }
@@ -154,7 +164,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "layout.get", "layout.resize", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.move", "tile.dock", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

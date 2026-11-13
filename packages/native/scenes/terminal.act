@@ -1,0 +1,9 @@
+# A shell and an agent beside a note. Their programs are a made-up shell that plays a script (a headless render
+# has no pty to wait on, and a real program's screen is never the same twice): run it with
+# `--programs scenes/terminal.programs.json` after the second `--`. The note is `parts.seed.ts`'s.
+bar.open scope=search query="Bed plan"
+bar.pick n=1
+terminal.open
+tile.type text="seeds\n" tile=shell
+tile.type text="beds --north" tile=shell
+terminal.open agent=true command="seedbot --plan beds"

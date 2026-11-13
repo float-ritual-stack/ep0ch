@@ -7,8 +7,8 @@
 //! Every change is an act line through one dispatcher (`actions/`), whoever asks: a key (`keys.rs`), a press
 //! (`shell.rs`, a tile's drawer, `bar.rs`), or an agent over the control socket (`control.rs`).
 //! Rune's own flags work as in any Rune app: `--snap out.png`, `--scene edit`, `--script steps.json`, `--tree`;
-//! after `--`, `--act <file>` runs a file of act lines before the first frame, and `--screen <name>` opens on that
-//! screen.
+//! after `--`, `--act <file>` runs a file of act lines before the first frame, `--screen <name>` opens on that
+//! screen, and `--programs <file>` runs its terminal tiles on a scripted host (a scene's made-up shell).
 mod actions;
 mod actline;
 mod bar;
@@ -21,6 +21,7 @@ mod layout;
 mod list;
 mod page;
 mod parts;
+mod pty;
 mod query;
 mod screen;
 mod shell;
@@ -63,6 +64,15 @@ fn init() -> App {
         }
         Err(why) => App::new(Box::new(Nowhere(Some(why))), ""),
     };
+    // What runs the programs of its terminal tiles: the terminal this build has (none, built without the `pty`
+    // feature), or a scripted host a scene names (`--programs <file>`: a headless render has no pty to wait on).
+    let app = match flag("--programs").map(|file| std::fs::read_to_string(&file).map_err(|e| e.to_string()).and_then(|script| serde_json::from_str::<serde_json::Value>(&script).map_err(|e| e.to_string())).map_err(|why| format!("{file}: {why}"))) {
+        Some(Ok(script)) => app.running_on(Box::new(pty::canned::Canned::read(&script))),
+        Some(Err(why)) => { eprintln!("ep0ch-native: can't read the programs' script {why}"); app }
+        // A headless render with no script runs nothing: a real program's screen would never be the same twice.
+        None if headless => app,
+        None => { let wake = app.store().waker(); app.running_on(pty::host(wake)) }
+    };
     // The screen it opens on is asked of the service's list, when that has come: a headless render waits for it.
     let mut app = app.blocking(headless).opening_on(flag("--screen"));
     app.start();
@@ -94,7 +104,9 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     let landed = s.take();
     // The drafts held are renewed on the service, and it is told when the keys go quiet: asked again when due.
     if let Some(due) = s.beat() { tx.wake_after(due) }
-    let moved = keys::effects(s, tx) | keys::follow(s, tx);
+    // A program in a terminal tile has something new to show (its screen lands at once: the drawer's own grid says so).
+    let ran = s.ran();
+    let moved = keys::effects(s, tx) | keys::follow(s, tx) | ran;
     // A window an act asked for (a tile torn out) is opened, over the state the act made for it.
     for born in s.born() { shell::open(born, made(nobody)) }
     // A lost link is made again, now and every two seconds until the host answers.

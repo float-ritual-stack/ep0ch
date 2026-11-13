@@ -30,6 +30,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![The kitchen screen, with the bar on the extensions and a name typed: open its page, its settings, install, remove, dark](docs/extensions-dark.png)
 ![An extension's own screen, its tile drawn from what its script answered, and the form its settings schema makes, dark](docs/settings-dark.png)
 ![A tile torn out into a second window over the same store, dark](docs/window-dark.png)
+![A shell and an agent beside a note: rows on the column grid across wide characters and coloured grounds, each tile saying what keeps its program and what it reports of itself, dark](docs/terminal-dark.png)
 
 ## Run it
 
@@ -83,6 +84,11 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Open a second window | `tile.tear` (`mod+shift+t`, the kitchen's Tear out): the tile leaves this window for one of its own, on the same outline, showing what it showed. Both windows read one store: a note both show is read once, and a link's 64 watches are shared. A window may switch outline by itself; `window.close` closes it |
 | Find | The bar, with words: the service's search, under the actions that match |
 | Query | The bar on a query: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note, or a row of its properties, opens the query for it |
+| Run a shell beside a note | `terminal.open` (`mod+j`, the kitchen's Shell): a terminal tile on the reader's right, your login shell in it, and your keys in the shell. Every key is the program's until `ctrl+]` (`tile.leave`); the same key steps back in (`tile.enter`, or a press on its screen). The tile says, over its screen, what keeps the program and whether that outlives the window, before you rely on it. Needs a window [built with its terminal](#the-terminal): one built without says so on the tile |
+| Run an agent beside it | `terminal.open agent=true` (`mod+shift+j`, the kitchen's Agent): the first terminal kind whose row starts with a command of its own (the [terminal extension](../outliner/extensions/terminal)'s Agent: fork it to change the command), under the shell that is there. `command=` types another line, `cwd=` starts it in a folder. What the agent reports of itself (working, blocked, done) is on its tile and its row of the list, as herdr-core passes it on |
+| Detach, and come back | `terminal.detach` (`ctrl+backslash` in a program, the tile's Detach): the tile closes and the program runs on. On herdr-core (and tmux) it outlives the window: the next launch's tile attaches to the same program, with its screen as it was and nothing typed into it. On a plain pty it runs until the window ends, and the tile and the notice said so. `tile.close` ends a program with its tile, and asks nothing |
+| Jump between agents | The bar's Programs (`bar.open scope=programs`, the kitchen's Programs and its tile): the programs this window runs, in a tile or not, each with what it reports of itself; a row takes the keys to its program (`terminal.jump key=`), in a tile beside the note when it has none. What herdr-core runs that this window never started is listed after them in the tile, and is never ended, typed into or attached from here |
+| Scroll, paste and copy in a terminal | `shift+pageup` and `shift+pagedown` or the wheel move through what scrolled off (`terminal.scroll`); `mod+shift+v` pastes the clipboard as a paste (`terminal.paste`); words are selected with the mouse, as in a note, and copied with ⌘C on a Mac (elsewhere step out with `ctrl+]` first: Ctrl+C in a program is the program's) |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
 
 **The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
@@ -122,6 +128,14 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
+| `mod+j` | `terminal.open` | everywhere | a shell beside the note |
+| `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
+| `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |
+| `ctrl+]` | `tile.leave` | program | back to the window's own keys |
+| `ctrl+backslash` | `terminal.detach` | program | detach: close the tile, the program runs on |
+| `shift+pageup` | `terminal.scroll lines=-12` | program | up through what scrolled off |
+| `shift+pagedown` | `terminal.scroll lines=12` | program | back down |
+| `mod+shift+v` | `terminal.paste` | program | paste the clipboard into the program |
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
@@ -156,7 +170,10 @@ for a tile that holds an edit). Only Discard, by name, drops words.
 ```text
 src/ (Rust, Rune)                                      the outline host
   shell.rs, bar.rs  draw any layout; a press, a drag, a drop runs an act line
-  tiles/            a drawer an answer shape: page (a note), list (one list, whatever it is of)
+  tiles/            a drawer an answer shape: page (a note), list (one list, whatever it is of),
+                    view (what an extension's script draws), pty (a program's screen)
+  pty.rs, pty/      programs in terminal tiles, with no renderer's type: the grid, the run's registry, and
+                    what runs them (the terminal's crates behind the `pty` feature; a scripted host for scenes)
   tiles/prim.rs     PRIMS: one builder a primitive type; the page drawer walks parts through it
   tiles/diff.rs     a change to a text, drawn from the lines the service found
   keys.rs           chord -> act line, by where the person is
@@ -202,8 +219,8 @@ src/ (Rust, Rune)                                      the outline host
   `src/tests/contract.rs` asks every row of `layout-contract.json` and `place-contract.json` here. Only an action
   issues an `Op`, and only `open` asks `place`.
 - **A tile is a kind and a drawer** (`tiles/`). A kind's row is the service's (`screens.list`'s `kinds`, an
-  extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are three
-  drawers, `page`, `list` and `view` (what an extension's script draws for a tile); a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
+  extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are four
+  drawers, `page`, `list`, `view` (what an extension's script draws for a tile) and `pty` (a program's screen: [the terminal](#the-terminal)); a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
   state) and speaks only by act lines (`cx.act`). The window keeps no catalogue of kinds and names
   none: a kind is found by the name a tile carries, or the name the service says its row serves (`serves`), and
   one with no drawer here is drawn as its spec. The
@@ -360,6 +377,53 @@ src/ (Rust, Rune)                                      the outline host
 - **`PROTOCOL` is the checkout's**: `build.rs` reads it from outline-core's `protocol.ts`, and a host on another
   number is refused with the side to update, as every client does.
 
+## The terminal
+
+A terminal tile is a kind whose row names the `pty` drawer: the [terminal extension](../outliner/extensions/terminal)'s
+Shell and Agent, and any extension's tile that runs a program (`run`), which the service serves bound to that
+drawer with the line that starts it. The window has no code for any one program.
+
+```sh
+cargo build --release --features pty      # with the terminal
+cargo build --release                     # without: what the window was, and no new crate
+```
+
+The feature is off by default. With it, the pty and the emulator are [Moonframe](https://github.com/moonframehq/moonframe)'s
+(`moonframe-terminal` with its `alacritty` emulator, in Rust, and `moonframe-mux`; MIT, pinned to one rev in
+`Cargo.toml`), and through its mux herdr-gpui's client of herdr-core. Never Moonframe's `ghostty` feature: that
+builds Ghostty's source with Zig. Without the feature a terminal tile says the terminal is not built in, with the
+kind's own words under it (they say the command above).
+
+The mux picks what runs a program by what the machine has, and the tile says which:
+
+| Backend | When | What it keeps alive |
+|---|---|---|
+| **herdr-core** (`hc`) | `hc` is installed (a core that isn't running is started, as Moonframe's backend does) | The program outlives the window. The next launch's tile attaches to it, and so does `terminal.attach`. It is one of the core's own terminals, named `ep0ch-native.<outline>-<n>` for `hc ls`, and `hc attach` reaches it from any other terminal. What it reports of itself (OSC 7501: idle, working, done, blocked, error) is read from the core's list, never guessed from its screen |
+| **tmux** | no `hc`, and `tmux` is installed | The same, on a tmux server of the window's own (`tmux -L ep0ch-native`, without your `tmux.conf`). It comes with the mux as its second choice. Run where the machine has tmux: `pty_live.rs` on a server of the test's own, and a live window under Xvfb over two launches (a shell and an agent, the agent detached, both found by the next launch) |
+| **pty** | neither | Nothing: the login shell on a pseudo-terminal that ends with the window. A tile detached runs until the window ends |
+
+- **herdr-core is the one it is built for.** A terminal is started by the window itself (`src/pty/hc.rs`) as
+  nobody's child, to outlive what started it, at its tile's size, as the manual `hc --skill` prints says an API
+  client should; Moonframe's backend then finds it by its labels and attaches. A program found still running is
+  attached to and nothing is typed into it.
+- **Only this window's are touched.** `hc ls` lists every live terminal, your other work among them. The window's
+  list shows which are its own (the ones it started, by their labels) and lists the rest after them with no
+  pick; it ends only a terminal its own labels name, and only when you close its tile.
+- **A program is the run's, not a tile's** (`pty::Programs`, in the store's hub): a tile torn into a second window
+  keeps its program, and a tile names its program by a key kept with the arrangement.
+- **Not built:** the door and this window don't share a program (the door's terminal host has one client, PROBES
+  §8; `HOST_PROTOCOL` is untouched): a terminal herdr-core keeps is reached from the door by `hc attach` in one of
+  the door's own terminal tiles, as from anywhere. A terminal this window did not start is listed and gets no
+  tile here. A line struck through is drawn plain, the cursor is a block, the mouse is the window's (a program
+  that asks for the mouse gets no clicks), and nothing rings. `herdr-app`, which arranges windows, is not used.
+- **What keeps a program is asked off the frame.** The window asks herdr-core, or its tmux server, what it keeps
+  when anything first reads the list (so a window that returns with no terminal tile lists what the launch
+  before left), when a terminal is opened or ended, and every two seconds on a thread of the host's own. A tile
+  and the list read what it last said: tmux's answer is a process, which a frame never starts.
+- **herdr-core itself was not run in this repository's tests.** `src/tests/pty_live.rs` runs a real plain pty, and
+  speaks herdr-core's protocol to a stand-in core written from herdr-gpui's client's source. On a machine with
+  `hc`: `hc --skill`, then `cargo run --features pty -- -- --ws <a scratch outline>` and `hc ls`.
+
 ## An agent in it
 
 The window serves a control socket that speaks the door's control protocol (`control.rs`; the door's
@@ -408,6 +472,14 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
   the rows the store holds now, whether that is an answer yet, and the `lists.read` request that lists them, so
   an agent asks the service the same thing the bar does. `list.pick`, `list.sort`, `list.group`, `list.layout`
   and `facets.set` take a list tile by name, and `peek` gives each list's rows with their act lines.
+- **An agent runs programs by the same lines, and never types where the person types.** `terminal.open` (with
+  `command=`, `name=`) gives it a terminal beside the note without the person's keys, never by splitting the
+  terminal they type in; `tile.type text="…\n"` sends a program keys (`\n` is Return, `\e` Escape), and is held
+  back with why for the tile the person is typing in. `peek` gives each terminal's lines, cursor, backend, what
+  it reports of itself and whether the person's keys are in it (`whereabouts.takesKeys`). `tile.enter`,
+  `tile.leave`, `terminal.jump` and `terminal.paste` are the person's (their keys, their clipboard) and say so
+  on their rows; `terminal.attach key=` gives a program a tile without their keys. An agent doesn't end a program
+  that runs (`tile.close` on its tile is the layout's refusal, as in the door); `terminal.detach` ends nothing.
 - **A request is for one window.** `window=<name>` among an act's words (or `window` in the request) says which:
   `ep0ch act --door native open id=… window=reader`. Left out, it is the run's first (`main`); `peek` says the
   window's name and every window there is, and a name none has is refused with the ones there are.
@@ -418,6 +490,7 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
 
 ```sh
 cargo test                          # the window over a stand-in link that answers by wire action
+cargo test --features pty           # the same, and the terminal's crates: a real pty, herdr-core by a stand-in
 cargo test -- --ignored live        # the same window against a scratch outline host it starts (needs bun)
 bun run check                       # resolve.ts, and scripts/native-forkable
 ```
@@ -472,6 +545,25 @@ with only a comment, only a proposed edit and both under them drawn with no mark
 unfolded onto it, and the window's reader empty until a note is opened). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
 
+`src/tests/terminal.rs` is W8's over a scripted host (`src/pty/canned.rs`: a made-up shell that plays a script, so
+a row is the same every run): a row cut where a wide character sits, each piece on its column and a ground as a
+rect; keys into the program and its rows back, the window's own chords the program's until `ctrl+]`, and the
+window's again after; a size, the scrollback and a paste; an agent detached, listed with no tile and jumped back
+to by its row; the next launch attaching to what herdr-core kept and starting over on a plain pty; a close ending
+a program and nothing it did not start; a tile torn into a second window with its program; an agent's `tile.type`
+held back while the person types there, its own terminal opened without their keys; and a window with no terminal
+saying so in the kind's own words. `src/tests/pty_live.rs` (`--features pty`) is the terminal's crates
+themselves: the login shell on a real pty runs a made-up script (it prints lines, one coloured with a wide
+character, reads a key and exits), with keys typed in the window and rows read from the emulator; and "a shell and
+an agent, detached and found by the next launch" as two launches of the window (this test binary again, twice)
+against a stand-in herdr-core in a scratch folder (and two more that leave no terminal tile behind: the window
+that returns opens no terminal and lists what the core kept all the same), which records what it was asked: each terminal started once,
+to outlive its starter at its tile's size, attached to and never typed into again, and only the one whose tile was
+closed ended. `hc` itself is not run. `cargo test -- --ignored live_the_programs` holds the list to a real
+service: the rows it writes are what runs, and a row's pick is the jump.
+`cargo test --release measure_a_terminal_s_frame -- --ignored --nocapture` prints what a terminal's frame costs
+(PROBES.md §7).
+
 `src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
 its form (a value refused keeps the form) and removed; a switch of outline and back to a block as it was being
 written (a name nobody has refused, nothing made); a tile torn into a second window drawn headless, two links in
@@ -513,6 +605,7 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
 outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
+`terminal` (a shell and an agent beside `parts.seed.ts`'s note, their programs a made-up shell: run it with `--programs scenes/terminal.programs.json` after the second `--`, the script a scripted host plays, since a headless render has no pty to wait on),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
 `ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
@@ -536,15 +629,15 @@ a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<g
 block being written `tile/reader/source` (its field), `tile/reader/save`, `tile/reader/done` or `tile/reader/discard`,
 `tile/reader/told` (who changed it), `tile/reader/held`, `tile/reader/on` (what a comment or a reply is on) and `tile/reader/complete-option-<n>` (a row of the list at the caret); in a
 list whose rows hold more than a line `tile/<name>/row/<id>/head` (the row's own line), `tile/<name>/row/<id>/press/<n>` (a press of its own) and
-`tile/<name>/row/<id>/view` (what it shows under itself: a change's lines are `…/view/line/<n>`), a
+`tile/<name>/row/<id>/view` (what it shows under itself: a change's lines are `…/view/line/<n>`), in a terminal `tile/<name>/screen` (its screen), `tile/<name>/row/<n>` (a row; its pieces `…/at/<column>`, its grounds `…/ground/<column>`, the cursor `…/cursor`), `tile/<name>/kept` (what keeps its program), `tile/<name>/report` (what it reports of itself) and `tile/<name>/do/<act line>` (its buttons); a
 toolbar button is
 `tool/<its act line>`, a border `grip/<split id>/<n>`, and the bar's are `bar/field`, `bar/row/<source>/<key>`,
 `bar/facet/<key>/<value>`.
 
 ## Not here yet
 
-- Tiles: three drawers (`page`, `list`, `view`); no terminal tile, and a kind an extension runs a program for
-  is drawn as its spec. Folding a tile to a spine, zooming and floating one have no action here yet, though a
+- Tiles: four drawers (`page`, `list`, `view`, `pty`). The terminal is behind the `pty` feature, and what it
+  leaves out is under [The terminal](#the-terminal). Folding a tile to a spine, zooming and floating one have no action here yet, though a
   screen that holds them is laid out and drawn.
 - Lists are pressed, not walked: no cursor row moved by keys in a list tile, no `/` filter over its rows, no
   preview beside the picked row. Lanes share their tile's width (they don't scroll sideways), a card isn't dragged
@@ -602,8 +695,8 @@ toolbar button is
   there only by the name left on the toolbar (or `machine=""`); a machine that doesn't answer is listed from the
   copies kept here and can't be switched to. A new outline isn't made from the window (`ep0ch outline create`).
 - Extensions: an extension's own bar source isn't listed in this bar (its rows carry no act line yet), its
-  secrets are said in the form and set elsewhere, a schema that isn't an object of named fields has no form, and
-  a kind that runs a program is still drawn as its spec.
+  secrets are said in the form and set elsewhere, and a schema that isn't an object of named fields has no form.
+  A kind that runs a program is a terminal tile, in a window built with its terminal.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
 - Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);

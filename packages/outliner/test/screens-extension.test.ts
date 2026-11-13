@@ -100,10 +100,19 @@ test("installed as a person does, a door reads its kinds from extensions.list an
   expect((await list("screens", { kinds: [], drawers: DRAWERS })).list.rows.map(r => [r.id, r.act])).toEqual(all.screens.map(s => [s.name, `screen.open name="${s.name}"`]));
   // What the service answers here is written down for a client's own tests to stand a host in with (the native
   // window's): EP0CH_WRITE_FIXTURES=1 writes it, and it is never edited by hand.
+  // (With the terminal extension on too, as it is wherever the service runs: its kinds are rows a terminal drawer
+  // draws, and no shipped screen is made of them, so the screens read the same with it and without.)
+  await client.request({ action: "extensions.install", extension: "terminal", where: "outline" } as never);
+  await extensions();
+  const both = await screens();
+  expect(both.screens).toEqual(all.screens);
+  expect(both.kinds.filter(k => k.extension !== "screens").map(k => [k.kind, k.drawer])).toEqual([["terminal.shell", "pty"], ["terminal.agent", "pty"]]);
   const fixture = join(import.meta.dir, "..", "..", "outline-core", "fixtures", "served-screens.json");
-  const answered = JSON.stringify({ screens: all.screens, kinds: all.kinds, sources: (await list("sources")).sources }, null, 2) + "\n";
+  const answered = JSON.stringify({ screens: both.screens, kinds: both.kinds, sources: (await list("sources")).sources }, null, 2) + "\n";
   if (process.env.EP0CH_WRITE_FIXTURES === "1") writeFileSync(fixture, answered);
   expect(existsSync(fixture) ? readFileSync(fixture, "utf8") : "", "outline-core/fixtures/served-screens.json is stale: EP0CH_WRITE_FIXTURES=1 bun test test/screens-extension.test.ts").toBe(answered);
+  await client.request({ action: "extensions.uninstall", extension: "terminal", demo: "keep" } as never);
+  await extensions();
   // A screen opened on a target carries it in the tile its spec says.
   const navigator = targetFilled(all.screens.find(s => s.name === "navigator")!.spec!, { query: "type=bed" });
   expect(savedNodes(navigator.layout.root).find(n => n.t === "leaf" && n.name === "facets")).toMatchObject({ query: "type=bed" });

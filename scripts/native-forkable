@@ -15,8 +15,14 @@ const src = join(root, "packages/native/src");
 const manifest = JSON.parse(readFileSync(join(root, "packages/outliner/extensions/screens/extension.json"), "utf8")) as {
   id: string; screens: { name: string }[]; tiles: { kind: string; drawer?: string; replaces?: string[] }[];
 };
+// The terminal's kinds are another extension's rows (packages/outliner/extensions/terminal): the window names none of
+// them either, by the name they are served under, nor the program a row says its kind runs (the agent's command).
+const terminal = JSON.parse(readFileSync(join(root, "packages/outliner/extensions/terminal/extension.json"), "utf8")) as {
+  id: string; tiles: { kind: string; drawer?: string; replaces?: string[]; fields?: Record<string, unknown> }[];
+};
+const programs = new Set(terminal.tiles.flatMap(t => typeof t.fields?.command === "string" ? [t.fields.command] : []));
 const screens = manifest.screens.map(s => s.name);
-const kinds = [...new Set(manifest.tiles.flatMap(t => [t.kind, `${manifest.id}.${t.kind}`, ...(t.replaces ?? [])]))];
+const kinds = [...new Set([...manifest.tiles.flatMap(t => [t.kind, `${manifest.id}.${t.kind}`, ...(t.replaces ?? [])]), ...terminal.tiles.flatMap(t => [`${terminal.id}.${t.kind}`, ...(t.replaces ?? [])])])];
 const shipped = new Set([...screens, ...kinds]);
 
 /** A shipped name that is also another thing's own word, where it is that: `file` under src/, the quoted word, and why. */
@@ -27,6 +33,8 @@ const ALLOWED: { file: string; word: string; why: string }[] = [
   { file: "actions/bar.rs", word: "query", why: "the list source a question is typed on (`lists.read from=query`), named by the bar's own key row" },
   { file: "actions/bar.rs", word: "extensions", why: "the list source the bar's own menu row opens on (`lists.read from=extensions`)" },
   { file: "actions/bar.rs", word: "outlines", why: "the list source the bar's own menu row opens on (`lists.read from=outlines`)" },
+  { file: "actions/bar.rs", word: "programs", why: "the list source the bar's own menu row opens on (`lists.read from=programs`)" },
+  { file: "actions/app.rs", word: "programs", why: "the list request's parameter for the asker's own programs (`ListsRequest.programs`)" },
   { file: "actions/outline.rs", word: "outlines", why: "the answer's own field: the outlines `outlines.known` lists" },
   { file: "bar.rs", word: "query", why: "the list request's parameter for its words (`ListsRequest.query`), which the bar's line fills" },
   { file: "tiles/prim.rs", word: "query", why: "a part's own field: the question its component asks (`PagePart.query`), and the element that shows it" },
@@ -56,6 +64,8 @@ for (const file of files) {
       // (A quoted word before a colon is a key of a JSON object being written, which names no kind.)
       const key = /^\s*:(?!:)/.test(line.slice(m.index! + m[0].length));
       if (shipped.has(text) && !key) hits.add(text);
+      // The program a terminal kind runs is its row's field: a tile reads it, and the window spells none.
+      for (const program of programs) if (new RegExp(`(^|[^\\w.-])${program.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w.-])`).test(text)) found.push(`packages/native/src/${rel}:${n + 1}: names the program a terminal kind runs (${program}): it is the kind's own row to say: ${line.trim().slice(0, 140)}`);
       for (const arg of text.matchAll(/\b(?:name|kind)=([A-Za-z][\w.-]*)/g)) if (shipped.has(arg[1]!)) hits.add(arg[1]!);
     }
     for (const word of hits) {
@@ -69,9 +79,10 @@ for (const file of files) {
 if (existsSync(join(root, "packages/native/screens"))) found.push("packages/native/screens: a folder of screens the window ships; they are the screens extension's");
 for (const file of files) if (/include_str!\([^)]*screens\//.test(readFileSync(file, "utf8"))) found.push(`packages/native/src/${relative(src, file)}: a screen compiled in`);
 const drawers = new Set([...readFileSync(join(src, "tiles/mod.rs"), "utf8").matchAll(/&(\w+)::DRAWER/g)].map(m => m[1]!));
+for (const tile of terminal.tiles) if (tile.drawer && !drawers.has(tile.drawer)) found.push(`packages/outliner/extensions/terminal/extension.json: the kind ${tile.kind} names the drawer ${tile.drawer}, which the window hasn't (${[...drawers].join(", ")})`);
 for (const tile of manifest.tiles) if (tile.drawer && !drawers.has(tile.drawer)) found.push(`packages/outliner/extensions/screens/extension.json: the kind ${tile.kind} names the drawer ${tile.drawer}, which the window hasn't (${[...drawers].join(", ")})`);
 // An allowance nothing uses any more is taken out, so the list stays what is true.
 for (const a of ALLOWED) if (!used.has(`${a.file}\0${a.word}`)) found.push(`scripts/native-forkable: the allowance for "${a.word}" in ${a.file} matches nothing now: take it out`);
 
 if (found.length) { console.error(`native-forkable: ${found.length} thing(s) to fix\n${found.join("\n")}`); process.exit(1); }
-console.log(`native-forkable: packages/native/src names none of ${screens.length} shipped screens and ${manifest.tiles.length} kinds (${files.length} files; ${ALLOWED.length} words allowed where they are something else's: --why)`);
+console.log(`native-forkable: packages/native/src names none of ${screens.length} shipped screens, ${manifest.tiles.length + terminal.tiles.length} kinds and ${programs.size} program(s) a kind runs (${files.length} files; ${ALLOWED.length} words allowed where they are something else's: --why)`);

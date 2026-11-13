@@ -14,9 +14,9 @@ down for native to be tested against, are [below](#the-contract-tables).
 | 4 | Can a live window return its element tree and a PNG, and run an act line from another thread? | **Yes while it draws. No while it is hidden:** then acts and state answer, the tree and the picture do not. Covered and minimised were not run. | `tests/live_window.rs`, `src/bin/probe-live.rs` | §5 Control: `peek`'s facts come from state; its tree and `snap` need a drawn frame ([4](#4-the-live-window)). |
 | 5 | Can N dynamic tiles be drawn from a `HashMap<TileId, TileUi>` without the kit's `fn(&mut S)` accessors, keys namespaced `tile/<name>/…`? | **Yes.** Fields, buttons and a `TabStrip`'s handlers take a tile id. `SplitView` panes, kit `Tree`, `Table` and a strip's drag state do not. | `tests/tiles.rs`, 5 tests; `src/accessors.rs`, 7 doctests | §7 "Typed handlers" stands. One addition: one `TabDragState` for the window ([5](#5-tiles-from-a-map)). |
 | 6 | Does a per-tile `memo(tile.id, version)` skip an unchanged tile's view? | **Yes: zero draws.** It takes about a millisecond off a 4 to 5 ms frame; the rest is Rune's own work per mounted element. | `tests/memo.rs`, 8 tests | §5 Frame cost stands. The version is everything the drawer reads ([6](#6-the-per-tile-memo)). |
-| 7 | Terminal: what does a grid cost per frame, and do wide cells stay on the column grid? | **0.4 to 3.8 ms a frame** as text rows. **One text per row drifts; rows cut at wide cells do not.** | `tests/terminal.rs`, 9 tests | W8: the `pty` drawer draws rows cut at wide cells. No `Pixels` image ([7](#7-the-terminal)). |
-| 8 | What does the door's pty host protocol give a second client? | **Nothing: there is no second client.** A second hello takes the host and the first daemon is let go. | read: `door/src/session/pty-host.ts` | §7 "Pty hosts" and W8 gain a host protocol change, or native keeps a host of its own ([8](#8-the-doors-pty-host)). |
-| 9 | Does libghostty-vt have a usable Rust binding? | **Yes, on crates.io:** `libghostty-vt` 0.2.2. It builds Ghostty's source with Zig. Not built here. | `cargo search`, `cargo info`; the crate's source read | W8's feature names it; a machine that builds the feature needs Zig, or a library built elsewhere ([9](#9-libghostty-vt)). |
+| 7 | Terminal: what does a grid cost per frame, and do wide cells stay on the column grid? | **0.4 to 3.8 ms a frame** as text rows. **One text per row drifts; rows cut at wide cells do not.** | `tests/terminal.rs`, 9 tests | W8: the `pty` drawer draws rows cut at wide cells. No `Pixels` image ([7](#7-the-terminal)). As built: 1.5 to 2.3 ms a frame for the whole window. |
+| 8 | What does the door's pty host protocol give a second client? | **Nothing: there is no second client.** A second hello takes the host and the first daemon is let go. | read: `door/src/session/pty-host.ts` | §7 "Pty hosts" and W8 gain a host protocol change, or native keeps a host of its own ([8](#8-the-doors-pty-host)). As built: neither. W8's programs are herdr-core's, which has viewers ([15](#15-herdr-core-w8)). |
+| 9 | Does libghostty-vt have a usable Rust binding? | **Yes, on crates.io:** `libghostty-vt` 0.2.2. It builds Ghostty's source with Zig. Not built here. | `cargo search`, `cargo info`; the crate's source read | W8's feature names it; a machine that builds the feature needs Zig, or a library built elsewhere ([9](#9-libghostty-vt)). As built: not used. W8's emulator is alacritty's, in Rust, through Moonframe. |
 | 10 | What shape does `drafts.answer` have today? | **`{requestId, clientId, answer}` or `error`.** A read answers the holder's text. A patch is placed by the holder, which answers `applied`, never ranges. | read: `outliner/src/draft-patch.ts`, `server.ts`, `door/src/socket.ts` | §3 `draft.patch` for a native holder is a new ask kind beside today's three ([10](#10-draftsanswer)). |
 | 11 | Does `replaces` give an extension kind a bare name? | **Yes, for a name no live kind has.** The old name opens the kind that replaces it, and the tile saves under the full name. | read: `door/src/desk/tile-kinds.ts`, `outliner/src/extension-manifest.ts` | §2 Kinds stands if the door's literal goes first. Saved screens name `<extension>.<kind>` ([11](#11-replaces)). |
 
@@ -24,7 +24,8 @@ Three more things turned up, two of them bugs in the spike. They are reported an
 ([Found on the way](#found-on-the-way)). W5 added one more answer, from building on it: how Rune's text editing
 carried a block editor ([12](#12-the-block-editor-w5)). W7 answered the one about several windows the same way
 ([13](#13-several-windows-w7)). W6 added what a selection in drawn text gives a window, and what a list inside a
-list's row does ([14](#14-selections-and-what-else-w6-met)).
+list's row does ([14](#14-selections-and-what-else-w6-met)). W8 added what herdr-core gives a terminal tile, read
+and spoken to a stand-in but never run ([15](#15-herdr-core-w8)).
 
 ## How to run
 
@@ -260,6 +261,37 @@ Do wide cells stay on the column grid? A mark was put at column 20 after twenty 
 **DESIGN.md W8:** `tiles/pty.rs` draws rows cut at wide cells, each in `memo(row, cells)`, backgrounds as rects,
 commits instant. No `Pixels` path. "Redraw cost recorded" is this table; W8 records it again on the laptop's GPU.
 
+**As built (W8).** `tiles/pty.rs` is the split way: `pty::cut` cuts a row where a wide character sits, a piece is
+a box as wide as its cells, a ground is a rect behind them, a row is a memo over its own cells and the cursor, and
+the grid lands at once (`El::instant_changes` on the grid, so the window's other motion keeps its own).
+
+- **The face is the platform's monospace** (`Family::SystemMono`: fontconfig's `monospace` here). The kit's mono
+  slot is the sans face until an app names one ([Found on the way](#found-on-the-way)), and a row set in a
+  proportional face stays on its columns only at the cuts: the first picture of the scene showed a ground two
+  columns off its words.
+- **A cell is measured, not assumed:** the face's advance over two hundred characters (`rune::text::measure`),
+  once a size.
+
+What a frame of the whole window costs with a terminal tile in it (the garden's tree, reader and lists beside it),
+CPU milliseconds in `Runtime::frame`, median of forty, release build, the same four cores and no GPU:
+
+| Grid | Scroll (every row changes) | Prompt (one row changes) | Nothing new | Row elements | All elements |
+|---|---|---|---|---|---|
+| 80 by 24 | 1.49 | 1.69 | 0.57 | 118 | 475 |
+| 200 by 60 | 2.30 | 2.17 | 1.10 | 298 | 763 |
+
+`cargo test --release measure_a_terminal_s_frame -- --ignored --nocapture` (`src/tests/terminal.rs`). A debug
+build took 6 to 9 ms for the same.
+
+- **It is inside the probe's bound** (1.2 ms and 3.1 ms for the grid alone, split): the window's frame with a
+  full terminal scrolling is 1.5 to 2.3 ms.
+- **A prompt costs what a scroll costs here.** The row memo saves building a row, and that is not where this
+  frame goes: the grid is copied out of the run's registry and every row hashed each time the tile is drawn, and
+  the tile's own memo is versioned by the program's change count, so its strip and its rows' boxes are laid out
+  again. Not profiled further: both are under a quarter of a 60 Hz frame.
+- **Not measured:** a real GPU, a program that prints faster than frames are drawn (the emulator's thread drains
+  what waits and publishes one screen), and input latency through a real pty.
+
 ## 8. The door's pty host
 
 **The protocol has one client by design: the daemon. A second hello takes the host from the first.**
@@ -292,6 +324,10 @@ opencode's process daemon (`packages/process-daemon/SPEC.md`, protocol 8) is the
 - **One controller, any number of observers.** Promotion, resize and input are one ordered command; every resize
   publishes a VT checkpoint before the next output.
 - **The daemon parses with libghostty** and serves `snapshot` and `read_rows`, so a late client needs no replay.
+
+**As built (W8):** native starts no host of that protocol and `HOST_PROTOCOL` is untouched. Its programs are kept
+by herdr-core, which is built for more than one viewer ([15](#15-herdr-core-w8)). The door and native still share
+no program through the door's host.
 
 **DESIGN.md §7 "Pty hosts: one, the door's pty host protocol":** true for native alone, false for sharing.
 
@@ -326,6 +362,10 @@ opencode's process daemon (`packages/process-daemon/SPEC.md`, protocol 8) is the
 
 **DESIGN.md W8:** the `pty` cargo feature depends on `libghostty-vt`. A machine that builds the feature needs Zig, or
 one of the two ways above once W8 has tried it; without the feature nothing changes.
+
+**As built (W8):** the feature does not depend on it. The emulator is `alacritty_terminal`, in Rust, through
+Moonframe's `moonframe-terminal` taken with `default-features = false, features = ["alacritty"]`; its `ghostty`
+feature (which is this crate, and Zig) is never turned on, on any machine. No Zig was installed or needed.
 
 ## 10. `drafts.answer`
 
@@ -552,6 +592,92 @@ them as written; what differs is small and in one function (`keys::chord_named`,
 (Rune reads a chord's letters in either case), and the two pages are `pageup` and `pagedown`. A modifier alone and
 Hyper have no chord. `core-contract.json`'s `keyNames` lists every name there is, and a cargo test reads each.
 
+## 15. herdr-core (W8)
+
+**W8's programs are herdr-core's terminals. Its protocol was read and spoken to a stand-in; `hc` itself was never
+run here.**
+
+What was done, and how each ended:
+
+| Command | Exit | What it showed |
+|---|---|---|
+| `which hc herdr herdr-core herdr-app` | 1 | none is installed in this container |
+| `git ls-remote https://github.com/penso/herdr-gpui HEAD` | 0 | the client's repository is reachable; cloned at Moonframe's pin (`7947567`) to read |
+| `curl https://releases.herdr.dev/core/latest.json` | 0 | herdr-core 0.1.21, protocol generation 1 |
+| `curl …/core/0.1.21/herdr-core-linux-x86_64.tar.gz`, `sha256sum` | 0 | the release, its checksum the manifest's |
+| `hc --version`, `hc --help` (the downloaded binary, on scratch `HC_SESSION` and XDG paths) | not run | refused by this session's permission check on running downloaded code. Nothing else tried to run it |
+| `strings` over the binary | 0 | the text of its own `--help` and API schema (`rpc.discover`), read as text |
+| `cargo tree --features pty` | 0 | `moonframe-mux` with `herdr-core` resolves and builds: `sheprd-core-client` and what it needs, no Zig |
+| `cargo test --features pty` | 0 | the stand-in's test, a real pty's, and the rest |
+
+Sources, in the order they were trusted: the manual `hc --skill` prints on Evan's machine (given to this wave, not
+copied here); herdr-gpui's client (`crates/sheprd-core-client`, the crate Moonframe's mux brings); the binary's own
+embedded help and schema text; Moonframe's `crates/moonframe-mux/src/herdr_core.rs`.
+
+What herdr-core gives a terminal tile:
+
+- **A terminal outlives who views it.** A program runs in the core; a viewer attaches and detaches
+  (`terminal.attach`, a stream channel: a first paint of the screen with history, then live bytes; keys, a size
+  and a close go back on it). `hc attach <t>` is the same from a terminal, Ctrl+\ detaching.
+- **More than one viewer.** `terminal.attach` takes `observe` ("watch only: never type or resize"), and the
+  schema says later viewers resize a terminal normally. So a terminal this window starts can be attached to from
+  anywhere else that reaches the core: `hc attach ep0ch-native.<key>` in a shell, which includes a terminal tile
+  of the door's, and Herdr's own panes, which are viewers of the same core. This is what the door's host lacks
+  ([8](#8-the-doors-pty-host)). **Read, not shown:** with no core to run, no second viewer was attached to
+  anything real. The stand-in would prove only itself.
+- **A list of every live terminal** (`terminal.list`, `hc ls`): address, name, labels, parent, folder, the program
+  in front, and `status`.
+- **Status is the program's own word** (OSC 7501: idle, working, done, blocked, error, with a message), passed on
+  by the core. The window reads it from the list every two seconds and shows it on the tile and the row; it
+  reads no screen for one. A plain program reports none, and none is shown.
+- **Isolation for tests:** `HC_SESSION` names a session, `HC_SOCKET` a socket outright; the socket is otherwise
+  `socket` in `config.toml`, else `$XDG_RUNTIME_DIR/herdr-core/<session>.sock` (or `/run/user/<uid>/…`), else
+  `<state>/herdr-core/<session>/<session>.sock`. The manual: tests take their own `HC_SESSION` and scratch XDG
+  paths, and never stop or restart a core they did not start. The stand-in's test names its own socket and
+  scratch folders and starts no core.
+
+Where the manual and Moonframe's `herdr_core.rs` differed, and what the window does:
+
+| | Moonframe's backend | `hc --skill` and the schema | The window |
+|---|---|---|---|
+| A terminal's parent | says nothing: no `caller`, no `parent` | a terminal ends with its parent unless `outlive_parent`; `no_parent` makes it nobody's child | starts the terminal itself with `no_parent` and `outlive_parent` (`src/pty/hc.rs`), then lets Moonframe attach. If that start fails, Moonframe's own start runs, as it would have |
+| The first size | none: the core's headless 200 by 120 until the attach resizes | an API client that knows its pane's size passes `size: {cols, rows}` to `terminal.run` | passes the tile's size |
+| How a program stands | not read (its `Pane` has no status) | read `status` from the list; never guess from the screen | reads `terminal.list` on a thread of its own |
+| Other people's terminals | never listed (it finds its own by label) | `hc ls` shows all live terminals; clean up only what you started | lists all, marks which are its own, ends only one its own labels name |
+| Ending one | never (drop detaches) | `hc kill <t>` | `terminal.kill`, when the person closes its tile |
+| What runs | the machine's shell; a line is typed into it once it reads one | `hc run <program>` runs the program itself; `line` runs a shell line | the shell, with the kind's command typed into it, on every backend alike. An agent that exits leaves its shell |
+
+- **Why `hc.rs` exists beside the client Moonframe brings:** that client's `terminal.run` has no `outlive_parent`,
+  `no_parent` or `size`, and Moonframe keeps its connection to itself. `hc.rs` makes three plain calls
+  (`terminal.run`, `terminal.list`, `terminal.kill`) on a connection of its own and finds the socket by the
+  same rule, written a second time. It opens no stream: attaching stays the tested client's.
+- **Moonframe's labels are borrowed by name.** Its backend finds a terminal by `moonframe` (the key) and
+  `moonframe-app` (the app). `hc.rs` writes both, and the stand-in's test fails if Moonframe's attach starts a
+  second terminal instead of finding the first. A Moonframe rev that renames them breaks that test, not a person.
+- **Never verified against a real core:** that `terminal.run` takes `no_parent` and `outlive_parent` together;
+  that a terminal started with no `caller` has no parent anyway; what a second viewer's size does to the first;
+  how `hc ls` shows the name; whether status reaches the list within the two seconds the window asks at. The
+  first thing to run on a machine with `hc`: `hc --skill`, then the window with `--features pty` on a scratch
+  outline, `hc ls`, and `hc attach ep0ch-native.<key>` from another terminal.
+
+A real pty was run: the login shell on a plain pty (`Preference::Pty`, named outright so no core or tmux server is
+looked for) ran a made-up script, with keys typed in the window and rows read back from the emulator
+(`a_real_pty_runs_a_made_up_script_keys_in_and_rows_out`).
+
+tmux, the mux's second choice, was run when the wave was verified, in a container with tmux and no `hc`: a live
+window under Xvfb over two launches (a shell and an agent on `tmux -L ep0ch-native`, the agent detached, the next
+launch's shell tile attached with nothing typed and the agent listed with no tile, then given one), and
+`tmux_keeps_a_program_between_two_windows_and_no_frame_asks_it` on a server of the test's own. Two things it found,
+both put right:
+
+- **A read of the list asked tmux, every frame.** `Host::listed` ran `tmux list-sessions`, and a terminal tile
+  reads the list to draw: 119 processes in four seconds while a shell printed (`strace -f -e execve`). What a
+  keeper keeps is now asked when a terminal is opened or ended and by the host's own thread, and a read is what
+  it last said.
+- **herdr-core's list was empty until a terminal was opened.** The core was first asked inside `open`, so a
+  window that returned with every terminal detached listed nothing and refused the jump to what the core kept.
+  The first read asks now (`a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept`).
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
@@ -650,7 +776,9 @@ What the tables do not hold:
   in W0; run in W5 with events fed to the runtime ([12](#12-the-block-editor-w5)). A real input method was not.
 - **GPU cost:** every render time here is lavapipe's.
 - **Covered and minimised windows:** Xvfb has no window manager, so only `hide` was run.
-- **A real pty:** the stream is canned. No program, no parser, no input latency.
+- **A real pty:** the stream is canned. No program, no parser, no input latency. (W8 ran one: a script on a plain
+  pty through Moonframe's emulator, [15](#15-herdr-core-w8). Its latency was not measured.)
+- **herdr-core itself:** never run here ([15](#15-herdr-core-w8)). tmux was, when W8 was verified.
 - **Several windows:** answered in W7 by building on it ([13](#13-several-windows-w7)); a second window on a real
   display, and a tab torn by the pointer, were still not run.
 - **macOS:** everything ran on Linux under X11.

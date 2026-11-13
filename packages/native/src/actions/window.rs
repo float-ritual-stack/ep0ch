@@ -9,7 +9,7 @@ use super::row::{ActionRow, Example, KeyRow, MenuRow, Touches};
 use super::{About, Action, Actor, App, Notice, Outcome};
 use crate::actline::Args;
 use crate::draft::Recovery;
-use crate::layout::{Layout, Op};
+use crate::layout::Layout;
 use crate::screen::{From, Screen};
 
 static TEAR: ActionRow = ActionRow::new("tile.tear", Touches::Shape, "take a tile (tile=, else the one with the keys) out of this window into a window of its own: the same tile on the same outline, showing what it showed, over the same store. Whether it may leave is the layout's to say, as for a tile closed: one a block is being written in stays, and so does the only one a window has")
@@ -56,8 +56,9 @@ fn tear(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let name = app.layout.name(&tile);
     let Some(alone) = app.layout.alone(&tile) else { return Outcome::refused(format!("no tile {name}")) };
     let shown = app.ui(&tile).clone();
-    // It leaves this window by the layout's own rule for a tile closed (one a block is being written in stays).
-    let closed = app.reshape(&Op::Close { tile, gone: false, heir: false }, by);
+    // It leaves this window by the layout's own rule for a tile closed (one a block is being written in stays). A
+    // terminal's program goes with it: the close ends nothing.
+    let closed = app.close_keeping(tile, by);
     if !closed.ok { return closed }
     // The window is called what the tile is, with a number when a window by that name is open.
     let taken = app.store.windows();

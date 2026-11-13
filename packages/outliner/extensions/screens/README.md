@@ -20,6 +20,10 @@ behind it, the lists about the reader's note on its right (its comments, proposa
 the reader), and on the toolbar the bar opened on the extensions and the outlines, Edit, Comment and a tile torn
 into a window of its own.
 
+The terminal's part of it: the programs a door runs as a tile under the outlines (`from: programs`), and on the
+toolbar a shell beside the reader, an agent, and the bar on the programs. The tile kinds a terminal draws are the
+[terminal extension](../terminal)'s.
+
 It is on wherever the service runs. Uninstalled, a door keeps its drawers and has no kinds or screens to open with
 them until a screen note or another extension gives it some; `extensions.install id=screens` brings them back. To
 change what a door opens on, fork it (`ep0ch ext add screens`, then edit the copy) or save a screen of your own

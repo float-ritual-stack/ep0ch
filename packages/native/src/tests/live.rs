@@ -1052,3 +1052,78 @@ fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over
     });
 }
 
+
+/// W8's list against a real outline host: the programs a window runs (a made-up shell's, on a scripted host) are
+/// handed to the service's `lists.read from=programs`, and the rows it writes are what runs: each this window's
+/// own a row whose pick is the jump, what it reports of itself as its mark, the keeper's other work listed after
+/// with no pick. A detached agent's row gives it a tile again. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_the_programs_list_is_what_runs_and_its_row_jumps() {
+    use crate::client::Socket;
+    use crate::pty::canned::Canned;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-programs-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(20));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        // (A connection belongs to the outline its first line names: the host makes it on one of its own.)
+        asking(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true }));
+        let mut raw = Socket::connect(&path);
+        let mut ask = |request: Value| asking(&mut raw, request);
+        let plan = ask(json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": "Bed plan [type::plan]\nFour beds this year.", "author": "user" }));
+
+        let script = json!({ "backend": "herdr-core", "keeps": true, "reports": { "seedbot --plan beds": { "state": "working", "msg": "planning the beds" } }, "others": [{ "address": "t4", "name": "compost", "runs": "tail -f compost.log", "status": "idle" }] });
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").blocking(true).running_on(Box::new(Canned::read(&script)));
+        app.start();
+        app.settle();
+        opened(&mut app);
+        act(&mut app, &format!("open id={}", plan["id"].as_str().unwrap()));
+        // The kinds a terminal draws are the service's rows (the terminal extension, on wherever the service runs).
+        assert!(act(&mut app, "terminal.open").ok && act(&mut app, "terminal.open agent=true command=\"seedbot --plan beds\"").ok, "{:?}", app.notice);
+        assert!(act(&mut app, "tile.leave").ok);
+
+        // The list as a tile: every row the service wrote, by what runs.
+        assert!(act(&mut app, "tile.split kind=programs name=running tile=shell dir=down").ok, "{:?}", app.steps.last());
+        app.settle();
+        let tile = app.layout.all().into_iter().find(|tile| app.layout.name(tile) == "running").expect("the programs tile");
+        let listed = |app: &App| app.rows_of(&tile).iter().map(|row| (row.id.clone(), row.label.clone(), row.mark.clone().unwrap_or_default(), row.group.clone().unwrap_or_default(), row.act.clone())).collect::<Vec<_>>();
+        assert_eq!(listed(&app), vec![
+            ("scratch-1".to_string(), "Shell".to_string(), "running".to_string(), "In a tile".to_string(), Some("terminal.jump key=\"scratch-1\"".to_string())),
+            ("scratch-2".to_string(), "Agent".to_string(), "working".to_string(), "In a tile".to_string(), Some("terminal.jump key=\"scratch-2\"".to_string())),
+            ("theirs:t4".to_string(), "compost".to_string(), "idle".to_string(), "Not this window's".to_string(), None),
+        ]);
+        assert_eq!(app.list_of(&tile).unwrap().list.title.as_deref(), Some("Programs · 2 running"));
+
+        // Detached, the agent is listed with no tile; its row, picked, is the jump: it has a tile again, and the keys.
+        assert!(act(&mut app, "terminal.detach tile=agent").ok);
+        app.settle();
+        assert_eq!(listed(&app)[1].3, "Running, in no tile");
+        assert!(act(&mut app, "list.pick id=scratch-2 tile=running").ok, "{:?}", app.steps.last());
+        app.settle();
+        assert_eq!(app.person().typing_in.as_deref(), Some("agent"));
+        assert_eq!(listed(&app)[1].3, "In a tile");
+        // A close ends it: the list is one row shorter, and the keeper's other work is still there, untouched.
+        assert!(act(&mut app, "tile.leave").ok && act(&mut app, "tile.close tile=agent").ok);
+        app.settle();
+        assert_eq!(listed(&app).iter().map(|row| row.0.clone()).collect::<Vec<_>>(), vec!["scratch-1", "theirs:t4"]);
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
