@@ -7303,8 +7303,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (fixed) return fixed;
     let land: ReturnType<Desk["landingFor"]>;
     try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
-    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), own = kindOf(pane)?.carryRefusal?.(pane, this, dest);
-    if (own) return own;
+    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), own = kindOf(pane)?.carryRefusal?.(pane, this, dest); if (own) return own;
     const goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
       // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
