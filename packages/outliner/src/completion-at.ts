@@ -5,19 +5,29 @@
  * (`completionTargetAtCursor`), the sources' own answers (`completionRows`) and the one merge (`mergeSourceAnswers`).
  * What comes back is the token to replace and rows ready to draw and to write.
  *
+ * A row says what its source said of it (`docs`), and the one that is lit (`lit`, the first unless said) carries what
+ * choosing it makes, drawn (`view`): its source's `example` as written and lowered through the page's own walk
+ * (`drawnExample`), so the window draws a component, a value or a callout beside the list with the parts it draws a
+ * note with. One row's, never every row's: an example is a note walked, with the questions it asks.
+ *
  * A row that makes something when it is chosen (a page nobody has written, an anchor on a heading, a new component)
  * needs a client that runs that write first: the door does, and such a row is left out here until a thin client can.
  */
 import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { completionSaid, enterKeeps, insertSelection, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf } from "@ep0ch/outline-core/completion-source";
+import type { PagePrimitive } from "@ep0ch/outline-core/note-page";
 import type { CompletionAtRequest, CompletionAtRow, CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
+
+/** An example as written and as drawn, about the note `about` (`this`): `drawnExample`, handed over by whoever has the service. */
+export type DrawsExample = (about: string, example: { use: string; note?: string }) => Promise<PagePrimitive[]>;
 
 /** The request has the text and the cursor in place of a detected token. */
 export const asksAtCursor = (request: CompletionRowsRequest | CompletionAtRequest): request is CompletionAtRequest => !("target" in request) && typeof (request as CompletionAtRequest).text === "string";
 
 /** The token at the cursor and its rows, with `rows` asking the sources for a detected token as `completion.rows` does. */
-export async function completionAt(request: CompletionAtRequest, rows: (asked: CompletionRowsRequest) => Promise<CompletionRowsResult>): Promise<CompletionRowsResult> {
-  const { text, cursor, ...rest } = request;
+export async function completionAt(request: CompletionAtRequest, rows: (asked: CompletionRowsRequest) => Promise<CompletionRowsResult>, draws?: DrawsExample): Promise<CompletionRowsResult> {
+  const { text, cursor, lit = 0, ...rest } = request;
+  if (!Number.isSafeInteger(lit) || lit < 0) throw new Error("completion.rows lit is a row of the list, from 0");
   if (text.length > 2 * 1024 * 1024) throw new Error("completion.rows takes text of at most 2 MiB");
   if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > text.length) throw new Error("completion.rows with text needs cursor: a UTF-16 offset in it");
   const lineStart = text.lastIndexOf("\n", cursor - 1) + 1;
@@ -46,9 +56,15 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
     return {
       id: `${index}`, label: merged.label, from: merged.from, insert, pick: pickId(insert),
       ...(merged.kind ? { kind: merged.kind } : {}), ...(merged.detail ? { detail: merged.detail } : {}), ...(merged.group ? { group: merged.group } : {}),
-      ...(select ? { select } : {}), ...(enter ? { enter } : {}),
+      ...(select ? { select } : {}), ...(enter ? { enter } : {}), ...(merged.docs ? { docs: merged.docs } : {}),
     };
   });
+  // What the lit row makes, drawn. An example that can't be drawn (it asks about a note that is gone) leaves the row its words.
+  const example = merged[lit]?.example;
+  if (example && draws && rest.near) {
+    const view = await draws(rest.near, example).catch(() => null);
+    if (view) listed[lit] = { ...listed[lit]!, view: { type: "box", children: view } };
+  }
   const said = completionSaid(answers, listed.length);
   return {
     answers: [], picks: {}, token: { kind: target.kind, start: lineStart + start, end: lineStart + end, query: target.query }, rows: listed,

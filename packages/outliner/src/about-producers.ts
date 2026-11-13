@@ -28,7 +28,7 @@ import { Refusal } from "@ep0ch/outline-core/refusal";
 import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { parseProposal, proposalChanges, type DraftProposalsBeside } from "./draft-patch";
 import { press, row, subject, titled, type Answered, type ListsRequest, type Own, type Producer } from "./list-producer";
-import { drawnParts } from "./note-page";
+import { drawnExample } from "./note-page";
 import type { ScreensList } from "./screens";
 import { diffsJoined, textDiff } from "./text-diff";
 import type { AnnotationRecord, AnnotationThread, Block } from "./types";
@@ -217,13 +217,7 @@ async function components(own: Own, request: ListsRequest): Promise<Answered> {
     const unfolded = shown.has(schema.id);
     const cells: ListCell[] = [schema.origin && schema.origin !== "built-in" ? schema.origin : ""].filter(Boolean);
     if (!unfolded) return row({ id: schema.id, label: schema.title, detail: schema.where, mark: schema.id, group: schema.group, folds: true, ...(cells.length ? { cells } : {}) });
-    const example = variation(schema, {});
-    const parts = await drawnParts(own, about, `${titled(schema.title)} example\n${example.use}`);
-    const view: PagePrimitive = { type: "box", children: [
-      { type: "blockdown", text: schema.intro },
-      { type: "box", title: "As written", children: [{ type: "source", text: [example.note, example.use].filter(Boolean).join("\n\n") }] },
-      { type: "box", title: "As drawn", children: parts },
-    ] };
+    const view: PagePrimitive = { type: "box", children: [{ type: "blockdown", text: schema.intro }, ...await drawnExample(own, about, `${titled(schema.title)} example`, variation(schema, {}))] };
     return row({ id: schema.id, label: schema.title, detail: schema.where, mark: schema.id, group: schema.group, folds: true, open: true, ...(cells.length ? { cells } : {}), view });
   }));
   const groups: ListGroup[] = [...new Set(kept.map(s => s.group))].map(name => ({ name, label: name, count: kept.filter(s => s.group === name).length }));

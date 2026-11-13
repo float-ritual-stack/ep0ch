@@ -1,0 +1,9 @@
+# The list that completes what is typed, saying what its lit row is (scenes/parts.seed.ts writes the note into a
+# scratch outline): a block opened to be written, a property begun whose values its component knows,
+# and the second row lit. Beside the list: that row's own words, and what choosing it makes as the service drew
+# it; under the list: what it is a list of, and which row of how many is lit.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit
+draft.paste text=" [heading-pattern::"
+complete.move by=1

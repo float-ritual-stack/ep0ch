@@ -382,8 +382,9 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
 }
 
 /// `completion.rows` for a text and a cursor (a UTF-16 offset), as the stand-in host answers it: a `[[` left open
-/// before the cursor on its line is a token, and the garden's pages whose names hold what was typed are its rows.
-fn completion(text: &str, cursor: usize) -> Value {
+/// before the cursor on its line is a token, and the garden's pages whose names hold what was typed are its rows,
+/// each with what it says of itself, and the one the ask lights (`lit`, the first unless said) with what it makes.
+fn completion(text: &str, cursor: usize, lit: usize) -> Value {
     let units: Vec<u16> = text.encode_utf16().collect();
     let before = String::from_utf16_lossy(&units[..cursor.min(units.len())]);
     let line = before.rsplit('\n').next().unwrap_or("");
@@ -398,6 +399,9 @@ fn completion(text: &str, cursor: usize) -> Value {
     let rows: Vec<Value> = pages.iter().filter(|(title, address, _)| title.to_lowercase().contains(&query.to_lowercase()) || address.contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| {
         let mut row = json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") });
         if row["insert"] == token.as_str() { row["enter"] = json!("new line") }
+        // What the row says of itself, and on the row asked to be lit what choosing it makes, as written and as drawn.
+        row["docs"] = json!(format!("The page **{title}**, by its address."));
+        if n == lit { row["view"] = json!({ "type": "box", "children": [{ "type": "box", "title": "As written", "children": [{ "type": "source", "text": format!("[[{address}]]") }] }, { "type": "box", "title": "As drawn", "children": [{ "type": "markdown", "text": format!("[{title}](ep0ch:p/{address})") }] }] }) }
         row
     }).collect();
     let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
@@ -493,7 +497,7 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             "draft.patch" => Ok(json!({ "outcome": "applied", "edits": [{ "blockId": note, "route": "saved", "revision": ask["revision"].as_u64().map_or(1, |r| r + 1) }] })),
             // What completes the words at the cursor, as the service answers a text and a cursor: here, the garden's
             // two pages for a `[[` left open, and no token anywhere else.
-            "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize)),
+            "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize, ask["lit"].as_u64().unwrap_or(0) as usize)),
             "completion.picked" => Ok(json!({})),
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.

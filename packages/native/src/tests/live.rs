@@ -1270,3 +1270,83 @@ fn live_the_programs_list_is_what_runs_and_its_row_jumps() {
     let _ = std::fs::remove_dir_all(&root);
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
 }
+
+/// H1's sentence against a real outline host: a block is written as in the door. Two lines pasted with a bare
+/// carriage return between them (two files copied in a file manager) are saved as two lines, and the service
+/// serves each as a picture part; Tab puts the second item under the first; and the list that completes a
+/// property's value says what its lit row is, in its component's own words, with the service's drawing of what
+/// choosing it makes and the lit row of how many. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_block_is_written_as_in_the_door_a_paste_keeps_its_lines_tab_indents_and_the_list_says_what_a_row_is() {
+    use super::support::{chord, draft, press, primary, rest, typed, window};
+    use crate::client::Socket;
+    use crate::draft::Hold;
+    use rune::{Key, Mods, Runtime};
+    with_host("typing", |path, root| {
+        let mut raw = Socket::connect(path);
+        let saved = "Seed tray [type::tray]\nWhat came up this week.";
+        let note = asked(&mut raw, json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": saved, "author": "user" })).unwrap();
+        let id = note["id"].as_str().unwrap().to_string();
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&App) -> bool) {
+            for _ in 0..400 { if so(&rt.state) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); rt.update(|s, _| { s.beat(); }); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, draft {:?}", rt.state.notice, draft(&rt.state).map(|d| d.buf.words().to_string()));
+        }
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
+        app.start();
+        opened(&mut app);
+        act(&mut app, &format!("open id={id}"));
+        let mut rt = window(app);
+        until(&mut rt, "the note's page", |s| s.page().is_some_and(|page| page.title == "Seed tray"));
+        press(&mut rt, "tile/reader/edit");
+        until(&mut rt, "the hold", |s| draft(s).is_some_and(|d| matches!(d.hold, Hold::Held { .. })));
+
+        // The paste, as the platform hands it over: a carriage return between the two lines, and nothing else.
+        chord(&mut rt, Key::Enter, Mods::default());
+        rt.paste("- [img::shots/one.png]\r- [img::shots/two.png]");
+        rest(&mut rt);
+        let pasted = format!("{saved}\n- [img::shots/one.png]\n- [img::shots/two.png]");
+        assert_eq!(words(&rt.state), pasted, "each line once, on a line of its own");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the save", |s| draft(s).is_some_and(|d| !d.unsaved()));
+        // What the service holds has two lines, and it serves each as a picture part (one line was neither).
+        let page = asked(&mut raw, json!({ "id": "c", "action": "notes.page", "outline": "scratch", "blockId": id })).unwrap();
+        assert_eq!(page["text"], pasted.as_str());
+        let pictures: Vec<&str> = page["parts"].as_array().unwrap().iter().filter(|part| part["kind"] == "picture").filter_map(|part| part["view"]["path"].as_str()).collect();
+        assert_eq!(pictures, ["shots/one.png", "shots/two.png"], "{}", page["parts"]);
+
+        // Tab: the second item goes under the first, and the keys stay in the block.
+        chord(&mut rt, Key::Tab, Mods::default());
+        assert_eq!((words(&rt.state), rt.state.person().focus.as_str()), (format!("{saved}\n- [img::shots/one.png]\n  - [img::shots/two.png]").as_str(), "reader"));
+        chord(&mut rt, Key::Tab, Mods { shift: true, ..Mods::default() });
+        assert_eq!(words(&rt.state), pasted);
+
+        // A property's value begun: the service answers the five its component knows (the notes carry none yet).
+        chord(&mut rt, Key::Enter, Mods::default());
+        typed(&mut rt, "[heading-pattern::");
+        until(&mut rt, "the values", |s| s.completing("reader").is_some_and(|found| found.rows.len() == 5));
+        let found = rt.state.completing("reader").unwrap().clone();
+        let mut labels: Vec<&str> = found.rows.iter().map(|row| row.label.as_str()).collect();
+        labels.sort();
+        assert_eq!(labels, ["dots", "rule", "stack", "uptime", "waffle"]);
+        assert!(found.rows.iter().all(|row| row.docs.as_deref().is_some_and(|docs| !docs.is_empty())), "each says what it is: {found:?}");
+        // The lit row's words beside the list, the service's drawing of what it makes, and the count under it.
+        let texts = |rt: &Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter_map(|e| e.text).collect() };
+        let shown = |s: &App, n: usize| s.completing_lit("reader").filter(|(row, _)| row.label == s.completing("reader").unwrap().rows[n].label).and_then(|(_, view)| view.cloned());
+        until(&mut rt, "the first row's drawing", |s| shown(s, 0).is_some());
+        let first = shown(&rt.state, 0).unwrap();
+        assert_eq!(first["children"].as_array().unwrap().iter().map(|boxed| boxed["title"].as_str().unwrap_or("")).collect::<Vec<_>>(), ["As written", "As drawn"]);
+        assert!(first["children"][0]["children"][0]["text"].as_str().unwrap().contains(&format!("[heading-pattern::{}]", found.rows[0].label)), "{first}");
+        assert!(rt.find("tile/reader/complete-docs").is_some() && rt.find("tile/reader/complete-count").is_some());
+        assert!(texts(&rt).iter().any(|said| said == &format!("{} 1/5", found.heading.clone().unwrap_or_default())), "{:?}", texts(&rt));
+        assert!(texts(&rt).iter().any(|said| said.contains(found.rows[0].docs.as_deref().unwrap())), "the lit row's own words are drawn: {:?}", texts(&rt));
+        // Down: the next row's, asked of the service with that row lit.
+        chord(&mut rt, Key::Down, Mods::default());
+        until(&mut rt, "the second row's drawing", |s| draft(s).is_some_and(|d| d.completing.lit == 1) && shown(s, 1).is_some());
+        assert!(shown(&rt.state, 1).unwrap()["children"][0]["children"][0]["text"].as_str().unwrap().contains(&format!("[heading-pattern::{}]", found.rows[1].label)));
+        assert!(texts(&rt).iter().any(|said| said.ends_with(" 2/5")));
+        // Tab writes the lit row: the list is still the list's while it is open.
+        chord(&mut rt, Key::Tab, Mods::default());
+        assert!(words(&rt.state).ends_with(&format!("[heading-pattern::{}]", found.rows[1].label)), "{}", words(&rt.state));
+    });
+}

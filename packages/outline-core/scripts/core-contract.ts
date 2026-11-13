@@ -10,6 +10,7 @@
 //   terms      a question, the values picked  → the question they narrow it to                (selectionQuery)
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
+//   indent     a draft's text, its selection, in or out → the spans to replace and where the selection is after (indentText)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
 //   ways       a refusal, each way's own words → the refusal as it is said: the reason, then the ways joined (whySaid)
 //   quoted     a note's text, a quote as a client sends it with a comment → the span of the source it is, or the
@@ -21,6 +22,7 @@ import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
 import { sourceLines } from "../src/code-ranges";
 import { way, whyNot, whySaid, type Why } from "../src/way-out";
+import { indentText } from "../src/draft-indent";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
 import { findQuoted, quoteRefusal, spanIn, wholePassage, type QuotedPassage } from "../src/drawn-passage";
 import { noteMediaLines } from "../src/media-line";
@@ -127,6 +129,47 @@ const CURSOR: { name: string; spans: PlacedSpan[] }[] = [
 const OFFSETS = [0, 2, 3, 4, 5, 8, 10, 12, 13, 20, 21, 26, 30, 31, 40, 41, 42, 44, 60];
 
 /**
+ * A draft one level in or out (Tab, Shift+Tab): its text with `|` where the cursor is and `^` at the selection's other
+ * end when something is selected. Offsets are UTF-16 units of the text without the two marks.
+ */
+const INDENT: { name: string; marked: string; dir: 1 | -1 }[] = [
+  { name: "a list item goes under the item above it, by that item's marker and gap", marked: "- peas\n- bea|ns", dir: 1 },
+  { name: "under a numbered item: its number, its closer and its gap", marked: "12. dig\n- ra|ke", dir: 1 },
+  { name: "a marker with two spaces after it: both count", marked: "-  peas\n-  be|ans", dir: 1 },
+  { name: "the first item of a list has no item above: two spaces", marked: "Beds\n- pe|as", dir: 1 },
+  { name: "an item with nothing after its marker is an item", marked: "- peas\n- |", dir: 1 },
+  { name: "an item under an indented item: the item above at its own level", marked: "- beds\n  1. north\n  - so|uth", dir: 1 },
+  { name: "a checklist's step is a list item", marked: "- [ ] sow\n- [x] wa|ter", dir: 1 },
+  { name: "prose moves two spaces", marked: "Sow the pe|as.", dir: 1 },
+  { name: "a line indented with a tab moves one tab", marked: "\t- peas\n\t- be|ans", dir: 1 },
+  { name: "prose indented with a tab", marked: "\tSow the pe|as.", dir: 1 },
+  { name: "a blank line alone still moves", marked: "- peas\n|", dir: 1 },
+  { name: "every line the selection touches moves by the first line's step, and blank lines stay", marked: "- beds\n- no^rth\n\n  - peas\n- sou|th\n- shed", dir: 1 },
+  { name: "a selection made upwards is the same lines", marked: "- beds\n- no|rth\n  - peas\n- sou^th", dir: 1 },
+  { name: "a selection that ends at a line's start touches that line", marked: "Sow ^the peas.\n|Water them.", dir: 1 },
+  { name: "words that are not ASCII before the cursor: offsets are UTF-16", marked: "- café 🌱\n- pêche 🍑|", dir: 1 },
+  { name: "out: a nested item goes back to its parent's level", marked: "1. beds\n   - no|rth", dir: -1 },
+  { name: "out: under a parent two levels up, by the nearest item indented less", marked: "- beds\n  - north\n    - pe|as", dir: -1 },
+  { name: "out: an indented item with no parent above loses two spaces", marked: "Beds\n   - no|rth", dir: -1 },
+  { name: "out: at the margin nothing moves", marked: "- no|rth", dir: -1 },
+  { name: "out: prose loses two spaces, or what it has", marked: " Sow the pe|as.", dir: -1 },
+  { name: "out: a tab goes", marked: "\t\t- pe|as", dir: -1 },
+  { name: "out: the cursor inside the indent that goes stays at the line's start", marked: "- beds\n |   - north", dir: -1 },
+  { name: "out: a selection keeps its nesting: every line by the first line's step, none past the margin", marked: "- beds\n  - no^rth\n    - peas\n - odd\n\n  - sou|th", dir: -1 },
+  { name: "out: prose above an item is no parent", marked: "Beds\n  - no|rth", dir: -1 },
+];
+function indented(c: { name: string; marked: string; dir: 1 | -1 }) {
+  // The marks are taken out last first, so each offset is one of the text without either.
+  const marked = c.marked;
+  const bar = marked.replace("^", "").indexOf("|"), hat = marked.includes("^") ? marked.replace("|", "").indexOf("^") : bar;
+  const text = marked.replace("|", "").replace("^", "");
+  const did = indentText(text, c.dir, hat, bar);
+  let after = text;
+  for (const span of [...did.spans].reverse()) after = after.slice(0, span.start) + span.replacement + after.slice(span.end);
+  return { name: c.name, text, dir: c.dir, anchor: hat, cursor: bar, spans: did.spans, after: { text: after, anchor: did.anchor, cursor: did.cursor }, lines: did.lines };
+}
+
+/**
  * Words a screen's key map might name a key by: every name a key has (the values of `NAMED_KEYS`), a character each
  * way (a letter, a capital, punctuation), each modifier with a character, and words that are no key's name.
  */
@@ -230,7 +273,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -242,6 +285,7 @@ export function coreContract(): string {
     terms: TERMS.map(c => ({ ...c, query: selectionQuery(c.picks.map(([key, value]) => pick(key, value)), c.raw) })),
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
+    indent: INDENT.map(indented),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
     ways: WAYS.map(c => ({ ...c, whole: whySaid(c.why, each => c.said[c.why.ways.indexOf(each)] ?? null) })),
     // (A row about `quotedNote` leaves its text out: it is the note's.)
