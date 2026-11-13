@@ -26,7 +26,7 @@ export interface OverlayHost {
 type DeskPicker = ListPicker<any, OverlayHost>;
 
 /** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
-export interface PanelRow { label: string; value: string; clear?: () => void; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | WireVerb }
+export interface PanelRow { label: string; value: string; /** The action ⏎ runs, as data (an agent reads the panel by it). */ act?: { action: string; args: Record<string, unknown>; tile?: string }; clear?: () => void; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | WireVerb }
 
 
 /** ^W r: the layouts to lay this screen out as: the built-ins, and the screens people made (screen notes). */
@@ -107,6 +107,8 @@ export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
   const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
   const rows = () => [...d.wireRows(tile), ...d.policyRows(tile, nodes()[node]!.node)];
   const first = () => d.wireRows(tile).length;
+  // A row that says its action runs it through the screen (as an agent's act would); the rest run their own way (a size measured as pressed).
+  const press = (r: PanelRow) => (r.act ? d.run(r.act.action, r.act.args, r.act.tile) : r.run?.());
   const p: DeskPicker = new ListPicker<PanelRow, OverlayHost>({
     name: "policy", items: rows, closers: "q", stays: true,
     closed: () => { d.run("tile.link", { ask: false }); },
@@ -116,7 +118,7 @@ export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
       return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map(line => line + (r.clear ? pickRow(" × ", on, 4) : ""));
     },
     clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
-    choose: r => r.run?.(),
+    choose: r => press(r),
     bindings: [
       ...["left", "h", "right", "l"].map(key => ({ key, action: "policy.container", label: "container", args: { by: ["left", "h"].includes(key) ? -1 : 1 } })),
       { key: "space", action: "policy.change", label: "change" },
@@ -126,7 +128,7 @@ export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
     dispatch: binding => {
       switch (binding.action) {
         case "policy.container": node = Math.max(0, Math.min(nodes().length - 1, node + (binding.args!.by as number))); p.sel = first(); break;
-        case "policy.change": rows()[p.sel]?.run?.(); break;
+        case "policy.change": { const r = rows()[p.sel]; if (r) press(r); break; }
         case "policy.clear": rows()[p.sel]?.clear?.(); break;
         case "policy.size": rows()[p.sel]?.adjust?.(binding.args!.by as number); break;
       }
