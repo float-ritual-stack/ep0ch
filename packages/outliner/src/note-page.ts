@@ -9,6 +9,7 @@ import { componentAt, componentStarts, type ComponentAt } from "@ep0ch/outline-c
 import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figurePrimitive } from "@ep0ch/outline-core/figure-primitive";
 import { figureResultsMarkdown } from "@ep0ch/outline-core/figure-results";
+import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { ListGroup, ListRow } from "@ep0ch/outline-core/list-row";
@@ -24,7 +25,7 @@ import type { BacklinkCollection } from "./types";
 interface PageAddress { outline?: string | undefined; machine?: string }
 
 type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
-type Listed = { id: string; title?: string; hasChildren?: boolean };
+type Listed = { id: string; title?: string; hasChildren?: boolean; properties?: { key: string; value: string }[] };
 
 /**
  * `notes.page` as the service answers it: everything a client draws of the note `blockId` names, read by the service
@@ -47,9 +48,11 @@ export async function servedPage(
   ]);
   const record = records[0]!;
   const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasChildren ? { hasChildren: true } : {}) });
-  const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children)]);
+  const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children, ["properties"])]);
   const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
-  const under = ordered(record.children, kids);
+  // A comment on the note is a block under it and no note of it (outline-core's `isMarkType`): its threads list it
+  // (`lists.read from=threads`), as a published page leaves it out of the notes under.
+  const under = ordered(record.children, kids.filter(kid => !isMarkType(kid.properties?.find(p => p.key === "type")?.value)));
   return {
     blockId: block.id, revision: block.revision, title: self[0]?.title ?? "", chips: headerLine(block.text).chips.map(c => ({ key: c.key, value: c.value })),
     properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, ...body,
@@ -62,9 +65,9 @@ export async function servedPage(
 }
 
 /** The service asking itself, as the walk asks: for a reader who sees every note, with one reading of every title (the lists'). */
-function reader(own: Own): { host: LiveHost; listed(ids: readonly string[]): Promise<Listed[]> } {
-  const listed = async (ids: readonly string[]): Promise<Listed[]> => ids.length
-    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren"] })).blocks : [];
+function reader(own: Own): { host: LiveHost; listed(ids: readonly string[], more?: readonly string[]): Promise<Listed[]> } {
+  const listed = async (ids: readonly string[], more: readonly string[] = []): Promise<Listed[]> => ids.length
+    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren", ...more] })).blocks : [];
   const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
   return { host: { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id }, listed };
 }
