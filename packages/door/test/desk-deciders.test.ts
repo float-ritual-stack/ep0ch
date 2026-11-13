@@ -33,4 +33,21 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("one decider per desk question 
       expect(frame).toContain("this screen is empty");
     } finally { p.close(); }
   }, 60_000);
+
+  // An agent leaves the tile the person's keys are on alone, and only where they are: close, take, gather and spill
+  // asked that, float asked only "is it the screen's focus", so with his keys in the drawer an agent's float of the
+  // desk's tile was refused as his.
+  test("with his keys in the drawer, an agent floats the desk's tile as it closes or gathers it", async () => {
+    const p = await doors.pane(await doors.create("Cold frame\nprop the lid"), "Cold frame", 120, 30);
+    try {
+      const desk = () => (JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: { tile: string; name: string; focused: boolean }[] }[]).find(l => !l.drawer)!.tiles;
+      p.keys("C-w", "v");   // a second tile, so there's one to float over
+      await until(() => desk().length === 2, "the tile beside");
+      const reader = desk().find(t => t.focused)!;
+      p.keys("M-a");
+      await until(() => p.capture().includes("typing in shell"), "his keys in the drawer's shell");
+      const floated = p.act("tile.float", `tile=${reader.tile}`);
+      expect({ ok: floated.ok, said: floated.ok ? "" : floated.out.trim() }).toEqual({ ok: true, said: "" });
+    } finally { p.close(); }
+  }, 60_000);
 });

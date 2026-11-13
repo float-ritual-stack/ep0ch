@@ -190,6 +190,12 @@ export function closeHeir<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
  * person's keys are (their remembered focus in a desk they're not in is no one's).
  */
 export function heirTakes<I>(to: I, ctx: Pick<Ctx<I>, "tile" | "standing" | "person">): boolean {
-  const g = ctx.tile(to), theirs = !ctx.standing && ctx.person.here !== false && ctx.person.focus === to;
+  const g = ctx.tile(to), theirs = personsTile(ctx, to, ctx.person.focus);
   return !theirs && !!g.notes && !g.showing && !g.pinned && !g.editing && !g.holds && !g.follower && g.available !== false;
 }
+/**
+ * The one place that decides an agent leaves tile `id` alone because the person's keys are on it: it acts without
+ * standing, the person is in this layout (`here`: their remembered focus in a desk they're not in is no one's), and
+ * `id` is its focus (`focus`: the step's, or the desk's as it stands).
+ */
+export function personsTile<I>(ctx: Pick<Ctx<I>, "standing" | "person">, id: I, focus: I): boolean { return !ctx.standing && ctx.person.here !== false && id === focus; }

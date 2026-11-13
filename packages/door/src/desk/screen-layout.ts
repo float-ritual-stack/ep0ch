@@ -1,5 +1,5 @@
 import { wrapReturn, type ReturnShell } from "./return-place";
-import { besideAttempt, closeHeir, landing } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
+import { besideAttempt, closeHeir, landing, personsTile } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
@@ -901,7 +901,7 @@ class Step<I> {
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   /** Why an agent leaves the tile with the person's keys alone, in the one wording (keysIn): typing in it, or only focused there. */
   private theirs(id: I, what: string) { return keysIn(this.name(id), what, this.ctx.person.typingIn === id); }
-  private leaveTheirs(id: I, what: string) { if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, what)); }   // the one place a step refuses an agent the tile the person's keys are on
+  private leaveTheirs(id: I, what: string) { if (personsTile(this.ctx, id, this.d.focus)) refuse(this.theirs(id, what)); }   // the one place a step refuses an agent the tile the person's keys are on
   /** This layout as the person reads about it: the screen, or your drawer. */
   private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
@@ -1051,7 +1051,7 @@ class Step<I> {
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
         if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(typingIn(this.name(op.tile), "float it"));
-        if (this.agent && op.tile === this.d.focus) refuse(this.theirs(op.tile, "float it"));
+        this.leaveTheirs(op.tile, "float it");
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -2096,7 +2096,7 @@ class Step<I> {
       // what-changed); an agent's lift never puts away the tab the person is in to get it there.
       const front = want ? tabsOf(this.d.tree, id) : null, shown = front?.ids[front.active];
       if (front && shown !== undefined && shown !== id) {
-        if (this.agent && ((this.ctx.person.here !== false && shown === this.d.focus) || shown === this.ctx.person.typingIn)) refuse(`lifting ${this.name(id)} would hide tile ${this.name(shown)}, which has the person's keys`);
+        if (personsTile(this.ctx, shown, this.d.focus) || (this.agent && shown === this.ctx.person.typingIn)) refuse(`lifting ${this.name(id)} would hide tile ${this.name(shown)}, which has the person's keys`);
         activate(this.d.tree, id);
         // The keys on the tab it hid move with it, as a tab's switch moves them: the person's, or a desk's no one is in.
         if (shown === this.d.focus && (!this.agent || this.ctx.person.here === false)) this.d.focus = id;
