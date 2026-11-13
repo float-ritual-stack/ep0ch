@@ -20,7 +20,7 @@ import type { LogRange } from "@ep0ch/outliner/change-log";
 import { archivedCursor, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
-import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
+import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, writeAlert, writeBackupState } from "./alert";
 import { type BackupConfig, RUN_LIMIT_MS } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { failedLine, moment, relayedLine } from "./verdict";
@@ -320,7 +320,8 @@ export const commandsHere = (platform = process.platform): Commands => ({
 /** The incidents now, into alert.json; the new ones announced (once each). */
 export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => number; announce?: (i: Incident[]) => Promise<void> } = {}): Promise<Alert> {
   const now = (o.now ?? Date.now)();
-  const found = incidents(s, c.machine, now, commandsHere());
+  // The disk keeper's open incidents stay in the alert beside the job's own (it announces them itself).
+  const found = [...incidents(s, c.machine, now, commandsHere()), ...readDiskIncidents(c.state)];
   const { alert, announce } = nextAlert(readAlert(c.state), found, c.machine, now);
   if (s.route) alert.route = s.route;
   writeAlert(c.state, alert);
@@ -329,7 +330,7 @@ export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => nu
 }
 
 /** Whether with-secrets has this group (its names only are listed, never values). */
-export function hasSecretsGroup(c: BackupConfig, group: string): boolean {
+export function hasSecretsGroup(c: Pick<BackupConfig, "env">, group: string): boolean {
   try {
     const r = Bun.spawnSync(["with-secrets", "--list"], { stdout: "pipe", stderr: "ignore", env: c.env as Record<string, string> });
     return r.exitCode === 0 && new RegExp(`^${group}\\s`, "m").test(r.stdout.toString());
@@ -348,7 +349,7 @@ export async function heartbeat(c: BackupConfig): Promise<void> {
 }
 
 /** One push per new incident: Herdr's notification here, and ntfy when a secrets group `ntfy` (NTFY_URL) exists. */
-export async function announceAll(c: BackupConfig, list: Incident[]): Promise<void> {
+export async function announceAll(c: Pick<BackupConfig, "env">, list: Incident[]): Promise<void> {
   for (const i of list) {
     const body = `${i.detail}\nfix: ${i.fix}`;
     const quiet = { stdout: "ignore", stderr: "ignore", env: c.env as Record<string, string> } as const;

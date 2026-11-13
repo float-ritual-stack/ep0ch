@@ -1,0 +1,12 @@
+# Written by `ep0ch install` from scripts/disk/offload-sweep.service in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=Offload cold files to the storage box (offload --sweep --yes; PIE-1787)
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH={{PATH}}
+EnvironmentFile=-%h/.config/ep0ch/disk.env
+ExecStart=%h/.local/bin/offload --sweep --yes
+Nice=10
+IOSchedulingClass=idle

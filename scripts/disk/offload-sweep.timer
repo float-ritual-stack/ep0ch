@@ -1,0 +1,11 @@
+# Written by `ep0ch install` from scripts/disk/offload-sweep.timer in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=Weekly offload sweep to the storage box (PIE-1787); the disk keeper also runs it at 75%
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

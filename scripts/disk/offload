@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# offload v2
+# offload: move cold folders or files from this machine to the storage box, and back (PIE-1787).
+#   offload <path>...        copy to <box>:archive/<host>/<path under ~> (a path outside ~: archive/<host>/root/<path>),
+#                            verify by checksum, then remove it here and leave <path>.offloaded saying where it went
+#   offload --restore <path> copy it back from the box (the box keeps its copy) and remove the marker
+#   offload --list           what this machine has on the box
+#   offload --sweep [--yes [--checksum]]
+#                            list (or with --yes, move) what's cold: Claude session transcripts older than 7 days,
+#                            ~/.claude/uploads files older than 30 days, ~/.claude/remote's Claude Desktop CLI and
+#                            server builds unused for 30 days (the newest of each stays), ~/recon clones older than 14 days
+# Exit 3: the box didn't answer. Exit 4: a copy on the box differs from the original; every file stays here, the list
+# is in ~/.local/state/offload-differs.txt, and --checksum copies again compared by content.
+# The box is EP0CH_DISK_BOX (~/.config/ep0ch/disk.env), else storagebox.
+# Every move is logged to ~/.local/state/offload.log. Live data (outlines, the checkout, config) never belongs here.
+# Installed by `ep0ch install` from scripts/disk/offload in the ep0ch checkout; install replaces an older version.
+set -euo pipefail
+SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/ep0ch/disk.env"
+if [ -z "${EP0CH_DISK_BOX:-}" ] && [ -r "$SETTINGS" ]; then
+  EP0CH_DISK_BOX=$(sed -n 's/^[[:space:]]*\(export[[:space:]]*\)\{0,1\}EP0CH_DISK_BOX[[:space:]]*=[[:space:]]*//p' "$SETTINGS" | tail -1 | tr -d "\"'")
+fi
+BOX="${EP0CH_DISK_BOX:-storagebox}"
+# EP0CH_SSH: the ssh to use (the tests' fake one); rsync goes through the same.
+SSH="${EP0CH_SSH:-ssh}"
+RSH="$SSH -o BatchMode=yes --"
+HOSTDIR="archive/$(hostname -s)"
+CHECKSUM=""
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
+LOG="$STATE/offload.log"
+DIFFERS="$STATE/offload-differs.txt"
+mkdir -p "$STATE"
+
+box() { $SSH -o BatchMode=yes -o ConnectTimeout=15 -- "$BOX" "$@"; }
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG"; }
+
+where() { # the path's name on the box: under ~ as itself, anywhere else under root/
+  local abs; abs=$(realpath -m "$1")
+  case "$abs" in
+    "$HOME") echo "offload: refusing your whole home" >&2; exit 2 ;;
+    "$HOME"/*) printf '%s' "${abs#"$HOME"/}" ;;
+    /) echo "offload: refusing /" >&2; exit 2 ;;
+    *) printf 'root%s' "$abs" ;;
+  esac
+}
+local_of() { case "$1" in root/*) printf '%s' "${1#root}" ;; *) printf '%s/%s' "$HOME" "$1" ;; esac; }
+guard() { # refuse live data
+  case "$1" in
+    outlines|outlines/*|projects/ep0ch|projects/ep0ch/*|.config|.config/*|.ssh|.ssh/*|.local/bin|.local/bin/*|backups|backups/*)
+      echo "offload: $1 is live or config; refusing" >&2; exit 2 ;;
+  esac
+}
+# Lines of rsync's itemized dry run that mean a file's content would still have to travel: the copy differs.
+contents() { grep -E '^[<>]f' || true; }
+
+one() {
+  local r src dest; r=$(where "$1"); guard "$r"; src=$(local_of "$r"); dest="$HOSTDIR/$r"
+  [ -e "$src" ] || { echo "offload: $src doesn't exist" >&2; return 1; }
+  box mkdir -p "$(dirname "$dest")" >/dev/null || { echo "offload: $BOX didn't answer; $src stays here" >&2; return 3; }
+  local from="$src" to="$BOX:$dest"; [ -d "$src" ] && { from="$src/"; to="$BOX:$dest/"; }
+  rsync -a ${CHECKSUM:+--checksum} -e "$RSH" "$from" "$to" || { echo "offload: copying $src to $BOX failed; it stays here" >&2; return 3; }
+  local diff; diff=$(rsync -a --dry-run --checksum --itemize-changes -e "$RSH" "$from" "$to" | contents) || return 3
+  if [ -n "$diff" ]; then
+    printf '%s\n' "$diff" > "$DIFFERS"
+    echo "offload: the copy of $src on $BOX differs from the original; it stays here (list: $DIFFERS)" >&2; return 4
+  fi
+  local size; size=$(du -sh "$src" | cut -f1)
+  rm -rf "$src"
+  printf 'Offloaded %s (%s) on %s to %s:%s\nBring it back: offload --restore %s\n' "$r" "$size" "$(date -u +%F)" "$BOX" "$dest" "$src" > "$src.offloaded"
+  log "out $r $size"
+  echo "offloaded $r ($size)"
+}
+
+restore() {
+  local r dest src; r=$(where "${1%.offloaded}"); dest="$HOSTDIR/$r"; src=$(local_of "$r")
+  if box test -d "$dest" 2>/dev/null || box ls -d "$dest/" >/dev/null 2>&1; then
+    mkdir -p "$src"; rsync -a -e "$RSH" "$BOX:$dest/" "$src/"
+  else
+    mkdir -p "$(dirname "$src")"; rsync -a -e "$RSH" "$BOX:$dest" "$src"
+  fi
+  rm -f "$src.offloaded"; log "back $r"; echo "restored $r (the box keeps its copy)"
+}
+
+# The sweep's lists, paths under ~ one per line.
+transcripts() { # session files only: <project>/<session>.jsonl and <project>/<session>/…, never memory/ or anything else
+  (cd "$HOME" && find .claude/projects -mindepth 2 -type f -mtime +7 -regextype posix-extended \
+    \( -regex '\.claude/projects/[^/]+/[^/]+\.jsonl' -o -regex '\.claude/projects/[^/]+/[0-9a-f-]{36}/.+' \) 2>/dev/null) || true
+}
+uploads() { (cd "$HOME" && find .claude/uploads -mindepth 1 -type f -mtime +30 2>/dev/null) || true; }
+remote() { # Claude Desktop runs ccd-cli/<version> and srv/<hash>/server: one unused (not run, not changed) for 30 days goes,
+  # the newest of each folder stays; plugins, run and session-folders are live and stay.
+  local d e newest
+  for d in .claude/remote/ccd-cli .claude/remote/srv; do
+    [ -d "$HOME/$d" ] || continue
+    newest=$(ls -t "$HOME/$d" | head -1)
+    for e in "$HOME/$d"/*; do
+      [ -e "$e" ] && [ "$(basename "$e")" != "$newest" ] || continue
+      [ -z "$(find "$e" -type f \( -mtime -31 -o -atime -31 \) -print -quit)" ] || continue
+      (cd "$HOME" && find "${e#"$HOME"/}" -type f)
+    done
+  done
+}
+
+batch() { # <what> <ledger> <list file>: copy, verify, then remove; or nothing at all
+  local what=$1 ledger=$2 list=$3 n size
+  n=$(grep -c . "$list" || true); [ "$n" -gt 0 ] || return 0
+  size=$(cd "$HOME" && tr '\n' '\0' < "$list" | du -ch --files0-from=- 2>/dev/null | tail -1 | cut -f1)
+  rsync -a ${CHECKSUM:+--checksum} -e "$RSH" --files-from="$list" "$HOME/" "$BOX:$HOSTDIR/" || { echo "offload: copying $n $what files to $BOX failed; they stay here" >&2; return 3; }
+  local diff; diff=$(rsync -a --dry-run --checksum --itemize-changes -e "$RSH" --files-from="$list" "$HOME/" "$BOX:$HOSTDIR/" | contents) || return 3
+  if [ -n "$diff" ]; then
+    printf '%s\n' "$diff" > "$DIFFERS"
+    echo "offload: $(grep -c . "$DIFFERS") of $n $what files differ on $BOX from the originals; all $n stay here (list: $DIFFERS)" >&2; return 4
+  fi
+  (cd "$HOME" && xargs -d '\n' rm -f -- < "$list")
+  mkdir -p "$(dirname "$ledger")"
+  { printf 'Offloaded %s files on %s to %s:%s/ (paths under ~):\n' "$n" "$(date -u +%F)" "$BOX" "$HOSTDIR"; cat "$list"
+    echo "Bring one back: rsync -a $BOX:$HOSTDIR/<path> ~/<path>"; } >> "$ledger"
+  log "out $what $n files $size"; echo "offloaded $n $what files ($size)"
+}
+
+sweep() {
+  local doit=${1:-} dir; dir=$(mktemp -d)
+  transcripts > "$dir/transcripts"; uploads > "$dir/uploads"; remote > "$dir/remote"
+  local -a recon=()
+  while IFS= read -r d; do recon+=("$d"); done < <(find "$HOME/recon" -mindepth 1 -maxdepth 1 -type d -mtime +14 2>/dev/null)
+  if [ "$doit" != "--yes" ]; then
+    local f; for f in transcripts uploads remote; do
+      echo "$(grep -c . "$dir/$f" || true) $f files ($(cd "$HOME" && tr '\n' '\0' < "$dir/$f" | du -ch --files0-from=- 2>/dev/null | tail -1 | cut -f1))"
+    done
+    [ ${#recon[@]} -gt 0 ] && printf '%s\n' "${recon[@]}" | sed "s#^$HOME/#~/#"
+    echo "run offload --sweep --yes to move them"; rm -rf "$dir"; return 0
+  fi
+  # One sweep at a time: the weekly timer and the disk keeper both start it.
+  exec 9>"$STATE/offload-sweep.lock"; flock -n 9 || { echo "offload: a sweep is already running"; rm -rf "$dir"; return 0; }
+  if ! box mkdir -p "$HOSTDIR" >/dev/null; then echo "offload: $BOX didn't answer; nothing moved" >&2; rm -rf "$dir"; return 3; fi
+  local worst=0 code
+  note() { code=$1; [ "$code" -eq 0 ] || { [ "$worst" -eq 4 ] || worst=$code; }; }
+  code=0; batch transcript "$HOME/.claude/projects/OFFLOADED.txt" "$dir/transcripts" || code=$?; note $code
+  [ "$code" -ne 0 ] || find "$HOME/.claude/projects" -mindepth 2 -type d -empty -delete 2>/dev/null || true
+  code=0; batch upload "$HOME/.claude/OFFLOADED.txt" "$dir/uploads" || code=$?; note $code
+  code=0; batch remote "$HOME/.claude/OFFLOADED.txt" "$dir/remote" || code=$?; note $code
+  [ "$code" -ne 0 ] || find "$HOME/.claude/remote/srv" "$HOME/.claude/uploads" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  local p; for p in "${recon[@]}"; do code=0; one "$p" || code=$?; note $code; done
+  rm -rf "$dir"
+  return "$worst"
+}
+
+case "${1:-}" in
+  ""|-h|--help) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+  --restore) shift; for p in "$@"; do restore "$p"; done ;;
+  --list) box ls -R "$HOSTDIR" 2>/dev/null | head -200 ;;
+  --sweep) shift; [ "${2:-}" = "--checksum" ] && CHECKSUM=1; code=0; sweep "${1:-}" || code=$?; exit "$code" ;;
+  *) worst=0; for p in "$@"; do code=0; one "$p" || code=$?; [ "$code" -eq 0 ] || worst=$code; done; exit "$worst" ;;
+esac
