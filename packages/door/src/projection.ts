@@ -13,6 +13,7 @@
 // extra is drawn.
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subject, type Msg } from "./board";
+import { RESOURCE_NOTE } from "./authored";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";
 import type { LinkTarget } from "./refs";
@@ -222,12 +223,17 @@ function excerpt(record: Msg, rows: number): string[] {
   return lines.map(l => l.trimEnd()).filter((l, i, a) => l || (i > 0 && a[i - 1])).join("\n").trim().split("\n").filter(Boolean).slice(0, rows);
 }
 
-/** What the age line says: fetching, why it can't, or how old the copy is, with the key to refresh. */
+/**
+ * What the age line says: how old the copy is, with the key to refresh; while a first copy is fetched, that; when the
+ * last read failed, that the copy is kept, what failed and when it's tried again (PIE-1796). A copy being read again
+ * keeps its line as it was: the new read lands in place, so nothing flashes on the way.
+ */
 function ageLine(p: ResourceProjection, now: number): { text: string; bad: boolean } {
   const when = p.fetchedAt ?? p.record?.syncedAt;
   const age = when ? `fetched ${ageSince(when, now, "ago")}` : "";
-  if (p.fetching) return { text: [age, "fetching…"].filter(Boolean).join(" · "), bad: false };
-  if (p.fetchError) return { text: `can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}${age ? ` · ${age}` : ""}`, bad: true };
+  if (p.fetching && !when) return { text: "fetching…", bad: false };
+  const failed = p.fetchError && drawnInline(p.fetchError.replace(/^Resource extension: /, ""));
+  if (failed) return { text: `${when ? `kept the copy from ${ageSince(when, now, "ago")}` : "no copy yet"} · couldn't fetch: ${failed} · the next poll tries again, ${runAgainKey()} now`, bad: true };
   return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · ${runAgainKey()} refresh`, bad: false };
 }
 
@@ -393,7 +399,9 @@ function resourceStale(e: Entry): boolean {
   if (unresolved(e) && rAnyAt > e.rat) return true;
   return (e.read?.projections ?? []).some(p => !!p.resourceId && (rChangedAt.get(p.resourceId) ?? 0) > e.rat);
 }
-const stale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || resourceStale(e) || (noteRanAt.get(id) ?? 0) > e.rat;
+/** Whether the outline made answer `e` stale (the note, the notes it reads its keys from, a line that ran): not a Resource's own event. */
+const outlineStale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || (noteRanAt.get(id) ?? 0) > e.rat;
+const stale = (id: string, e: Entry) => outlineStale(id, e) || resourceStale(e);
 
 /**
  * A `resource-catalog` event: the Resource it names changed (null: any may have, e.g. a new Source, or a
@@ -420,7 +428,36 @@ export function resourceChanged(resourceId: string | null, blockId?: string): bo
   rtick++; rAnyAt = rtick;
   if (resourceId === null || rChangedAt.size > 5000) { rAllAt = rtick; rChangedAt.clear(); }
   else rChangedAt.set(resourceId, rtick);
-  return shown.some(resourceStale);
+  return shown.some(resourceStale) || resourceNoteShows(resourceId);
+}
+
+// ── a Resource note on screen (PIE-1796): a reader showing `resource:<id>` hears that Resource's re-read ──
+// The same clock the projections read: the event marks the Resource changed, the door redraws, and the reader
+// showing it reads it again as it draws (NoteSurface.render), so an open Jira card follows its ticket's poll.
+const resourceNotes = new Set<WeakRef<ResourceNoteWatch>>();
+/** The Resource note `m` is (`resource:<id>`): its Resource's id, or undefined for any other note. */
+export const resourceShown = (m: Msg | null | undefined): string | undefined => (m?.resource && m.id.startsWith(RESOURCE_NOTE) ? m.resource.id : undefined);
+/** Whether a reader on screen shows Resource `id` (null: any). */
+function resourceNoteShows(id: string | null): boolean {
+  for (const ref of resourceNotes) {
+    const w = ref.deref();
+    if (!w) { resourceNotes.delete(ref); continue; }
+    const shown = w.shown();
+    if (shown && (id === null || shown === id)) return true;
+  }
+  return false;
+}
+/** A reader's watch on the Resource note it shows: `due` once a re-read of that Resource was stored since it last read it. */
+export class ResourceNoteWatch {
+  private at = rtick;
+  constructor(readonly shown: () => string | undefined) { resourceNotes.add(new WeakRef(this)); }
+  /** Whether to read the note again now (then it counts as read). */
+  due(): boolean {
+    const id = this.shown();
+    if (!id || (rAllAt <= this.at && (rChangedAt.get(id) ?? 0) <= this.at)) return false;
+    this.at = rtick;
+    return true;
+  }
 }
 
 /** Tests: stop tracking every connection's answers seen so far, so an event only reaches readers created after. */
@@ -458,7 +495,12 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
     const c = cache;
     c.set(m.id, entry);
     if (c.size > 200) c.delete(c.keys().next().value!);
-    Promise.resolve().then(() => src.board.request("resources.projection.read", { blockId: m.id, materialize: true })).then(
+    // A note read first, or again for an outline change (its text, the note above it its key comes from), asks the service
+    // to fetch what it lacks (materialize). A read again only because a Resource changed doesn't: a failed fetch's own
+    // event asked for the next fetch, and a card strobed "fetching…" and "can't fetch" while Jira refused (PIE-1796).
+    // The poll and r try a failed copy again.
+    const materialize = !hit || hit.askedRev !== m.revision || outlineStale(m.id, hit);
+    Promise.resolve().then(() => src.board.request("resources.projection.read", { blockId: m.id, materialize })).then(
       read => {
         // Its text is known only when the answer is for the revision asked: otherwise nothing of it may stand in for a later one.
         const { text: _gone, ...rest } = entry;

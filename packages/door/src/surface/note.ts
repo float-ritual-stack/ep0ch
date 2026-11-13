@@ -76,7 +76,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { withSchemaParams, drawSources, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, linesThatRun, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
+import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, linesThatRun, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, resourceShown, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction, PRESSED_VIA } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
@@ -1176,10 +1176,10 @@ export class NoteSurface {
    */
   reread(host: SurfaceHost) {
     const m = this.msg;
-    if (!m || !isOutlineNote(m)) return;
+    if (!m || !(isOutlineNote(m) || resourceShown(m))) return;   // a Resource note too: the Jira poll's re-read (PIE-1796)
     if (this.rereading) { this.rereadAgain = true; return; }
     this.rereading = true;
-    host.ctx.board.get(m.id).then(n => { if (n) { this.refresh(n); host.redraw(); } }, () => {}).finally(() => {
+    host.ctx.board.get(m.id).then(n => { if (n && this.msg) { this.refresh(rereadResource(n, this.msg)); host.redraw(); } }, () => {}).finally(() => {
       this.rereading = false;
       if (this.rereadAgain) { this.rereadAgain = false; this.reread(host); }
     });

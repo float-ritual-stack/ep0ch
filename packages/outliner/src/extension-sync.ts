@@ -4,6 +4,7 @@ import { mayHaveResourceProjections } from "./resource-references";
 import type { ExtensionDescription } from "./resource-extensions";
 import { extensionProvider, providerLabel, type ExtensionProvider, type RemoteEntityDocument, type Resource } from "./resources";
 import type { OutlinerStore } from "./store";
+import { readAuthoredLinks } from "./authored-links";
 
 /**
  * Keeps extension records in step with the lines that ask for them (wave A of
@@ -84,6 +85,8 @@ export class ExtensionSync {
   private readonly scheduled = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lastPoll: number | null = null;
+  /** The Resources the last poll asked about: one not among them joins, and is read from its own last read (PIE-1796). */
+  private polled: Set<string> | null = null;
   /** How many comments the last write of each key kept (the most any asker wanted then). */
   private readonly commentsWritten = new Map<string, number>();
   /** Resources whose provider returned no record (a contract 1 install): nothing to keep as blocks. */
@@ -422,6 +425,21 @@ export class ExtensionSync {
    * provider that can't search has its stale copies refreshed instead. A search
    * that fails keeps its window for the next poll; a paused sync skips the poll.
    */
+  /**
+   * Whether a note names Resource `row`: a block asks for its key (its record, kept in Trash too), or a live note's
+   * authored links resolve to it, as a reader resolves them (a property on any line in any case, a Resource link). The
+   * notes whose text holds its key or its id, in any case, are the ones resolved.
+   */
+  private named(row: { resourceId: string; key: string }): boolean {
+    if (this.store.extensionAskers(this.extensionId, row.key).length) return true;
+    const notes = this.store.database.query("SELECT id FROM blocks WHERE deleted_at IS NULL AND (instr(lower(text), lower(?)) > 0 OR instr(text, ?) > 0)")
+      .all(row.key, row.resourceId) as { id: string }[];
+    return notes.some(({ id }) => {
+      const links = readAuthoredLinks(this.store, id);
+      return links.kind === "ready" && links.resources.entries.some((link) => link.resourceId === row.resourceId);
+    });
+  }
+
   async poll(): Promise<{ checked: number; changed: number }> {
     const started = this.now;
     const paused = this.paused();
@@ -429,7 +447,9 @@ export class ExtensionSync {
       this.lastPollResult = { at: new Date(started).toISOString(), checked: 0, changed: 0, error: `paused: ${paused}` };
       return { checked: 0, changed: 0 };
     }
-    const registered = this.store.resources.remoteEntityKeys(this.provider);
+    // Only tickets a note still names (PIE-1796, Codex on #1499): one whose line was taken out, or whose note was purged,
+    // stays registered but isn't asked about every poll.
+    const registered = this.store.resources.remoteEntityKeys(this.provider).filter((row) => this.named(row));
     // The first poll looks back to the oldest copy's last good read (the service may have been down), at most a week;
     // later ones to the last poll that finished. A failed or cut-off read is no checkpoint (Codex on #1499).
     const weekAgo = started - 7 * 24 * 60 * 60_000;
@@ -445,8 +465,12 @@ export class ExtensionSync {
       if (keys.size >= MAX_POLL_KEYS) continue;
       keys.set(row.key, row.resourceId);
       bySource.set(row.sourceId, keys);
-      if (!(read(row) >= weekAgo)) unread.set(row.sourceId, [...unread.get(row.sourceId) ?? [], row.resourceId]);
+      // Not read since the week looked back, or joined since the last poll (named again) and not read since this
+      // poll's window opens: no search reaches what changed meanwhile, so it's read directly.
+      const joined = this.polled !== null && !this.polled.has(row.resourceId) && !(read(row) >= from);
+      if (!(read(row) >= weekAgo) || joined) unread.set(row.sourceId, [...unread.get(row.sourceId) ?? [], row.resourceId]);
     }
+    this.polled = new Set(registered.map((row) => row.resourceId));
     let checked = 0;
     let changed = 0;
     let failure: string | undefined;
