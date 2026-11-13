@@ -85,7 +85,7 @@ fn version(cx: &TileCx) -> u64 {
     // The cards shown whole, and the words picked (their actions stand by them, where the service found them).
     (&cx.ui.unfolded, cx.ui.passage.as_ref().map(|quoted| (&quoted.words, quoted.ends_at()))).hash(&mut h);
     // (The hint row says the keys of the layer they are in: the editor's, or the open list's.)
-    if let Some(draft) = draft_of(cx) { (draft.writes.quoted().map(|quoted| (quoted.ends_at(), quoted.refused().map(str::to_string))), &draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
+    if let Some(draft) = draft_of(cx) { (draft.writes.quoted().map(|quoted| (quoted.ends_at(), quoted.stands_at(), quoted.refused().map(str::to_string))), &draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
     // A picture that finished decoding is drawn: how each of the page's pictures stands is part of what is shown.
     for picture in cx.app.shown_of(cx.id).into_iter().flat_map(|page| page.pictures()) {
         match cx.app.picture(picture) { Some(Shown::Ready { image, .. }) => (2u8, image.size().is_some()).hash(&mut h), Some(Shown::Failed(why)) => (1u8, why).hash(&mut h), _ => 0u8.hash(&mut h) }
@@ -132,8 +132,16 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     match (own, page) {
         (Some(draft), _) => body = body.child(held(editor(cx, draft, k))),
         (None, Some(page)) => for (i, part) in page.parts.iter().enumerate() {
-            body = body.child(beside(cx, part, prim::build(part, &at.at(format!("part/{i}")), k), margin, roomy, k));
-            if let Some(aside) = aside.filter(|_| under == Some(i)) { body = body.child(held(editor(cx, aside, k))) }
+            // What is written about words of this part stands in it, under the block they end in, when the
+            // service said where they are in the part's own text (a part is as long as its run of prose) and
+            // the text can be cut there: handed to the part's builder with it. Else under the part whole.
+            let written = aside.filter(|_| under == Some(i));
+            let field = || written.map(|draft| editor(cx, draft, k));
+            let inset = written.and_then(|draft| draft.writes.stands_at()).filter(|(line, _)| parts::line_of(part) == Some(line + 1)).and_then(|(_, place)| prim::inset(part, place, &field));
+            let here = at.at(format!("part/{i}"));
+            let built = prim::build(part, &match &inset { Some(inset) => here.taking(inset), None => here }, k);
+            body = body.child(beside(cx, part, built, margin, roomy, k));
+            if inset.is_none() && let Some(field) = field() { body = body.child(held(field)) }
             if picked == Some(i) { body = body.children(offered(cx, k).map(&held)) }
         },
         (None, None) => {}

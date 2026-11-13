@@ -140,6 +140,16 @@ pub fn part_holding(page: &Page, end: usize) -> Option<usize> {
     page.parts.iter().position(|part| span_of(part).is_some_and(|(from, to)| (from as usize) < end && end <= to as usize))
 }
 
+/// The part of a page a selection that ends at `end` of the note's text ended in (the part whose span closes
+/// there: a selection says the span of the parts it was made in), as it was drawn, when it is drawn from text: its
+/// line, its span of the note's text, and the text its view is drawn from. What the service is told when it is
+/// asked where picked words are (`passages.find part=`), so it can say where they are in that text.
+pub fn drawn_from(page: &Page, end: usize) -> Option<(u64, Value)> {
+    let part = page.parts.iter().find(|part| span_of(part).is_some_and(|(_, to)| to as usize == end))?;
+    let (start, end) = span_of(part)?;
+    Some((part["line"].as_u64()?, json!({ "start": start, "end": end, "text": text(&part["view"], "text").filter(|_| ty(&part["view"]) == "markdown")? })))
+}
+
 /// The part of a page, by its place among the page's own, that carries the mark of a thing (or holds the part that
 /// does): where something written about that thing stands.
 pub fn part_marked(page: &Page, id: &str) -> Option<usize> { page.parts.iter().position(|part| marks_under(part).iter().any(|mark| mark.id == id)) }

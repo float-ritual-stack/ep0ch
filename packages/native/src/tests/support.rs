@@ -501,7 +501,8 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             // Where a passage is, asked before a comment is written on it: as the service answered that quote.
             "passages.find" => {
                 let text = if note == SOWING { sowing()["text"].as_str().unwrap_or_default().to_string() } else { texts.borrow().get(&note).map(|(_, text)| text.clone()).unwrap_or_else(|| format!("{} [type::chore]\nBefore the rain.", titled(&note))) };
-                located(&note, &text, &ask["passage"], ask["whole"] == "words")
+                // (Where it is in a part's own text is said only of the part the asker named.)
+                located(&note, &text, &ask["passage"], ask["whole"] == "words").map(|mut found| { if ask["part"].is_null() && let Some(found) = found.as_object_mut() { found.remove("at"); } found })
             }
             "annotations.batch" => {
                 let input = &ask["operations"][0]["input"];

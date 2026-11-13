@@ -745,6 +745,17 @@ fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
     // Where what is written stands: asked of what is written (`Writes::ends_at`, `Writes::answers`) and of the page's
     // parts, by the drawer that shows it.
     none("where a comment's field stands decided outside the page drawer", calls("part_holding", |path| path == "parts.rs" || path == "tiles/page.rs").into_iter().chain(calls("part_marked", |path| path == "parts.rs" || path == "tiles/page.rs")).collect());
+    // Inside a part (a run of prose is one part, however long): where the words are in the part's own text is the
+    // service's word, asked with the part by the one action that asks where words are and kept as an anchor; the
+    // page drawer hands what is written to the part's builder with that place, and the one builder of prose cuts
+    // its text where the renderer's own reading says two pieces are drawn as the whole is. Nothing reads Markdown
+    // for a block's end, and nothing looks for the words.
+    none("the part picked words end in named outside the action that asks where they are", calls("drawn_from", |path| path == "parts.rs" || path == "actions/review.rs"));
+    assert_eq!(count("quoted.at = "), 1, "where words are in a part's own text is taken where the service's answer lands");
+    none("something stood inside a part outside the page drawer and the builder of prose", calls("inset", |path| path == "tiles/page.rs" || path == "tiles/prim.rs").into_iter().chain(calls("stands_at", |path| path == "draft.rs" || path == "tiles/page.rs")).collect());
+    none("a part's text cut outside the one builder of prose", calls("cut_after", |path| path == "tiles/prim.rs"));
+    assert!(code("tiles/prim.rs").contains("head.iter().chain(rest.iter()).eq(whole.iter())"), "a cut is safe where the kit's own reading of the two pieces is its reading of the whole");
+    for reading in ["\"\\n\\n\"", "starts_with(\"- \")", "starts_with('#')", "```"] { assert!(!code("tiles/prim.rs").contains(reading) && !code("tiles/page.rs").contains(reading), "a drawer reads Markdown itself for where a block ends (`{reading}`)") }
     // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
     none("a tab brought forward outside the one action that shows a note's comments", strays("Op::Tab", |path| path == "actions/review.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
     assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");

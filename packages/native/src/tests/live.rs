@@ -923,6 +923,19 @@ fn live_words_selected_from_a_first_letter_are_commented_on_in_place_and_marked_
         assert!(rt.find("tile/threads/title").is_none() && rt.find("tile/proposals/title").is_some(), "an agent's comment moves no tab");
         line(&mut rt, "threads");
         until(&mut rt, "the three threads listed", |rt| rt.state.rows_of(&rt.state.layout.named("threads").unwrap()).len() == 3);
+
+        // The whole note is one run of prose, so one part. Words of its first paragraph: the service is asked with
+        // the part as it was drawn and says where they are in that text, and the comment's field stands in the
+        // part, under that paragraph and over the list, not under everything the part holds.
+        let first = drawn_at(&rt, "Read with a pen");
+        dragged(&mut rt, (first[0] + 40.0, first[1] + 8.0), (first[0] + 95.0, first[1] + 8.0));
+        until(&mut rt, "where the words of the first paragraph are", |rt| rt.state.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+        let picked = rt.state.ui("reader").passage.clone().unwrap();
+        assert!(picked.at.as_ref().is_some_and(|at| at.part == 1 && at.range.is_some()) && text[picked.found.clone().unwrap().unwrap().1..].contains("\n\n- Define"), "{picked:?}");
+        typed(&mut rt, "ac");
+        assert!(rt.state.draft_on("reader").is_some_and(|draft| !draft.is_block()), "{:?}", rt.state.notice);
+        let (field, list, part) = (rect(&rt, "tile/reader/editor").0, drawn_at(&rt, "Define looks"), rect(&rt, "tile/reader/part/0").0);
+        assert!(field[1] > part[1] && field[1] + field[3] <= list[1] && list[1] < part[1] + part[3], "the field is in its part, over the list: field {field:?}, list {list:?}, part {part:?}");
     });
 }
 

@@ -89,6 +89,10 @@ pub struct Quoted {
     pub found: Option<Result<(usize, usize), String>>,
     /// The words as they were picked, when the service answered wider ones: picked again, they are these still.
     pub asked: Option<String>,
+    /// Where they are in what the reader drew, when the service said (`passages.find`, asked with the part they end
+    /// in): that part, and the range of the text its view is drawn from. What is written about them stands there,
+    /// inside a part as long as its run of prose. The service's, as a page's marks are, and never kept between runs.
+    pub at: Option<crate::parts::Anchor>,
 }
 
 impl Quoted {
@@ -105,6 +109,10 @@ impl Quoted {
     /// of the span they were drawn within. What is written about them stands under the part that holds it.
     pub fn ends_at(&self) -> Option<usize> { self.found.as_ref().and_then(|found| found.as_ref().ok()).map(|span| span.1).or(self.within.map(|within| within.1)) }
 
+    /// The place in a part's own drawn text the service found them at (`Quoted::at`), by the part's line and the
+    /// offset they end at there (UTF-16): where in that part what is written about them stands.
+    pub fn stands_at(&self) -> Option<(u64, usize)> { self.at.as_ref().and_then(|at| at.range.map(|range| (at.part, range.1))) }
+
     /// Why they are no passage of the note, when the service said so.
     pub fn refused(&self) -> Option<&str> { self.found.as_ref().and_then(|found| found.as_ref().err()).map(String::as_str) }
 
@@ -119,7 +127,7 @@ impl Quoted {
 
     fn read(kept: &Value) -> Option<Quoted> {
         let span = |v: &Value| Some((v["start"].as_u64()? as usize, v["end"].as_u64()? as usize));
-        Some(Quoted { words: kept["quote"].as_str()?.to_string(), drawn: kept["drawn"] == true, within: span(&kept["within"]), near: kept["near"].as_u64().map(|at| at as usize), found: None, asked: None })
+        Some(Quoted { words: kept["quote"].as_str()?.to_string(), drawn: kept["drawn"] == true, within: span(&kept["within"]), near: kept["near"].as_u64().map(|at| at as usize), found: None, asked: None, at: None })
     }
 }
 
@@ -179,6 +187,10 @@ impl Writes {
     /// Where in the note's text the words a comment is on end, as far as anybody has said (`Quoted::ends_at`): what
     /// is written stands under the part of the page that holds it. None: a comment on the whole note, or anything else.
     pub fn ends_at(&self) -> Option<usize> { self.quoted().and_then(Quoted::ends_at) }
+
+    /// Where in a part's own drawn text the words a comment is on end (`Quoted::stands_at`): the part by its line,
+    /// and the offset there. None: nobody has said, and what is written stands under the part whole.
+    pub fn stands_at(&self) -> Option<(u64, usize)> { self.quoted().and_then(Quoted::stands_at) }
 
     /// The thing a reply answers (its thread), by id: what is written stands under the part that carries its mark.
     pub fn answers(&self) -> Option<&str> { match self { Writes::Reply { thread, .. } => Some(thread.as_str()), _ => None } }

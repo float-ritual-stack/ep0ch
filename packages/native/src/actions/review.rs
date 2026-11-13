@@ -167,7 +167,12 @@ fn locate(app: &mut App, tile: &str, by: &Actor) {
     // (Words picked by hand are a passage of whole words; ones an act names are taken as it names them.)
     let mut ask = json!({ "blockId": note, "passage": quoted.passage() });
     if quoted.drawn { ask["whole"] = json!("words") }
-    app.store.request(&at, "passages.find", ask, by, located, json!({ "tile": tile, "note": note, "words": quoted.words }));
+    // The part the selection ended in, as this reader drew it: the service says where the words are in that text
+    // too, so what is written about them stands at them inside a part as long as its run of prose.
+    let ends = quoted.within.and_then(|within| app.page_of(tile).and_then(|page| crate::parts::drawn_from(page, within.1)));
+    let line = ends.as_ref().map(|(line, _)| *line);
+    if let Some((_, part)) = ends { ask["part"] = part }
+    app.store.request(&at, "passages.find", ask, by, located, json!({ "tile": tile, "note": note, "words": quoted.words, "part": line }));
 }
 
 /// The service's word on where picked words are: the words a comment on them shows and sends are the passage it
@@ -176,12 +181,14 @@ fn locate(app: &mut App, tile: &str, by: &Actor) {
 fn located(app: &mut App, reply: Reply) {
     let text = |key: &str| reply.ctx[key].as_str().unwrap_or("").to_string();
     let (tile, note, words) = (text("tile"), text("note"), text("words"));
+    // (Where they are in the text of the part that was named: an anchor, as a mark's is.)
+    let at = reply.result.as_ref().ok().and_then(|found| Some(crate::parts::Anchor { part: reply.ctx["part"].as_u64()?, range: Some((found["at"]["start"].as_u64()? as usize, found["at"]["end"].as_u64()? as usize)) }));
     let said: Result<((usize, usize), String), String> = match &reply.result {
         Ok(found) => match (found["start"].as_u64(), found["end"].as_u64(), found["quote"].as_str()) { (Some(start), Some(end), Some(quote)) => Ok(((start as usize, end as usize), quote.to_string())), _ => return },
         Err(refusal) => Err(refusal.error.clone()),
     };
     let take = |quoted: &mut Quoted| if quoted.words == words && quoted.found.is_none() {
-        match &said { Ok((span, quote)) => { quoted.asked = Some(words.clone()); quoted.found(*span, quote) } Err(why) => quoted.found = Some(Err(why.clone())) }
+        match &said { Ok((span, quote)) => { quoted.asked = Some(words.clone()); quoted.at = at.clone(); quoted.found(*span, quote) } Err(why) => quoted.found = Some(Err(why.clone())) }
     };
     if app.note_of(&tile).as_deref() == Some(note.as_str()) && let Some(quoted) = app.ui_mut(&tile).passage.as_mut() { take(quoted) }
     if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile && draft.note == note) && let Writes::Comment { on: Some(quoted) } = &mut draft.writes { take(quoted) }

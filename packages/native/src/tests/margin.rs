@@ -159,6 +159,46 @@ fn a_comment_is_written_under_the_part_its_words_are_in_with_both_in_view() {
     assert!(field[1] >= part[1] + part[3] && field[1] < top(&rt, "tile/reader/part/1"), "{field:?} {part:?}");
 }
 
+/// A run of prose is one part of the page however long it is: a note of nothing but headings, paragraphs and lists
+/// is one part, and a comment "under the part its words are in" then opens a screen below them, as far away as the
+/// top was. So the reader says which part its picked words end in when it asks where they are, the service answers
+/// where they are in the text that part is drawn from, and the field stands in the part, under the block of it
+/// the words end in, with the rest of the part under the field. The words a thread is on stay marked on both sides.
+#[test]
+fn a_comment_on_words_in_the_middle_of_a_part_is_written_under_the_block_they_end_in() {
+    let g = garden(ok());
+    let asked = g.asked.clone();
+    let mut rt = sowing(g);
+    // The sowing plan's first part is two paragraphs. Words of the first, a press late at each end.
+    let (from, to) = within(0);
+    assert!(line(&mut rt, &format!("passage.select quote={} from={from} to={to}", actions::word("ow the early peas in Marc"))).ok);
+    // Asked with the part the words end in, as it was drawn: its span of the note, the text of its view.
+    let find = sent(&asked, "passages.find").expect("the service is asked where the words are");
+    assert_eq!(find["part"], json!({ "start": from, "end": to, "text": quotes()["quotedNote"]["parts"][0]["view"]["text"] }));
+    let picked = rt.state.ui("reader").passage.clone().expect("the words are picked");
+    assert_eq!(picked.at, Some(crate::parts::Anchor { part: 1, range: Some((0, 57)) }), "where they are in that part's own text is the service's word");
+    chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
+    let said = |rt: &Runtime<App>, words: &str| rt.elements().into_iter().find(|e| e.role != "mark" && e.text.as_deref().is_some_and(|text| text.starts_with(words))).map(|e| e.rect).unwrap_or_else(|| panic!("no text drawn starts with {words}"));
+    let (field, first, second, part) = (drawn(&rt, "tile/reader/editor").0, said(&rt, "Sow the "), said(&rt, "Water the beds at dusk."), drawn(&rt, "tile/reader/part/0").0);
+    assert!(field[1] >= first[1] + first[3] && field[1] + field[3] <= second[1], "the field is between the paragraph its words are in and the next: first {first:?}, field {field:?}, second {second:?}");
+    assert!(field[1] > part[1] && field[1] + field[3] < part[1] + part[3], "inside its part: {field:?} in {part:?}");
+    // The part is still one part: its thread's words are marked on both sides of the field, a line a mark.
+    let marks: Vec<(String, String)> = rt.elements().into_iter().filter(|e| e.role == "mark").filter_map(|e| Some((e.key?, e.text?))).collect();
+    assert_eq!(marks, [("tile/reader/mark/thread-sowing/1/0".to_string(), "the last frost.".to_string()), ("tile/reader/mark/thread-sowing/1/1".to_string(), "Water the beds at dusk.".to_string())]);
+    // Sent as the whole words; with the field gone the part is drawn in one piece again.
+    typed(&mut rt, "Under glass?");
+    chord(&mut rt, Key::Command('s'), primary());
+    assert_eq!(sent(&asked, "annotations.batch").unwrap()["operations"][0]["input"]["passage"]["quote"], "Sow the early peas in March");
+    assert!(rt.state.drafts.is_empty() && rt.find("tile/reader/editor").is_none() && rt.find("tile/reader/part/0/rest").is_none(), "{:?}", rt.state.notice);
+    // Words that end in a part's last block (or a list's last item: a list is one block) have nothing of the part
+    // under them: the field is under the part, as it was.
+    rt.update(|_, tx| tx.select_all_text("tile/reader/part/2"));
+    rest(&mut rt);
+    assert!(line(&mut rt, "comment").ok);
+    let (field, part) = (drawn(&rt, "tile/reader/editor").0, drawn(&rt, "tile/reader/part/2").0);
+    assert!(field[1] >= part[1] + part[3] && rt.find("tile/reader/part/2/rest").is_none(), "{field:?} {part:?}");
+}
+
 /// After Evan sent his comment nothing on the page showed it. The words a thread is on are marked where they are
 /// drawn, from the marks the service puts on the page's parts (a range of the Markdown each part is drawn from: the
 /// window reads no source), and the thread is beside them: its first words as a card, which a press on the card or
