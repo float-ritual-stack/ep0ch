@@ -26,7 +26,6 @@ import type { Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
 import { MIN_COLS, MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, keptInDock, keptOnly, type AltRule } from "./layout";
-import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
 // tabbed, dragged by its header and dropped on another tile's header or centre (tabs), a side (a split)
@@ -39,8 +38,6 @@ import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
-import { valuesOf } from "@ep0ch/outline-core/block-record";
-import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { EMBED_SUFFIX, headedTitle, subject, titleEmbed, type Msg } from "../board";
 import { BORDER_BOXES, borderGlyphs, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -89,6 +86,7 @@ import {
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
+import { frameTitle, tileNote, tileTitle } from "./tile-title";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
@@ -3642,7 +3640,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, full) ?? {}),
       ...(kindOf(p)?.follower && !(p instanceof PreviewPane && "file" in p.source) && (this.selectSeeds.has(id) || this.followsOf(id).source !== undefined) ? { source: `tile:${this.selectSeeds.get(id) ?? this.nameOf(this.followsOf(id).source!)}` } : {}),
-      title: this.frameTitle(id, r?.rows),
+      title: frameTitle(this.panes.get(id)!, { name: this.nameOf(id), n: () => this.numberOf(id), tabs: tabsOf(this.root, id)?.ids.length ?? 0, rows: r?.rows }),
       label: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
       // Its header (PIE-1248): the tile's own setting, or the note's, and what that comes to.
@@ -4245,7 +4243,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const named = `${this.numLabel(id)}${this.displayTitle(id)}`;
       // An embed-only note's "· embed" is quiet (PIE-1458): its name is the embedded note's, and where both don't fit
       // the name keeps the room.
-      const embed = named.endsWith(EMBED_SUFFIX) && !!titleEmbed(this.noteOf(id)?.text ?? "");
+      const embed = named.endsWith(EMBED_SUFFIX) && !!titleEmbed(tileNote(this.panes.get(id))?.text ?? "");
       const quiet = embed && width(named) <= room ? EMBED_SUFFIX : "";
       const title = embed ? named.slice(0, named.length - EMBED_SUFFIX.length) : named;
       put(pad(title, embed && !quiet ? room : room - width(quiet)).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
@@ -4305,42 +4303,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     return this.numbered ? `${this.numberOf(id)} ` : "";
   }
-  private frameTitle(id: number, rows?: number): string {
-    const p = this.panes.get(id)!, m = this.noteOf(id);
-    if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
-    if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2, p.tileHeader)) {
-      // A note that leaves its title out (PIE-1319) is named here alone, its Work ID first as everywhere (PIE-1356).
-      return [p.surface.state(), headedTitle(m, p.surface.src)].filter(Boolean).join(" · ");
-    }
-    const name = this.nameOf(id), own = visibleText(p.title()), sub = headedTitle(m, p instanceof ReaderPane ? p.surface.src : null);
-    const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
-    const kindWord = kindOf(p)?.word ?? p.kind;
-    const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
-    return this.plainName(id) || word === name ? word : `${name} · ${word}`;
-  }
-
-  /** Display only: addressing and links keep the tile name. */
-  displayTitle(id: number): string {
-    const p = this.panes.get(id)!;
-    const shownNote = this.noteOf(id);
-    const note = p.titleNote ?? shownNote ?? this.showing(p);
-    // A note's own name, its Work ID first (PIE-1356): the tile bar, its tabs and a spine say it as the header does.
-    // An embed-only note is named by the note it embeds (PIE-1458), as the reader's own answers resolve it.
-    const system = p.headName?.() ?? (shownNote ? headedTitle(shownNote, p instanceof ReaderPane ? p.surface.src : null) : p.title());
-    if (!p.writtenTitle || p.systemTitle) return system;
-    return interpolate(p.writtenTitle, span => {
-      const missing = () => span.default === undefined ? [`⚠ {{${span.expression}}}`] : undefined;
-      if (span.path === "tile.kind") return [p.kind];
-      if (span.path === "tile.n") return [String(this.numberOf(id))];
-      const path = span.parsed;
-      if (!note || path?.head !== "this" || path.steps.length !== 1 || !("key" in path.steps[0]!)) return missing();
-      const key = path.steps[0].key;
-      if (key === "title") return [subject(note)];
-      if (key === "subtitle") { const subtitle = subtitleOf(note); return subtitle ? [subtitle] : missing(); }
-      const values = valuesOf(note, key);
-      return values.length ? values : missing();
-    });
-  }
+  /** Display only: addressing and links keep the tile name (tile-title.ts). */
+  displayTitle(id: number): string { return tileTitle(this.panes.get(id)!, () => this.numberOf(id)); }
 
   /**
    * `tile.title` (^W n): the one rename. A tile whose title isn't written separately (none, or its own name) takes a
@@ -4401,11 +4365,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(t.id), header: p.tileHeader ?? "note", shown: this.headerNow(this.tileId(t.id))?.shown ?? null, changed, by: actor.kind === "user" ? "you" : actor.id };
   }
 
-  private plainName(id: number) {
-    const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
-    // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.
-    return n === k || new RegExp(`^${k}\\d+$`).test(n) || (p instanceof ReaderPane && p.kind === "reader" && /^detail\d*$/.test(n));
-  }
 
   /**
    * `note.rename` (PIE-1283): the title of the note tile `sel` shows, replaced. Only the prose of its header line changes
@@ -4413,7 +4372,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * revision the service has now. Without text the person gets a prompt holding the title.
    */
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
-    const t = this.tile(sel), p = this.panes.get(t.id), shown = this.noteOf(t.id);
+    const t = this.tile(sel), p = this.panes.get(t.id), shown = tileNote(this.panes.get(t.id));
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
     const draft = p instanceof ReaderPane ? p.surface.draft : null, inEdit = draft && text !== undefined ? renameInEdit(draft, text, actor, expect) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
     const now = draft ? { ...shown, text: draft.text, revision: draft.base } : await this.ctx.board.get(shown.id); // in their edit, its title is the edit's (PIE-1722)
@@ -4440,11 +4399,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(t.id), note: now.id, title, revision: saved.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
-  private noteOf(id: number): Msg | null {
-    const p = this.panes.get(id);
-    // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
-    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.titleNote : null;
-  }
 
   /** The tiles whose links end at `pane` (on this desk, or across the host layer's edge): their names, as the header says them. */
   private linkedFrom(pane: Pane): { names: string[]; across: boolean } {
@@ -7149,7 +7103,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       held: !!flow?.held?.some(h => columnOf(flow, h) === columnOf(flow, id)),
       listHeld: p && kindOf(p)?.hold ? kindOf(p)!.hold!.held(p) : null,
       running: p instanceof PtyPane && p.running ? p.title() : null,
-      note: (() => { const m = this.noteOf(id); return m ? { id: m.id, editing: p instanceof ReaderPane && !!p.surface.draft } : null; })(),
+      note: (() => { const m = tileNote(this.panes.get(id)); return m ? { id: m.id, editing: p instanceof ReaderPane && !!p.surface.draft } : null; })(),
       refused: op => {
         switch (op) {
           case "close": return ask({ op: "close", tile: id });

@@ -3,7 +3,7 @@
 // the desk says where an open landed and forgets a tile once, as it leaves. Nothing else writes it.
 
 /** A container's tiles opened into it, the one an open there lands in now, and the last number given. */
-export interface OpenedInto<I> { ids: I[]; active: I | null; count: number }
+interface OpenedInto<I> { ids: I[]; active: I | null; count: number }
 
 export class PlacementMemory<I = number> {
   /** The tile an open from each tile goes beside next: the detail opened beside a reader holding an edit, or beside a pinned one. */
