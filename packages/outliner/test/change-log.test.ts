@@ -142,6 +142,34 @@ test("a page is cut by its size as well as its count, at a transaction's end, so
   db.close(); home.close();
 });
 
+test("a delete, restore, purge or move logs the rows it changes, not every block (PIE-1786)", () => {
+  // float-2, Nov 12: EchoNet's toss deleted a note in pie every 30 minutes, and each delete rewrote all 28,700 blocks
+  // unchanged (the Trash roots worked out again), each logged whole: 47 MB a delete, 281 MB in 2.5 h.
+  const dir = root();
+  const home = new OutlinerStore(join(dir, "home.sqlite"));
+  const shelf = home.create("Seed shelf");
+  for (let i = 0; i < 300; i++) home.create(`Seed packet ${i}\n${"Sow in spring. ".repeat(20)}`, i % 2 ? shelf.id : null);
+  const stray = home.create("Old receipt", shelf.id);
+  const logged = (f: () => void) => {
+    const before = home.log.cursor().lsn;
+    f();
+    const entries = home.log.range(before, 20_000).entries;
+    return { blocks: entries.filter(e => e.tbl === "blocks").length, all: entries.length };
+  };
+  const deleted = logged(() => home.delete(stray.id, { author: "agent", actorId: "echo-bot" }));
+  expect(deleted.blocks).toBeLessThanOrEqual(2);
+  expect(deleted.all).toBeLessThan(20);
+  expect(logged(() => home.restore(stray.id, { author: "user" })).blocks).toBeLessThanOrEqual(2);
+  home.delete(stray.id, { author: "user" });
+  expect(logged(() => home.purge(stray.id, stray.id.slice(0, 8))).blocks).toBeLessThanOrEqual(2);
+  // A move rewrites only the siblings whose place changed: the last child to the end of its own list moves nothing else.
+  const children = home.children(shelf.id);
+  expect(logged(() => home.move(children[0]!.id, shelf.id, children.length, { author: "user" })).blocks).toBeLessThanOrEqual(children.length + 1);
+  const last = home.children(shelf.id).at(-1)!;
+  expect(logged(() => home.move(last.id, shelf.id, children.length, { author: "user" })).blocks).toBeLessThanOrEqual(1);
+  home.close();
+});
+
 test("a follower refuses a range that doesn't follow its cursor, and keeps what it has", () => {
   const dir = root();
   const { home, shelf } = busyHome(dir);
