@@ -10,7 +10,7 @@ import { sessionName, type Pane, type ReaderPane } from "./panes";
 
 /** The desk as these steps read it. */
 export interface DeskEscHost {
-  ctx: Ctx; layout: any; root: any; spec: any; focus: number; zoom: number | null; moving: unknown; prefix: string; pending: any; hintCard: unknown; xray: boolean; modeHintKey: string; gesture: unknown; dragging: unknown; floatDrag: unknown; linking: any; entered: { in(r: ReaderPane): boolean }; overlays: any; models: Map<unknown, any>; panes: Map<number, Pane>; liftedRect: unknown;
+  ctx: Ctx; layout: any; root: any; spec: any; focus: number; zoom: number | null; moving: unknown; prefix: string; pending: any; hintCard: unknown; xray: boolean; modeHintKey: string; held: { now: unknown; dragging: unknown; floatDrag: unknown }; linking: any; entered: { in(r: ReaderPane): boolean }; overlays: any; models: Map<unknown, any>; panes: Map<number, Pane>; liftedRect: unknown;
   run(name: string, args?: Record<string, unknown>, tile?: string): void; nameOf(id: number): string; redraw(): void; rawKeys(): boolean; holdsKeys(): boolean; keysHere(): boolean; focusedReader(): ReaderPane | null; choosingReader(): ReaderPane | undefined; boundKey(k: Key): boolean; keyIn(k: Key, ctx: Ctx): void; command(k: Key): void; endGroupGhost(): void; runningScripts(): unknown[]; contentCover(id: number): { fold?: unknown }; pickedBy(a: unknown): unknown[]; homeTile(): number | undefined; atHome(): boolean; settle(): void; render(ctx: Ctx): unknown; reenter(): void; afterKey(): void; dropLiftElsewhere(): void; key(k: Key, ctx: Ctx): void; escReadFront(): EscRead; screenKeys(): { key: string }[];
 }
 const USER = { kind: "user" } as const;
@@ -44,7 +44,7 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
         const said = pane?.escCloses?.(d as never);
         return pane && kind?.takesKeys?.(pane) && !(kind.windowKeys && d.prefix) ? { closes: typeof said === "string" ? said : null, run: () => { pane.key(ESC_KEY, d as never); return true; } } : null;
       },
-      drag: () => (d.dragging ? { closes: "the move", run: () => { d.gesture = null; d.endGroupGhost(); ctx.flash("not moved"); d.redraw(); } } : null),
+      drag: () => (d.held.dragging ? { closes: "the move", run: () => { d.held.now = null; d.endGroupGhost(); ctx.flash("not moved"); d.redraw(); } } : null),
       choosing: () => { const c = d.choosingReader(); return c ? { closes: "the status choice", run: () => { c.key(ESC_KEY, d as never); d.redraw(); } } : null; },
       chord: () => {
         if (!d.prefix) return null;
@@ -52,7 +52,7 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
         return { closes: d.prefix === "resize" ? "resizing" : "the ^W chord", run: () => { if (held) { d.prefix = ""; ctx.flash(`still in ${sessionName(focused!)}`); d.redraw(); } else d.command(ESC_KEY); } };
       },
       "in-reader": () => (focused?.holdsKeys && d.entered.in(focused) ? { closes: focused.escCloses(d as never), run: () => { focused.key(ESC_KEY, d as never); return true; } } : null),
-      script: () => (d.runningScripts().length && !d.holdsKeys() && !d.floatDrag ? { closes: "the script", run: () => { d.run("layout.stop"); return true; } } : null),
+      script: () => (d.runningScripts().length && !d.holdsKeys() && !d.held.floatDrag ? { closes: "the script", run: () => { d.run("layout.stop"); return true; } } : null),
       // The tile's own: a filter being typed, what's lit in a reader, a keys window; a kind's own key. One that says nothing is still asked.
       tile: () => {
         if (!pane || focused?.holdsKeys || d.contentCover(d.focus).fold) return null;
