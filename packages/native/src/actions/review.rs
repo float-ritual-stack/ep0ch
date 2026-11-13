@@ -82,9 +82,11 @@ pub static ACTIONS: &[Action] = &[
 /// How the wire names who wrote a comment (`AnnotationSource`): the store records the rest.
 fn source(by: &Actor) -> &'static str { if by.is_person() { "user" } else { "agent" } }
 
-/// What names one send between two tries: the same words to the same place are the same request, so a retry of a
-/// comment that did land writes no second one (the service keeps the first receipt).
-fn request_id(parts: &[&str]) -> String { format!("native-{}", draft::version(&parts.join("\u{0}"))) }
+/// What names a request between two tries of it: the send it is (`send`: a draft's own name, or a new one for
+/// words sent at once) and what is sent. One draft tried again as it stands is the same request, so a comment that
+/// did land writes no second one (the service keeps the first receipt and answers with it). The same words written
+/// another time are another send, and so another request: a second "Agreed." in a thread is a reply of its own.
+fn request_id(send: &str, parts: &[&str]) -> String { format!("native-{}", draft::version(&[&[send], parts].concat().join("\u{0}"))) }
 
 /// The reader an act here is about, and the note it shows with the revision it was read at.
 fn read(app: &App) -> Result<(Id, String, u64), Outcome> {
@@ -113,7 +115,7 @@ fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let quote = args.text("quote").map(str::to_string).or_else(|| app.ui(&tile).passage.clone()).filter(|quote| !quote.trim().is_empty());
     let near = args.number("near").map(|at| at.max(0.0) as usize);
     let writes = Writes::Comment { quote, near };
-    if let Some(body) = args.text("body") { return post(app, None, &note, revision, &writes, body, by) }
+    if let Some(body) = args.text("body") { return post(app, None, &draft::send_name(), &note, revision, &writes, body, by) }
     // Its words are written here, by whoever is at the keys: sent as somebody else, it names them.
     if !by.is_person() { return Outcome::refused("a comment sent over the control socket names its words: body=") }
     if let Err(no) = free(app, &tile) { return no }
@@ -130,7 +132,7 @@ fn reply(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if let Some(body) = args.text("body") {
         // A reply names its thread, which is all the service asks: no reader has to show the note.
         let note = app.about().and_then(|tile| app.note_of(&tile)).unwrap_or_default();
-        return post(app, None, &note, 0, &writes, body, by);
+        return post(app, None, &draft::send_name(), &note, 0, &writes, body, by);
     }
     if !by.is_person() { return Outcome::refused("a reply sent over the control socket names its words: body=") }
     let (tile, note, revision) = match read(app) { Ok(read) => read, Err(no) => return no };
@@ -143,15 +145,16 @@ fn reply(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 /// The note's revision is the one its page has now, so words written while the note moved on are still sent.
 pub(super) fn send(app: &mut App, tile: &str, by: &Actor) -> Outcome {
     let Some(draft) = app.draft_on(tile) else { return Outcome::refused("nothing is being written here") };
-    let (note, writes, body) = (draft.note.clone(), draft.writes.clone(), draft.buf.words().to_string());
+    let (note, writes, body, name) = (draft.note.clone(), draft.writes.clone(), draft.buf.words().to_string(), draft.send.clone());
     if body.trim().is_empty() { return Outcome::refused("nothing is written yet") }
     let revision = app.page_of(tile).filter(|page| page.id == note).map_or(draft.revision, |page| page.revision);
-    post(app, Some(tile), &note, revision, &writes, &body, by)
+    post(app, Some(tile), &name, &note, revision, &writes, &body, by)
 }
 
 /// One comment or reply sent to the service, as `by`. `tile`: the tile it was written in, whose draft is done once
-/// it has landed; a refusal leaves every word there, with why.
-fn post(app: &mut App, tile: Option<&str>, note: &str, revision: u64, writes: &Writes, body: &str, by: &Actor) -> Outcome {
+/// it has landed; a refusal leaves every word there, with why. `send`: what names this send among all of them.
+#[allow(clippy::too_many_arguments)]
+fn post(app: &mut App, tile: Option<&str>, send: &str, note: &str, revision: u64, writes: &Writes, body: &str, by: &Actor) -> Outcome {
     let at = app.at.clone();
     let ctx = json!({ "tile": tile, "what": writes.kind() });
     match writes {
@@ -161,11 +164,11 @@ fn post(app: &mut App, tile: Option<&str>, note: &str, revision: u64, writes: &W
                 input["passage"] = json!({ "quote": quote });
                 if let Some(near) = near { input["passage"]["near"] = json!(near) }
             }
-            let request = json!({ "requestId": request_id(&[note, quote.as_deref().unwrap_or(""), body]), "operations": [{ "operationId": "1", "type": "block-comment", "input": input }] });
+            let request = json!({ "requestId": request_id(send, &[note, quote.as_deref().unwrap_or(""), body]), "operations": [{ "operationId": "1", "type": "block-comment", "input": input }] });
             app.store.write(&at, "annotations.batch", request, by, posted, ctx);
         }
         Writes::Reply { thread, .. } => {
-            let request = json!({ "requestId": request_id(&[thread, body]), "input": { "annotationId": thread, "body": body, "source": source(by) } });
+            let request = json!({ "requestId": request_id(send, &[thread, body]), "input": { "annotationId": thread, "body": body, "source": source(by) } });
             app.store.write(&at, "annotations.reply", request, by, posted, ctx);
         }
         Writes::Block => return Outcome::refused("a block's own text is saved, not sent"),

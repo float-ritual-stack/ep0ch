@@ -94,6 +94,47 @@ fn a_comment_is_written_on_the_words_selected_and_sent_by_the_key_that_saves() {
     assert!(lists_of(&asked, "threads").len() >= 2, "the comments are read again once one is written");
 }
 
+/// The words selected are still the ones a comment is on when it is asked for with the mouse or from the bar: a
+/// press on the toolbar's button leaves the selection as it is (it used to clear it first, and the comment opened
+/// on the whole note), and the bar taking the keys is not the person letting the words go.
+#[test]
+fn a_comment_asked_for_by_the_toolbar_s_button_or_from_the_bar_is_on_the_words_selected() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    assert!(line(&mut rt, "screen.open name=kitchen").ok);
+    let select = |rt: &mut Runtime<App>| { rt.update(|_, tx| tx.select_all_text("tile/reader/part/0")); rest(rt); rt.state.ui("reader").passage.clone().expect("the selection was told to the window") };
+    // By the mouse: the screen's own Comment button.
+    let picked = select(&mut rt);
+    // (A press as a hand makes one: frames pass between the button going down and coming up.)
+    let (x, y) = rt.find("tool/comment").expect("the kitchen screen's toolbar has a Comment button");
+    rt.pointer_down(x, y);
+    rest(&mut rt);
+    assert_eq!(rt.selected_text().as_deref(), Some(picked.as_str()), "a press on the toolbar leaves the selection");
+    rt.pointer_up(x, y);
+    rest(&mut rt);
+    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { quote: Some(picked.clone()), near: None }), "the button's press left the selection");
+    press(&mut rt, "tile/reader/done");
+    assert!(rt.state.drafts.is_empty());
+    // From the bar: opened by its chord, the action found by a word and run by Return.
+    let picked = select(&mut rt);
+    chord(&mut rt, Key::Command('k'), primary());
+    assert!(rt.state.bar.open);
+    typed(&mut rt, "comment");
+    chord(&mut rt, Key::Enter, Mods::default());
+    assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Comment { quote: Some(picked), near: None }), "the bar took the keys, not the words");
+    press(&mut rt, "tile/reader/done");
+    // Let go by the person (a press in the note that selects nothing), the next comment is on the whole note.
+    select(&mut rt);
+    press(&mut rt, "tile/reader/title");
+    assert_eq!(rt.state.ui("reader").passage, None);
+    // And the bar put away with nothing run lets the words go too: they are no longer shown as selected.
+    select(&mut rt);
+    chord(&mut rt, Key::Command('k'), primary());
+    chord(&mut rt, Key::Escape, Mods::default());
+    assert!(!rt.state.bar.open);
+    assert_eq!(rt.state.ui("reader").passage, None, "a selection nobody sees any more is not what the next comment is on");
+}
+
 /// Capture comes first for a comment too: one the service refuses (its words aren't in the note as written) stays
 /// in its field with why, and leaving with words unsent is refused until they are dropped by name.
 #[test]
@@ -162,6 +203,43 @@ fn a_thread_is_answered_where_the_note_is_read_and_resolved_by_its_own_press() {
     assert!(reopened.ok);
     let lifecycle = sent(&asked, "annotations.lifecycle").unwrap();
     assert_eq!((lifecycle["input"]["lifecycle"].as_str(), lifecycle["mutation"]["actorId"].as_str()), (Some("open"), Some("compost-agent")));
+}
+
+/// One send is one request. The service keeps a request's first receipt and answers a second one of the same name
+/// with it, writing nothing: so the same words sent again another time (a second "Agreed." in a thread, the same
+/// short comment on a note twice) are another request, and only a draft tried again as it stands is the same one.
+#[test]
+fn the_same_words_sent_another_time_are_another_request_and_a_draft_tried_again_is_the_same() {
+    let g = garden(ok());
+    let asked = g.asked.clone();
+    let mut app = g.app;
+    let named = |action: &str| -> Vec<String> { asked.borrow().iter().filter(|a| a["action"] == action).map(|a| a["requestId"].as_str().expect("a write about a note names its request").to_string()).collect() };
+    // An agent's answer, the same words twice: two replies asked for, two requests.
+    let agent = Actor::Agent("compost-agent".into());
+    for _ in 0..2 { assert!(app.act("reply thread=thread-plot body=\"Agreed.\"", agent.clone()).ok); app.settle(); }
+    let replies = named("annotations.reply");
+    assert_eq!(replies.len(), 2);
+    assert_ne!(replies[0], replies[1], "the second \"Agreed.\" is a reply of its own, not the first one's receipt");
+    // The person's, written and sent, then the same words written and sent again: two comments.
+    for _ in 0..2 {
+        assert!(act(&mut app, "comment").ok);
+        write(&mut app, "Looks good.");
+        assert!(act(&mut app, "edit.save").ok && app.drafts.is_empty(), "{:?}", app.notice);
+    }
+    let comments = named("annotations.batch");
+    assert_eq!(comments.len(), 2);
+    assert_ne!(comments[0], comments[1], "the same words on the same note another time are another comment");
+    // A draft the service refused, sent again as it stands: the same request, so one that did land lands once.
+    assert!(act(&mut app, "comment quote=\"words nobody wrote\"").ok);
+    write(&mut app, "Is this right?");
+    for _ in 0..2 { act(&mut app, "edit.save"); assert_eq!(words(&app), "Is this right?") }
+    let tried = named("annotations.batch");
+    assert_eq!(tried.len(), 4);
+    assert_eq!(tried[2], tried[3], "a draft tried again as it stands is the request it was");
+    // Its words changed, it is another: what is sent is no longer what that request named.
+    write(&mut app, "Is this right? I doubt it.");
+    act(&mut app, "edit.save");
+    assert_ne!(named("annotations.batch")[4], tried[3]);
 }
 
 /// A proposal's change is drawn from what the service answered (a `diff`: the window compares no text), and its

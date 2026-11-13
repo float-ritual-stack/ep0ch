@@ -382,6 +382,10 @@ impl App {
     pub fn home_of(&self, tile: &str) -> Option<Id> {
         self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| if self.follows(tile) { self.reader() } else { None })
     }
+    /// The words selected in a reader are let go, in every reader: the bar had the keys and is put away, and what
+    /// was selected when it opened is shown selected no longer (the runtime clears a selection when a field takes
+    /// the keys, and tells no one). What the bar ran has had them by now, when it was a comment.
+    pub(in crate::actions) fn let_go(&mut self) { for ui in self.st.tiles.values_mut() { ui.passage = None } }
     /// The note a tree marks as the one open: the note of the reader its selection feeds, else the reader's.
     pub fn selected_in(&self, tile: &str) -> Option<String> {
         let fed = self.layout.select_targets(tile).into_iter().find(|to| self.reads_notes(to));

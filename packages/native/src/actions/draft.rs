@@ -205,7 +205,7 @@ impl App {
             let Some(tile) = tile else { self.st.recovered.push(kept); continue };
             let mut buf = focused(&kept.text);
             buf.select(kept.caret, kept.caret);
-            self.seat(DraftSession::new(tile, kept.note, kept.revision, kept.base, buf).writing(kept.writes), &Actor::Person);
+            self.seat(DraftSession::new(tile, kept.note, kept.revision, kept.base, buf).writing(kept.writes).sending(kept.send), &Actor::Person);
             back += 1;
         }
         if back > 0 {

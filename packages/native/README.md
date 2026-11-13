@@ -64,7 +64,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Complete what you type | A page's name begun (`[[se`), a note's (`((po`), a property, a component, a callout: the service's list hangs at the caret. Down and Up light a row, Tab or Return writes it, Esc puts the list away |
 | Write while an agent edits | The block is held on the service while it is open: an agent's edit lands in your text in front of you, lit, and the tile says who changed what. Never in the paragraph you are typing in, never under an input method's marked text, and your caret and selection stay yours. The editor's own undo takes it back |
 | Find your words back | What you type is kept as you type it. A window that ended before a save finds the text back in its block, and says so |
-| Comment on words | Select words in a reader and press the comment's key (`comment`; its button is on the kitchen screen's toolbar): the comment opens over the note, in the editor a block has, under the words it quotes; Save sends it. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
+| Comment on words | Select words in a reader and press the comment's key (`comment`; its button is on the kitchen screen's toolbar, and the bar runs it for the same words): the comment opens over the note, in the editor a block has, under the words it quotes; Save sends it. With nothing selected it is on the whole note. `comment quote="…" body="…"` sends one outright |
 | Answer and resolve | The Comments tile lists the note's threads, the open ones first, each with what it is on and its replies under it. Reply opens the same editor where the note is read (`reply thread=`); Resolve puts the thread among the earlier ones, and Reopen brings it back (`resolve thread=`) |
 | Review a proposed edit | The Proposals tile lists the edits waiting beside the note: who sent each, why it didn't apply, and what it would change, line by line as the service found it. Apply and Dismiss are its presses (`proposal.apply id=`, `proposal.dismiss id=`) |
 | Look back, and go back | The Revisions tile lists the texts the note had. A press on an earlier one opens what changed since under its row (`list.pick id=<its number> tile=revisions`); Restore puts that text in the editor, to save or drop (`revision.restore revision=`) |
@@ -278,7 +278,11 @@ src/ (Rust, Rune)                                      the outline host
   thread. One session type, one field (the page drawer's), the same list that completes a word, the same file that
   keeps what is typed, and the same actions: `edit.save` saves a block and sends a comment, `edit.close` leaves
   either. Only a block's own text is held on the service. A comment is on words by quoting them (`passage.select`
-  is what a selection in a reader says, as it is made); where they are in the note is the service's to find.
+  is what a selection in a reader says, as it is made); where they are in the note is the service's to find. A press
+  on the toolbar leaves the selection as it is (`keeps_text_selection`), and the bar put away lets it go.
+- **One send is one request** (`DraftSession.send`, `draft::send_name`): a comment's or a reply's request is named
+  by its draft and its words, so a draft tried again is the request it was and the same words written another time
+  (a second "Agreed." in a thread) are another, which the service writes.
 - **A press in a list about a note is about the reader it follows** (`App::act_from`): Reply and Restore act in
   the reader whose note the list is of, as the list's opens land there.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a

@@ -151,7 +151,9 @@ fn dock_strip(side: Dir, at: Rect, width: f32, height: f32, k: &Kit) -> El {
 /// The screen's toolbar: who answers, then one button an act line of the screen's own list.
 fn toolbar(s: &App, k: &Kit) -> El {
     let c = &k.c;
-    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().px(10.0).py(6.0)
+    // A press on the toolbar leaves the words selected in a note selected, and the keys where they are: its button
+    // that comments is pressed for those words (a press anywhere else in the window lets a selection go first).
+    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().px(10.0).py(6.0).keeps_text_selection()
         .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate())
         .child(Badge::new(s.screen.title.clone()).variant(BadgeVariant::Subtle).build(k).key("screen-name"));

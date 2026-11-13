@@ -439,8 +439,15 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(code("tiles/page.rs").matches("keys::area(").count(), 1, "one field, for a block's text and for what is written about it");
     none("what a draft writes decided outside the session, its actions and the drawer that shows it", strays("Writes::", |path| ["draft.rs", "actions/draft.rs", "actions/review.rs"].contains(&path)));
     // A selection is told to the window by the reader that shows the words, as an act line; nothing else reads one.
-    none("a selection read outside the page drawer", ["on_selection_change", "text_selection()", "SelectionChange"].iter().flat_map(|word| strays(word, |path| path == "tiles/page.rs")).collect());
+    none("a selection read outside the page drawer", ["on_selection_change", ".text_selection()", "SelectionChange"].iter().flat_map(|word| strays(word, |path| path == "tiles/page.rs")).collect());
     none("the words selected written outside the action that hears them", strays(".passage = ", |path| path == "actions/review.rs" || path == "actions/app.rs"));
+    // A press leaves a selection as it is in one place, the toolbar (its button that comments is pressed for the words
+    // selected), and the words are let go without the reader saying so in one, the bar put away.
+    none("a press that keeps the selection outside the toolbar", strays("keeps_text_selection", |path| path == "shell.rs"));
+    none("the words selected let go outside the bar's own actions", calls("let_go", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
+    // One name a send: made in one place, and a request is named by it in one.
+    none("a send named outside the session and the action that sends", calls("send_name", |path| path == "draft.rs" || path == "actions/review.rs"));
+    none("a request about a note named outside the action that sends it", calls("request_id", |path| path == "actions/review.rs"));
     // Which reader a press in a list about a note means: the dispatcher's `act_from`, asking `App::home_of`.
     none("the reader a list follows chosen for an act outside the dispatcher", calls("home_of", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
     // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.

@@ -135,6 +135,9 @@ pub struct DraftSession {
     pub note: String,
     /// What saving it writes.
     pub writes: Writes,
+    /// What names it among everything this window sends (`send_name`): the request of a comment or a reply sent
+    /// from it is named by this and its words, so trying again sends the same request, never a second comment.
+    pub send: String,
     /// The saved revision it stands on, and the text the service holds at it: a save names that revision, and
     /// there is something unsaved exactly when what is typed differs from that text.
     pub revision: u64,
@@ -173,6 +176,15 @@ pub fn byte_of(text: &str, utf16: usize) -> Option<usize> {
 
 /// What names a text between two asks of the service, or between two runs: the same words, the same name (FNV-1a).
 pub fn version(text: &str) -> String { format!("{:016x}", text.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))) }
+
+/// A name for one thing to send, unlike any other: when it was begun, by which process, and which of its sends
+/// it is. A comment's or a reply's request is named by it (`DraftSession.send`), so one draft tried again is one
+/// request and the same words written another time are another.
+pub fn send_name() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let begun = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    format!("{begun:x}-{:x}-{:x}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
 
 /// What a placed span does to an offset beside it (outline-core's `PlacedSpan.caret`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,11 +225,14 @@ pub fn map_cursor(offset: usize, spans: &[Placed]) -> usize {
 impl DraftSession {
     /// A draft of `note` on `tile`: `text` as the service holds it at `revision`, in a field the caller made.
     pub fn new(tile: Id, note: String, revision: u64, base: String, buf: Text) -> DraftSession {
-        DraftSession { tile, note, writes: Writes::Block, revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, stood: HashMap::new() }
+        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, stood: HashMap::new() }
     }
 
     /// The same session, writing something else than the block's own text (a comment, a reply).
     pub fn writing(mut self, writes: Writes) -> DraftSession { self.writes = writes; self }
+
+    /// The same session, under the name it had when the file kept it: found back, it is still the send it was.
+    pub fn sending(mut self, send: Option<String>) -> DraftSession { if let Some(send) = send { self.send = send } self }
 
     /// It is the block's own text being written: the one draft of a block the service holds and patches.
     pub fn is_block(&self) -> bool { self.writes == Writes::Block }
@@ -323,6 +338,8 @@ pub struct Kept {
     pub text: String,
     pub caret: usize,
     pub writes: Writes,
+    /// The name it sends under (`DraftSession.send`); a file from before drafts had one keeps none.
+    pub send: Option<String>,
 }
 
 impl Recovery {
@@ -334,7 +351,7 @@ impl Recovery {
 
     /// The drafts that hold unsaved text, written whole (to a file beside, then moved over): none, and the file goes.
     pub fn keep(&self, drafts: &[(String, &DraftSession)]) {
-        let unsaved: Vec<Value> = drafts.iter().filter(|(_, draft)| draft.unsaved()).map(|(tile, draft)| json!({ "tile": tile, "note": draft.note, "revision": draft.revision, "base": draft.base, "text": draft.buf.words(), "caret": draft.buf.ends().1, "writes": draft.writes.json() })).collect();
+        let unsaved: Vec<Value> = drafts.iter().filter(|(_, draft)| draft.unsaved()).map(|(tile, draft)| json!({ "tile": tile, "note": draft.note, "revision": draft.revision, "base": draft.base, "text": draft.buf.words(), "caret": draft.buf.ends().1, "writes": draft.writes.json(), "send": draft.send })).collect();
         if unsaved.is_empty() { let _ = std::fs::remove_file(&self.0); return }
         if let Some(dir) = self.0.parent() { let _ = std::fs::create_dir_all(dir); }
         let beside = self.0.with_extension("json.writing");
@@ -347,7 +364,7 @@ impl Recovery {
         let Some(kept) = std::fs::read(&self.0).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else { return Vec::new() };
         kept["drafts"].as_array().into_iter().flatten().filter_map(|draft| {
             let text = |key: &str| draft[key].as_str().map(str::to_string);
-            Some(Kept { tile: text("tile").unwrap_or_default(), note: text("note")?, revision: draft["revision"].as_u64()?, base: text("base")?, text: text("text")?, caret: draft["caret"].as_u64().unwrap_or(0) as usize, writes: Writes::read(&draft["writes"]) })
+            Some(Kept { tile: text("tile").unwrap_or_default(), note: text("note")?, revision: draft["revision"].as_u64()?, base: text("base")?, text: text("text")?, caret: draft["caret"].as_u64().unwrap_or(0) as usize, writes: Writes::read(&draft["writes"]), send: text("send") })
         }).collect()
     }
 }
