@@ -94,7 +94,20 @@ fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 }
 
 fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
-    app.reshape(&Op::Close { tile: target(app), gone: false }, by)
+    let tile = target(app);
+    // The way back the closed reader kept goes with its note.
+    let trail = app.ui(&tile).history.clone();
+    // The close that commits asks who keeps the note the tile shows: the layout's answer (`close_heir`, the door's
+    // rule by contract), which this only carries out. A reader across an edge is another screen's, and no window
+    // here holds one to show it in: the answer says where it would go.
+    let closed = app.reshape(&Op::Close { tile, gone: false, heir: true }, by);
+    let heir = closed.answer["heir"].as_str().and_then(|name| app.layout.named(name));
+    if let (true, Some(heir), Some(note)) = (closed.ok, heir, closed.answer["note"].as_str().map(str::to_string)) {
+        app.show(&heir, &note, false);
+        app.ui_mut(&heir).history = trail;
+        app.keep();
+    }
+    closed
 }
 
 fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {

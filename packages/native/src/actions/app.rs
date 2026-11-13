@@ -645,7 +645,11 @@ impl App {
         // it speaks for (`home_of`, the one answer), never a list it follows.
         let notes = drawer.is_some_and(|d| d.notes);
         let home = if notes { None } else { self.home_of(tile).map(|id| self.layout.name(&id)) };
-        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing: drawer.filter(|d| d.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
+        // The note a reader was told to show. One told none shows none, as the layout's rules read it (it takes a
+        // closed reader's note, and no open is "already shown" in it): what it draws meanwhile, the outline's first
+        // note, is what an empty reader looks like here (`note_of`), not a note it holds.
+        let showing = if notes { self.ui(tile).note.clone() } else { None };
+        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: a block is being written in it. The fact is the one the layout's rules read

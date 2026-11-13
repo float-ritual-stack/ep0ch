@@ -57,7 +57,7 @@ fn tear(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let Some(alone) = app.layout.alone(&tile) else { return Outcome::refused(format!("no tile {name}")) };
     let shown = app.ui(&tile).clone();
     // It leaves this window by the layout's own rule for a tile closed (one a block is being written in stays).
-    let closed = app.reshape(&Op::Close { tile, gone: false }, by);
+    let closed = app.reshape(&Op::Close { tile, gone: false, heir: false }, by);
     if !closed.ok { return closed }
     // The window is called what the tile is, with a number when a window by that name is open.
     let taken = app.store.windows();

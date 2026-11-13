@@ -28,7 +28,7 @@ fn op_of(v: &Value, kind_of: &dyn Fn(&str) -> String) -> Op {
     match v["op"].as_str().unwrap() {
         "open" if v.get("placement").is_some() => Op::OpenNote { request: Request::read(&v["placement"]), tile: spec(tile(), Some(text(v, "kind").unwrap_or_else(|| "reader".into()))), name: text(v, "name") },
         "open" => Op::Open { tile: spec(tile(), text(v, "kind")), name: text(v, "name"), loose: flag(v, "loose") == Some(true), alt: flag(v, "alt") == Some(true), deliberate: flag(v, "deliberate"), at: At::read(&v["at"]).expect("an at"), keys: flag(v, "keys") != Some(false), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
-        "close" => Op::Close { tile: tile(), gone: flag(v, "gone") == Some(true) },
+        "close" => Op::Close { tile: tile(), gone: flag(v, "gone") == Some(true), heir: flag(v, "heir") == Some(true) },
         "release" => Op::Release { tile: tile() },
         "peek.release" => Op::PeekRelease { tile: tile() },
         "replace" => Op::Replace { tile: tile(), with: spec(text(v, "with").unwrap(), text(v, "kind")), name: text(v, "name"), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
@@ -168,7 +168,10 @@ fn every_row_of_the_layout_contract_answers_as_the_door_does() {
         let got = applied(&layout::apply(&l, &op, &ctx), true);
         if let Some(why) = differs(&got, &case["result"], "") { wrong.push(format!("{} ({}): {why}", case["name"], case["op"]["op"])) }
     }
-    assert!(asked >= 310, "the table has its rows: {asked}");
+    assert!(asked >= 329, "the table has its rows: {asked}");
+    // What a close leaves of its note is among them: a tile here, one across an edge, and none.
+    let heirs: Vec<&Value> = table["cases"].as_array().unwrap().iter().filter(|case| case["op"]["heir"] == true).collect();
+    assert!(heirs.len() >= 18 && heirs.iter().any(|case| case["result"]["answer"]["heir"].is_string()) && heirs.iter().any(|case| case["result"]["answer"]["heirAcross"].is_string()) && heirs.iter().any(|case| case["result"]["answer"].get("note").is_none()), "the close that asks who keeps its note is asked every way");
     assert!(wrong.is_empty(), "{} of {asked} rows answer differently:\n{}", wrong.len(), wrong.join("\n"));
 }
 

@@ -164,6 +164,39 @@ fn landing(s: &Layout, id: &str, verb: &str, ctx: &Ctx, preferred: Option<&str>)
     None
 }
 
+/// What a close leaves of the note a tile shows (the door's `closeHeir`).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Heir {
+    /// A tile here takes the note.
+    To(Id),
+    /// A reader across an edge (another screen's), by the wire's path: that screen asks its own reader.
+    Across(String),
+}
+
+/// What a close leaves of the note tile `id` shows (the door's `closeHeir`, desk/landing.ts): when no other tile here
+/// shows it, the reader its opens land in takes it, so the note stays on screen: a tile here, or one across an edge
+/// (by the wire's path, as an open finds it). Asked while its wires are there; the action shows the note there.
+pub(super) fn close_heir(s: &Layout, id: &str, ctx: &Ctx) -> Option<Heir> {
+    let f = (ctx.facts)(id);
+    let note = f.showing.as_ref().filter(|_| f.notes)?;
+    let all = s.all();
+    if all.iter().any(|x| x != id && (ctx.facts)(x).showing.as_ref() == Some(note)) { return None }
+    if let Some(across) = s.across.iter().find(|w| w.from == id && w.verb == "open") { return Some(Heir::Across(across.to.clone())) }
+    match landing(s, id, "open", ctx, None) {
+        Some(Route::To { to, .. }) if to != id && all.contains(&to) && heir_takes(s, &to, ctx) => Some(Heir::To(to)),
+        _ => None,
+    }
+}
+
+/// Whether reader `to` takes a closed reader's note (the door's `heirTakes`): it takes notes and shows none, isn't
+/// pinned, holds no edit or work and follows no list; and, for an agent's close, it isn't where the person's keys
+/// are (their remembered focus in a layout they're not in is no one's).
+pub(super) fn heir_takes(s: &Layout, to: &str, ctx: &Ctx) -> bool {
+    let g = (ctx.facts)(to);
+    let theirs = !ctx.standing && ctx.here != Some(false) && s.focus == to;
+    !theirs && g.notes && g.showing.is_none() && !g.pinned && g.editing.is_none() && !g.holds && !g.follower && g.available != Some(false)
+}
+
 /// How much of itself each column of the flow at `path` shows.
 pub(super) fn covers_of(s: &Layout, path: &[usize], area: Rect, holds: &dyn Fn(&str) -> bool) -> Vec<(usize, Cover)> {
     let (base, slid) = s.placed(area, holds);

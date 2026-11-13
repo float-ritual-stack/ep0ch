@@ -487,6 +487,12 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
     none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
     none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // What a close leaves of the closed reader's note is the layout's to say (`close_heir`, beside the rule for where
+    // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
+    none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
+    assert!(code("actions/tile.rs").contains("heir: true") && !code("actions/tile.rs").contains(".showing") && !code("actions/tile.rs").contains("facts("), "tile.close asks the layout who keeps the note, and reads no tile's facts to decide it");
+    // What a reader shows, as the layout's rules read it, is the note it was told: never what it draws while told none.
+    assert!(code("actions/app.rs").contains("let showing = if notes { self.ui(tile).note.clone() } else { None };"), "`Facts.showing` is the note a reader was told");
     // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
     // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
     assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");

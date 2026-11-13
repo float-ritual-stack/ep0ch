@@ -157,3 +157,35 @@ fn an_agent_s_press_mints_no_invitation() {
     let refused = script_act(&mut g, "r1", None, "tile.focus", json!({ "tile": "tree" }));
     assert!(refused["error"].is_string(), "{refused}");
 }
+
+// ── what a close leaves of the closed reader's note: the layout's answer, shown by the action ──────────────────────
+
+/// A tree that feeds a reader, whose own opens are wired to a second reader beside it.
+fn wired_pair() -> Garden {
+    laid(json!({ "lands": "bed", "layout": { "focus": "beds", "root": split(json!([with(leaf("tree", "beds"), json!({ "wires": [{ "verb": "select", "to": "bed" }] })), with(leaf("reader", "bed"), json!({ "wires": [{ "verb": "open", "to": "spare" }] })), leaf("reader", "spare")])) } }))
+}
+
+/// Two readers, the first's opens wired to the second, which was told no note. The first is closed: its note stays
+/// on screen, in the reader the layout says is its heir (the door's `closeHeir`, held by the layout's contract
+/// table), with the way back it had. A reader that shows a note of its own keeps it, and the closed note goes.
+#[test]
+fn a_closed_reader_s_note_stays_on_screen_in_the_reader_its_opens_land_in() {
+    let mut g = wired_pair();
+    let spare = g.app.layout.named("spare").unwrap();
+    assert!(act(&mut g.app, "open id=plot tile=beds").ok && act(&mut g.app, "open id=shed tile=beds").ok);
+    assert_eq!((note_in(&g.app, "bed").as_deref(), g.app.ui(&spare).note.as_deref()), (Some("shed"), None), "the tree's picks land in the bed; the spare reader was told nothing");
+    assert_eq!(g.app.facts(&spare).showing, None, "a reader told no note shows none, as the layout's rules read it");
+    let closed = act(&mut g.app, "tile.close tile=bed");
+    assert!(closed.ok, "{}", closed.said);
+    assert_eq!((closed.answer["heir"].as_str(), closed.answer["note"].as_str()), (Some("spare"), Some("shed")), "the layout says who keeps the note: {}", closed.answer);
+    assert_eq!((g.app.ui(&spare).note.as_deref(), g.app.ui(&spare).history.as_slice()), (Some("shed"), ["plot".to_string()].as_slice()), "the heir shows it, with the way back the closed reader had");
+
+    // A reader that shows a note of its own takes none: the closed reader's note goes with it.
+    let mut g = wired_pair();
+    assert!(act(&mut g.app, "open id=plot tile=bed").ok, "an open from the bed goes down its wire");
+    assert!(act(&mut g.app, "open id=shed tile=beds").ok);
+    assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "spare").as_deref()), (Some("shed"), Some("plot")));
+    let closed = act(&mut g.app, "tile.close tile=bed");
+    assert!(closed.ok && closed.answer.get("heir").is_none(), "{} {}", closed.said, closed.answer);
+    assert_eq!(note_in(&g.app, "spare").as_deref(), Some("plot"));
+}
