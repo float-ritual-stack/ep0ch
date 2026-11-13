@@ -16,6 +16,8 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 
 ![A note read with a pen: the words two comment threads are on marked where they are drawn, the first thread opened whole in the margin beside them (the comment, an agent's answer, its own Reply and Resolve), the second folded to its first words, dark](docs/margin-dark.png)
 
+![A comment written where its words are, inside a part: the note's prose is one part, and the field stands in it under the list whose last item was picked (a press late at each end, found as whole words), over the paragraph that follows, the words two threads are on still marked on both sides, dark](docs/inplace-dark.png)
+
 ![A comment on words as the reader draws them: begun on words across bold text and a reference, beside a thread the service anchored to the source such words were drawn from (the link whole, the bold run with its marks), dark](docs/quote-dark.png)
 ![The keys screen: every way to press an action, a list made from the actions' own rows, dark](docs/keys-dark.png)
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
@@ -657,7 +659,7 @@ pictures it draws into the folder, an svg fence and a mermaid fence), and `quote
 words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
 and one begun on words picked as a selection says them), and `margin` (a note the same seed writes with two comment
 threads on words of it: the passages marked, the first thread opened beside its words; draw it wide, `--size 1760x900 --at 0.5`,
-for the margin, since the tiles' area is measured on the first frame). `--act <file>` runs any file of them before the
+for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),

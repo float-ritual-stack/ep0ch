@@ -7,7 +7,8 @@
 // - "Sowing plan": a note whose words cross a link, a reference and bold text, with a comment made on words of it as
 //   a reader draws them (said as drawn): the service anchored it to the source they were drawn from (the `quote` scene).
 // - "Compost heap": a note with two comment threads on words of it, one across two list items with an answer: the
-//   page marks both passages and the threads stand beside them (the `margin` scene).
+//   page marks both passages and the threads stand beside them (the `margin` scene). Its prose is one part, and
+//   the `inplace` scene begins a comment on words of its list (that scene names the part's span of this text).
 // - "Seed list": a screen saved as a note, with keys of its own and the list of the keys beside its reader.
 // - "Two beds": a screen saved as a note, two readers with the first's opens wired to the second (the `heir` scene).
 // - "The plot in June" (with a folder): a header image, two pictures (one nobody took), an svg fence and a mermaid
