@@ -1017,7 +1017,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const entries = this.steps.takeBack(this, actor, txn);
     if (!Array.isArray(entries)) throw new ActionRefused(entries.refused);
     const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.party === "you" ? entries[0]!.first ?? entries[0]!.what : entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };   // the person's own key says what it did (PIE-1782)
   }
 
   /**
@@ -1661,7 +1661,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(p.deliberate ? { deliberate: true } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
       ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
-      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to } : {}),
+      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to, ...(!wires.some(w => w.verb === "select") ? { linkRole: "target" as const } : {}) } : {}),   // a link alone reads back as a preview's (open and select): say it only opens
       ...(wires.some(w => w.verb !== "open") ? { wires: wires.filter(w => w.verb !== "open") } : {}),
     };
   }
@@ -3151,9 +3151,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
-    const id = this.idOf(p);
-    if (p && id === undefined) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
-    return this.dispatch.act({ action, args, ...(id !== undefined ? { tile: this.tileId(id) } : {}) }, by);
+    const d = p && this.idOf(p) === undefined ? this.relatives().find(x => x.idOf(p) !== undefined) : this, id = d?.idOf(p);   // a tile of the family (a grouped answer's reader, outside the group) runs on its own desk
+    if (p && (!d || id === undefined)) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
+    return d!.dispatch.act({ action, args, ...(id !== undefined ? { tile: d!.tileId(id) } : {}) }, by);
   }
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked(p: Pane): Pane | undefined {
@@ -3759,9 +3759,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
-    // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) {
-      const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
+    for (const [d, o] of this.holder ? [] : this.descend().flatMap(d => [...d.overlays.all()].reverse().map(o => [d, o] as const))) {   // images would bleed through an overlay; a group's or mount's is drawn over the whole screen, not its tile (PIE-1783)
+      const p = d.focusedPane(), values = p ? d.lookAt(p, cols).values : lookFor(d.lookSrc, { screen: d.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
       const box = o.drawn?.();
@@ -4912,7 +4911,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private keyIn(k: Key, ctx: Ctx) {
-    if (this.overlays.key(k, this) !== null) return this.redraw();
+    const raised = k.kind === "mouse" && !this.holder ? this.descend().find(d => d !== this && d.overlays.top()) : undefined;   // a group's overlay is drawn over this screen: its clicks are in this screen's cells
+    if (this.overlays.key(k, this) !== null || (raised && raised.overlays.key(k, raised) !== null)) { raised?.redraw(); return this.redraw(); }
     if (this.linking && k.kind !== "mouse") return this.linkKey(k);
     // In a terminal tile: every key is the program's, but the escape chord and the mouse. Once the program
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.
@@ -7415,12 +7415,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
       whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
-    this.overlay(new ListPicker<{ label: string; run: () => unknown }, Desk>({
-      name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
-      row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-      choose: it => void it.run(),
+    const ask: ListPicker<{ label: string; run: () => unknown }, Desk> = new ListPicker<{ label: string; run: () => unknown }, Desk>({   // a question, not a mode: no gathering card beside it; ^W leaves it for its chord
+      name: "gather", items: () => rows, clickChooses: true, row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)], choose: it => void it.run(),
+      keys: (k, d) => { if (k.kind !== "char" || !k.ctrl || k.ch !== "w") return false; ask.close(d, "esc"); d.key(k, d.ctx); return true; },
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
-    }));
+    }); this.overlay(ask);
     return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }
 
