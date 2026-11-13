@@ -143,7 +143,7 @@ export interface TileFacts {
   /** Its kind shows what a tile it follows picks (a preview): a link to it is a preview unless said otherwise. */ follower?: boolean;
   /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */ home?: string;
   /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */ placeholder?: boolean;
-  /** It holds work (a draft): in a flow, its column resists compression. */ holds?: boolean;
+  /** It holds work (a draft): in a flow, its column resists compression. */ holds?: boolean; /** A list whose unrouted open gives the reader its keys (TileKind.handsKeys). */ handsKeys?: boolean;
 }
 
 /** Where the person is: their keys, the tile they're typing in (an edit, a comment, a terminal), whether they're busy. */
@@ -581,7 +581,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
   const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
   if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
   if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
     const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];

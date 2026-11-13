@@ -860,7 +860,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
-      ...(k?.opensOnScreen ? { opensOut: true } : {}),
+      ...(k?.opensOnScreen ? { opensOut: true } : {}), ...(k?.handsKeys ? { handsKeys: true } : {}),
       ...(home !== undefined ? { home } : {}),
       ...(p && (holds || holdsKeys || this.holdsWork(p)) ? { holds: true } : {}),
     };
