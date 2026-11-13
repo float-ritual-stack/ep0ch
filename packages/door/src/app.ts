@@ -14,8 +14,7 @@ import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
 import { outlinesDir } from "./discover";
 import { actionFailure, errorDetails } from "./status-log";
-import { MESSAGE_MS } from "@ep0ch/outline-core/reading-time";
-import { StatusLog, messageContext, readingMs, type MessageDetails } from "./status-log";
+import { MESSAGE_MS, StatusLog, messageContext, readingMs, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -34,8 +33,7 @@ import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, t
 import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { paste, type PasteDoor } from "./paste-path";
-import { saidToPerson } from "./surface/way-out";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, saidToPerson, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
 import { doorMarks } from "./desk/marks";
 import type { Reveal } from "./reveal";
@@ -1331,7 +1329,6 @@ export class App implements Ctx {
         return r;
       } catch (e) {
         const refused = e instanceof ActionRefused || e instanceof Offline;
-        // The agent is answered its own words (the act line); the person reads the refusal said for them.
         this.flash(refused ? `${who} · ${req.action} refused: ${saidToPerson(e.message)}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
         throw e;
       }

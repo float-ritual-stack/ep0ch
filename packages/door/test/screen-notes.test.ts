@@ -237,7 +237,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     await board.request("create", { parentId: null, text: screenNoteText(spec as any), author: "user" });
     await until(() => screenNames().includes("now-bench"), "the door registered the screen");
     // The service serves the tile as the kind it is now: a reader, pinned, with no page of its own to name.
-    const served = (await board.request("screens.list", {})).screens.find((row: any) => row.name === "now-bench").spec.layout.root.kids[1];
+    const served = ((await board.request("screens.list", {})).screens as any[]).find(row => row.name === "now-bench").spec.layout.root.kids[1];
     expect(served).toMatchObject({ mode: "pinned", name: "now" });
     expect(served.page).toBeUndefined();
     await app.dispatch.act({ action: "screen.open", args: { name: "now-bench" } }, { kind: "user" });

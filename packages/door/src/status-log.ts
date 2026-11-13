@@ -1,5 +1,6 @@
 import { ActionRefused } from "@ep0ch/outline-core/action-line";
 import { readingMs as readingTime } from "@ep0ch/outline-core/reading-time";
+export { MESSAGE_MS } from "@ep0ch/outline-core/reading-time";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
