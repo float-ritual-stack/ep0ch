@@ -495,8 +495,22 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
     none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
     assert!(code("actions/tile.rs").contains("heir: true") && !code("actions/tile.rs").contains(".showing") && !code("actions/tile.rs").contains("facts("), "tile.close asks the layout who keeps the note, and reads no tile's facts to decide it");
-    // What a reader shows, as the layout's rules read it, is the note it was told: never what it draws while told none.
-    assert!(code("actions/app.rs").contains("let showing = if notes { self.ui(tile).note.clone() } else { None };"), "`Facts.showing` is the note a reader was told");
+    // What a reader shows is one answer, `App::note_of`: the note it was told and no other (never the outline's first
+    // while it is told none). The layout's rules read that answer (`Facts.showing`) and the page drawer draws it, so
+    // what a tile draws and what a close or an open finds there can't differ.
+    assert!(code("actions/app.rs").contains("pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone() }"), "a reader shows the note it was told: `note_of` reads nothing else");
+    assert!(code("actions/app.rs").contains("let showing = if notes { self.note_of(tile) } else { None };"), "`Facts.showing` is `note_of`, the one answer");
+    none("a note given to a reader that was told none (a list's first row read as a note to show)", ["rows_of(&tree).first()", ".first().map(|row| row.id.clone())"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // A tile with nothing to draw yet says what it is in its kind's own words (`tiles::waiting`, the service's row):
+    // no drawer words a kind or what an empty tile waits for.
+    none("an empty tile worded by its drawer: `tiles::waiting` says the kind's own row", ["Pick a note", "starts a note", "Nothing is open to list"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    assert!(code("tiles/mod.rs").contains("cx.row.about") && code("tiles/page.rs").contains("super::waiting(") && code("tiles/list.rs").contains("super::waiting("), "a reader told no note and a list with no note to be about draw their kind's own description");
+    // Whether a row folds is the row's own word (`folds`, the service's: in a list of notes, that a note is under
+    // it, by outline-core's `isNoteUnder`). The mark is drawn from it in one place, and nothing else here says a
+    // note has something under it (a page's `hasChildren` is read to decide nothing).
+    none("a fold's mark drawn outside the list drawer's one row", strays("TRIANGLE_RIGHT", |_| false).into_iter().filter(|found| !found.starts_with("tiles/list.rs:")).collect());
+    assert_eq!(strays("TRIANGLE_RIGHT", |_| false).len(), 1, "the mark is drawn once, for a tree's row and any other row that folds");
+    none("something under a note decided by anything but its row's `folds`", strays(".has_children", |_| false));
     // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
     // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
     assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");

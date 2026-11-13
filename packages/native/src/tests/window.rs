@@ -87,6 +87,7 @@ fn the_bar_opened_by_its_chord_finds_an_action_by_a_word_and_runs_it() {
     let g = garden(ok());
     let asked = g.asked.clone();
     let mut rt = window(g.app);
+    let before = rt.state.steps.len();
     chord(&mut rt, Key::Command('k'), primary());
     assert!(rt.state.bar.open && rt.find("bar/field").is_some(), "the chord the bar.open row names opens the bar");
     typed(&mut rt, "trash");
@@ -98,7 +99,7 @@ fn the_bar_opened_by_its_chord_finds_an_action_by_a_word_and_runs_it() {
     let sent = asked.borrow().iter().rev().find(|a| a["action"] == "delete").cloned().expect("the note went to the Trash");
     assert_eq!((sent["blockId"].as_str(), sent["mutation"]["author"].as_str(), sent["mutation"]["actorId"].as_str()), (Some("plot"), Some("user"), Some("ep0ch-native:box")));
     assert!(!rt.state.bar.open && rt.find("notice-undo").is_some(), "the bar is away and the notice offers the way back");
-    let steps: Vec<String> = rt.state.steps.iter().map(|step| step.line()).collect();
+    let steps: Vec<String> = rt.state.steps.iter().skip(before).map(|step| step.line()).collect();
     assert_eq!(steps, ["bar.open", "note.trash", "bar.pick"], "three acts, each recorded as the line it was (a pick when what it ran is done)");
 }
 

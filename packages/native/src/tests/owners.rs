@@ -174,7 +174,8 @@ fn a_press_inside_a_tile_gives_it_the_keys() {
 /// answer for the focus border, `peek` and where a key goes. Back on the tile with the draft, they are in it again.
 #[test]
 fn the_person_s_layer_is_read_from_the_tile_with_the_keys() {
-    let g = laid(json!({ "layout": { "focus": "bed", "root": { "t": "split", "dir": "row", "weights": [0.3, 0.7], "kids": [leaf("tree", "beds"), leaf("reader", "bed")] } } }));
+    let mut g = laid(json!({ "layout": { "focus": "bed", "root": { "t": "split", "dir": "row", "weights": [0.3, 0.7], "kids": [leaf("tree", "beds"), leaf("reader", "bed")] } } }));
+    assert!(act(&mut g.app, "open id=plot").ok);
     let mut rt = window(g.app);
     assert!(ran(&mut rt, "edit", Actor::Person).ok);
     assert_eq!((rt.state.person().layer.name(), rt.state.person().typing_in.as_deref()), ("draft", Some("bed")));
@@ -273,7 +274,7 @@ fn an_open_that_names_no_tile_lands_where_the_screen_says_whoever_asks() {
     let opened = g.app.act("open id=beans", agent());
     assert_eq!((opened.ok, opened.answer["tile"].as_str()), (true, Some("seeds")), "an agent's: {}", opened.said);
     assert!(act(&mut g.app, "note.new").ok);
-    assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "seeds").as_deref()), (Some("plot"), Some("new")), "a new note lands there too");
+    assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "seeds").as_deref()), (None, Some("new")), "a new note lands there too, and the reader nothing was opened in shows none");
     assert_eq!(draft(&g.app).map(|d| g.app.layout.name(&d.tile)).as_deref(), Some("seeds"));
 }
 
@@ -285,7 +286,7 @@ fn lands_naming_a_container_opens_into_it() {
     let mut g = laid(json!({ "lands": "readers", "layout": layout }));
     let opened = g.app.act("open id=shed", agent());
     assert_eq!((opened.ok, opened.answer["tile"].as_str()), (true, Some("bed")), "{}", opened.said);
-    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (Some("plot"), Some("shed")), "the first reader of the screen is left as it was");
+    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (None, Some("shed")), "the first reader of the screen is left as it was: told no note");
 }
 
 /// A screen's rule for new notes is followed, as the door follows it: `float` is a reader over the layout, `tab` a
@@ -293,12 +294,14 @@ fn lands_naming_a_container_opens_into_it() {
 #[test]
 fn a_new_note_opens_where_the_screen_s_rule_says() {
     let mut g = three(json!({ "newNote": [{ "opens": "float" }] }));
+    assert!(act(&mut g.app, "open id=plot tile=bed").ok);
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "note.new").ok);
     let made = draft(&g.app).map(|d| d.tile.clone()).expect("the new note is open to be written");
     assert!(g.app.layout.is_float(&made), "it floats over the screen: {:?}", names(&g.app));
     assert_eq!((g.app.note_of(&made).as_deref(), note_in(&g.app, "bed").as_deref(), g.app.layout.focus.as_str()), (Some("new"), Some("plot"), made.as_str()));
     // (A rule's kinds come as the service resolved them, as a tile's do: `screens.list` serves both.)
     let mut g = three(json!({ "newNote": [{ "opens": "tab", "only": ["screens.reader"] }, { "opens": "lands" }] }));
+    assert!(act(&mut g.app, "open id=plot tile=bed").ok);
     assert!(act(&mut g.app, "tile.focus tile=bed").ok && act(&mut g.app, "note.new").ok);
     let made = draft(&g.app).map(|d| d.tile.clone()).unwrap();
     assert!(crate::layout::tree::tabs_of(g.app.layout.tree(), &made).is_some_and(|set| crate::layout::tree::tabs_of(g.app.layout.tree(), "bed") == Some(set)), "a tab beside bed");

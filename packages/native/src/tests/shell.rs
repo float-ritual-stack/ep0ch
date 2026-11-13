@@ -60,6 +60,8 @@ fn a_split_draws_its_tiles_side_by_side_and_its_border_drags() {
 fn tabs_draw_the_one_in_front_and_a_press_on_a_tab_brings_it_forward() {
     let mut rt = laid(json!({ "focus": "bed", "root": { "t": "split", "dir": "row", "weights": [0.3, 0.7], "kids": [leaf("tree", "beds"), { "t": "tabs", "active": 0, "tabs": [leaf("reader", "bed"), leaf("backlinks", "roots")] }] } }));
     assert_eq!(sits_as_laid(&rt), ["beds", "bed"]);
+    // (The reader is told a note: the links behind it are about the note it shows.)
+    assert!(opened(&mut rt, "open id=plot tile=bed", Actor::Person).ok);
     assert!(rt.find("tile/bed/tab/bed").is_some() && rt.find("tile/bed/tab/roots").is_some(), "the set's tabs are in its title");
     // A hidden tab asks nothing: what it would read is asked when it shows.
     assert!(rt.state.store().asks_of("roots").is_empty());
@@ -156,9 +158,13 @@ fn opened(rt: &mut Runtime<App>, line: &'static str, by: Actor) -> crate::action
 fn an_open_lands_where_the_layout_says_from_the_tile_it_comes_from() {
     let mut rt = two_readers();
     let note = |rt: &Runtime<App>, tile: &str| rt.state.note_of(&rt.state.layout.named(tile).unwrap());
+    assert_eq!((note(&rt, "bed"), note(&rt, "seeds")), (None, None), "a reader shows the note it was told, and these were told none");
     // From the tree: the first reader that takes it.
     press(&mut rt, "tile/beds/row/shed");
-    assert_eq!((note(&rt, "bed").as_deref(), note(&rt, "seeds").as_deref()), (Some("shed"), Some("plot")));
+    assert_eq!((note(&rt, "bed").as_deref(), note(&rt, "seeds").as_deref()), (Some("shed"), None));
+    // From a reader's own row: that reader. The first note it is told replaces none, so there is no way back yet.
+    assert!(opened(&mut rt, "open id=plot tile=seeds", Actor::Person).ok);
+    assert_eq!((note(&rt, "seeds").as_deref(), rt.state.ui("seeds").history.is_empty()), (Some("plot"), true));
     // From a reader's own row: that reader, and it remembers where from.
     let outcome = opened(&mut rt, "open id=beans tile=seeds", Actor::Person);
     assert_eq!((outcome.ok, outcome.answer["tile"].as_str()), (true, Some("seeds")));
@@ -351,3 +357,37 @@ fn a_screen_s_own_keys_run_first_while_a_tile_has_the_keys_and_never_while_a_blo
     typed(&mut rt, "x");
     assert!(rt.state.layout.named("beds").is_none() && rt.state.layout.named("reader").is_some(), "the screen's x closed the tile it names");
 }
+
+/// A reader told no note is drawn as empty: what it is and what it waits for in its kind's own words (the service's
+/// row for the kind, never a sentence of the drawer's), the ways to give it a note as buttons their actions' rows
+/// label, and no page asked for. The lists about the note it shows wait the same way. What the layout's rules read
+/// of it is the same answer, so nothing on screen is replaced when a note is first opened in it.
+#[test]
+fn a_reader_told_no_note_draws_as_empty_in_its_kind_s_own_words() {
+    let g = garden_unopened(ok());
+    let asked = g.asked.clone();
+    let mut rt = window(g.app);
+    let says = |rt: &Runtime<App>, key: &str| -> Vec<String> { rt.elements().into_iter().filter(|e| e.key.as_deref() == Some(key)).filter_map(|e| e.text).collect() };
+    let row = |rt: &Runtime<App>, tile: &str| { let id = rt.state.layout.named(tile).unwrap(); rt.state.kind_row(&rt.state.spec(&id).unwrap().kind).cloned().expect("the kind has a row") };
+    let reader = row(&rt, "reader");
+    assert!(!reader.about.is_empty() && !reader.name.is_empty());
+    assert_eq!((says(&rt, "tile/reader/empty/kind"), says(&rt, "tile/reader/empty/about")), (vec![reader.name.clone()], vec![reader.about.clone()]), "the tile says its kind's own name and description");
+    assert!(rt.find("tile/reader/note").is_none() && rt.find("tile/reader/title").is_none(), "no note is drawn in it: not the outline's first, not any");
+    assert_eq!(asked.borrow().iter().filter(|a| a["action"] == "notes.page").count(), 0, "and no page is asked for");
+    let id = rt.state.layout.named("reader").unwrap();
+    assert_eq!((rt.state.note_of(&id), rt.state.facts(&id).showing), (None, None), "what it draws and what the layout reads of it are one answer");
+    // A list about the note the reader shows waits too, in its own kind's words.
+    let props = row(&rt, "props");
+    assert_eq!(says(&rt, "tile/props/empty/about"), vec![props.about.clone()]);
+    assert_ne!(props.about, reader.about);
+    // The ways in are its buttons, labelled by their actions' rows: the first opens the bar.
+    assert!(rt.find("tile/reader/empty/new").is_some());
+    press(&mut rt, "tile/reader/empty/find");
+    assert!(rt.state.bar.open, "the button is the action's: it opened the bar");
+    opened(&mut rt, "bar.close", Actor::Person);
+    // A note opened in it is drawn in its place, and the lists about it list.
+    press(&mut rt, "tile/tree/row/shed");
+    assert!(rt.find("tile/reader/empty").is_none() && rt.find("tile/reader/note").is_some() && rt.find("tile/props/empty").is_none());
+    assert_eq!((rt.state.note_of(&id).as_deref(), rt.state.facts(&id).showing.as_deref()), (Some("shed"), Some("shed")));
+}
+

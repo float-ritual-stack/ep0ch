@@ -1,2 +1,4 @@
-# The open note, opened to be written.
+# The outline's first note, opened as a press on its row opens it (a reader shows the note it was told), then
+# opened to be written.
+list.pick n=1 tile=tree
 edit
