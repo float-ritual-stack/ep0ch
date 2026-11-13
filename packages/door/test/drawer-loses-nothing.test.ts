@@ -14,39 +14,8 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
   beforeAll(() => doors.start(), 30_000);
   afterAll(() => doors.stop());
 
-  // ^W a on an answer tile said "put answer in your drawer from the detail", and the answer closed itself there: its
-  // reader stayed on the desk, out of the drawer's reach. Now the move is refused with why, and nothing closes.
-  test("^W a on an answer tile keeps it: refused with why, the answer still beside its reader", async () => {
-    const p = await beanDesk(doors);
-    try {
-      p.keys("Escape");
-      await until(() => !p.capture().includes("editing"), "out of the edit");
-      const answer = layers(p).find(l => !l.drawer)!.tiles.find(t => t.name === "answer")!;
-      expect(p.act("tile.focus", `tile=${answer.tile}`).ok).toBe(true);
-      await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "answer", "his keys on the answer");
-      p.keys("C-w", "a");
-      await Bun.sleep(1200);
-      expect(names(p)).toContain("detail/answer");
-      expect(p.capture()).toContain("goes with its reader");
-    } finally { p.close(); }
-  }, 90_000);
-
-  // The mirror (round two): ^W a on the reader moved it alone and its answer closed. The carry asks every tile it leaves
-  // behind too: refused with why, nothing moves.
-  test("^W a on the reader of an answer keeps both: refused with why", async () => {
-    const p = await beanDesk(doors);
-    try {
-      p.keys("Escape");
-      await until(() => !p.capture().includes("editing"), "out of the edit");
-      const screen = () => layers(p).find(l => !l.drawer && l.screen === "detail")!.tiles;
-      expect(p.act("tile.focus", `tile=${screen().find(t => t.name === "detail")!.tile}`).ok).toBe(true);
-      await until(() => screen().find(t => t.focused)?.name === "detail", "his keys on the reader");
-      p.keys("C-w", "a");
-      await Bun.sleep(1200);
-      expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer"]));
-      expect(p.capture()).toContain("goes with its answer");
-    } finally { p.close(); }
-  }, 90_000);
+  // ^W a on an answer tile (it closed itself in the drawer, out of its reader's reach), and its mirror on the reader
+  // (round two): both now move the pair as one, test/answer-pair.test.ts (PIE-1794).
 
   // ^W G and ⏎ on "this tile or the whole split?" gathered the reader alone and its answer closed. The gather takes the
   // answer with it, and the row says so.
@@ -166,8 +135,8 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
   }, 60_000);
 
   // CodeRabbit on #1495: a screen of only a reader and its answer let the reader go alone (the answer the one tile left),
-  // and the answer closed. Only a group that empties lets its last answer go with it.
-  test("a screen of only a reader and its answer refuses ^W a on the reader", async () => {
+  // and the answer closed. The pair goes together now, or not at all (the screen is never blank); either way nothing closes.
+  test("a screen of only a reader and its answer: ^W a on the reader closes nothing", async () => {
     const p = await doors.pane(await doors.create("Pea sticks\ncut hazel"), "Pea sticks", 120, 30);
     try {
       p.keys("e"); await until(() => p.capture().includes("editing"), "the edit");
@@ -180,7 +149,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
       p.keys("C-w", "a");
       await Bun.sleep(1200);
       expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer"]));
-      expect(p.capture()).toContain("goes with its answer");
+      expect(p.capture()).toContain("move together");
     } finally { p.close(); }
   }, 60_000);
 
