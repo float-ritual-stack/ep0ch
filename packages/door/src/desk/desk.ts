@@ -86,6 +86,7 @@ import {
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
+import { TileRecords } from "./tile-records";
 import { HeldGesture, type ElementDrag } from "./gestures";
 import { reviveWires } from "./saved-wires";
 import { frameTitle, tileNote, tileTitle } from "./tile-title";
@@ -326,7 +327,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Tiles saved with a kind nobody has registered: a tile that says so stands in, saves write their spec back
    * as it was, and the tile is made again when the kind comes (`kindsChanged`).
    */
-  private unregistered = new Map<number, TileSpec>();
+  private readonly recs = new TileRecords(); private readonly unregistered = this.recs.field("unregistered");   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
   /** Retired kinds a layout loaded here named (RETIRED_KINDS), each tile left out: said once as the screen shows (retiredSaid). */
   private dropped: string[] = [];
   /** The docks sliding over the layout as last drawn, each with its tiles (for the mouse). */
@@ -664,7 +665,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, p] of tiles) { this.panes.set(id, p); if (o.start === "moved") this.movedIn.add(id); }
     this.nextId = first + tiles.length;
     try { if (r) this.commit(typeof r === "function" ? r() : r); }
-    catch (e) { for (const [id] of tiles) { this.panes.delete(id); this.movedIn.delete(id); } this.nextId = first; throw e; }
+    catch (e) { for (const [id] of tiles) { this.panes.delete(id); this.recs.drop(id); } this.nextId = first; throw e; }
     if (o.start !== false) for (const [id] of tiles) this.startTile(id, o.start === "moved");
   }
   /** A new tile asked of the layout and joined in one step (`join`): `op` names it by the id it will have. */
@@ -721,7 +722,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const id of this.panes.keys()) if (!tiles.has(id)) out.push(`tile ${id} isn't in the layout`);
     const held: [string, Iterable<number>][] = [
       ["lastIn", this.lastIn.values()], ["selected", [...this.selected.values()].flatMap(set => [...set])], ["unregistered", this.unregistered.keys()],
-      ["sourced", this.sourced.keys()], ["movedIn", this.movedIn], ["besides", [...this.memory.beside].flat()], ["opened", [...this.memory.opened.values()].flatMap(r => [...r.ids, ...(r.active !== null ? [r.active] : [])])],
+      ["sourced", this.sourced.keys()], ["movedIn", this.movedIn], ["records", this.recs.all().map(([id]) => id)], ["besides", [...this.memory.beside].flat()], ["opened", [...this.memory.opened.values()].flatMap(r => [...r.ids, ...(r.active !== null ? [r.active] : [])])],
     ];
     for (const [what, ids] of held) for (const id of ids) if (!this.panes.has(id)) out.push(`${what} keeps ${id}, which is gone`);
     if (this.ptyIn && this.idOf(this.ptyIn) === undefined) out.push("ptyIn is a tile that's gone");
@@ -1808,11 +1809,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     await Promise.all((only ? [only] : this.columnsIn()).map(c => this.fill(c)));
   }
   /** Which columns container a tile was supplied for (its id), from which source, and its key there: a refill keeps it by that key. */
-  private sourced = new Map<number, { columns: string; source: string; key: string }>();
+  private readonly sourced = this.recs.field("sourced");
   /** The columns filled at least once (by id). */
   private filledOnce = new Set<string>();
   /** A data-filled container seeds select wires for each tile it supplies. Delivery reads only the wires. */
-  private readonly selectSeeds = new Map<number, string>();
+  private readonly selectSeeds = this.recs.field("seed");
   private async fill(c0: Columns<number>): Promise<void> {
     const src = tileSource(c0.source);
     const cid = c0.id;
@@ -6839,10 +6840,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
     this.memory.forget(id);
-    this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
+    this.panes.delete(id); this.recs.drop(id);
   }
-  /** Tiles moved here whole (from the drawer): when this screen goes for good, one still running goes back to the drawer. */
-  private readonly movedIn = new Set<number>();
+  private readonly movedIn = this.recs.flag();   // TileRecord.movedIn
 
   /** `pane.split`: tile.open along the longer side (or `dir`): one code path, one rule. `pane` is the new tile's number. */
   async splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): Promise<PaneDone> {
