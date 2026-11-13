@@ -872,9 +872,13 @@ describe("the status bar says when the door settles slowly (PIE-1309)", () => {
     expect(d.bar()).not.toContain("slow:");                         // slow for 40 s so far
     for (let i = 0; i < 14; i++) await d.burst();
     expect(d.bar()).toContain("slow: 150 ms to settle");
-    // The chip is a click on status.speed, which says it and gives the numbers (the same object as `peek speed`).
-    const said = await d.app.dispatch.act({ action: "status.speed" }, { kind: "agent", id: "test" }) as ReturnType<typeof d.app.speed.describe>;
-    expect(said.settle).toMatchObject({ p95: 150, worst: 150 });
+    // The chip is a click on status.speed, which says it and gives the numbers (the same object as `peek speed`). An
+    // agent's is a read: the same numbers, said nowhere (PIE-1772); the person's click says them (PIE-1789).
+    const read = await d.app.dispatch.act({ action: "status.speed" }, { kind: "agent", id: "test" }) as ReturnType<typeof d.app.speed.describe>;
+    expect([read.settle.p95, read.settle.worst]).toEqual([150, 150]);
+    expect((d.app as any).message ?? "").not.toContain("150 ms (p95)");
+    const said = await d.app.dispatch.act({ action: "status.speed" }, { kind: "user" }) as ReturnType<typeof d.app.speed.describe>;
+    expect([said.settle.p95, said.settle.worst]).toEqual([150, 150]);
     expect((d.app as any).message).toContain("150 ms (p95)");
     // Fast again: the minute's p95 comes down once the slow ones age out of it.
     slow = 5;
