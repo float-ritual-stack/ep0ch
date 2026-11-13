@@ -4,7 +4,7 @@
 // a click on it, the tile's ⋯ menu and `act` run the same one. From there the desk's own keys build the rest (^W o, ^W v,
 // alt+l), and ^W w saves it as a screen note (`screen.save`). The screen is a spec like any other: `blankSpec`.
 import type { ScreenSpec } from "./screen-spec";
-import type { DeskApi, Pane, PaneView } from "./panes";
+import type { KindHooks, TileHost, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { KeySpot } from "../new-note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -68,7 +68,7 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
     ],
     async run({ kind, view, cmd, name }, { desk, tile }, actor) {
       if (!KINDS.includes(kind)) throw new ActionRefused(`blank.fill: kind is ${KINDS.join(", ")}, not ${kind}`);
-      const d = desk as DeskApi & Required<Pick<DeskApi, "replaceTile" | "askChoices">>;
+      const d = desk as TileHost & Required<Pick<KindHooks, "replaceTile" | "askChoices">>;
       // A query lane without its view: the person picks the view first (an agent names it).
       if (kind === "query" && !view && actor.kind !== "agent") {
         await d.askChoices(kind, more => void d.perform?.("blank.fill", { kind, ...more, ...(name ? { name } : {}) }, USER, tile));
@@ -84,7 +84,7 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
     menu: { label: "open a screen…", group: START, key: "o" },
     args: {},
     run(_, { desk }, actor) {
-      const d = desk as DeskApi & Required<Pick<DeskApi, "screenPicker" | "screensToOpen">>;
+      const d = desk as TileHost & Required<Pick<KindHooks, "screenPicker" | "screensToOpen">>;
       if (actor.kind !== "agent") d.screenPicker();
       return { screens: d.screensToOpen() };
     },

@@ -40,7 +40,10 @@ import { type RowPress } from "../scroll";
 import { Inspector } from "../surface/inspector";
 import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
-import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import { runOwn, type TileHost, type KindHooks, type Pane, type PaneView } from "./panes";
+
+/** What this kind asks of the desk it's on (panes.ts's DeskApi roles). */
+type TuneDesk = TileHost & Pick<KindHooks, "tileLook" | "tileLooks">;
 
 const TUNE_FIELD_KEYS: readonly ModeKey[] = [{ key: "enter", action: "tune.field", args: { op: "save" }, label: "save" }, { key: "esc", action: "tune.field", args: { op: "cancel" }, label: "cancel" }];
 const TUNE_HINTS_KEYS: readonly ModeKey[] = [
@@ -111,7 +114,7 @@ export const TUNE_ROWS: readonly TuneRow[] = [
 ].sort((a, b) => STYLE_GROUPS.indexOf(groupOf(a)) - STYLE_GROUPS.indexOf(groupOf(b)));
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 
-/** What the inspector sees of the tile it tunes (DeskApi.tileLook). */
+/** What the inspector sees of the tile it tunes (TuneDesk.tileLook). */
 export interface TuneTargetInfo {
   look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null;
   /**
@@ -123,7 +126,7 @@ export interface TuneTargetInfo {
   list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null;
 }
 
-/** A reader's header image as the tune shows it (DeskApi.tileLook): its line, its file, its properties as written, its rows drawn. */
+/** A reader's header image as the tune shows it (TuneDesk.tileLook): its line, its file, its properties as written, its rows drawn. */
 export interface TuneHero { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null }
 /** A Hero row's name in actions and `peek`: `hero.tint`. */
 const HERO_ROW = (p: HeroProp) => `hero.${p}`;
@@ -218,7 +221,7 @@ export class TunePane implements Pane {
   }
   spec() { return { source: `tile:${this.source}` }; }
 
-  info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
+  info(desk: TuneDesk): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
 
   /** The look a nudge is measured from: the tile's, or the box's in a reader. */
   values(t: TuneTargetInfo) {
@@ -285,7 +288,7 @@ export class TunePane implements Pane {
     ])];
   }
   /** The Hero row picked, while the note shown has a header picture (one without lets the pick go). */
-  heroPicked(desk: DeskApi): HeroProp | null {
+  heroPicked(desk: TuneDesk): HeroProp | null {
     if (this.heroSel && !this.info(desk)?.hero) this.heroSel = null;
     return this.heroSel;
   }
@@ -294,14 +297,14 @@ export class TunePane implements Pane {
     return "hero" in r ? this.heroSel === r.hero : this.heroSel !== null ? false : "group" in r ? r.group === this.group : this.group === null && r.index === this.sel;
   }
 
-  move(by: number, desk: DeskApi) {
+  move(by: number, desk: TuneDesk) {
     const t = this.info(desk); if (!t) return;
     const rows = this.entries(t), at = rows.findIndex(r => this.isPicked(r));
     const next = rows[Math.max(0, Math.min(rows.length - 1, at + by))]!;
     this.run(desk, "group" in next ? "tune.group.pick" : "tune.pick", "group" in next ? { group: next.group } : "hero" in next ? { row: HERO_ROW(next.hero) } : { n: next.index + 1 });
   }
 
-  async editField(desk: DeskApi) {
+  async editField(desk: TuneDesk) {
     const t = this.info(desk), hp = this.heroSel;
     if (hp && t?.hero) {
       const choices = [...HERO_PROPS[hp].steps];
@@ -322,9 +325,9 @@ export class TunePane implements Pane {
     return { editing: row.name };
   }
 
-  hintRows(desk: DeskApi) { return declaredHints(this.info(desk)?.look.values.hints ?? "full"); }
+  hintRows(desk: TuneDesk) { return declaredHints(this.info(desk)?.look.values.hints ?? "full"); }
 
-  private renderHints(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+  private renderHints(w: number, h: number, focused: boolean, desk: TuneDesk): PaneView {
     const rows = this.hintRows(desk), lines: string[] = [], starts: number[] = [];
     this.controls = [];
     const hits: typeof this.controls = [];
@@ -367,7 +370,7 @@ export class TunePane implements Pane {
     return tabStrip([{ label: "[values]", on: this.section === "values", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }, ...[...SECTIONS.values()].map(sec => ({ label: `[${sec.label}] ${sec.key}`, on: this.section === sec.id, hit: { action: "tune.section", args: { section: sec.id } } }))], { width: w });
   }
 
-  render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+  render(w: number, h: number, focused: boolean, desk: TuneDesk): PaneView {
     const sec = this.shown();
     if (sec && !this.view.field) return this.renderSection(sec, w, h, focused);
     if (this.section === "hints") return this.renderHints(w, h, focused, desk);
@@ -516,7 +519,7 @@ export class TunePane implements Pane {
 
   /** Esc: a step waiting for its second press, or a nudge held on a shadowed row (esc-rule.ts). */
   escCloses() { return this.armed ? "the waiting step" : this.offer ? "the offer" : undefined; }
-  key(k: Key, desk: DeskApi): boolean {
+  key(k: Key, desk: TuneDesk): boolean {
     // A field being typed in is the edit control's; what it asks of the inspector (save, cancel, a choice) is tune.field.
     const field = this.view.key(k);
     if (field === true) { desk.redraw(); return true; }
@@ -582,7 +585,7 @@ export class TunePane implements Pane {
   }
 
   /** A click on a control runs its action; on a row picks it; the wheel over a value nudges it, elsewhere moves the pick. */
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: TuneDesk, press?: RowPress): boolean {
     if (this.shown() && !this.view.field) {
       if (k.action === "wheel-up" || k.action === "wheel-down") this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk);
       else if (k.action === "down") { const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols); if (hit) this.run(desk, hit.action, hit.args); }
@@ -622,14 +625,14 @@ export class TunePane implements Pane {
   }
 
   /** Its own actions run here; `hints.*` on the desk; a section's `tune` action on the door's dispatcher, where its module put it. */
-  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } if (!TUNE_ACTIONS.has(name)) { void desk.ctx.press!(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: TuneDesk, name: string, args: Record<string, unknown>) { if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } if (!TUNE_ACTIONS.has(name)) { void desk.ctx.press!(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
 
   /**
    * What `peek` and `act` read: the tile tuned, its width, every value with its source (and, with a level or a width
    * picked, what that level says itself and whether something nearer wins), the unsaved nudges, a held offer, a step
    * waiting for its confirmation.
    */
-  describe(desk?: DeskApi) {
+  describe(desk?: TuneDesk) {
     if (this.section === "hints" && desk) return { section: "hints", hints: this.hintRows(desk), selected: this.hintRows(desk)[this.hintSel]?.id };
     const t = desk ? this.info(desk) : null;
     const tuning = desk ? tuningOf(desk.ctx.board) : null;
@@ -658,17 +661,17 @@ export class TunePane implements Pane {
 }
 
 /** A tune tile's actions: the row picked, a nudge, a value set outright, the level and width a nudge targets, save, the history, resets and revert. */
-export interface TuneOn { pane: TunePane; desk: DeskApi; standing: boolean }
+export interface TuneOn { pane: TunePane; desk: TuneDesk; standing: boolean }
 
 const says = (actor: Actor, did: string) => (actor.kind === "agent" ? `${agentLabel(actor)} ${did}` : did);
 const refuse = <T>(f: () => T): T => { try { return f(); } catch (e) { throw e instanceof ActionRefused ? e : new ActionRefused((e as Error).message); } };
 const refuseAsync = async <T>(f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { throw e instanceof ActionRefused ? e : new ActionRefused((e as Error).message); } };
-const board = (desk: DeskApi) => desk.ctx.board as unknown as StyleWriteBoard;
+const board = (desk: TuneDesk) => desk.ctx.board as unknown as StyleWriteBoard;
 /**
  * The tile's info with its look resolved now: what the tile was last drawn with misses the nudges made since the last
  * frame (an agent's, one after another), so an action measures from this.
  */
-function fresh(pane: TunePane, desk: DeskApi): TuneTargetInfo {
+function fresh(pane: TunePane, desk: TuneDesk): TuneTargetInfo {
   const t = pane.info(desk);
   if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
   return { ...t, look: lookFor({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place, t.look.width) };
@@ -680,7 +683,7 @@ function fresh(pane: TunePane, desk: DeskApi): TuneTargetInfo {
  * variant goes first: what shows at this width is what's reset. Refused: a built-in, a box's or a heading style's (edited
  * where written), and one a shorthand or a tier gives (taking that away would take more, or it would come back).
  */
-async function takeAway(_pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: StyleToken, src: StyleSource, actor: Actor): Promise<() => void> {
+async function takeAway(_pane: TunePane, desk: TuneDesk, t: TuneTargetInfo, tk: StyleToken, src: StyleSource, actor: Actor): Promise<() => void> {
   const tuning = tuningOf(desk.ctx.board), target = sourceTarget(src, t.look.place), field = fieldKey(tk, src.variant ?? null);
   if (!target) throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
   const mine = tuning.get(target, field), at = src.block;
@@ -731,7 +734,7 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
  * A Hero row's change (PIE-1361): the reader's header image's own line, through the reader's image.look, saved at once
  * and attributed (ctrl+z there undoes it). Not a nudge: no level, nothing to save, nothing in the tune's history.
  */
-async function writeHeroRow(pane: TunePane, desk: DeskApi, actor: Actor, prop: HeroProp, change: { by: number } | { to: string }) {
+async function writeHeroRow(pane: TunePane, desk: TuneDesk, actor: Actor, prop: HeroProp, change: { by: number } | { to: string }) {
   const t = pane.info(desk);
   if (!t?.hero) throw new ActionRefused(t?.hero === null ? `${pane.source}'s note has no header picture: H on one of its images (image.hero) makes it one` : `${pane.source} isn't a reader showing a note`);
   const args = { prop, ...change };
@@ -744,7 +747,7 @@ async function writeHeroRow(pane: TunePane, desk: DeskApi, actor: Actor, prop: H
 }
 
 /** The retired look keys the outline still writes (PIE-1365): the shown note's own, then each style note's. */
-const retiredOf = (t: TuneTargetInfo, desk: DeskApi) => retiredLooks({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place.page);
+const retiredOf = (t: TuneTargetInfo, desk: TuneDesk) => retiredLooks({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place.page);
 
 /** Why retired keys are listed, said once: under the pointer on their line, and as the fix's hint card. */
 const RETIRED_WHY = "Since PIE-1361 a header picture is the note's own [img::…] [layout::hero] line, its look that line's properties (height, blur, fade, tint, dim, fit, bleed, scroll, title, hero-focus): style.header.image… and style.header.title draw nothing at any level. Remove takes them off the note; move writes the picture they name as this note's hero line with their look on it, then removes them. Either is one step: u in the tune undoes it.";
@@ -760,7 +763,7 @@ const retiredHint = { title: "Retired look keys", lines: [RETIRED_WHY] };
 /** Whether any of `writes` went to the outline: a tile's own look (`instance:`) is kept in the door, never recorded there. */
 const inOutline = (writes: readonly NoteWrite[]) => writes.some(w => !w.note.startsWith("instance:"));
 
-async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, actor: Actor, note: string | undefined, line: number | undefined) {
+async function fixRetired(op: "remove" | "move", pane: TunePane, desk: TuneDesk, actor: Actor, note: string | undefined, line: number | undefined) {
   const t = fresh(pane, desk), all = retiredOf(t, desk);
   if (!all.length) throw new ActionRefused("no note writes retired look keys");
   const r: RetiredLook | undefined = note === undefined ? all[0] : all.find(x => (x.note === note || x.note.startsWith(note)) && (line === undefined ? x.line === undefined : x.line === line - 1));
@@ -799,10 +802,10 @@ async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, 
 }
 
 /** What's wrong with the look here: the tile's layers, then the outline's style notes (a key one no longer reads, PIE-1361). */
-const problemsOf = (t: TuneTargetInfo, desk: DeskApi) => [...new Set([...t.look.problems, ...styleSheetProblems(desk.ctx.board as object)])];
+const problemsOf = (t: TuneTargetInfo, desk: TuneDesk) => [...new Set([...t.look.problems, ...styleSheetProblems(desk.ctx.board as object)])];
 
 /** The step words for the status line and the result. */
-const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
+const stepSaid = (actor: Actor, desk: TuneDesk, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
 /** The registered section the inspector shows, or why there is none. */
 function sectionShown(pane: TunePane): TuneSection {
