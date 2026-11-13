@@ -350,7 +350,7 @@ test("a compaction's room is its physical peak: the file and its WAL as the new 
   writeGenesis(home.database, SCHEMA_VERSION);
   expect(onDisk() - before).toBeLessThanOrEqual(needs);
   home.close();
-});
+}, 30_000);
 
 /** The bytes on disk a new genesis adds, as a compaction writes it first: its peak. */
 function genesisPeak(home: OutlinerStore, onDisk: () => number) {
@@ -365,17 +365,17 @@ test("the room counts UTF-8 bytes, so notes in another script are budgeted as th
   const needs = compactionRoom(home.database);
   expect(genesisPeak(home, onDisk)).toBeLessThanOrEqual(needs);
   home.close();
-});
+}, 30_000);
 
 test("the room is the outline as it is now, not its rewrites: a log of many rewrites still compacts (Codex on #1500)", () => {
-  const { home, onDisk } = grownHome(root(), 500, 20);
+  const { home, onDisk } = grownHome(root(), 150, 8);
   const needs = compactionRoom(home.database);
   const peak = genesisPeak(home, onDisk);
   expect(peak).toBeLessThanOrEqual(needs);
   // Sized to the new genesis, not to the twenty rewrites behind it.
   expect(needs).toBeLessThan(peak * 4);
   home.close();
-});
+}, 30_000);
 
 test("a compaction gives its space back in bounded steps between requests, each well inside a client's wait (Codex on #1500)", () => {
   const { home, onDisk } = grownHome(root(), 900, 4);

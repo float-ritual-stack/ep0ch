@@ -254,6 +254,17 @@ export function compactionRoom(database: Database): number {
  * Returns whether it wrote a genesis.
  */
 export function compactLog(database: Database, schema: number, factor = COMPACT_FACTOR, free?: number): boolean {
+  if (!compactionDue(database, factor, free)) return false;
+  writeGenesis(database, schema);
+  return true;
+}
+
+/**
+ * Whether `compactLog` would write a genesis now: the log has outgrown its share, and the filesystem has the room
+ * (refused, with why, when it hasn't). Asked on a tick of its own before the genesis's, so neither holds the host's
+ * loop past a client's wait (the estimate scans the outline: about 0.27 s at pie's size).
+ */
+export function compactionDue(database: Database, factor = COMPACT_FACTOR, free?: number): boolean {
   if (logState(database).role !== "home") return false;
   const genesis = genesisOf(database);
   if (!genesis) return false;
@@ -261,7 +272,6 @@ export function compactLog(database: Database, schema: number, factor = COMPACT_
   if (growth <= factor * Math.max(genesis.bytes, 64 * 1024)) return false;
   const needed = compactionRoom(database);
   if (free !== undefined && free < needed) throw new Error(`not compacted: a new genesis needs about ${Math.round(needed / 1048576)} MB and its filesystem has ${Math.round(free / 1048576)} MB free; the log keeps growing until there is room`);
-  writeGenesis(database, schema);
   return true;
 }
 
@@ -521,11 +531,16 @@ export class OutlineLog {
     try { return applyRange(this.db(), range, this.schema); } finally { this.applied(); }
   }
   /** Keeps the log in proportion (`compactLog`), with what the file's filesystem has free; the host asks on open and every hour. */
-  compact(factor?: number): boolean {
-    const db = this.db(), file = db.filename;
-    let free: number | undefined;
-    try { if (file && file !== ":memory:") { const fs = statfsSync(dirname(file)); free = fs.bavail * fs.bsize; } } catch { free = undefined; }
-    return compactLog(db, this.schema, factor, free);
+  compact(factor?: number): boolean { return compactLog(this.db(), this.schema, factor, this.free()); }
+  /** Whether a compaction is due and fits (`compactionDue`): the host asks this on one tick and writes the genesis on the next. */
+  due(factor?: number): boolean { return compactionDue(this.db(), factor, this.free()); }
+  /** A compaction's genesis, once `due` said so. */
+  genesis(): void { writeGenesis(this.db(), this.schema); }
+  /** What the file's own filesystem has free, when it can tell. */
+  private free(): number | undefined {
+    const file = this.db().filename;
+    try { if (file && file !== ":memory:") { const fs = statfsSync(dirname(file)); return fs.bavail * fs.bsize; } } catch { /* unknown */ }
+    return undefined;
   }
   /** One bounded step of giving back what a compaction replaced (`trimLog`); whether there is more. */
   trim(): boolean { return trimLog(this.db()); }
