@@ -33,6 +33,7 @@ import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, t
 import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { paste, type PasteDoor } from "./paste-path";
+import { saidToPerson } from "./surface/way-out";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
 import { doorMarks } from "./desk/marks";
@@ -1329,7 +1330,8 @@ export class App implements Ctx {
         return r;
       } catch (e) {
         const refused = e instanceof ActionRefused || e instanceof Offline;
-        this.flash(refused ? `${who} · ${req.action} refused: ${e.message}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
+        // The agent is answered its own words (the act line); the person reads the refusal said for them.
+        this.flash(refused ? `${who} · ${req.action} refused: ${saidToPerson(e.message)}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
         throw e;
       }
     });

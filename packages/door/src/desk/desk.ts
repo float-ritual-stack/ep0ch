@@ -60,6 +60,7 @@ import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
+import { saidToPerson } from "../surface/way-out";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
@@ -2284,7 +2285,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.memory.goBeside(plan.besideOf, dest.tile);
     this.save(); this.redraw();
-    const why = landedSaid(this.layoutCtx(by), plan, said => this.ctx.flash(said));   // why it landed elsewhere, with what undoes that, as the door says it to whoever opened
+    const why = landedSaid(this.layoutCtx(by), plan, said => this.ctx.flash(saidToPerson(said)));   // why it landed elsewhere, with what undoes that: answered as the door says it to whoever opened, flashed as it says it to the person
     return { desk: this, id: landed, ...(why ? { why } : {}) };
   }
 

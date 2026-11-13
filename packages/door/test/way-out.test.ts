@@ -11,10 +11,11 @@ import "../src/app";
 import "../src/screens";
 import "../src/desk/screen-specs";
 import { way, whyNot, type Way, type Why } from "@ep0ch/outline-core/way-out";
+import { containerNamed } from "../src/desk/layout-refusal";
 import type { Actor } from "../src/socket";
 import { allActionSets } from "../src/surface/actions";
 import { reloadKeymap, resetKeys, setKeys } from "../src/surface/keymap";
-import { refusalSaid, wayKey, wayLine, waySaid } from "../src/surface/way-out";
+import { refusalSaid, saidToPerson, wayKey, wayLine, waySaid } from "../src/surface/way-out";
 
 const PERSON: Actor = { kind: "user" }, AGENT: Actor = { kind: "agent", id: "seedling-agent" };
 const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
@@ -65,6 +66,35 @@ describe("a refusal's way out, said in the door's own words", () => {
     expect(refusalSaid(whyNot("sown stays", way("tile.collapse", "folds it to a spine", { tile: "sown" }), way("layout.policy", "turns closable on", { at: "there" })), PERSON)).toBe("sown stays · ^W c folds it to a spine, or ^W P there turns closable on");
   });
 
+  test("a way that names a container says its act line too: the panel's key reaches only the containers of the tile with the keys", () => {
+    // ^W P opens the panel for the focused tile's own containers. A container the layout names by id may be none of
+    // them, so the act that names it is said first, and the key with where it holds.
+    const fixed = whyNot("s3 is fixed at 20 cells", way("layout.policy", "frees it", { args: { node: "s3", clear: "fixed" } }));
+    expect(refusalSaid(fixed, PERSON)).toBe("s3 is fixed at 20 cells · layout.policy node=s3 clear=fixed (or ^W P in s3) frees it");
+    expect(refusalSaid(fixed, AGENT)).toBe("s3 is fixed at 20 cells · layout.policy node=s3 clear=fixed frees it");
+    const locked = whyNot("g2 is locked: closing log is refused", way("layout.policy", "unlocks it", { args: { node: "g2", locked: false } }));
+    expect(refusalSaid(locked, PERSON)).toBe("g2 is locked: closing log is refused · layout.policy node=g2 locked=false (or ^W P in g2) unlocks it");
+    // Where the layout says where the keys are for the key to mean it, the key is enough; and every tile is in the screen.
+    expect(waySaid(way("layout.policy", "turns closable on", { args: { node: "s3", closable: true }, at: "there" }), PERSON)).toBe("^W P there turns closable on");
+    expect(waySaid(way("layout.policy", "loosens it", { args: { node: "screen", agents: "free" } }), PERSON)).toBe("^W P loosens it");
+    // The tables hold such refusals: each names its container to the person.
+    const held = refusals().flatMap(w => w.ways.filter(each => each.act === "layout.policy" && typeof each.args?.node === "string" && each.args.node !== "screen" && !each.at).map(each => waySaid(each, PERSON)!));
+    expect(held.length).toBeGreaterThan(0);
+    for (const said of held) expect(said).toMatch(/^layout\.policy node=[sgdcf]\d+ \S+ \(or \^W P in [sgdcf]\d+\) /);
+  });
+
+  test("what an agent was told is said again for the person: the refusal is data, and each reads their own way out", () => {
+    const locked = whyNot("the screen is locked: closing log is refused", way("layout.lock", "unlocks it", { args: { on: false }, on: "▣ screen locked" }));
+    const told = refusalSaid(locked, AGENT);
+    expect(told).toBe("the screen is locked: closing log is refused · layout.lock on=false unlocks it");
+    expect(saidToPerson(told)).toBe("the screen is locked: closing log is refused · a click on ▣ screen locked (or ^W P) unlocks it");
+    // With words around it (the drawer's, a carry's), those stay.
+    expect(saidToPerson(`your drawer doesn't take log there: ${told}`)).toBe("your drawer doesn't take log there: the screen is locked: closing log is refused · a click on ▣ screen locked (or ^W P) unlocks it");
+    // What no refusal of the sayer's is in stays as it is, and so does what the person was told themselves.
+    expect(saidToPerson("no tile named shed here")).toBe("no tile named shed here");
+    expect(saidToPerson(refusalSaid(locked, PERSON))).toBe(refusalSaid(locked, PERSON));
+  });
+
   test("why an open landed elsewhere names what undoes it as an act too: a pinned reader's key is read from the keymap", () => {
     const pinned = whyNot("pinboard is pinned: opened beside it", way("reader.pin", "unpins it", { args: { on: false }, tile: "pinboard", at: "in pinboard" }));
     expect(refusalSaid(pinned, PERSON)).toBe("pinboard is pinned: opened beside it · p in pinboard unpins it");
@@ -107,8 +137,14 @@ describe("a refusal's way out, said in the door's own words", () => {
       expect(person.startsWith(r.reason) && agent.startsWith(r.reason)).toBe(true);
       // Every way is said, by what it does.
       for (const w of r.ways) { expect(person).toContain(w.does); expect(agent).toContain(w.does); expect(agent).toContain(wayLine(w)); }
-      // The person reads a key where one runs the act, never the act line beside it.
-      for (const w of r.ways) if (wayKey(w)) { expect(person).toContain(wayKey(w)!); if (w.args) expect(person).not.toContain(wayLine(w)); }
+      // The person reads a key where one runs the act, with no act line beside it: but for a way that names a container
+      // by id and no place for the keys, whose key may open on other containers (the act line says which).
+      for (const w of r.ways) if (wayKey(w)) {
+        expect(person).toContain(wayKey(w)!);
+        const far = containerNamed(w) !== undefined && !w.at && !w.on;
+        if (far) expect(person).toContain(`${wayLine(w)} (or ${wayKey(w)} in ${containerNamed(w)})`);
+        else if (w.args) expect(person).not.toContain(wayLine(w));
+      }
     }
   });
 });
