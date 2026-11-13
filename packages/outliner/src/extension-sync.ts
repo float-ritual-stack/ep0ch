@@ -1,7 +1,7 @@
 import { commentBlockText, extensionActorId, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import { readResourceProjections, type ResourceProjection } from "./resource-projection";
 import { mayHaveResourceProjections } from "./resource-references";
-import type { ExtensionDescription } from "./resource-extensions";
+import { NOT_FOUND_MESSAGE, type ExtensionDescription } from "./resource-extensions";
 import { extensionProvider, providerLabel, type ExtensionProvider, type RemoteEntityDocument, type Resource } from "./resources";
 import type { OutlinerStore } from "./store";
 import { readAuthoredLinks } from "./authored-links";
@@ -45,16 +45,20 @@ export interface ExtensionSyncOptions {
   readonly pollMs?: number;
   readonly now?: () => number;
   /** A Resource's stored state changed without a request (a background fetch): repaint it. */
-  readonly resourceChanged?: (resourceId: string) => void;
+  readonly resourceChanged?: (resourceId: string | null) => void;
 }
 
 /** What a reader shows beside a projection while the service works on it. */
 export interface ExtensionSyncState {
   readonly fetching: boolean;
   readonly error?: string;
+  /** Who tries a failed fetch again besides r: the next poll, or an hourly recheck (the provider may not have it, PIE-1801). */
+  readonly retry?: "poll" | "hourly";
 }
 
 const DEFAULT_POLL_MS = 12 * 60 * 1_000;
+/** How long a ticket the provider says it doesn't have waits before the poll or an open asks again (PIE-1801). */
+const RECHECK_MS = 60 * 60 * 1_000;
 const MAX_POLL_KEYS = 1_000;
 /** Refused credentials: wait this long before fetching on our own again. */
 const AUTH_PAUSE_MS = 15 * 60 * 1_000;
@@ -203,7 +207,7 @@ export class ExtensionSync {
 
   private setState(key: string, state: ExtensionSyncState | null): void {
     if (state) this.state.set(key, state);
-    else this.state.delete(key);
+    else { this.state.delete(key); this.recheckAt.delete(key); }
   }
 
   /**
@@ -271,39 +275,64 @@ export class ExtensionSync {
     const released = this.store.setExtensionAsks(pageBlockId, this.extensionId, wanted);
     for (const key of released) this.safely(key, () => this.settle(key));
     const paused = force ? undefined : this.paused();
-    await Promise.all([...wanted.keys()].map(async (key) => {
-      this.safely(key, () => this.settle(key));
-      const record = this.store.extensionRecords({ extensionId: this.extensionId, role: "record", itemKey: key })[0];
-      try {
-        const resourceId = await this.resourceFor(key, paused);
-        const description = this.store.resources.describe(resourceId, false);
-        const freshness = description.remoteStatus?.freshness;
-        // More comments asked for than the last write kept (a new --comments) need the ticket read again, once.
-        const needsComments = this.commentsFor(key) > (this.commentsWritten.get(key) ?? 0);
-        // A fresh copy is enough; a failed or stale one is tried again (a laptop that was offline recovers
-        // on the next open). A provider that returns no record (a contract 1 install) is not asked again
-        // while its copy is fresh: there would be nothing more to write.
-        const settled = freshness === "fresh" || freshness === "refreshing";
-        if (!force && settled && (record ? !needsComments : this.recordless.has(resourceId))) {
-          return;
-        }
-        if (paused) {
-          this.setState(key, { fetching: false, error: `${paused}; paused, r tries now` });
-          return;
-        }
-        this.waitFor(resourceId, key);
-        this.setState(key, { fetching: true });
-        this.options.resourceChanged?.(resourceId);
-        const refreshed = await this.store.resources.refreshRemoteEntity(resourceId, false);
-        const error = refreshed.remoteStatus?.freshness === "failed" ? refreshed.remoteStatus.lastError ?? "the last fetch failed" : undefined;
-        if (error) this.failed(error);
-        this.setState(key, error ? { fetching: false, error } : null);
-        this.options.resourceChanged?.(resourceId);
-      } catch (error) {
-        this.failed(message(error));
-        this.setState(key, { fetching: false, error: message(error) });
+    await Promise.all([...wanted.keys()].map((key) => this.fetchKey(key, force, paused)));
+  }
+
+  /**
+   * One key asked for: registered, then fetched when its copy isn't fresh (with `force`, anyway). A copy the provider
+   * may not have, or won't show, waits for its hourly recheck unless forced (PIE-1801).
+   */
+  private async fetchKey(key: string, force: boolean, paused: string | undefined): Promise<void> {
+    this.safely(key, () => this.settle(key));
+    if (!force && !this.due(key)) return;
+    const record = this.store.extensionRecords({ extensionId: this.extensionId, role: "record", itemKey: key })[0];
+    try {
+      const resourceId = await this.resourceFor(key, paused);
+      const description = this.store.resources.describe(resourceId, false);
+      const freshness = description.remoteStatus?.freshness;
+      // More comments asked for than the last write kept (a new --comments) need the ticket read again, once.
+      const needsComments = this.commentsFor(key) > (this.commentsWritten.get(key) ?? 0);
+      // A fresh copy is enough; a failed or stale one is tried again (a laptop that was offline recovers
+      // on the next open). A provider that returns no record (a contract 1 install) is not asked again
+      // while its copy is fresh: there would be nothing more to write.
+      const settled = freshness === "fresh" || freshness === "refreshing";
+      if (!force && settled && (record ? !needsComments : this.recordless.has(resourceId))) {
+        return;
       }
-    }));
+      if (paused) {
+        this.setState(key, { fetching: false, error: `${paused}; paused, r tries now` });
+        return;
+      }
+      this.waitFor(resourceId, key);
+      this.setState(key, { fetching: true });
+      this.options.resourceChanged?.(resourceId);
+      const refreshed = await this.store.resources.refreshRemoteEntity(resourceId, false);
+      const error = refreshed.remoteStatus?.freshness === "failed" ? refreshed.remoteStatus.lastError ?? "the last fetch failed" : undefined;
+      if (error) this.failed(error);
+      this.setState(key, error ? this.failure(key, error) : null);
+      this.options.resourceChanged?.(resourceId);
+    } catch (error) {
+      this.failed(message(error));
+      this.setState(key, this.failure(key, message(error)));
+      // No Resource to name: every reader showing a projection reads it again, without fetching (Codex on #1504).
+      this.options.resourceChanged?.(null);
+    }
+  }
+
+  /** When a key the provider may not have (or won't show) is next rechecked by the poll or an open (PIE-1801). */
+  private readonly recheckAt = new Map<string, number>();
+  /** Whether key `key` may be fetched without r now: not waiting for its hourly recheck. */
+  private due(key: string): boolean { return (this.recheckAt.get(key) ?? 0) <= this.now; }
+
+  /**
+   * A failed fetch as the card says it (PIE-1801), and who tries again. A 404 isn't proof of absence: Jira answers it
+   * for a ticket the caller can't view too, so it's said that way and rechecked hourly; r tries at once. Any other
+   * failure is tried again by the next poll.
+   */
+  private failure(key: string, error: string): ExtensionSyncState {
+    if (!error.includes(NOT_FOUND_MESSAGE)) { this.recheckAt.delete(key); return { fetching: false, error, retry: "poll" }; }
+    this.recheckAt.set(key, this.now + RECHECK_MS);
+    return { fetching: false, error: `${this.label} has no ${key}, or you can't see it`, retry: "hourly" };
   }
 
   /** Runs one key's bookkeeping; a failure is that key's to show, not the pass's. */
@@ -311,7 +340,7 @@ export class ExtensionSync {
     try {
       work();
     } catch (error) {
-      this.setState(key, { fetching: false, error: message(error) });
+      this.setState(key, this.failure(key, message(error)));
     }
   }
 
@@ -401,7 +430,7 @@ export class ExtensionSync {
         this.setState(key, null);
         if (!comments || record.comments) this.commentsWritten.set(key, comments);
       } catch (error) {
-        this.setState(key, { fetching: false, error: message(error) });
+        this.setState(key, this.failure(key, message(error)));
       }
     }
     this.options.resourceChanged?.(resource.id);
@@ -483,20 +512,23 @@ export class ExtensionSync {
         const due = [...unread.get(sourceId) ?? [], ...found === null
           ? [...keys.values()].filter((id) => this.store.resources.describe(id, false).remoteStatus?.freshness === "stale")
           : found.flatMap((item) => keys.get(item.locator) ?? [])];
+        const keyOf = new Map([...keys].map(([key, id]) => [id, key]));
         for (const resourceId of new Set(due)) {
           if (this.paused()) break;
+          const key = keyOf.get(resourceId);
+          // One the provider said it doesn't have (or won't show) waits for its hourly recheck, as on an open (Codex on #1504).
+          if (key !== undefined && !this.due(key)) continue;
           changed += 1;
-          // One ticket that fails (the extension refuses it) doesn't hold up the others.
+          // One ticket that fails (the extension refuses it) doesn't hold up the others; its card says what and who tries again.
           try {
             const refreshed = await this.store.resources.refreshRemoteEntity(resourceId, false);
-            if (refreshed.remoteStatus?.freshness === "failed") {
-              const error = refreshed.remoteStatus.lastError ?? "a refresh failed";
-              this.failed(error);
-              failure ??= error;
-            }
+            const error = refreshed.remoteStatus?.freshness === "failed" ? refreshed.remoteStatus.lastError ?? "a refresh failed" : undefined;
+            if (error) { this.failed(error); failure ??= error; }
+            if (key !== undefined && (error || this.state.has(key))) { this.setState(key, error ? this.failure(key, error) : null); this.options.resourceChanged?.(resourceId); }
           } catch (error) {
             this.failed(message(error));
             failure ??= message(error);
+            if (key !== undefined) { this.setState(key, this.failure(key, message(error))); this.options.resourceChanged?.(resourceId); }
           }
         }
       } catch (error) {
@@ -505,7 +537,16 @@ export class ExtensionSync {
         searchFailed = true;
       }
     }
-    // A failed ticket stays failed (the next open retries it); a failed search keeps its window.
+    // A ticket whose first fetch failed has no Resource for a search to name: that key alone is fetched again, once a
+    // poll, while a note asks for it (PIE-1801). One the provider said it doesn't have waits for its hourly recheck.
+    for (const [key, state] of [...this.state]) {
+      if (!state.error || this.paused() || !this.due(key) || !this.store.extensionAskers(this.extensionId, key).length) continue;
+      if (this.store.resources.resolveAuthoredReference({ kind: this.provider, key }).kind === "ready") continue;
+      checked += 1;
+      await this.fetchKey(key, false, undefined);
+      if (!this.state.get(key)?.error) changed += 1;
+    }
+    // A failed search keeps its window.
     if (!searchFailed) this.lastPoll = started;
     this.lastPollResult = { at: new Date(started).toISOString(), checked, changed, ...(failure ? { error: failure } : {}) };
     return { checked, changed };

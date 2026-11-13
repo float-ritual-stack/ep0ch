@@ -76,12 +76,14 @@ const Manifest = Type.Object(
 const MAX_CONFIG_BYTES = 64 * 1024,
   MAX_REQUEST_BYTES = 256 * 1024,
   MAX_RESULT_BYTES = 1024 * 1024;
+/** What a provider's "no such item" reads as: a failure no poll will mend (PIE-1801). */
+export const NOT_FOUND_MESSAGE = "item was not found";
 const ERROR_MESSAGES: Record<string, string> = {
   "credentials-missing": "credentials are unavailable",
   unauthorized: "authentication failed (401)",
   forbidden:
     "access denied (403); check authentication mode and project access",
-  "not-found": "item was not found",
+  "not-found": NOT_FOUND_MESSAGE,
   "outside-source": "item is outside the configured Source",
   "invalid-config": "configuration is invalid",
   "invalid-response": "provider returned an invalid response",

@@ -787,3 +787,55 @@ test("a ticket named again after a while is caught up from its own last read", a
   await sync.poll();
   expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
 });
+
+// Codex on #1504: the poll retried a never-fetched ticket by materializing its whole note, so two failing tickets in one
+// note made four reads a poll (N made N²). Each failed key is fetched once a poll, by itself; one waiting for its hourly
+// recheck isn't (the next tests).
+test("each never-fetched ticket is fetched once a poll, by itself", async () => {
+  const { fake, server, create, until } = await setup();
+  fake.status = 500;
+  const page = await create("Depot board [jira::PC-1] [jira::PC-2]");
+  const sync = server.extensionSync.for("jira")!;
+  await sync.materialize(page.id);
+  await until("both failed", () => !!sync.stateFor("PC-1")?.error && !!sync.stateFor("PC-2")?.error);
+  fake.requests.length = 0;
+  await sync.poll();   // still refused: each tried once, by itself
+  const reads = fake.requests.filter((r) => r.startsWith("GET /rest/api/3/issue/") && !r.includes("/comment"));
+  expect(reads.length).toBe(2);
+  fake.status = null;
+}, 20_000);
+
+// Codex on #1504: a registered ticket deleted at Jira said "R tries again" while every poll still read it. The poll's
+// own reads keep the same policy: it waits for the hourly recheck, and r reads it now.
+test("a registered ticket Jira no longer has waits for its hourly recheck, in the poll too", async () => {
+  const { fake, server, client, create, recordOf } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  fake.issues.delete("PC-1");
+  await client.request({ action: "resources.projection.refresh", blockId: page.id });
+  const sync = server.extensionSync.for("jira")!;
+  expect(sync.stateFor("PC-1")).toMatchObject({ retry: "hourly", error: "Jira has no PC-1, or you can't see it" });
+  fake.requests.length = 0;
+  await sync.poll();
+  await sync.poll();
+  expect(fake.requests.filter((r) => r.startsWith("GET /rest/api/3/issue/20001"))).toEqual([]);
+});
+
+// Codex on #1504: Jira answers 404 for a ticket the caller can't view too, so a fetch made before access is granted
+// would never be tried again. It's rechecked hourly, by the poll and an open.
+test("a ticket Jira said it doesn't have is asked again after an hour", async () => {
+  const { fake, store, create } = await setup();
+  let now = Date.now();
+  const sync = new ExtensionSync(store, "jira", { pollMs: 0, now: () => now });
+  fake.status = null;
+  const page = await create("Ghost [jira::PC-9]");
+  await sync.materialize(page.id);
+  expect(sync.stateFor("PC-9")?.retry).toBe("hourly");
+  fake.requests.length = 0;
+  await sync.materialize(page.id);
+  expect(fake.requests).toEqual([]);   // within the hour: not asked
+  now += 61 * 60_000;
+  fake.issues.set("PC-9", { id: "20009", key: "PC-9", summary: "Access granted at last", updated: new Date(now).toISOString() });
+  await sync.materialize(page.id);
+  expect(sync.stateFor("PC-9")).toBeUndefined();
+});

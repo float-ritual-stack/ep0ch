@@ -76,7 +76,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { withSchemaParams, drawSources, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, linesThatRun, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, resourceShown, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
+import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, linesThatRun, fetchFailedWords, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, resourceShown, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction, PRESSED_VIA } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
@@ -4678,7 +4678,7 @@ export class NoteSurface {
       const shown = (p: ResourceProjection) => (p.kind === "agent" ? `${p.key} asked` : p.kind && p.kind !== "data" ? `${p.propertyKey}:: ${p.key ?? ""}`.trim() + " ran" : `${p.key} fetched`);
       const fetched = read.projections.filter(p => p.key && !p.fetchError).map(shown);
       const said = [fetched.length ? fetched.join(", ") : "",
-        ...failed.map(p => `${p.key}: can't fetch (${p.fetchError!.replace(/^Resource extension: /, "")})`)].filter(Boolean).join(" · ");
+        ...failed.map(p => `${p.key}: ${fetchFailedWords(p)}`)].filter(Boolean).join(" · ");
       host.ctx.flash(said || "nothing to fetch here");
       if (actor.kind === "agent") this.noteAgent(actor, `refreshed ${keys.join(", ") || "nothing"}`);
       host.redraw();

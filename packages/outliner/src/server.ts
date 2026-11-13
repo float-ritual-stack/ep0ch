@@ -493,7 +493,7 @@ export class OutlinerServer {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
       resourceChanged: (resourceId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "resources.extension-sync",
-        sequence: this.store.sequence, resourceId,
+        sequence: this.store.sequence, ...(resourceId ? { resourceId } : {}),
       }),
     });
     const roots = extensionRoots(store.workspaceRoot);
@@ -1332,7 +1332,7 @@ export class OutlinerServer {
         return {
           ...projection,
           ...(fetching ? { fetching: true } : {}),
-          ...(state?.error ? { fetchError: state.error } : {}),
+          ...(state?.error ? { fetchError: state.error, ...(state.retry ? { fetchRetry: state.retry } : {}) } : {}),
           ...(row ? { record: { blockId: row.blockId, pageBlockId: row.parentBlockId, syncedAt: row.syncedAt, commentBlockIds: comments } } : {}),
         };
       }),
