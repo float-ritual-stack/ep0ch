@@ -264,7 +264,15 @@ function counted(was: ForgetState | undefined, r: Ran & { cleared?: string; unlo
 }
 
 /** Each outline's newest archive (this machine's repository) restored into a temp folder, replayed and checked. */
-export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string } = {}): Promise<{ ok: boolean; detail: string }> {
+/** A served drill's times for one outline (PIE-1786): restic's restore, the replay, and a scratch host opening it to read. */
+export interface DrillTimes { outline: string; logId: string | null; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }
+
+/**
+ * The restore drill: each outline's newest archive restored into a temp folder, replayed and checked. `serve` (PIE-1786)
+ * also opens each replayed file with a scratch outline host of its own (its own folder and socket, read-only) and reads
+ * its notes through it, timing each part: the proof install needs before it stops copying outlines.
+ */
+export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string; serve?: boolean } = {}): Promise<{ ok: boolean; detail: string; served?: DrillTimes[]; repo?: string; machine?: string }> {
   const say = o.say ?? (() => {});
   // Another machine's (the hub drilling for one that can't reach its repository): that machine's repository.
   const repo = c.repoOf(o.machine ?? c.machine);
@@ -272,27 +280,55 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
   if ("error" in list) return { ok: false, detail: `can't list ${repo}: ${list.error}` };
   if (!list.length) return { ok: false, detail: `${repo} holds no outline archives` };
   const dir = mkdtempSync(join(tmpdir(), "ep0ch-drill-"));
-  const said: string[] = [];
+  const said: string[] = [], served: DrillTimes[] = [];
   let ok = true;
   try {
     for (const snap of list) {
-      const out = join(dir, `${snap.outline}.sqlite`);
+      const folder = join(dir, `served-${snap.outline}`), out = join(folder, `${snap.outline}.sqlite`);
+      mkdirSync(folder, { recursive: true, mode: 0o700 });
       const target = mkdtempSync(join(dir, "archive-"));
+      const t0 = performance.now();
       const got = await restoreArchive(c, repo, snap, target);
-      let verdict: string, blocks: number | null = null;
+      const t1 = performance.now();
+      let verdict: string, blocks: number | null = null, t2 = t1;
       if ("error" in got) verdict = got.error;
       else {
-        try { const r = replayArchive(got.root, snap.outline, out, snap.logId ? { logId: snap.logId } : {}); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
+        try { const r = replayArchive(got.root, snap.outline, out, snap.logId ? { logId: snap.logId } : {}); t2 = performance.now(); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
         catch (e) { verdict = (e as Error).message; }
       }
-      const line = verdict === "ok" ? `${snap.outline} ok (${blocks ?? "?"} blocks, entry ${snap.seq ?? "?"}, ${hhmm(snap.time)})` : `${snap.outline} FAILED: ${verdict}`;
+      let line = verdict === "ok" ? `${snap.outline} ok (${blocks ?? "?"} blocks, entry ${snap.seq ?? "?"}, ${hhmm(snap.time)})` : `${snap.outline} FAILED: ${verdict}`;
+      if (verdict === "ok" && o.serve) {
+        const s = await serveDrilled(folder, snap.outline);
+        if ("error" in s) { verdict = s.error; line = `${snap.outline} FAILED to serve: ${s.error}`; }
+        else {
+          const times = { outline: snap.outline, logId: snap.logId ?? null, restoreMs: Math.round(t1 - t0), replayMs: Math.round(t2 - t1), serveMs: s.ms, blocks: s.blocks };
+          served.push(times);
+          // The host serves the notes out of the Trash: the file's own count of those is what it must read.
+          const live = (() => { const db = new Database(out, { readonly: true }); try { return (db.query("SELECT COUNT(*) AS n FROM blocks WHERE effective_deleted_root_id IS NULL").get() as { n: number }).n; } finally { db.close(); } })();
+          if (s.blocks !== live) { verdict = `served ${s.blocks} notes, and the replayed file holds ${live} out of the Trash`; line = `${snap.outline} FAILED: ${verdict}`; }
+          else line += `; served by a scratch host: ${s.blocks} notes read (restore ${(times.restoreMs / 1000).toFixed(1)} s, replay ${(times.replayMs / 1000).toFixed(1)} s, open and read ${(times.serveMs / 1000).toFixed(1)} s)`;
+        }
+      }
       if (verdict !== "ok") ok = false;
       said.push(line); say(`${verdict === "ok" ? "✓" : "✗"} ${line}`);
-      rmSync(out, { force: true });
+      rmSync(folder, { recursive: true, force: true });
       rmSync(target, { recursive: true, force: true });
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
-  return { ok, detail: `replayed ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}` };
+  return { ok, detail: `${o.serve ? "restored, replayed and served" : "replayed"} ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}`, ...(o.serve ? { served, repo, machine: o.machine ?? c.machine } : {}) };
+}
+
+/** A replayed outline opened by a scratch host of its own (read-only, in `folder`), its notes read through its socket. */
+async function serveDrilled(folder: string, outline: string): Promise<{ blocks: number; ms: number } | { error: string }> {
+  const { OutlineHost } = await import("@ep0ch/outliner/outline-host");
+  const started = performance.now();
+  const host = new OutlineHost({ outlinesFolder: folder, readOnly: true, log: () => {} });
+  try {
+    await host.start();
+    const index = await hostSend(host.socketPath, "tree.index", { outline }, 120_000) as { blocks?: unknown[] };
+    return { blocks: index.blocks?.length ?? 0, ms: Math.round(performance.now() - started) };
+  } catch (e) { return { error: (e as Error).message }; }
+  finally { await host.close().catch(() => {}); }
 }
 
 /**
@@ -300,15 +336,15 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
  * the hub, which restores this machine's snapshots from the same repository (`ep0ch backup drill --machine <this>`
  * there); when neither can, it waits, said, and the last drill stands.
  */
-export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string } } | { waiting: string }> {
+export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null>; serve?: boolean } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string; served?: DrillTimes[]; repo?: string; machine?: string } } | { waiting: string }> {
   const repo = c.repoOf(c.machine);
   const why = c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null;
   if (!why) return { drill: await drill(c, o) };
   const { drillVia } = await import("./relay");
-  const r = await drillVia(c, c.hub!);
+  const r = await drillVia(c, c.hub!, undefined, !!o.serve);
   if ("error" in r) return r.unreachable ? { waiting: `${plainReason(why, { repo })}, and ${r.error}` }
     : { drill: { ok: false, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.error}`, via: c.hub! } };
-  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub! } };
+  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub!, ...(r.served ? { served: r.served, repo: r.repo, machine: r.machine } : {}) } };
 }
 
 /** How the job is run and read on this platform (what a fix says). */

@@ -245,7 +245,7 @@ changed is snapshotted (VACUUM INTO, integrity-checked) into this machine's rest
 repository, other machines' mirrors are refreshed from theirs, and what's stale is
 put on the door's status bar and announced once (scripts/backup/README.md)
 ```text
-ep0ch backup snapshot [--force] [--verbose] | mirror | drill
+ep0ch backup snapshot [--force] [--verbose] | mirror | drill [--serve]
 ```
 
 one part of it: snapshot (--force: unchanged outlines too), mirror, the restore drill.
@@ -275,7 +275,7 @@ ep0ch backup list <outline> [--machine <name>]
 
 an outline's snapshots
 ```text
-ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>
+ep0ch backup restore <outline> [--machine <name>] [--at <time> | --log <id> --entry <n>] --to <path>
 ```
 
 an outline's newest snapshot (or the newest at or before --at: an ISO time, or 3h,

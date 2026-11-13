@@ -3,17 +3,17 @@
 // arrives, and a whole --apply in a scratch home (fictional databases; nothing real is read or written).
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, symlinkSync, statfsSync, truncateSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, lstatSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, symlinkSync, statfsSync, truncateSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setupCommand, withoutProgress } from "../src/setup/apply";
 import { drain, run } from "../src/setup/facts";
 import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SPINNER, spinnerFor, type Terminal } from "../src/setup/progress";
 import { visible, width } from "../src/style";
 import { fakeServiceManager } from "./fake-service-manager";
-import { stopUnder } from "./scratch";
+import { scratchDir, stopUnder } from "./scratch";
 
-const scratch = mkdtempSync(join(tmpdir(), "ep0ch-progress-"));
+// Short whatever TMPDIR is (agent-env's is too long for a forward's socket path, PIE-1654).
+const scratch = scratchDir("ep0ch-progress-");
 afterAll(() => { stopUnder(scratch); rmSync(scratch, { recursive: true, force: true }); });
 
 const ESC = /\x1b/;
@@ -233,8 +233,12 @@ describe("the whole command, in a scratch home", () => {
       db.run("INSERT INTO notes VALUES ('n1', 'a fictional note')");
       db.close();
     }
-    const env = { HOME: h, PATH: [fakeServiceManager(h).bin, join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color" };
-    return { h, env, repoRoot: join(h, "ep0ch") };
+    // Never another machine: this home's outlines, no machine named, and ssh a fake that reaches nothing.
+    const ssh = join(h, "fake-ssh");
+    writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "../../outliner/test/fake-ssh.ts")} "$@"\n`, { mode: 0o755 });
+    const env = { HOME: h, PATH: [fakeServiceManager(h).bin, join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color",
+      EP0CH_OUTLINES: outlines, EP0CH_MACHINE: "", EP0CH_SSH: ssh, FAKE_SSH_DOWN: "1" };
+    return { h, env, repoRoot: join(h, "ep0ch"), cwd: h };
   }
 
   test("install prunes old backup runs per outline and installs the mod in known checkouts", async () => {
@@ -246,7 +250,7 @@ describe("the whole command, in a scratch home", () => {
       writeFileSync(join(folder, "field-notes.sqlite"), "old backup");
     }
     const out: string[] = [];
-    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot, now: new Date("2026-03-14T09:26:53Z")})).toBe(0);
+    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot, cwd: f.repoRoot, now: new Date("2026-03-14T09:26:53Z")})).toBe(0);
     expect(JSON.parse(readFileSync(join(f.h, ".claude/settings.json"), "utf8"))).toMatchObject({enabledPlugins: {"ep0ch@inline": true}, permissions: {allow: ["mcp__ep0ch"]}});
     expect(JSON.parse(readFileSync(join(f.repoRoot, ".claude/settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch"]);
     const copies = readdirSync(backups).filter(n => existsSync(join(backups, n, "field-notes.sqlite")));
@@ -254,11 +258,41 @@ describe("the whole command, in a scratch home", () => {
     expect(existsSync(join(backups, "20260103T000000Z/field-notes.sqlite"))).toBe(false);
     expect(out.join("\n")).toContain("Pruned");
     out.length = 0;
-    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: {...f.env, EP0CH_INSTALL_KEEP: "2"}, repoRoot: f.repoRoot})).toBe(0);
+    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: {...f.env, EP0CH_INSTALL_KEEP: "2"}, repoRoot: f.repoRoot, cwd: f.repoRoot})).toBe(0);
     expect(JSON.parse(out[0]!).steps.find((s: {id: string}) => s.id === "backup").status).toBe("skip");
     expect(readdirSync(backups).filter(n => existsSync(join(backups, n, "field-notes.sqlite")))).toHaveLength(2);
     expect(existsSync(join(backups, "20260314T092653Z/seed-library.sqlite"))).toBe(true);
   });
+
+  test("install marks a rollback point in the archive once a served drill stands in, and copies, saying why, when it can't (PIE-1786)", async () => {
+    const f = home("rollback-point");
+    const env = { ...f.env, EP0CH_STATE: join(f.h, "state"), EP0CH_BACKUP_MACHINE: "garden-shed", EP0CH_BACKUP_REPO: `${f.h}/repos/{machine}` };
+    const plan = async () => {
+      const out: string[] = [];
+      expect(await setupCommand(["install", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot, cwd: f.repoRoot })).toBe(0);
+      return JSON.parse(out[0]!).steps.find((s: { id: string }) => s.id === "backup") as { title: string; why: string; archive?: true };
+    };
+    // No drill: copies, and the one line says so.
+    expect((await plan()).why).toMatch(/^copying, because no restore drill has run here yet \(ep0ch backup drill --serve\)/);
+    // A served drill that passed today: the archive stands in.
+    mkdirSync(join(f.h, "state/backup"), { recursive: true });
+    const at = new Date().toISOString();
+    const served = (outline: string) => ({ outline, logId: null, restoreMs: 900, replayMs: 300, serveMs: 400, blocks: 1 });
+    const drill = { at, ok: true, detail: "restored, replayed and served 2", repo: `${f.h}/repos/garden-shed`, machine: "garden-shed", served: [served("field-notes")] };
+    const writeState = (d: object) => writeFileSync(join(f.h, "state/backup/state.json"), JSON.stringify({ outlines: {}, drill: d }));
+    // A drill that didn't cover every outline here: copies, saying which (Codex on #1502).
+    writeState(drill);
+    expect((await plan()).why).toMatch(/^copying, because the last served restore drill didn't cover seed-library/);
+    writeState({ ...drill, served: [served("field-notes"), served("seed-library")] });
+    const stands = await plan();
+    expect({ title: stands.title, archive: stands.archive }).toEqual({ title: "Mark every outline's rollback point", archive: true });
+    // Applied with no repository to archive to: it copies after all, and says why in one line.
+    const out: string[] = [];
+    await setupCommand(["install", "--apply", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot, cwd: f.repoRoot });
+    const step = JSON.parse(out.at(-1)!).steps.find((s: { id: string }) => s.id === "backup") as { done: string[] };
+    expect(step.done.join("\n")).toMatch(/copying instead: (archiving the logs failed \(.+\)|the archive doesn't hold every outline as uploaded: field-notes \(not archived\), seed-library \(not archived\))/);
+    expect(step.done.join("\n")).toContain("field-notes: ");
+  }, 60_000);
 
   test("install refuses a backup without enough space before copying any database", async () => {
     const f = home("full-backup-volume");
@@ -271,9 +305,11 @@ describe("the whole command, in a scratch home", () => {
     const disk = statfsSync(f.h);
     truncateSync(join(f.h, "outlines/field-notes.sqlite"), disk.bavail * disk.bsize + 1024 ** 3);
     const out: string[] = [];
-    const exit = await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot});
+    const exit = await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot, cwd: f.repoRoot});
     expect(exit).toBe(1);
     const result = JSON.parse(out[0]!);
+    // An install that stopped before its plan (another machine's forward, PIE-1654) says so here, not as a missing step.
+    expect(result.error).toBeUndefined();
     expect(result.steps.find((s: {id: string}) => s.id === "backup").error).toMatch(/space.*need/i);
     expect(out.join("\n")).toContain("worktrees");
     expect(out.join("\n")).toContain("old install backups");
@@ -286,8 +322,8 @@ describe("the whole command, in a scratch home", () => {
     const drawn: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 80, write: s => { drawn.push(s); } };
     const a: string[] = [], b: string[] = [];
-    expect(await setupCommand(["install", "--json"], { out: s => a.push(s), err: s => a.push(s), env, repoRoot, platform: "linux", terminal })).toBe(0);
-    expect(await setupCommand(["install", "--json"], { out: s => b.push(s), err: s => b.push(s), env, repoRoot, platform: "linux" })).toBe(0);
+    expect(await setupCommand(["install", "--json"], { out: s => a.push(s), err: s => a.push(s), env, repoRoot, cwd: repoRoot, platform: "linux", terminal })).toBe(0);
+    expect(await setupCommand(["install", "--json"], { out: s => b.push(s), err: s => b.push(s), env, repoRoot, cwd: repoRoot, platform: "linux" })).toBe(0);
     expect(drawn).toEqual([]);
     expect(a).toHaveLength(1);
     expect(a.join("")).not.toMatch(ESC);
@@ -300,7 +336,7 @@ describe("the whole command, in a scratch home", () => {
     const drawn: string[] = [];
     const out: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 80, write: s => { drawn.push(s); } };
-    await setupCommand(["doctor"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot, platform: "linux", terminal });
+    await setupCommand(["doctor"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot, cwd: repoRoot, platform: "linux", terminal });
     expect(visible(drawn.join(""))).toContain("Checking the stack · ");
     expect(drawn.at(-1)).toBe("\x1b[?25h");
     expect(out.join("\n")).toStartWith("ep0ch doctor · linux · ~");
@@ -313,7 +349,7 @@ describe("the whole command, in a scratch home", () => {
     const errs: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 100, write: s => { drawn.push(s); } };
     const now = new Date("2026-03-14T09:26:53Z");
-    expect(await setupCommand(["install", "--apply"], { out: () => {}, err: s => errs.push(s), env: live.env, repoRoot: live.repoRoot, platform: "linux", now, terminal })).toBe(0);
+    expect(await setupCommand(["install", "--apply"], { out: () => {}, err: s => errs.push(s), env: live.env, repoRoot: live.repoRoot, cwd: live.repoRoot, platform: "linux", now, terminal })).toBe(0);
     expect(errs).toEqual([]);
     const screen = visible(drawn.join("")).replaceAll("\x1b[K", "");
     expect(screen).toContain("    [░░░░░░░░░░░░] 0/2 · field-notes");
@@ -325,7 +361,7 @@ describe("the whole command, in a scratch home", () => {
 
     const piped = home("apply-piped");
     const out: string[] = [];
-    expect(await setupCommand(["install", "--apply"], { out: s => out.push(s), err: s => out.push(s), env: piped.env, repoRoot: piped.repoRoot, platform: "linux", now, terminal: { isTTY: false, write: () => { throw new Error("not a terminal"); } } })).toBe(0);
+    expect(await setupCommand(["install", "--apply"], { out: s => out.push(s), err: s => out.push(s), env: piped.env, repoRoot: piped.repoRoot, cwd: piped.repoRoot, platform: "linux", now, terminal: { isTTY: false, write: () => { throw new Error("not a terminal"); } } })).toBe(0);
     const text = out.join("\n");
     expect(text).not.toMatch(ESC);
     // The step's title, the folders once, then a short line per outline in columns: not the plan's paragraph again.

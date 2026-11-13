@@ -117,7 +117,7 @@ export const fetchRace = (error: string) => /cannot lock ref '[^']+': is at \S+ 
 /** How long a `git fetch` may take: a slow link needs more than a few seconds, and the person sees it run. */
 export const FETCH_TIMEOUT_MS = 90_000;
 
-export async function inspectCheckout(root: string, fetch = true, env: Env = process.env, onLine?: OnLine, sha?: string): Promise<Checkout> {
+export async function inspectCheckout(root: string, fetch = true, env: Env = process.env, onLine?: OnLine, sha?: string, back = false): Promise<Checkout> {
   const git = (...args: string[]) => run(["git", "-C", root, ...args], { env });
   const none: Checkout = { root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false };
   if (!existsSync(root) || (await git("rev-parse", "--is-inside-work-tree")).out !== "true") {
@@ -139,6 +139,14 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
   if (upstream.code === 0) {
     const counts = await git("rev-list", "--left-right", "--count", `HEAD...${target}`);
     [ahead, behind] = counts.out.split(/\s+/).map(Number) as [number, number];
+    // Going back (`--sha <earlier> --back`, PIE-1786): the checkout moves to an ancestor of its HEAD, so what HEAD has
+    // beyond it is the way to go, as a pull's behind is; one that isn't an ancestor is no going back.
+    if (back && sha) {
+      if ((await git("merge-base", "--is-ancestor", sha, "HEAD")).code !== 0) throw new Error(`install ${sha} --back: ${sha.slice(0, 8)} isn't behind the checkout's HEAD; --back only goes back along main`);
+      // Nothing of the checkout's own is dropped (Codex on #1502): every commit it holds is on origin/main.
+      if ((await git("merge-base", "--is-ancestor", "HEAD", "origin/main")).code !== 0) throw new Error(`install ${sha} --back: the checkout's HEAD isn't on origin/main (it holds commits origin doesn't have), so going back would drop them; push or move them aside first (git -C ${root} log origin/main..HEAD)`);
+      [ahead, behind] = [behind, ahead];
+    }
   }
   return { root, git: true, branch: branch.code === 0 ? branch.out : null, head: head.code === 0 ? head.out : null, upstream: upstream.code === 0 ? upstream.out : null,
     ahead: ahead || 0, behind: behind || 0, dirty: status.out.length > 0, ...(fetchError ? { fetchError } : {}), ...(fetchRaced ? { fetchRaced: true as const } : {}) };
@@ -602,10 +610,10 @@ export function claudeModIn(root: string): { dir: string | null; installer: stri
 }
 
 /** The ep0ch checkout at `root`: the checkout, its packages, the protocol its code speaks. */
-export async function repoFacts(root: string, fetch: boolean, env: Env, onLine?: OnLine, sha?: string): Promise<RepoFacts> {
+export async function repoFacts(root: string, fetch: boolean, env: Env, onLine?: OnLine, sha?: string, back = false): Promise<RepoFacts> {
   const outliner = join(root, "packages/outliner");
   const mod = claudeModIn(root);
-  const [checkout, code] = await Promise.all([inspectCheckout(root, fetch, env, onLine, sha), pluginCode(outliner)]);
+  const [checkout, code] = await Promise.all([inspectCheckout(root, fetch, env, onLine, sha, back), pluginCode(outliner)]);
   return { root, checkout, deps: depsState(root), entry: join(root, "packages/door/src/main.ts"), door: join(root, "packages/door"), outliner,
     claudeMod: mod.dir, claudeModInstaller: mod.installer, protocol: code.protocol };
 }
@@ -651,7 +659,7 @@ export function doorExtFacts(door: string, env: Env = process.env): NonNullable<
 export interface GatherProgress { done: number; total: number; waiting: string[] }
 export interface GatherOptions {
   /** `repoRoot`: the ep0ch checkout (default: the one this door runs from). `cwd`: the folder `here` is about. */
-  env?: Env; fetch?: boolean; repoRoot?: string; platform?: string; cwd?: string; sha?: string;
+  env?: Env; fetch?: boolean; repoRoot?: string; platform?: string; cwd?: string; sha?: string; /** `--back`: `sha` is an earlier commit to go back to. */ back?: boolean;
   /** Called as each part (bun, Herdr, the plugin, the door checkout …) is gathered. */
   onProgress?: (p: GatherProgress) => void;
   /** The fetches' output as it arrives, prefixed with what is fetched. */
@@ -686,7 +694,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
     part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
-    part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"), o.sha)),
+    part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"), o.sha, o.back)),
     part("the outline host", hostFacts(folder, platform, home, env, repoRoot)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),

@@ -62,7 +62,9 @@ answer means nothing is archived that run, said with the command that starts it.
    doctor say `relayed via <hub>` with the repository's failure; the door's status bar shows a quiet `→ backup`.
 5. **Drill**, monthly: every outline's newest archive restored into a temp folder, replayed into a new file and
    checked (`integrity_check`, its blocks counted, the replay ending at the entry the archive was taken at).
-   `ep0ch backup drill` runs it now. When the repository doesn't answer (the VPN), the drill runs on the hub instead
+   `ep0ch backup drill` runs it now; `--serve` also opens each replayed outline with a scratch host of its own and
+   reads its notes, timing the restore, the replay and the open: the drill install needs before it stops copying
+   outlines (PIE-1786). When the repository doesn't answer (the VPN), the drill runs on the hub instead
    (`ep0ch backup drill --machine <this> --json` over ssh); with the hub out of reach too, it waits, said in doctor.
 6. **Watch.** Changes waiting more than 2 hours for an upload, a failed drill, a host that doesn't answer: each is an
    incident in `~/.local/state/ep0ch-door/backup/alert.json`. The door's status bar marks it (`✗ backup`; `? backup`
