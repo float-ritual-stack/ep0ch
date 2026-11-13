@@ -19,11 +19,11 @@ serde_json = "1"
 # Picture bytes come over the wire as base64 (`media.read`).
 base64 = "0.22"
 # The terminal (the `pty` feature, off by default): Moonframe's emulator and the backends that keep a program
-# (tmux, else a plain pty). One rev for both, moved on purpose. The emulator is alacritty's, in Rust: never its
-# `ghostty` feature, which builds Ghostty's source with Zig. The mux is taken without `herdr-core` (README, "The
-# terminal").
+# (herdr-core when the machine has `hc`, then tmux, else a plain pty). One rev for both, moved on purpose. The
+# emulator is alacritty's, in Rust: never its `ghostty` feature, which builds Ghostty's source with Zig (README,
+# "The terminal").
 moonframe-terminal = { git = "https://github.com/moonframehq/moonframe", rev = "b67a3de", default-features = false, features = ["alacritty"], optional = true }
-moonframe-mux = { git = "https://github.com/moonframehq/moonframe", rev = "b67a3de", default-features = false, features = ["terminal"], optional = true }
+moonframe-mux = { git = "https://github.com/moonframehq/moonframe", rev = "b67a3de", default-features = false, features = ["herdr-core", "terminal"], optional = true }
 
 [features]
 # A shell or an agent in a tile: `cargo build --features pty`. Without it the window is what it was, and pulls
