@@ -17,8 +17,8 @@ pub mod prim;
 pub mod pty;
 pub mod rendered;
 
-use rune::{El, col, text};
-use rune_kit::Kit;
+use rune::{El, col, row, text};
+use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::{Value, json};
 
 use crate::actions::{Actor, App, TileUi};
@@ -86,7 +86,7 @@ pub fn drawers() -> Vec<&'static str> { DRAWERS.iter().map(|drawer| drawer.id).c
 /// A tile with nothing to draw yet (a reader told no note, a list about a note nobody shows): what it is, in its
 /// kind's own words. The name and the description are the service's row for the kind (`KindRow`), which says what a
 /// tile of it shows and so what this one waits for; nothing here words a kind, and no note is drawn in its place.
-/// `ways`: what the drawer offers to fill it (a row of its own buttons), under the words.
+/// `ways`: what the drawer offers to fill it, under the words (`way`: a line an act).
 pub fn waiting(cx: &TileCx, ways: Option<El>, k: &Kit) -> El {
     let about = Some(cx.row.about.trim()).filter(|about| !about.is_empty()).map(|about| text(about.to_string()).key(cx.key("empty/about")).font(k.ty.small).color(k.c.text_muted).wrap().max_w(460.0));
     let name = if cx.row.name.is_empty() { cx.spec.kind.clone() } else { cx.row.name.clone() };
@@ -94,6 +94,15 @@ pub fn waiting(cx: &TileCx, ways: Option<El>, k: &Kit) -> El {
         .child(text(name).key(cx.key("empty/kind")).font(k.ty.ui).color(k.c.text_base))
         .children(about)
         .children(ways)
+}
+
+/// One thing to do next in an empty tile, as a line: the button its action's row labels, then the key this
+/// window's table binds to that line and what the key does, in the row's own words. Nothing here words an action;
+/// a line no key runs is its button alone. Keyed `empty/<part>` in its tile.
+pub fn way(cx: &TileCx, line: &str, part: &str, k: &Kit) -> El {
+    let button = Button::new(crate::actions::label(line)).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(cx.act(line)).build(k).key(cx.key(format!("empty/{part}")));
+    let does = crate::keys::bind_of(line).map(|bind| text(format!("{} · {}", bind.cap(), bind.does)).key(cx.key(format!("empty/{part}/does"))).font(k.ty.small).color(k.c.text_faint).truncate());
+    row().gap(10.0).center_y().child(button).children(does)
 }
 
 /// A tile whose kind this window can't draw: its spec as data, never hidden.

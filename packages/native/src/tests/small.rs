@@ -8,6 +8,8 @@ use super::support::*;
 use crate::actions::{Actor, Tone, stays};
 
 fn agent() -> Actor { Actor::Agent("seedling-agent".into()) }
+/// What the elements keyed under `key` say.
+fn says(rt: &rune::Runtime<crate::actions::App>, key: &str) -> Vec<String> { rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with(key))).filter_map(|e| e.text).collect() }
 
 /// The run: an agent was refused while the person had the bar open, and the status line still said so minutes and
 /// many acts later. What an agent did is news for as long as it takes to read (the door's rule for its status bar).
@@ -110,4 +112,55 @@ fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     assert_eq!(name(&rt)[0], 10.0);
     // On this platform the frame asks for nothing over the content, so a headless render reports none either.
     assert_eq!(crate::shell::frame().titlebar_inset(), if cfg!(target_os = "macos") { 67.0 } else { 0.0 });
+}
+
+/// The run: the empty reader read as documentation for whoever writes a screen. It says what it is in its kind's own
+/// words (the service's row, written for the person at the tile), and what to do next as a line an act: the button
+/// its action's row labels, the key this window's table binds and what that key does, in the row's words.
+#[test]
+fn an_empty_reader_says_what_to_do_next_from_the_rows() {
+    let g = garden_unopened(ok());
+    let reader = g.app.kinds().iter().find(|row| row.serves.iter().any(|name| name == "reader")).expect("a kind serves reader").clone();
+    let rt = window(g.app);
+    assert_eq!(says(&rt, "tile/reader/empty/about"), vec![reader.about.clone()]);
+    // No word of how a screen writes one: that is the extension's page to say.
+    for author in ["note=", "mode=", "source=", "tile:", "<"] { assert!(!reader.about.contains(author), "the reader's description is for a person: {}", reader.about) }
+    // Each way is its row's: the label, the key and what it does.
+    for (part, line) in [("find", "bar.open"), ("new", "note.new")] {
+        let bind = crate::keys::bind_of(line).expect("the table binds it");
+        assert_eq!(says(&rt, &format!("tile/reader/empty/{part}/does")), vec![format!("{} · {}", bind.cap(), bind.does)], "{line}");
+        assert!(rect_of(&rt, &format!("tile/reader/empty/{part}")).is_some());
+    }
+    // A list about a note nobody shows says what it waits for the same way, and offers nothing it can't do.
+    let props = rt.state.kinds().iter().find(|row| row.serves.iter().any(|name| name == "props")).unwrap().clone();
+    if rect_of(&rt, "tile/props/empty").is_some() { assert_eq!(says(&rt, "tile/props/empty/about"), vec![props.about.clone()]) }
+    for kind in rt.state.kinds().iter().filter(|row| row.fields.get("subject").is_some()) { assert!(!kind.about.contains("source=tile"), "{}: {}", kind.kind, kind.about) }
+}
+
+/// The run: scrolled, the Properties tile's first row sat right under its column header's words, as if it slid
+/// under them. The strip over a list tile (its title, its chips, a table's column header) stays put; a line under it
+/// says where the rows go, and no row is drawn above that line however far the list is scrolled.
+#[test]
+fn a_list_tile_s_rows_scroll_under_a_line_below_its_column_header() {
+    let mut g = garden(ok());
+    assert!(act(&mut g.app, "open id=onions").ok);
+    // A short window: the properties list is taller than its tile.
+    let mut rt = rune::Runtime::new(g.app, crate::shell::view, (1180.0, 400.0), rune::Env { system_dark: true, scale: 1.0 });
+    rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
+    for _ in 0..4 { rt.frame(0.0); }
+    rest(&mut rt);
+    let (columns, edge, scroll) = (rect_of(&rt, "tile/props/columns").expect("a table's column header"), rect_of(&rt, "tile/props/head/edge").expect("the line the rows scroll under"), rect_of(&rt, "tile/props/scroll").unwrap());
+    assert!(edge[1] >= columns[1] + columns[3] + 4.0, "the line sits under the header with room between: header {columns:?}, line {edge:?}");
+    assert_eq!(scroll[1], edge[1] + edge[3], "and the rows' own scroll starts under it");
+    let seen = |rt: &rune::Runtime<crate::actions::App>| rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("tile/props/row/") || key.starts_with("tile/props/group/"))).filter(|e| e.visible[3] > 0.0).map(|e| (e.key.unwrap(), e.visible)).collect::<Vec<_>>();
+    assert!(!seen(&rt).is_empty());
+    // Scrolled a row and a half, then to its end: whatever is still seen is below the line.
+    for step in [-42.0, -400.0] {
+        rt.wheel(scroll[0] + 30.0, scroll[1] + 10.0, step);
+        rest(&mut rt);
+        let rows = seen(&rt);
+        assert!(!rows.is_empty(), "rows are still listed");
+        for (key, visible) in rows { assert!(visible[1] >= edge[1] + edge[3], "{key} is drawn at {visible:?}, above the line at {}", edge[1] + edge[3]) }
+        assert_eq!(rect_of(&rt, "tile/props/columns").unwrap(), columns, "the header stays where it is");
+    }
 }

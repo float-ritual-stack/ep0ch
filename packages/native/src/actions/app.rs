@@ -1025,7 +1025,8 @@ impl App {
     // ── pictures ────────────────────────────────────────────────────────────────────────────────────────────
 
     /// The pictures these pages show are the ones held: a file's bytes are asked of the host (`media.read`), an svg
-    /// fence's text is the picture already, and what no page shows any more is let go.
+    /// fence's text is the picture already, and what no page shows any more goes behind them, the last few kept
+    /// decoded (`Pictures::keep`).
     fn want_pictures(&mut self, pages: &[Page]) {
         let shown: HashSet<String> = pages.iter().flat_map(Page::pictures).map(Picture::key).collect();
         self.pictures.keep(&shown);

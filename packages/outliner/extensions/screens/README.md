@@ -9,9 +9,14 @@ The screens and tile kinds every door ships, as data. Both doors read them the w
   - `drawer` is `list` or `page`.
   - `fields` are its start: for a list, the source it lists `from`.
   - A new kind over a source that exists is a row here, never code.
-- **A list about a note** is such a kind too: its comments, its proposals, its revisions.
+- **A kind's description is for the person at the tile:** an empty tile says it, with what to do next. How a
+  screen writes a tile of the kind is here, never there.
+- **A reader** keeps the note opened into it.
+  - `note: <id>` starts it on one.
+  - `mode: pinned` keeps it there: an open aimed at it lands beside it.
+- **A list about a note** is such a kind too: its links, its properties, its comments, its proposals, its revisions.
   - `from` names the producer.
-  - `subject: follows` and a `source` on the tile make it follow a reader.
+  - `source: tile:<name>` on the tile names its reader, and `subject: follows` makes it follow that reader's note.
 - **The keys and the components** are lists as well (`keymap`, `components`).
 - **A screen** is a spec as a screen note holds one.
   - `start: true` marks the one a window with no arrangement of its own opens on.
