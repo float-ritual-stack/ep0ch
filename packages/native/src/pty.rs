@@ -378,7 +378,7 @@ pub struct Shown {
 /// What keeps a program, and for how long, as its tile and a list of programs say it: said before anybody relies
 /// on it either way. The one wording of it.
 pub fn kept_said(backend: &str, keeps: bool) -> String {
-    if backend.is_empty() { String::new() } else if keeps { format!("{backend} keeps it: it outlives this window") } else { format!("{backend}: it ends with this window") }
+    if backend.is_empty() { String::new() } else if keeps { format!("{backend} · outlives this window") } else { format!("{backend} · ends with this window") }
 }
 
 /// What a tile says of a program that was found still running, from a launch before or another tile.

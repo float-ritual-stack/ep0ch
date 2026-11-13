@@ -100,7 +100,7 @@ fn a_shell_opens_beside_the_note_and_its_rows_stay_on_the_column_grid() {
     assert_eq!(rt.state.person().layer, Layer::Program);
     assert_eq!(lines(&rt, "shell"), vec!["sown: 12 rows", "watered: north bed", "畑の north bed ready", "plot $"]);
     // The row with wide characters is cut at them: each piece sits on its column, a cell's width a column.
-    let cell = crate::tiles::pty::cell(rune_kit::Kit::neutral(false).ty.mono).0;
+    let cell = crate::tiles::pty::cell(crate::tiles::pty::style(&rune_kit::Kit::neutral(false))).0;
     let row = rect_of(&rt, "tile/shell/row/2").expect("the row is drawn");
     for (piece, col) in [("tile/shell/row/2/at/0", 0.0), ("tile/shell/row/2/at/2", 2.0), ("tile/shell/row/2/at/4", 4.0), ("tile/shell/row/2/ground/15", 15.0)] {
         let at = rect_of(&rt, piece).unwrap_or_else(|| panic!("{piece} is drawn"));
@@ -111,7 +111,7 @@ fn a_shell_opens_beside_the_note_and_its_rows_stay_on_the_column_grid() {
     assert_eq!(facts(&rt, "shell")["cursor"], json!([7, 3]));
     assert!(rt.find("tile/shell/row/3/cursor").is_some());
     // The tile says what keeps its program, before anybody relies on it.
-    assert_eq!(facts(&rt, "shell")["kept"], "herdr-core keeps it: it outlives this window");
+    assert_eq!(facts(&rt, "shell")["kept"], "herdr-core · outlives this window");
     assert!(rt.find("tile/shell/kept").is_some() && rt.find("tile/shell/do/tile.leave").is_some());
 }
 
@@ -154,7 +154,7 @@ fn a_size_the_scrollback_and_a_paste_reach_the_program() {
     // The tile fits its program to itself as it is laid out: its size in cells is the tile's, not the first guess.
     let fitted = (facts(&rt, "shell")["cols"].as_u64().unwrap(), facts(&rt, "shell")["rows"].as_u64().unwrap());
     assert_ne!(fitted, (u64::from(pty::FIRST.0), u64::from(pty::FIRST.1)), "the program was fitted to its tile");
-    let cell = crate::tiles::pty::cell(rune_kit::Kit::neutral(false).ty.mono);
+    let cell = crate::tiles::pty::cell(crate::tiles::pty::style(&rune_kit::Kit::neutral(false)));
     let screen = rect_of(&rt, "tile/shell/screen").unwrap();
     assert_eq!(fitted, (((screen[2] - 8.0) / cell.0).floor() as u64, ((screen[3] - 8.0) / cell.1).floor() as u64));
     // A size by name, as an agent or a test would say one, and a row that is cut by it.
@@ -201,7 +201,8 @@ fn an_agent_is_detached_listed_with_no_tile_and_jumped_back_to() {
     assert!(detached.ok, "{}", detached.said);
     assert_eq!((detached.answer["program"].as_str(), detached.answer["keeps"].as_bool()), (Some("garden-2"), Some(true)));
     assert!(rt.find("tile/agent").is_none());
-    assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.contains("the next launch finds it") && n.said.contains("terminal.jump key=garden-2")), "{:?}", rt.state.notice);
+    assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.contains("the next launch finds it") && n.undo.as_deref() == Some("terminal.attach key=garden-2")), "{:?}", rt.state.notice);
+    assert!(rt.find("notice-undo").is_some(), "the notice has the button that gives it a tile again");
     assert!(line(&mut rt, "bar.open scope=programs").ok);
     assert_eq!(handed(&asked).iter().map(|p| (p["key"].as_str().unwrap().to_string(), p["tile"].as_str().map(str::to_string))).collect::<Vec<_>>()[..2], [("garden-1".to_string(), Some("shell".to_string())), ("garden-2".to_string(), None)]);
     // The row of the list is the jump, written by the service: picked, the program has a tile again and the keys.
@@ -231,7 +232,7 @@ fn the_next_launch_finds_what_herdr_core_kept_and_a_plain_pty_starts_over() {
         let mut rt = window(g.app);
         assert!(line(&mut rt, "terminal.open agent=true command=\"seedbot --plan beds\"").ok);
         typed(&mut rt, "seeds");
-        assert_eq!(facts(&rt, "agent")["kept"], if keeps { "herdr-core keeps it: it outlives this window" } else { "pty: it ends with this window" }, "the tile says how long its program runs before anybody relies on it");
+        assert_eq!(facts(&rt, "agent")["kept"], if keeps { "herdr-core · outlives this window" } else { "pty · ends with this window" }, "the tile says how long its program runs before anybody relies on it");
         let heard = running.heard("garden-1");
         drop(rt);
         // The window is gone. The next one, over what the host still runs, opens as it was left.
@@ -349,4 +350,37 @@ fn a_window_with_no_terminal_says_so_on_the_tile_in_the_kind_s_own_words() {
     let about = rt.state.kind_row("terminal.shell").expect("the service serves the kind").about.clone();
     assert!(about.contains("cargo build --features pty") && said.iter().any(|text| *text == about), "the row's own words are on the tile: {said:?}");
     assert_eq!(rt.state.person().layer, Layer::Tile, "nothing runs, so no key is a program's");
+}
+
+// ── what a frame costs ──────────────────────────────────────────────────────────────────────────────────────
+
+/// What a terminal tile's frame costs in the window itself, beside the probe's measurement (PROBES §7): a full
+/// screen that scrolls (every row changes) and a prompt typed at (one row changes), for a small grid and a large
+/// one. `cargo test --release measure_a_terminal_s_frame -- --ignored --nocapture` prints the table.
+#[test]
+#[ignore = "a measurement: cargo test --release measure_a_terminal_s_frame -- --ignored --nocapture"]
+fn measure_a_terminal_s_frame() {
+    let median = |mut times: Vec<f64>| { times.sort_by(f64::total_cmp); times[times.len() / 2] };
+    for (cols, rows) in [(80u16, 24u16), (200, 60)] {
+        // A log whose every line is coloured runs and a wide character: one command prints a screen and a half of it.
+        let log: Vec<Value> = (0..usize::from(rows) * 3 / 2).map(|n| json!([{ "t": format!("{n:04} "), "fg": "#7f848e" }, { "t": "畑", "wide": true }, format!(" bed {:02} ", n % 16), { "t": " watered ", "bg": "#2f5d3a", "fg": "#d7f5dd" }, " ".to_string() + &"row of carrots and leeks ".repeat(usize::from(cols) / 30)])).collect();
+        let host = Canned::read(&json!({ "backend": "pty", "keeps": false, "replies": { "log": log } }));
+        let mut g = garden(ok());
+        g.app = g.app.running_on(Box::new(host));
+        let mut rt = window(g.app);
+        assert!(line(&mut rt, "terminal.open").ok && line(&mut rt, &format!("terminal.fit cols={cols} rows={rows} tile=shell")).ok);
+        let mut frame = |rt: &mut Runtime<App>, text: &'static str| {
+            rt.update(|s, _| { s.act(&format!("tile.type text={text} tile=shell"), Actor::Person); s.ran(); });
+            let at = std::time::Instant::now();
+            rt.frame(1.0 / 60.0);
+            at.elapsed().as_secs_f64() * 1000.0
+        };
+        for _ in 0..3 { frame(&mut rt, "\"log\\n\""); }
+        let scroll = median((0..40).map(|_| frame(&mut rt, "\"log\\n\"")).collect());
+        let prompt = median((0..40).map(|_| frame(&mut rt, "x")).collect());
+        // The frame with nothing new: what the window's other tiles and the terminal's mounted rows cost at rest.
+        let rest = median((0..40).map(|_| { let at = std::time::Instant::now(); rt.frame(1.0 / 60.0); at.elapsed().as_secs_f64() * 1000.0 }).collect());
+        let built = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("tile/shell/row/"))).count();
+        eprintln!("| {cols} by {rows} | {scroll:.2} | {prompt:.2} | {rest:.2} | {built} | {} |", rt.elements().len());
+    }
 }

@@ -177,7 +177,7 @@ impl App {
         // spec: what a screen says of itself is the service's row for it, read when the window opens again.
         let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "seen": self.screen_seen.as_ref().map(|(_, mark)| mark), "layout": self.layout.save(), "tiles": tiles,
             // What each program still running was started as: a tile made for one again, this launch or the next, is of its kind.
-            "programs": self.store.programs_known().iter().map(crate::pty::Made::json).collect::<Vec<_>>() });
+            "started": self.store.programs_known().iter().map(crate::pty::Made::json).collect::<Vec<_>>() });
         if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
         if let Err(e) = std::fs::write(path, serde_json::to_vec_pretty(&kept).unwrap_or_default()) { eprintln!("ep0ch-native: can't keep the arrangement in {}: {e}", path.display()) }
     }
@@ -208,7 +208,7 @@ impl App {
             slot.program = ui["program"].as_str().map(str::to_string);
         }
         self.st.layout = layout;
-        for made in kept["programs"].as_array().into_iter().flatten().filter_map(crate::pty::Made::read) { self.store.program_remember(made) }
+        for made in kept["started"].as_array().into_iter().flatten().filter_map(crate::pty::Made::read) { self.store.program_remember(made) }
     }
 }
 

@@ -58,13 +58,13 @@ static OPEN: ActionRow = ActionRow::new("terminal.open", Touches::Shape, "a term
 static ENTER: ActionRow = ActionRow::new("tile.enter", Touches::Screen, "type in a terminal tile (tile=, else the one with the keys, else the first): every key but the one that leaves goes to its program. The person's only: an agent's would take their keys (tile.type sends a program text)")
     .person("typing in a terminal tile takes the person's keys; an agent sends it text with tile.type")
     .keys(&[KeyRow::on("ctrl+]", "tile", "into the terminal: every key goes to its program"), KeyRow::via("a press in a terminal tile")])
-    .menu(&[MenuRow::new("Type in it", "Terminal", Some("ctrl+]"))])
+    .menu(&[MenuRow::new("Type", "Terminal", Some("ctrl+]"))])
     .examples(&[Example { act: "tile.enter tile=shell", does: "the person's keys go to the shell's program until the key that leaves", safe: Some(true) }]);
 
 static LEAVE: ActionRow = ActionRow::new("tile.leave", Touches::Screen, "back to the window from the terminal tile the person types in: the tile keeps the keys, and they are the window's again. The person's only")
     .person("the person's keys are theirs: an agent doesn't take them out of a terminal tile")
     .keys(&[KeyRow::on("ctrl+]", "program", "back to the window's own keys")])
-    .menu(&[MenuRow::new("Leave the terminal", "Terminal", Some("ctrl+]"))]);
+    .menu(&[MenuRow::new("Leave", "Terminal", Some("ctrl+]"))]);
 
 static TYPE: ActionRow = ActionRow::new("tile.type", Touches::Tile, "send text=<text> to the program in a terminal tile (tile=, else the one with the keys, else the first), as typed keys (\\n is Return, \\e Escape). Refused to an agent for the terminal the person is typing in")
     .typing()
@@ -85,7 +85,8 @@ static DETACH: ActionRow = ActionRow::new("terminal.detach", Touches::Shape, "cl
 
 static ATTACH: ActionRow = ActionRow::new("terminal.attach", Touches::Shape, "a tile for a program that runs in none: key= names it, as the programs list does (lists.read from=programs); the tile goes beside the note (tile=, else the reader the open note is in)")
     .args(&[("key", ArgSpec::text("the program, by its key")), ("dir", ArgSpec::text("the side of the reader the tile goes on (default: under the terminal that is there, else on the reader's right)").optional().choices(&["right", "down", "left", "up"]))])
-    .keys(&[KeyRow::via("terminal.jump does it for a program with no tile")])
+    .keys(&[KeyRow::via("terminal.jump does it for a program with no tile; the notice of a detach has its button")])
+    .menu(&[MenuRow::new("Attach", "Terminal", None)])
     .examples(&[Example { act: "terminal.attach key=garden-2", does: "the program garden-2 in a tile beside the note", safe: None }]);
 
 static JUMP: ActionRow = ActionRow::new("terminal.jump", Touches::Screen, "go to a program: key= names it, as the programs list does. The keys go to its tile, and one that runs in no tile is given one beside the note first. What a row of the programs list runs. The person's only")
@@ -324,8 +325,11 @@ fn detach(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     // What keeps the program has it from here: the window lets go of its stream, as a viewer that detaches does.
     // (A plain pty's program is its handle: held, it runs until the window ends.)
     if keeps { app.store.program_release(&key); app.run_programs(&by.id()); app.keep(); }
-    // How long it runs on is said before anybody relies on it.
-    if app.stands(by) { app.st.notice = Some(Notice::info(if keeps { format!("{name}'s program runs on, kept by {backend}: the next launch finds it too. terminal.jump key={key} goes back to it.") } else { format!("{name}'s program runs on until this window ends: nothing keeps it after. terminal.jump key={key} goes back to it.") })) }
+    // How long it runs on is said before anybody relies on it, with the act that gives it a tile again.
+    if app.stands(by) {
+        let said = if keeps { format!("{name}'s program runs on, kept by {backend}: the next launch finds it too.") } else { format!("{name}'s program runs on until this window ends: nothing keeps it after.") };
+        app.st.notice = Some(Notice { undo: Some(format!("terminal.attach key={}", super::word(&key))), ..Notice::info(said) });
+    }
     Outcome::answer(json!({ "tile": name, "program": key, "backend": backend, "keeps": keeps }))
 }
 

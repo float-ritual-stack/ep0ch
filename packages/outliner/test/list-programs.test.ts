@@ -45,10 +45,10 @@ async function setup() {
 }
 
 const PROGRAMS: ProgramSaid[] = [
-  { key: "garden-1", name: "Shell", cwd: "/plots/north", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", tile: "shell" },
-  { key: "garden-2", name: "Agent", command: "seedbot --plan beds", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", status: "working", says: "planning the beds", tile: "agent", window: "second" },
-  { key: "garden-3", name: "Agent", command: "seedbot --order seeds", by: "agent:compost-agent", backend: "herdr-core", keeps: true, kept: "herdr-core keeps it: it outlives this window", state: "running", status: "blocked", says: "may it order the leeks?" },
-  { key: "garden-4", name: "Shell", command: "tail -f watering.log", backend: "pty", keeps: false, kept: "pty: it ends with this window", state: "exited" },
+  { key: "garden-1", name: "Shell", cwd: "/plots/north", backend: "herdr-core", keeps: true, kept: "herdr-core · outlives this window", state: "running", tile: "shell" },
+  { key: "garden-2", name: "Agent", command: "seedbot --plan beds", backend: "herdr-core", keeps: true, kept: "herdr-core · outlives this window", state: "running", status: "working", says: "planning the beds", tile: "agent", window: "second" },
+  { key: "garden-3", name: "Agent", command: "seedbot --order seeds", by: "agent:compost-agent", backend: "herdr-core", keeps: true, kept: "herdr-core · outlives this window", state: "running", status: "blocked", says: "may it order the leeks?" },
+  { key: "garden-4", name: "Shell", command: "tail -f watering.log", backend: "pty", keeps: false, kept: "pty · ends with this window", state: "exited" },
   { key: "", name: "compost", command: "tail -f compost.log", backend: "herdr-core", keeps: true, state: "running", status: "idle", mine: false, address: "t4" },
 ];
 
@@ -63,10 +63,10 @@ test("programs: the asker's own, a row each with the jump as its pick, then what
   expect(all.list).toMatchObject({ type: "list", arrange: "rows", title: "Programs · 3 running" });
   // A row's mark is what the program reports of itself, where it reports; else how it stands.
   expect(all.list.rows.map(r => [r.id, r.label, r.detail ?? null, r.mark, r.tone ?? null, r.group, r.cells, r.act ?? null])).toEqual([
-    ["garden-1", "Shell", "/plots/north", "running", null, "In a tile", ["herdr-core keeps it: it outlives this window", "shell"], 'terminal.jump key="garden-1"'],
-    ["garden-2", "Agent", "seedbot --plan beds · planning the beds", "working", null, "In a tile", ["herdr-core keeps it: it outlives this window", "agent · window second"], 'terminal.jump key="garden-2"'],
-    ["garden-3", "Agent", "seedbot --order seeds · may it order the leeks? · started by compost-agent", "blocked", "warn", "Running, in no tile", ["herdr-core keeps it: it outlives this window"], 'terminal.jump key="garden-3"'],
-    ["garden-4", "Shell", "tail -f watering.log", "exited", null, "Running, in no tile", ["pty: it ends with this window"], 'terminal.jump key="garden-4"'],
+    ["garden-1", "Shell", "/plots/north", "running", null, "In a tile", ["herdr-core · outlives this window", "shell"], 'terminal.jump key="garden-1"'],
+    ["garden-2", "Agent", "seedbot --plan beds · planning the beds", "working", null, "In a tile", ["herdr-core · outlives this window", "agent · window second"], 'terminal.jump key="garden-2"'],
+    ["garden-3", "Agent", "seedbot --order seeds · may it order the leeks? · started by compost-agent", "blocked", "warn", "Running, in no tile", ["herdr-core · outlives this window"], 'terminal.jump key="garden-3"'],
+    ["garden-4", "Shell", "tail -f watering.log", "exited", null, "Running, in no tile", ["pty · ends with this window"], 'terminal.jump key="garden-4"'],
     // What the asker did not start is listed by its keeper's name for it, and nothing is offered to do to it.
     ["theirs:t4", "compost", "tail -f compost.log", "idle", null, "Not this window's", ["herdr-core", "t4"], null],
   ]);

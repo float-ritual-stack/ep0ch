@@ -678,3 +678,35 @@ fn a_way_out_is_said_in_one_place_and_the_layout_is_told_what_it_asks_in_one() {
     let layout_actions = sources().into_iter().find(|(path, _)| path == "actions/layout.rs").expect("actions/layout.rs").1;
     assert!(layout_actions.contains("ActionRow::new(\"layout.get\"") && !layout_actions.contains("peek gives"), "layout.resize's row names the read that gives a split's id, as the refusal's way out does");
 }
+
+/// W8, programs in terminal tiles: each question has one owner.
+/// - The terminal's crates are named in one file (`pty/moonframe.rs`) and herdr-core's protocol is spoken in one
+///   (`pty/hc.rs`): the model, the drawer and the actions know a `Term` and a `Host`, never which crate drew a cell.
+/// - A program is started and ended through the run's registry, by the terminal's own actions; what a host keeps
+///   is ended only by the key this window's programs are kept under.
+/// - Whose the keys are in a terminal is `App::in_program`, which `App::person` asks: the drawer and the actions
+///   read that answer and decide none of their own.
+/// - What keeps a program, and for how long, is worded once; a list of programs is handed over in one place.
+#[test]
+fn a_terminal_s_deciders_each_have_one_place() {
+    none("the terminal's crates named outside pty/moonframe.rs", ["moonframe_terminal", "moonframe_mux"].iter().flat_map(|krate| strays(krate, |path| path == "pty/moonframe.rs")).collect());
+    none("herdr-core's protocol spoken outside pty/hc.rs", ["\"terminal.run\"", "\"terminal.list\"", "\"terminal.kill\"", "HC_SOCKET"].iter().flat_map(|word| strays(word, |path| path == "pty/hc.rs")).collect());
+    none("a host asked outside the registry and the hosts themselves: ask `Programs`", [".host.open(", ".host.end(", ".host.listed("].iter().flat_map(|call| strays(call, |path| path == "pty.rs")).collect());
+    none("a program started or ended outside the terminal's own actions", ["program_start(", "program_end(", "program_release("].iter().flat_map(|call| strays(call, |path| path == "actions/terminal.rs" || path == "store.rs")).collect());
+    // The drawer draws the model's grid: it names no emulator, and asks whose the keys are of the one answer.
+    let drawer = sources().into_iter().find(|(path, _)| path == "tiles/pty.rs").expect("tiles/pty.rs").1;
+    assert!(!drawer.contains("moonframe") && !drawer.contains("Session"), "the pty drawer draws `pty::Grid`, whatever made it");
+    none("whose the keys are in a terminal decided outside `App::in_program`", strays(".out_of", |path| path == "actions/terminal.rs" || path == "actions/layout.rs" || path == "actions/app.rs"));
+    none("the program layer named outside the key table", strays("Layer::Program", |path| path == "keys.rs"));
+    // What keeps a program is worded once (`pty::kept_said`), for its tile and for the list alike.
+    none("what keeps a program worded outside `pty::kept_said`", ["outlives this window", "ends with this window"].iter().flat_map(|words| strays(words, |path| path == "pty.rs")).collect());
+    // The programs are handed to the service's list in one place, as the action rows are.
+    none("the programs handed over outside `App::ask_of`", strays("programs_said()", |path| path == "actions/app.rs" || path == "store.rs"));
+    // A row of the list is the service's: the window writes no jump for one (its pick runs the row's `act`). The
+    // one line it writes for a program is the way back in a detach's notice, by the action that undoes it.
+    none("a jump written by the window: a row's pick is the service's `act`", strays("terminal.jump key={", |_| false));
+    // The model holds no renderer's type: `rune_is_named_only_behind_the_renderer_seam` scans pty.rs and pty/ with
+    // the rest. And it holds the programs where every window of a run finds them: in the store's hub.
+    let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
+    assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
+}

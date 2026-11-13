@@ -17,7 +17,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
-use rune::{Color, El, Span, TextStyle, Tx, WheelEvent, col, el, memo, row, text};
+use rune::{Color, El, Family, Span, TextStyle, Tx, WheelEvent, col, el, memo, row, text};
 use rune_kit::{Button, ButtonVariant, Kit};
 use serde_json::{Value, json};
 
@@ -31,8 +31,10 @@ pub static DRAWER: Drawer = Drawer { id: "pty", about: "a program's screen in a 
 
 fn asks(_: &TileCx) -> Vec<(&'static str, Ask)> { Vec::new() }
 
-/// The text a cell is set in: the kit's mono, on a line of its own height.
-fn style(k: &Kit) -> TextStyle { k.ty.mono }
+/// The text a cell is set in: the kit's mono size and line, in the platform's own monospaced face (SF Mono,
+/// fontconfig's `monospace`): a grid needs every one-column glyph the same width, which the kit's mono slot only
+/// has where the app registered a face for it.
+pub fn style(k: &Kit) -> TextStyle { k.ty.mono.family(Family::SystemMono) }
 
 /// A cell in points: the mono face's own advance (measured over a long run, so rounding to a point is a
 /// hundredth of it) and the style's line. Measured once a size: the face doesn't change under a window.
@@ -104,16 +106,18 @@ fn button(cx: &TileCx, line: &str, k: &Kit) -> El {
 /// reports of itself, and whose the keys are with the key that changes that.
 fn strip(cx: &TileCx, shown: &Shown, typing: bool, k: &Kit) -> El {
     let c = &k.c;
-    let mut line = row().key(cx.key("said")).w_full().gap(10.0).center_y().px(8.0).py(3.0).fill(c.layer_01);
     let say = |words: String, part: &str, color: Color| text(words).key(cx.key(part)).font(k.ty.small).color(color).truncate();
-    line = line.child(say(shown.kept_said(), "kept", if shown.keeps { c.text_muted } else { c.warning.fg }));
-    if shown.attached { line = line.child(say(pty::FOUND.to_string(), "found", c.text_faint)) }
-    if let Some(report) = &shown.report { line = line.child(say(if report.msg.is_empty() { report.state.clone() } else { format!("{} · {}", report.state, report.msg) }, "report", c.text_base)) }
-    if !shown.stands.running() { line = line.child(say(shown.stands.word().to_string(), "state", c.danger.fg)) }
-    line = line.child(el().grow(1.0));
-    // Whose the keys are: the act that changes it, by its own label and key.
-    if shown.stands.running() { line = line.child(button(cx, if typing { "tile.leave" } else { "tile.enter" }, k)) } else { line = line.child(button(cx, "tile.restart", k)) }
-    line.child(button(cx, "terminal.detach", k))
+    // What keeps it, on a line of its own: read before anything is relied on.
+    let mut kept = row().w_full().gap(10.0).center_y().child(say(shown.kept_said(), "kept", if shown.keeps { c.text_muted } else { c.warning.fg }));
+    if shown.attached { kept = kept.child(say(pty::FOUND.to_string(), "found", c.text_faint)) }
+    // Then how it stands, in its own word where it reports one, and whose the keys are: the act that changes
+    // that, by its own label and key.
+    let mut stands = row().w_full().gap(8.0).center_y();
+    if let Some(report) = &shown.report { stands = stands.child(say(if report.msg.is_empty() { report.state.clone() } else { format!("{} · {}", report.state, report.msg) }, "report", c.text_base).grow(1.0).min_w(0.0)) }
+    if !shown.stands.running() { stands = stands.child(say(shown.stands.word().to_string(), "state", c.danger.fg)) }
+    if shown.report.is_none() { stands = stands.child(el().grow(1.0)) }
+    stands = stands.child(button(cx, if !shown.stands.running() { "tile.restart" } else if typing { "tile.leave" } else { "tile.enter" }, k)).child(button(cx, "terminal.detach", k));
+    col().key(cx.key("said")).w_full().px(8.0).py(3.0).gap(1.0).fill(c.layer_01).child(kept).child(stands)
 }
 
 /// A tile with no screen to draw: what its kind is, in the kind's own words (which say how a window gets its

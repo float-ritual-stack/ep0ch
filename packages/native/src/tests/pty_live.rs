@@ -79,7 +79,7 @@ fn a_real_pty_runs_a_made_up_script_keys_in_and_rows_out() {
     let opened = line(&mut rt, &format!("terminal.open command=\"sh {}\" cwd=\"{}\"", script.display(), dir.display()));
     assert!(opened.ok, "{}", opened.said);
     assert_eq!((opened.answer["backend"].as_str(), opened.answer["keeps"].as_bool()), (Some("pty"), Some(false)));
-    assert_eq!(facts(&rt, "shell")["kept"], "pty: it ends with this window", "the tile says a plain pty's program ends with the window");
+    assert_eq!(facts(&rt, "shell")["kept"], "pty · ends with this window", "the tile says a plain pty's program ends with the window");
     // The line its tile starts it with is typed into the shell once it reads one, and the script's lines are rows.
     until(&mut rt, "the script to ask its question", |rt| lines(rt, "shell").iter().any(|l| l.starts_with("water which bed?")));
     let shown = rt.state.program_of(&rt.state.layout.focus).expect("the tile has its program");
@@ -330,7 +330,7 @@ fn first_launch() {
     let opened = line(&mut rt, "terminal.open");
     assert!(opened.ok, "{}", opened.said);
     assert_eq!((opened.answer["backend"].as_str(), opened.answer["keeps"].as_bool(), opened.answer["program"].as_str()), (Some("herdr-core"), Some(true), Some("garden-1")));
-    assert_eq!(facts(&rt, "shell")["kept"], "herdr-core keeps it: it outlives this window");
+    assert_eq!(facts(&rt, "shell")["kept"], "herdr-core · outlives this window");
     until(&mut rt, "the core's first paint", |rt| lines(rt, "shell").last().is_some_and(|l| l == "plot $"));
     assert!(shows(&rt, "shell", "the shed's core keeps t"), "{:?}", lines(&rt, "shell"));
     // Keys in, rows out, through the core's stream.
