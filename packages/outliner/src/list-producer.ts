@@ -38,6 +38,8 @@ export interface ListsRequest {
   actions?: ActionRow[];
   /** The screen the asker has open, by name: `from: actions` lists that screen's own keys first. */
   screen?: string;
+  /** The programs the asker runs in its terminal tiles, each as it says of itself: what `from: programs` lists. */
+  programs?: import("./list-programs").ProgramSaid[];
 }
 
 export type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };

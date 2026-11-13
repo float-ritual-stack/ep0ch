@@ -29,6 +29,7 @@ import { ABOUT_PRODUCERS } from "./about-producers";
 import { capped, names, opens, row, runs, subject, titled, type Answered, type Listed, type ListsRequest, type Own, type Producer } from "./list-producer";
 import { readLinks, type LiveHost } from "./publish-live";
 import { EXTENSION_PRODUCERS } from "./list-extensions";
+import { PROGRAM_PRODUCERS } from "./list-programs";
 import type { ScreensList } from "./screens";
 
 export type { ListsRequest } from "./list-producer";
@@ -258,7 +259,7 @@ const PRODUCERS: readonly Producer[] = [
 ];
 
 /** Every producer: the ones here, then the ones a module of its own adds (read when asked: the modules import each other). */
-const producers = (): readonly Producer[] => [...PRODUCERS, ...EXTENSION_PRODUCERS];
+const producers = (): readonly Producer[] => [...PRODUCERS, ...EXTENSION_PRODUCERS, ...PROGRAM_PRODUCERS];
 
 /** The producers themselves, a row each: what a client may ask a list of, and which a command bar lists. */
 function sources(): Answered {

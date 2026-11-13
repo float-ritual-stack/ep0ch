@@ -79,15 +79,29 @@ type ExtensionsListed = {
   extensions?: readonly { id: string; screens?: readonly ({ name: string } & Record<string, unknown>)[] }[];
   tileKinds?: readonly ServedKind[];
 };
-type ServedKind = { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; render?: string; view?: string };
+type ServedKind = { kind: string; extension: string; name: string; description?: string; replaces?: readonly string[]; drawer?: string; fields?: Readonly<Record<string, string | number | boolean>>; render?: string; view?: string; command?: readonly string[]; cwd?: string; host?: string; env?: Readonly<Record<string, string>> };
+
+/** A word of a line typed into a shell: as it is when nothing in it means anything to one, else in single quotes. */
+const shellWord = (word: string) => /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+
+/**
+ * The line a terminal types to run a kind's program (an extension tile's `run`, served as `command` with its folder
+ * and what is set for it): the program in place of the shell that read the line, with its variables, by `env` so the
+ * line reads the same in every shell.
+ */
+export const programLine = (command: readonly string[], env: Readonly<Record<string, string>> = {}): string =>
+  ["exec", ...(Object.keys(env).length ? ["env", ...Object.entries(env).map(([name, value]) => shellWord(`${name}=${value}`))] : []), ...command.map(shellWord)].join(" ");
 
 /**
  * The drawer a served kind is drawn by, and what a tile of it starts with. Its own word first (`drawer`, `fields`). A
  * kind its extension's script renders is the `view` drawer's (`tiles.view` answers what it draws); one that lists a
- * question is the `list` drawer's, over that question. A kind that runs a program names none here.
+ * question is the `list` drawer's, over that question; one that runs a program (`run`) is the `pty` drawer's: the line
+ * that starts it, the folder it starts in and the machine that folder is on are what a tile of it starts with, so a
+ * door with a terminal draws any such kind with no code of its own for the program.
  */
 const drawnBy = (k: ServedKind): Pick<ScreenKind, "drawer" | "fields"> =>
-  k.drawer ? { drawer: k.drawer, ...(k.fields ? { fields: k.fields } : {}) } : k.render ? { drawer: "view" } : k.view ? { drawer: "list", fields: { from: "query", query: k.view } } : {};
+  k.drawer ? { drawer: k.drawer, ...(k.fields ? { fields: k.fields } : {}) } : k.render ? { drawer: "view" } : k.view ? { drawer: "list", fields: { from: "query", query: k.view } }
+    : k.command?.length ? { drawer: "pty", fields: { command: programLine(k.command, k.env), ...(k.cwd ? { cwd: k.cwd } : {}), ...(k.host ? { host: k.host } : {}) } } : {};
 
 const HOME_TYPE = "screens";
 

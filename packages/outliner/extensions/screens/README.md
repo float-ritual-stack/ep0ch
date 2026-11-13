@@ -18,7 +18,9 @@ person can see is added to it. Today: the outline, the extensions and the outlin
 source is one: `from: extensions`, `from: outlines`), a reader with its properties and the last callers in tabs
 behind it, the lists about the reader's note on its right (its comments, proposals and revisions, each following
 the reader), and on the toolbar the bar opened on the extensions and the outlines, Edit, Comment and a tile torn
-into a window of its own.
+into a window of its own. The terminal: the programs a door runs as a tile under the outlines (`from: programs`),
+and on the toolbar a shell opened beside the reader, an agent, and the bar on the programs (the tile kinds a
+terminal draws are the [terminal extension](../terminal)'s).
 
 It is on wherever the service runs. Uninstalled, a door keeps its drawers and has no kinds or screens to open with
 them until a screen note or another extension gives it some; `extensions.install id=screens` brings them back. To

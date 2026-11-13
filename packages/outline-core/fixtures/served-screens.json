@@ -237,9 +237,10 @@
                 "t": "split",
                 "dir": "col",
                 "weights": [
-                  0.4,
-                  0.35,
-                  0.25
+                  0.34,
+                  0.24,
+                  0.2,
+                  0.22
                 ],
                 "kids": [
                   {
@@ -265,6 +266,12 @@
                     "kind": "screens.outlines",
                     "name": "outlines",
                     "role": "outlines"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.programs",
+                    "name": "programs",
+                    "role": "programs"
                   }
                 ]
               },
@@ -344,6 +351,9 @@
           "edit",
           "comment",
           "tile.tear",
+          "terminal.open",
+          "terminal.open agent=true",
+          "bar.open scope=programs",
           "screen.reset"
         ],
         "lands": "reader"
@@ -773,6 +783,39 @@
       "serves": [
         "outlines"
       ]
+    },
+    {
+      "kind": "screens.programs",
+      "extension": "screens",
+      "name": "Programs",
+      "about": "the programs this door runs in its terminal tiles, and the ones still running that no tile shows: what each is, what keeps it running and where it is; a row takes the keys to its program, in a tile beside the note when it has none",
+      "drawer": "list",
+      "fields": {
+        "from": "programs"
+      },
+      "replaces": [
+        "programs"
+      ],
+      "serves": [
+        "programs"
+      ]
+    },
+    {
+      "kind": "terminal.shell",
+      "extension": "terminal",
+      "name": "Shell",
+      "about": "your login shell in a terminal beside your notes: every key goes to it until the key that leaves (the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty"
+    },
+    {
+      "kind": "terminal.agent",
+      "extension": "terminal",
+      "name": "Agent",
+      "about": "an agent in a terminal beside your notes: your shell with the agent's command typed into it (command=<another program> runs that instead; the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty",
+      "fields": {
+        "command": "claude"
+      }
     }
   ],
   "sources": [
@@ -1037,6 +1080,23 @@
         {
           "name": "query",
           "about": "words of its name or its machine's"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "programs",
+      "about": "Programs",
+      "placeholder": "A program's name, or what it runs",
+      "params": [
+        {
+          "name": "programs",
+          "about": "the programs the asker runs, each as it says of itself",
+          "required": true
+        },
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
         }
       ],
       "bar": {}

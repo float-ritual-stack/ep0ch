@@ -50,8 +50,9 @@ test("a kind's description is its row's, and its served name is the door's own k
     const own = row.replaces[0]!;
     const kind = tileKind(own);
     // A kind the door has no drawer for (the properties list; a note's comments, proposals and revisions, the keys
-    // and the components as lists; the extensions and the outlines as lists) isn't one of its kinds: a tile of it says so.
-    if (!kind) { expect(["props", "threads", "proposals", "revisions", "keymap", "components", "extensions", "outlines"]).toContain(own); continue; }
+    // and the components as lists; the extensions, the outlines and a door's programs as lists) isn't one of its kinds: a
+    // tile of it says so.
+    if (!kind) { expect(["props", "threads", "proposals", "revisions", "keymap", "components", "extensions", "outlines", "programs"]).toContain(own); continue; }
     expect(kind.about, own).toBe(row.description);
     expect(shippedAbout(own)).toBe(row.description);
     expect(resolveKind(`${MANIFEST.id}.${row.kind}`), row.kind).toBe(own);
