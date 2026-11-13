@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requestTimeoutMs } from "@ep0ch/outline-core/request-timeout";
-import { createOutlinerClient, OutlinerTimeoutError } from "../src/client";
+import { createOutlinerClient, OutlinerClosedError, OutlinerTimeoutError } from "../src/client";
 
 const folder = mkdtempSync(join(tmpdir(), "outliner-timeout-"));
 const socket = join(folder, "silent.sock");
@@ -49,4 +49,21 @@ test("the outliner CLI, a batch reader's entry, does read the environment", asyn
 test("the reader takes a positive number of milliseconds, else leaves the client's default", () => {
   expect(requestTimeoutMs({ EP0CH_REQUEST_TIMEOUT_MS: "60000" })).toBe(60_000);
   for (const value of [undefined, "", "soon", "0", "-5"]) expect(requestTimeoutMs({ EP0CH_REQUEST_TIMEOUT_MS: value })).toBeUndefined();
+});
+
+test("a connection closed before its answer fails then, not at the timeout (PIE-1779)", async () => {
+  // float-2, Nov 12: an SSH forward ended under the followers' reads closed their connections without an answer; each
+  // waited out its 15 s and said "timed out", hiding the reset behind it.
+  const { scratchDir } = await import("./scratch-outline");
+  const dir = scratchDir("outliner-closed-");
+  const closing = createServer(c => c.once("data", () => c.end()));
+  const path = join(dir, "closing.sock");
+  await new Promise<void>(resolve => closing.listen(path, resolve));
+  try {
+    const client = createOutlinerClient({ socket: path, mode: "host", outline: "garden" }, { timeoutMs: 5_000 });
+    const started = Date.now();
+    const error: Error = await client.request({ action: "blocks.query", query: {} } as never).then(() => new Error("answered"), (e: Error) => e);
+    expect({ timedOut: error instanceof OutlinerTimeoutError, closed: error instanceof OutlinerClosedError }).toEqual({ timedOut: false, closed: true });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  } finally { closing.close(); rmSync(dir, { recursive: true, force: true }); }
 });

@@ -230,6 +230,11 @@ export interface LogRange { logId: string; schema: number; after: number; head: 
 
 export const LOG_RANGE_DEFAULT_LIMIT = 2_000;
 export const LOG_RANGE_MAX_LIMIT = 20_000;
+/**
+ * A page's size as well as its count (PIE-1779): entries stop being added once their rows reach this, and the page
+ * ends with that transaction. About 1.5 s of the laptop's 0.7 MB/s line, well inside a follower's 15 s request.
+ */
+export const LOG_RANGE_PAGE_BYTES = 1024 * 1024;
 
 /** A digest of an entry as stored, so two logs can tell whether they hold the same one at an lsn. */
 export const entryDigest = (e: LogEntry): string =>
@@ -238,7 +243,7 @@ export const entryDigest = (e: LogEntry): string =>
 const entryAt = (database: Database, lsn: number) => database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn = ?").get(lsn) as LogEntry | null;
 
 /**
- * The entries after `after`, at most `limit` and then to the end of the last one's transaction, read in one read
+ * The entries after `after`, at most `limit` (and about LOG_RANGE_PAGE_BYTES) and then to the end of the last one's transaction, read in one read
  * transaction (so `head` and the entries agree). `after: 0` starts at the newest genesis.
  */
 export function readRange(database: Database, after: number, limit = LOG_RANGE_DEFAULT_LIMIT, schema: number): LogRange {
@@ -252,9 +257,15 @@ export function readRange(database: Database, after: number, limit = LOG_RANGE_D
     const held = after > 0 && after <= head && !entryAt(database, after);
     const from = after === 0 || held ? Math.max(0, latestGenesis(database) - 1) : after;
     const prevEntry = from > 0 ? entryAt(database, from) : null;
+    // At most `limit` entries, and no more once their rows reach LOG_RANGE_PAGE_BYTES; then to the end of that transaction.
     const entries = database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn > ? ORDER BY lsn LIMIT ?").all(from, limit) as LogEntry[];
+    let cut = entries.length === limit;
+    for (let i = 0, bytes = 0; i < entries.length; i++) {
+      bytes += (entries[i]!.row?.length ?? 0) + (entries[i]!.key?.length ?? 0);
+      if (bytes >= LOG_RANGE_PAGE_BYTES) { entries.length = i + 1; cut = true; break; }
+    }
     const last = entries.at(-1);
-    if (last && entries.length === limit) {
+    if (last && cut) {
       entries.push(...database.query("SELECT lsn, txn, tbl, op, key, row, at FROM change_log WHERE lsn > ? AND txn = ? ORDER BY lsn").all(last.lsn, last.txn) as LogEntry[]);
     }
     const end = entries.at(-1)?.lsn ?? from;

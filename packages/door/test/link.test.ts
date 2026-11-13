@@ -23,7 +23,7 @@ test("link setup records an outbound connection without contacting the laptop", 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-import { ScratchHost, until } from "./scratch";
+import { ScratchHost, until, untilAsync } from "./scratch";
 import { serveLink, connectLink, linkStates, linkStatus } from "@ep0ch/outliner/link";
 import { hostAnswers, forwardFor } from "@ep0ch/outliner/machine-forward";
 import { SocketBoard } from "../src/socket";
@@ -45,7 +45,8 @@ test("a laptop dials out, carries simultaneous outline reads and writes, refuses
     connector.stop();
     connector = connectLink({ server: url, machine: "travel", key: "fictional-key", host: laptop.sock, log() {} });
     await until(() => linkStates(here.outlines).length === 1, "authenticated link");
-    expect(await hostAnswers(path)).toBe(true);
+    // The link is up once proven; the machine's socket is routed to it a moment later (ensureForward, PIE-1779).
+    await untilAsync(() => hostAnswers(path), "the link carries the machine's socket");
     // No SSH executable exists: a successful forward came through the live link.
     expect((await forwardFor("travel", here.outlines, { ...process.env, EP0CH_SSH: "/no-such-ssh" })).how).toBe("up");
     board = new SocketBoard(path, undefined, "garden");
@@ -65,6 +66,7 @@ test("a laptop dials out, carries simultaneous outline reads and writes, refuses
     await until(() => linkStates(here.outlines).length === 0, "link goes away");
     server = serveLink({ outlines: here.outlines, port: Number(new URL(url).port), keys: { travel: "fictional-key" }, log: line => messages.push(line) });
     await until(() => linkStates(here.outlines).length === 1, "link reconnects automatically");
+    await untilAsync(() => hostAnswers(path), "the link carries the machine's socket again");
     board = new SocketBoard(path, undefined, "garden");
     expect((await board.get(note.id))?.text).toBe(text);
     const direct = new SocketBoard(laptop.sock, undefined, "garden");
@@ -87,9 +89,139 @@ test("a connector with the right key isn't timed out while an SSH attempt holds 
     await Bun.sleep(6500);
     rmSync(lock, { force: true });
     await until(() => linkStates(here.outlines).length === 1, "link up once the lock is free");
+    // The machine's socket is routed to the link once the lock is free (ensureForward waits for it).
+    await untilAsync(() => hostAnswers(join(here.outlines, ".remote/travel.sock")), "the link carries the machine's socket");
     expect(messages.filter(m => m.includes("authentication timeout"))).toEqual([]);
   } finally { rmSync(lock, { force: true }); connector.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
+
+/**
+ * A laptop ("travel") with a garden note, reached from here over the fake ssh through a slow line (every answer 1.5 s
+ * late), with its link server's keys; the scratch hosts, the line, the ssh and its environment.
+ */
+async function slowLaptop() {
+  const here = new ScratchHost(), laptop = new ScratchHost();
+  await here.start(); await laptop.start(); await laptop.create("garden");
+  const direct = new SocketBoard(laptop.sock, undefined, "garden");
+  const note = await direct.createBlock(null, "Greenhouse journal"); direct.close();
+  // The laptop's host, reached over SSH through a slow line: every answer arrives 1.5 s after it was given.
+  const slow = join(here.root, "slow");
+  mkdirSync(join(slow, ".host"), { recursive: true });
+  const line = createServer(client => {
+    const host = createConnection(laptop.sock);
+    client.on("data", data => host.write(data));
+    host.on("data", data => setTimeout(() => { if (!client.destroyed) client.write(data); }, 1500));
+    for (const s of [client, host]) s.on("error", () => { client.destroy(); host.destroy(); });
+    client.on("close", () => host.destroy());
+  });
+  await new Promise<void>(resolve => line.listen(join(slow, ".host/host.sock"), resolve));
+  const ssh = join(here.root, "ssh");
+  writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${resolve(import.meta.dir, "../../outliner/test/fake-ssh.ts")} "$@"\n`, { mode: 0o755 });
+  mkdirSync(join(here.root, "far-home"));
+  const env = { ...process.env, EP0CH_SOCKET: undefined, EP0CH_OUTLINES: here.outlines, EP0CH_SSH: ssh, FAKE_SSH_HOME: join(here.root, "far-home"), FAKE_SSH_OUTLINES: laptop.outlines };
+  mkdirSync(join(here.outlines, ".remote"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(here.outlines, ".remote/travel.json"), JSON.stringify({ outlines: slow }));
+  return { here, laptop, note, line, ssh, env };
+}
+
+test("a link that comes up while SSH serves a read takes over without resetting it, and SSH serves again once it drops", async () => {
+  // float-2, Nov 12 (PIE-1779): the gateway's followers read the laptop over SSH; each time the laptop dialled in, the
+  // link ended the SSH forward under every read in flight (ECONNRESET), then waited for the forward's socket file to
+  // go, which OpenSSH never removes, and refused the link; the next read started SSH again, every 22 seconds.
+  const { here, laptop, note, line, ssh, env } = await slowLaptop();
+  const messages: string[] = [];
+  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log: line => messages.push(line), env, retireAfterMs: 3000 });
+  let connector: ReturnType<typeof connectLink> | undefined;
+  let follower: import("@ep0ch/outliner/outline-follower").OutlineFollower<SocketBoard> | undefined;
+  const { forwardPaths, sshArgv } = await import("@ep0ch/outline-core/machine");
+  const { nodeMachineIO } = await import("@ep0ch/outliner/machine-forward");
+  const paths = forwardPaths(here.outlines, "travel");
+  try {
+    expect((await forwardFor("travel", here.outlines, env)).transport).toBe("ssh");
+    // The sentence: a follower here (the gateway's) keeps a copy of the laptop's outline current through all of it.
+    const { OutlineFollower } = await import("@ep0ch/outliner/outline-follower");
+    const { SCHEMA_VERSION } = await import("@ep0ch/outliner/schema");
+    follower = new OutlineFollower<SocketBoard>("garden", "travel", join(here.root, "copies"), {
+      schema: () => SCHEMA_VERSION, everyMs: 1_000, log: () => {}, reach: async machine => (await forwardFor(machine, here.outlines, env)).socket,
+      attach: async (socket, name) => { const b = new SocketBoard(socket, undefined, name); return { board: b, close: () => b.close() }; },
+    });
+    const copied = async (id: string) => {
+      const r = await follower!.read();
+      if ("error" in r) return r.error;
+      try { return (await r.board.request("get", { blockId: id })).text; } catch (e) { return (e as Error).message; }
+    };
+    const laptopWrites = new SocketBoard(laptop.sock, undefined, "garden");
+    const landed = async (text: string, what: string) => {
+      const made = await laptopWrites.createBlock(null, text);
+      await untilAsync(async () => (await copied(made.id)) === text, what, 15_000);
+    };
+    await untilAsync(async () => (await copied(note.id)) === "Greenhouse journal", "the copy made over SSH", 15_000);
+    const board = new SocketBoard(paths.socket, undefined, "garden");
+    const reading = board.get(note.id);
+    await Bun.sleep(200);
+    connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, log() {} });
+    await until(() => linkStates(here.outlines).length === 1, "the link comes up while SSH serves the read");
+    expect((await reading)?.text).toBe("Greenhouse journal");
+    board.close();
+    expect(messages.filter(m => m.includes("link refused"))).toEqual([]);
+    await untilAsync(async () => (await forwardFor("travel", here.outlines, { ...env, EP0CH_SSH: "/no-such-ssh" }).catch(() => null))?.transport === "link", "reads go over the link");
+    // The SSH connection the link took over from is ended once what it carried has had time to finish.
+    await untilAsync(async () => (await nodeMachineIO(env).run(sshArgv.check(ssh, paths), 5000)).code !== 0, "the SSH connection retired");
+    const after = new SocketBoard(paths.socket, undefined, "garden");
+    try { expect((await after.get(note.id))?.text).toBe("Greenhouse journal"); } finally { after.close(); }
+    await landed("Sowed the beans", "an edit on the laptop reaches the copy over the link");
+    connector.stop(); connector = undefined;
+    await until(() => linkStates(here.outlines).length === 0, "the link drops");
+    const back = await forwardFor("travel", here.outlines, env);
+    expect({ transport: back.transport, how: back.how }).toEqual({ transport: "ssh", how: "started" });
+    const again = new SocketBoard(paths.socket, undefined, "garden");
+    try { expect((await again.get(note.id))?.text).toBe("Greenhouse journal"); } finally { again.close(); }
+    await landed("Watered the beans", "an edit reaches the copy over SSH again");
+    laptopWrites.close();
+  } finally {
+    await follower?.close();
+    connector?.stop();
+    await nodeMachineIO(env).run(sshArgv.exit(ssh, paths), 5000);
+    line.close(); await server.stop(); await here.dispose(); await laptop.dispose();
+  }
+}, 60_000);
+
+test("each SSH connection the link takes over from gets its own grace: one started after a stall isn't ended mid-read", async () => {
+  // Codex on #1481: the retirement was one timer per takeover. The link stalled, reads fell back to a new SSH
+  // connection, the link took the socket back, and the first timer ended that new connection under a read.
+  const { here, laptop, note, line, ssh, env } = await slowLaptop();
+  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, env, retireAfterMs: 3000 });
+  let connector: ReturnType<typeof connectLink> | undefined;
+  const { forwardPaths, sshArgv } = await import("@ep0ch/outline-core/machine");
+  const { nodeMachineIO } = await import("@ep0ch/outliner/machine-forward");
+  const paths = forwardPaths(here.outlines, "travel"), state = join(here.outlines, ".remote/travel.link.json");
+  const viaLink = async () => (await forwardFor("travel", here.outlines, { ...env, EP0CH_SSH: "/no-such-ssh" }).catch(() => null))?.transport === "link";
+  try {
+    expect((await forwardFor("travel", here.outlines, env)).transport).toBe("ssh");
+    connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, log() {} });
+    await until(() => linkStates(here.outlines).length === 1, "the link comes up");
+    await untilAsync(viaLink, "reads go over the link");
+    const tookOver = Date.now();
+    // The link stalls (its record says down a moment): the next read starts a new SSH connection.
+    const saved = readFileSync(state, "utf8");
+    writeFileSync(state, JSON.stringify({ ...JSON.parse(saved), up: false }));
+    expect(await forwardFor("travel", here.outlines, env)).toMatchObject({ transport: "ssh", how: "started" });
+    // A read on it that is still in flight when the first takeover's grace ends.
+    await Bun.sleep(Math.max(0, tookOver + 2200 - Date.now()));
+    const board = new SocketBoard(paths.socket, undefined, "garden");
+    const reading = board.get(note.id);
+    await Bun.sleep(100);
+    writeFileSync(state, saved);
+    await untilAsync(viaLink, "the link takes the socket back");
+    try { expect((await reading)?.text).toBe("Greenhouse journal"); } finally { board.close(); }
+    // That connection is ended in its own time.
+    await untilAsync(async () => (await nodeMachineIO(env).run(sshArgv.check(ssh, paths), 5000)).code !== 0, "the second SSH connection retired", 15_000);
+  } finally {
+    connector?.stop();
+    await nodeMachineIO(env).run(sshArgv.exit(ssh, paths), 5000);
+    line.close(); await server.stop(); await here.dispose(); await laptop.dispose();
+  }
+}, 60_000);
 
 test("an unanswered link falls through to SSH and an unreachable machine explains both repairs", async () => {
   const here = new ScratchHost(), laptop = new ScratchHost();
@@ -145,7 +277,7 @@ test("a silent broken connection is replaced within a minute", async () => {
     await until(() => messages.filter(m => m.includes(" up since ")).length === 1, "initial link");
     cut();
     await until(() => messages.filter(m => m.includes(" up since ")).length === 2, "silent link replaced within a minute", 59_000);
-    expect(await hostAnswers(join(here.outlines, ".remote/travel.sock"))).toBe(true);
+    await untilAsync(() => hostAnswers(join(here.outlines, ".remote/travel.sock")), "the link carries the machine's socket");
   } finally {
     connector.stop(); for (const socket of sockets) socket.destroy(); proxy.close();
     await server.stop(); await here.dispose(); await laptop.dispose();
@@ -188,7 +320,7 @@ test("the connector recovers after a refused dial and status keeps the last conn
     await until(() => linkStates(here.outlines).length === 0, "connector stopped");
     connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "travel", key: "fictional-key", host: laptop.sock, statusPath: join(laptop.outlines, ".host/link-state.json"), log() {} });
     await until(() => linkStates(here.outlines).length === 1, "link after connector restart");
-    expect(await hostAnswers(join(here.outlines, ".remote/travel.sock"))).toBe(true);
+    await untilAsync(() => hostAnswers(join(here.outlines, ".remote/travel.sock")), "the link carries the machine's socket");
   } finally { connector?.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
 

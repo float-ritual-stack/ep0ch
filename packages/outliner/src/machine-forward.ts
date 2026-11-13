@@ -66,6 +66,7 @@ export function nodeMachineIO(env: NodeJS.ProcessEnv = process.env): MachineIO {
       try { symlinkSync(target, temp); renameSync(temp, socket); }
       finally { rmSync(temp, { force: true }); }
     },
+    route(socket) { try { return readlinkSync(socket); } catch { return null; } },
     createExclusive(path, text) {
       let fd: number;
       try { fd = openSync(path, "wx", 0o600); }

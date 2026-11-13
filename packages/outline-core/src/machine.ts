@@ -14,7 +14,9 @@
 // `<machine>.json` beside the forward names its outlines folder there. ExitOnForwardFailure makes a start
 // that couldn't forward fail at once; StreamLocalBindUnlink replaces a dead socket file; ServerAlive drops a connection
 // whose network went, so the next client to need it starts it again (the door does, as its connection comes back, and
-// says so). A connection that is up is never ended here: its host may be restarting, and other clients share it.
+// says so). A connection that is up is never ended here while it holds the forward's socket: its host may be
+// restarting, and other clients share it. OpenSSH leaves that socket file behind when it ends, so nothing waits for it
+// to go: the next start replaces it, and a link routes over it with one rename.
 import { isMachineName, MACHINE_NAME_PATTERN, outlineLayout } from "./outline-location";
 
 /** What the forward rule does to the world, passed in by each client. */
@@ -36,8 +38,10 @@ export interface MachineIO {
   exists(path: string): boolean;
   /** Remove a file that may not be there. */
   remove(path: string): void;
-  /** Point the shared client socket at the link's listener. */
+  /** Point the shared client socket at the link's listener: one rename, so nothing connects to neither. */
   routeLink(socket: string, target: string): void;
+  /** Where the shared client socket points when it is a route to a link (a symlink), else null. */
+  route(socket: string): string | null;
   /** Create the file with `text` only when there is none (O_EXCL): whether this call made it. The lock. */
   createExclusive(path: string, text: string): boolean;
   /** This process's id, and whether a process runs. */
@@ -145,38 +149,57 @@ export interface Forward { socket: string; how: ForwardHow; remote?: RemoteStatu
 
 export interface ForwardOptions { ssh: string; outlines: string; io: MachineIO; /** How long a start waits for the host to answer through it. */ waitMs?: number }
 
+/** The link's own listener for a machine, which the shared socket is routed to while the link is up. */
+export const linkSocketOf = (p: ForwardPaths) => `${p.dir}/${p.machine}.link.sock`;
+
+/** Whether the shared socket is routed to the machine's link (not an SSH forward's). */
+export const routedToLink = (p: ForwardPaths, io: Pick<MachineIO, "route">) => io.route(p.socket) === linkSocketOf(p);
+
+/**
+ * Whether the machine's link is up and carries streams: its server's record (`<machine>.link.json`, written by the
+ * link server, `serveLink`) says up, its process runs, and it speaks this protocol (`streams` isn't false).
+ */
+function linkUp(p: ForwardPaths, io: Pick<MachineIO, "read" | "alive">): boolean {
+  const text = io.read(`${p.dir}/${p.machine}.link.json`);
+  if (!text) return false;
+  try { const state = JSON.parse(text); return !!state.up && state.streams !== false && io.alive(state.pid); } catch { return false; }
+}
+
 /**
  * The machine's forward, answering: found up, or started (asking the machine for its socket first). Throws with what
  * went wrong and what to do. Safe to call from any number of clients at once: one starts it, the rest wait and find it.
  * A connection that is up but whose host doesn't answer is left as it is (and said): its host may be restarting.
+ *
+ * This is the one place that decides which transport serves a machine (PIE-1779). A link that is up takes the shared
+ * socket by one rename, so a read in flight over SSH finishes on the connection it started on while every new one goes
+ * over the link; the SSH connection is ended later, once what it carried is done (`forwardBehindLink`, `retireForward`,
+ * run by the link's server). An SSH connection still up after the link took its socket forwards nothing; once the link has gone, the next
+ * client ends it and starts a new one.
  */
 export async function ensureForward(machine: string, o: ForwardOptions): Promise<Forward> {
   const p = forwardPaths(o.outlines, machine);
-  const linkSocket = `${p.dir}/${machine}.link.sock`;
-  const link = () => {
-    const text = o.io.read(`${p.dir}/${machine}.link.json`);
-    if (!text) return false;
-    try { const state = JSON.parse(text); return state.up && o.io.alive(state.pid); } catch { return false; }
-  };
-  if (!link() && await o.io.answers(p.socket)) return { socket: p.socket, how: "up", transport: "ssh" };
+  const linkSocket = linkSocketOf(p);
+  // Answering already, through the transport it should: the link's route while the link is up, SSH's socket while not.
+  const up = linkUp(p, o.io);
+  if (up === routedToLink(p, o.io) && await o.io.answers(p.socket)) return { socket: p.socket, how: "up", transport: up ? "link" : "ssh" };
   o.io.privateDir(p.dir);
   return withForwardLock(`${p.control}.lock`, o.io, async () => {
-    if (link() && await o.io.answers(linkSocket)) {
-      if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
-        if ((await o.io.run(sshArgv.exit(o.ssh, p), 5000)).code !== 0) throw new Error(`SSH forward to ${machine} could not release its socket; run ssh -S ${p.control} -O exit ${machine}`);
-        const end = o.io.now() + 5000;
-        while (o.io.exists(p.socket) && o.io.now() < end) await o.io.sleep(20);
-        if (o.io.exists(p.socket)) throw new Error(`SSH forward to ${machine} has not released its socket; run ssh -S ${p.control} -O exit ${machine}`);
-      }
+    if (linkUp(p, o.io) && await o.io.answers(linkSocket)) {
       o.io.routeLink(p.socket, linkSocket);
       return { socket: p.socket, how: "up", transport: "link" };
     }
+    // A route left by a link that isn't answering (its server removes it when the link drops; a crash doesn't).
+    if (routedToLink(p, o.io)) o.io.remove(p.socket);
     if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" as const, transport: "ssh" };
     if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
-      if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const, transport: "ssh" };
-      const named = configuredRemoteSocket(p, o.io);
-      const look = named ? `\`ssh ${machine} ls -l ${named}\`` : `\`ssh ${machine} ep0ch status\``;
-      throw new Error(`connected to ${machine}, but no outline host answers through the forward (it may be restarting: ${look}; if its socket moved, \`ssh -S ${p.control} -O exit ${machine}\` and the next client forwards it again)`);
+      if (o.io.exists(p.socket)) {
+        if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const, transport: "ssh" };
+        const named = configuredRemoteSocket(p, o.io);
+        const look = named ? `\`ssh ${machine} ls -l ${named}\`` : `\`ssh ${machine} ep0ch status\``;
+        throw new Error(`connected to ${machine}, but no outline host answers through the forward (it may be restarting: ${look}; if its socket moved, \`ssh -S ${p.control} -O exit ${machine}\` and the next client forwards it again)`);
+      }
+      // Connected, with no socket of its own: the link took it, and has gone since. That connection forwards nothing.
+      await o.io.run(sshArgv.exit(o.ssh, p), 5000);
     }
     // A control socket left by a connection that died would turn the new one's -M off.
     o.io.remove(p.control);
@@ -194,6 +217,36 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
     if (started.code !== 0) throw new Error(`ssh ${machine} couldn't forward its host socket ${remote.socket}: ${lastLine(o.io.read(p.log)) || `exit ${started.code}`}`);
     if (!(await answersWithin(p.socket, o.io, o.waitMs ?? 5000))) throw new Error(`the forward to ${machine} is up, but no outline host answers through it (at ${remote.socket} there)`);
     return { socket: p.socket, how: "started" as const, remote, transport: "ssh" };
+  });
+}
+
+/** The pid ssh's `-O check` names ("Master running (pid=1234)"), or null when it names none. */
+const masterPid = (r: { out: string; err: string }) => { const m = /pid=(\d+)/.exec(`${r.err}\n${r.out}`); return m ? Number(m[1]) : null; };
+
+/**
+ * The SSH connection that still runs while the link holds the machine's shared socket, by its pid: one the link took the
+ * socket from, which carries only what started on it. Null when the link doesn't hold the socket or no connection runs
+ * (no control socket: nothing is spawned to ask).
+ */
+export async function forwardBehindLink(machine: string, o: ForwardOptions): Promise<number | null> {
+  const p = forwardPaths(o.outlines, machine);
+  if (!routedToLink(p, o.io) || !o.io.exists(p.control)) return null;
+  const r = await o.io.run(sshArgv.check(o.ssh, p), 5000);
+  return r.code === 0 ? masterPid(r) : null;
+}
+
+/**
+ * Ends the SSH connection `pid` once the link holds the shared socket: run by the link's server when that connection
+ * has had its grace since the link took the socket from it (each connection its own, PIE-1779), never one that serves
+ * the socket again or another that started since. Whether it ended it.
+ */
+export async function retireForward(machine: string, pid: number, o: ForwardOptions): Promise<boolean> {
+  const p = forwardPaths(o.outlines, machine);
+  return withForwardLock(`${p.control}.lock`, o.io, async () => {
+    if (!routedToLink(p, o.io)) return false;
+    const r = await o.io.run(sshArgv.check(o.ssh, p), 5000);
+    if (r.code !== 0 || masterPid(r) !== pid) return false;
+    return (await o.io.run(sshArgv.exit(o.ssh, p), 5000)).code === 0;
   });
 }
 
