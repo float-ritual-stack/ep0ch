@@ -4598,7 +4598,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const mode: Prefix | undefined = ({ "^W": "wm", "^W o": "add", "^W O": "addtab" } as const)[prefix as "^W"];
     if (!mode) throw new ActionRefused(`no panel for ${prefix}: choose ^W, "^W o" or "^W O"`);
     const panel = this.panelOf(mode);
-    if (actor.kind !== "agent") { this.prefix = mode; this.panelWait.arm(mode, 0); this.redraw(); }
+    if (this.dispatch.takesKeys(actor)) { this.prefix = mode; this.panelWait.arm(mode, 0); this.redraw(); }
     return { prefix, groups: panel.groups };
   }
 
@@ -5621,7 +5621,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...(t.args && !t.screen && t.inner === undefined ? { args: t.args } : {}), ...(t as Partial<TileSpec>).linkGroups ? { linkGroups: (t as Partial<TileSpec>).linkGroups } : {}, ...(t as Partial<TileSpec>).subject ? { subject: (t as Partial<TileSpec>).subject } : {}, ...this.mountFields(t) };
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
-    if (wrong && k.choices && actor.kind !== "agent") {
+    if (wrong && k.choices && this.dispatch.takesKeys(actor)) {
       await this.askChoices(t.kind, more => this.run("tile.open", { ...t, ...more, to: base.name, ...(typeof where === "string" ? { where } : {}) }, base.name));
       return { ...this.tileAnswer(base.id), picking: t.kind };
     }
@@ -6378,7 +6378,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async saveScreen(name: string | undefined, actor: Actor): Promise<Record<string, unknown>> {
     if (name === undefined || !name.trim()) {
-      if (actor.kind === "agent") throw new ActionRefused("screen.save needs name=<the screen's name>, as a person would type it (daily test saves as daily-test)");
+      if (!this.dispatch.takesKeys(actor)) throw new ActionRefused("screen.save needs name=<the screen's name>, as a person would type it (daily test saves as daily-test)");
       this.overlays.push(screenSaver(this.layoutName ? screenTitle(this.layoutName) : ""));
       this.redraw();
       return { prompt: true, name: this.layoutName };
@@ -6459,7 +6459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   loadLayout(name: string | undefined, actor: Actor): { layout?: string; saved?: boolean; rule?: OpenRule; tiles?: string[]; kept?: string[]; picker?: boolean; layouts?: ReturnType<typeof layoutNames> } {
     if (name === undefined || !name.trim()) {
-      if (actor.kind === "agent") throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
+      if (!this.dispatch.takesKeys(actor)) throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
       this.overlays.push(layoutPicker(layoutNames()));
       this.redraw();
       return { picker: true, layouts: layoutNames() };
@@ -7050,7 +7050,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
-    if (actor.kind === "agent" || !this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
+    if (!this.dispatch.takesKeys(actor, "tile")) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };   // an agent's, yolo too, is data (a read, PIE-1772)
     this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);

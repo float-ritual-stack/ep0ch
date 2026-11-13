@@ -1030,6 +1030,14 @@ export class Dispatcher {
   standing(actor: Actor, touch: ActionDef<unknown, unknown>["touches"] = "tile"): boolean {
     return standsAsPerson(actor, this.where(), touch === "shape" || touch === "screen" ? touch : "tile");
   }
+  /**
+   * The one place that decides whether `actor` may take the person's keys: open a prompt, a picker, a panel or a menu
+   * on screen, as their key would. The person, or a run their press invited for `touch` (it acts fully as them); never
+   * an agent they didn't press for, yolo or not (PIE-1444). Anything else gets the same answer as data.
+   */
+  takesKeys(actor: Actor, touch: ActionDef<unknown, unknown>["touches"] = "screen"): boolean {
+    return pressedBy(actor, touch === "shape" || touch === "tile" ? touch : "screen");
+  }
 
   private tilesNow(): TileRef[] {
     const asked = this.asked();

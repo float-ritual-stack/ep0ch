@@ -2,7 +2,14 @@
 // PIE-1778), the case is here as Evan meets it: a real tmux pane over a scratch service (TallyDoors), by his keys, or an
 // agent's act on the same door. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { outliner, until } from "./scratch";
+import { join } from "node:path";
+import { App } from "../src/app";
+import "../src/screens";
+import { Desk } from "../src/desk/desk";
+import { MainMenu } from "../src/screens";
+import { SocketBoard, type Actor } from "../src/socket";
+import { INVITES } from "../src/surface/invite";
+import { outliner, Scratch, until } from "./scratch";
 import { TallyDoors } from "./tally-pane";
 
 describe.skipIf(!outliner || !Bun.which("tmux"))("one decider per desk question (PIE-1780)", () => {
@@ -50,4 +57,42 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("one decider per desk question 
       expect({ ok: floated.ok, said: floated.ok ? "" : floated.out.trim() }).toEqual({ ok: true, said: "" });
     } finally { p.close(); }
   }, 60_000);
+});
+
+// What a press invites acts fully as the person (surface/invite.ts): a run the person's click started may open the prompt,
+// the picker, the panel or the menu a key would. Five desk actions asked `actor.kind` instead, so a pressed script got
+// "screen.save needs name=" and no ^W panel. One decider, the dispatcher's takesKeys, answers them all.
+describe.skipIf(!outliner)("a pressed run opens what the person's key opens (PIE-1780)", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, desk: Desk;
+  const D = () => desk as any;
+  const pressed = (): Actor => ({ kind: "agent", id: "script:tidy", run: "run-1780", invitation: INVITES.mint("you") });
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    process.env.EP0CH_DAILY_AGENT = "sh";
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    const term = { info: { cols: 160, rows: 44, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    board.subscribe(e => app.event(e));
+    app.push(new MainMenu());
+    desk = new Desk();
+    app.push(desk);
+    desk.render(D().ctx);
+    await until(() => D().panes.size > 0, "the desk's tiles");
+  }, 30_000);
+  afterAll(async () => { D().dispose(); board.close(); await scratch.dispose(); });
+
+  test("keys.panel from a press opens the ^W panel on screen; an unpressed agent gets the groups as data", async () => {
+    await app.dispatch.act({ action: "keys.panel", args: { prefix: "^W" } }, { kind: "agent", id: "plain-agent" });
+    expect(D().prefix).toBe("");
+    await app.dispatch.act({ action: "keys.panel", args: { prefix: "^W" } }, pressed());
+    expect(D().prefix).toBe("wm");
+    D().prefix = "";
+  });
+  test("screen.save with no name from a press opens the name prompt, as the person's ^W w does", async () => {
+    await app.dispatch.act({ action: "screen.save", args: {} }, pressed());
+    expect(D().overlaid()).toBe(true);
+    D().overlays.key({ kind: "esc" }, desk);
+  });
 });
