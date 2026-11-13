@@ -118,7 +118,7 @@ export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
       // A wrapped row's × (clear the wire) is drawn once, on its first line.
       return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map((line, i) => line + (r.clear ? pickRow(i ? "" : " × ", on, 4) : ""));
     },
-    clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
+    clickedItem: (r, x, _h, line) => { if (!r.clear || line || x < wireWidth - 4) return false; r.clear(); return true; },   // only the line that shows ×
     choose: r => press(r),
     bindings: [
       ...["left", "h", "right", "l"].map(key => ({ key, action: "policy.container", label: "container", args: { by: ["left", "h"].includes(key) ? -1 : 1 } })),

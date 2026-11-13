@@ -465,8 +465,11 @@ export class CardComposer {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + title, "");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
-    // What the draft said (a refusal names what to type) wraps to four rows rather than being cut at the box's edge (PIE-1790).
-    const said = (s: string, color: number) => rowLines(s, w, 4).map(l => line(l, color));
+    // What the draft said (a refusal names what to type) wraps to four rows rather than being cut at the box's edge
+    // (PIE-1790), in what's left once the text keeps three rows to type in: the frame's title and rule, the rows above it,
+    // the twin's row.
+    const above = C0.kind === "card" && !C0.planning ? 2 + (C0.needs.length ? 1 : 0) : 1;
+    const said = (s: string, color: number) => rowLines(s, w, Math.max(1, Math.min(4, r.rows - 2 - 2 - above - (C0.kind === "card" && C0.twin ? 1 : 0) - 3))).map(l => line(l, color));
     const status = C0.kind === "card" && C0.planning ? [
       line(`asking the outline what a card in ${C0.lane.name} is born with…`, C.dark),
       line(d.note || "the first line is the title; [key::value] tokens are properties", C.dark),

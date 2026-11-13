@@ -5250,7 +5250,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (mode === "add" || mode === "addtab") {
       // The kind under that key, from the registry (an extension's kind with a key is here too).
       const args = this.openKindArgs(c, mode === "addtab");
-      return args ? this.run("tile.open", args, me) : this.redraw();
+      return args ? this.run("tile.open", args) : this.redraw();   // beside the keys' tile, named by none (PIE-1790: it may land beside a lane's preview)
     }
     const dir = MOVE[c], n = dir ? neighbour(this.rectsNow(), this.focus, dir) : null;
     if (mode === "move" || mode === "tab") {

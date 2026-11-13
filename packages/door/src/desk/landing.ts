@@ -110,7 +110,10 @@ export function landsBeside<I, R extends { ok: boolean; refused?: string; answer
   const r = open(base);
   if (r.ok || shown === undefined) return r;
   const there = open(shown);
-  return there.ok ? { ...there, answer: { ...there.answer, why: `${r.refused}, so it went beside ${name(shown)}` } } : r;
+  // The layout's own answer, said why on it: the desk knows a step by that object (who asked it, for undo).
+  if (!there.ok) return r;
+  there.answer = { ...there.answer, why: `${r.refused}, so it went beside ${name(shown)}` };
+  return there;
 }
 const PLACE_WORDS: Record<Dir, string> = { left: "left of", right: "right of", up: "above", down: "below" };
 const whereWord = <I>(p: Place<I>): string => (p.kind === "edge" ? `edge-${p.dir}` : p.kind === "split" ? p.dir : p.kind);
