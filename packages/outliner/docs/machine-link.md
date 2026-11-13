@@ -46,13 +46,19 @@ announced itself (below). No frame can name a host, path, port or executable. Co
 
 Binary WebSocket messages carry an operation byte, a four-byte big-endian stream
 id, and optional data. OPEN, DATA, CLOSE and ACK multiplex Unix connections.
-Each direction sends a read in DATA frames of at most 64 KB and keeps up to 1 MB
-per stream, and 3 MB per link, unacknowledged, under the WebSocket's 4 MB send
-buffer (PIE-1779). One chunk a round trip once carried a laptop's pages at 30 KB/s.
+Each direction sends a read in DATA frames of at most 64 KB (PIE-1779). Waiting
+streams take turns, a frame each, so a short answer isn't held behind bulk ones.
+Up to 512 KB per stream, and 1 MB per link, can be unacknowledged at once, and
+nothing more is sent while the WebSocket holds 512 KB unsent. Credit a closed
+stream gives back is spent only as that buffer drains, so the buffer stays under
+the 4 MB past which either end closes the link. One chunk a round trip once
+carried a laptop's pages at 30 KB/s.
+
 The destination acknowledges each frame once it has written or drained it. An end
 that acknowledges frame by frame interworks with one that sent a chunk at a time.
-A stream that closes sends CLOSE once its frames are all acknowledged; the far end
-ends its socket rather than destroying it, so what was written reaches it first. Heartbeats run
+A stream that closes sends CLOSE once its frames are all acknowledged. The far
+end then retires the stream (nothing its socket reads afterwards is sent or
+counted) and destroys the socket once what was written to it has gone. Heartbeats run
 every 10 seconds and expire after 25 seconds. Reconnect backs off from 1 to 15
 seconds, with a 10-second connection deadline. Errors, timeouts and lost
 heartbeats schedule recovery directly, without waiting for a close handshake on
