@@ -287,9 +287,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private focus: number;
   private nextId = 1;
   private prefix: Prefix = "";
-  /** What the button held down is doing (gestures.ts): one gesture at a time. */
-  private readonly held = new HeldGesture<Desk>();
-  /** The held gesture as tests and the hint row read it, by kind (HeldGesture). */
+  private readonly held = new HeldGesture<Desk>();   // what the button held down is doing (gestures.ts): one gesture at a time
   get drag() { return this.held.drag; } get floatDrag() { return this.held.floatDrag; } get dragging() { return this.held.dragging; }
   /** Pointer coordinates share the reading measure and full-width rows; a held pointer's row stays free to scroll past an edge. */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; pane?: ReaderPane; col: number; row: number; cols: number }, k: { x: number; y: number }) {
