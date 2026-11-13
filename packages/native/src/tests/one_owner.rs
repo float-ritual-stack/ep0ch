@@ -737,6 +737,12 @@ fn where_a_held_tile_lands_is_the_layout_s_drop_rule_and_the_shell_draws_what_it
     none("a strip's or a label's place decided by the shell", ["DOCK_STRIP", "fn dock_strip(side"].iter().flat_map(|own| strays(own, |_| false)).collect());
     // The key that lets go of a held tile is the key table's row, on the layer `App::person` says a hold is.
     assert!(text("keys.rs").contains("self.moving.is_some()") && text("actions/carry.rs").contains("KeyRow::with(\"escape\", Some(\"moving\")"));
+    // A tile goes between windows as it is: what it shows is handed over whole (the window's own record of it), so
+    // its fields are written out only where the arrangement is kept; and the saved tile is read by the layout's
+    // own reader, torn out and put back alike, so what the layout keeps of a tile is never taken for a field of it.
+    none("what a tile shows written out as fields outside where the arrangement is kept", strays("\"narrowed\": ui.narrowed", |path| path == "actions/layout.rs"));
+    none("a saved tile's fields read outside the layout's own reader", ["leaf[\"", "leaf.get(\""].iter().flat_map(|read| strays(read, |path| path == "layout.rs" || path.starts_with("layout/"))).collect());
+    assert!(text("store.rs").contains("Handed { leaf: Value, shown: TileUi,") && text("actions/window.rs").contains("Layout::read(&json!({ \"root\": leaf }))"), "a tile handed to a window: what it shows as it is, the tile by the layout's reader");
 }
 
 /// H1, typing: a level in or out is one rule's (outline-core's `indentText`, ported once), a paste enters a draft by

@@ -55,46 +55,35 @@ impl App {
     pub fn leaves_by(&self) -> &'static ActionRow { if self.torn() { &RETURN } else { &TEAR } }
 }
 
-/// What a tile shows, as it is handed between windows (and kept in the arrangement's file: the same fields).
-fn shown_json(ui: &super::TileUi) -> serde_json::Value { json!({ "note": ui.note, "history": ui.history, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject, "program": ui.program }) }
-fn shown_read(v: &serde_json::Value) -> super::TileUi {
-    let text = |key: &str| v[key].as_str().map(str::to_string);
-    let texts = |key: &str| v[key].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string));
-    super::TileUi {
-        note: text("note"), history: texts("history").collect(), unfolded: texts("unfolded").collect(), subject: text("subject"), program: text("program"),
-        narrowed: v["narrowed"].as_array().into_iter().flatten().filter_map(|pair| Some((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string()))).collect(),
-        chosen: v["chosen"].as_object().into_iter().flatten().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string()))).collect(),
-        ..Default::default()
-    }
-}
-
 /// A tile handed over by another window of the run lands here: a tile of this arrangement along its right edge, by
 /// the layout's own rule for a new tile, showing what it showed there, with the keys. A layout that takes none
 /// keeps nothing from being lost: the tile is given a window of its own again, and this window says why.
-pub(super) fn arrived(app: &mut App, leaf: &serde_json::Value, shown: &serde_json::Value, from: &str, by: &Actor) {
-    let kind = leaf["kind"].as_str().unwrap_or("tile").to_string();
-    let wanted = leaf["name"].as_str().unwrap_or(&kind).to_string();
+pub(super) fn arrived(app: &mut App, leaf: &serde_json::Value, ui: super::TileUi, from: &str, by: &Actor) {
+    // The saved tile is read by the layout's own reader, as a tile torn out is: its kind and fields, and what the
+    // layout keeps of it beside them (what agents may do to it).
+    let alone = Layout::read(&json!({ "root": leaf }));
+    let Some(read) = alone.all().first().and_then(|id| alone.spec(id).map(|spec| (id.clone(), spec.clone()))) else { return };
+    let (kind, wanted, level) = (read.1.kind.clone(), alone.name(&read.0), alone.agents.get(&read.0).cloned());
     // Its name is its own while no tile here has it.
-    let name = if app.layout.named(&wanted).is_none() { wanted } else { app.layout.auto_name(&kind, &[]) };
-    let mut spec = crate::layout::TileSpec::new(name.clone(), kind);
-    for (field, value) in leaf.as_object().into_iter().flatten().filter(|(field, _)| !["t", "kind", "name", "id", "wires"].contains(&field.as_str())) { spec.fields.insert(field.clone(), value.clone()); }
+    let name = if app.layout.named(&wanted).is_none() { wanted.clone() } else { app.layout.auto_name(&kind, &[]) };
+    let spec = crate::layout::TileSpec { id: name.clone(), ..read.1 };
     let landed = app.reshape(&crate::layout::Op::Open { tile: spec, name: Some(name.clone()), loose: true, alt: false, deliberate: None, at: crate::layout::At::Edge { dir: crate::layout::Dir::Right }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
-    let ui = shown_read(shown);
     if landed.ok {
         // (A tile made here is named, and its name is its id.)
         app.st.tiles.insert(name.clone(), ui);
+        if level.is_some() { app.reshape(&crate::layout::Op::Agents { tile: name.clone(), level }, by); }
         app.keep();
         app.st.notice = Some(Notice::info(format!("{name} is back from its own window ({from}).")));
         app.pump();
         return;
     }
     // Refused: nothing is lost. It is in a window of its own again, as it was.
-    let alone = json!({ "focus": leaf["name"], "root": leaf });
+    let alone = json!({ "focus": wanted, "root": leaf });
     let taken = app.store.windows();
     let window = std::iter::once(from.to_string()).chain((2..).map(|n| format!("{from}-{n}"))).find(|candidate| !taken.contains(candidate)).unwrap_or_else(|| from.to_string());
     let born = app.beside(&window, &alone, ui, app.ways.clone());
     app.born.push(born);
-    app.st.notice = Some(Notice::problem(format!("{} stays in a window of its own: {}", leaf["name"].as_str().unwrap_or("the tile"), landed.said)));
+    app.st.notice = Some(Notice::problem(format!("{wanted} stays in a window of its own: {}", landed.said)));
 }
 
 /// Where a window that keeps no arrangement keeps what is written in it: a file of its own beside the outline's
@@ -132,7 +121,7 @@ fn put_back(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(why) = app.holds_edit(&tile) { return Outcome::refused(why) }
     let Some(leaf) = app.layout.alone(&tile).map(|alone| alone["root"].clone()) else { return Outcome::refused(format!("no tile {name}")) };
     let Some(to) = app.store.other_window() else { return Outcome::refused("no other window is open to take it back") };
-    if !app.store.hand(&to, leaf, shown_json(app.ui(&tile)), by) { return Outcome::refused(format!("the window {to} is gone")) }
+    if !app.store.hand(&to, leaf, app.ui(&tile).clone(), by) { return Outcome::refused(format!("the window {to} is gone")) }
     // The window goes with its tile; a program in it runs on (a window that goes ends nothing its host keeps).
     app.st.closing = true;
     Outcome::answer(json!({ "tile": name, "window": to }))

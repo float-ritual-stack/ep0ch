@@ -398,3 +398,50 @@ fn a_torn_window_s_tile_is_put_back_into_the_window_it_came_from() {
     let again = app.born().pop().expect("it has a window of its own again");
     assert_eq!((again.layout.names.0.len(), again.note_of(&again.layout.focus).as_deref()), (1, Some("shed")));
 }
+
+/// What a tile shows goes between windows as it is, whichever way it goes: torn out and put back, a tree keeps the
+/// folders folded by hand and the note it unfolded the way to once, so nothing is unfolded again behind the person.
+#[test]
+fn a_tile_put_back_shows_all_it_showed_as_a_tile_torn_out_does() {
+    let Garden { mut app, .. } = garden(ok());
+    act(&mut app, "open id=fork");
+    let tree = app.layout.named("tree").unwrap();
+    app.settle();
+    let here = app.tiles.get(&tree).cloned().expect("the tree shows something here");
+    assert!(here.revealed.is_some(), "the tree unfolded the way to the open note, once: {here:?}");
+    assert!(act(&mut app, "tile.tear tile=tree").ok);
+    let mut second = app.born().pop().expect("the act asked for a window");
+    second.settle();
+    let torn = second.tiles.get(&second.layout.focus).cloned().expect("the torn tree shows what it showed");
+    assert_eq!(torn, here, "torn out, it shows what it showed");
+    // A folder on the way to the open note, folded by hand in the torn window: it stays folded.
+    let folder = "onions".to_string();
+    assert!(torn.unfolded.contains(&folder), "the way to the open note is unfolded: {torn:?}");
+    assert!(act(&mut second, &format!("tree.fold id={folder} open=false")).ok);
+    second.settle();
+    let torn = second.tiles.get(&second.layout.focus).cloned().unwrap();
+    assert!(!torn.unfolded.contains(&folder) && torn.revealed.is_some(), "{torn:?}");
+    assert!(act(&mut second, "tile.return").ok);
+    app.settle();
+    let back = app.layout.named("tree").expect("the tree is back");
+    assert_eq!(app.tiles.get(&back), Some(&torn), "put back, it shows what it showed in its own window");
+}
+
+/// A tile put back is read by the layout's own reader of a saved tile, as a tile torn out is: what the layout keeps
+/// of it beside its fields (what agents may do to it) comes back as the layout's, and is no field of the tile.
+#[test]
+fn a_tile_put_back_keeps_what_agents_may_do_to_it() {
+    let Garden { mut app, .. } = garden(ok());
+    act(&mut app, "open id=shed");
+    assert!(act(&mut app, "tile.agent policy=off tile=reader").ok && act(&mut app, "tile.tear tile=reader").ok);
+    let mut second = app.born().pop().expect("the act asked for a window");
+    second.settle();
+    assert_eq!(second.layout.agents.get(&second.layout.focus).map(String::as_str), Some("off"), "torn out, it keeps its level");
+    assert!(act(&mut second, "tile.return").ok);
+    app.settle();
+    let back = app.layout.named("reader").expect("the reader is back");
+    assert_eq!(app.layout.agents.get(&back).map(String::as_str), Some("off"), "put back, agents may still do nothing to it");
+    assert_eq!(app.spec(&back).and_then(|spec| spec.fields.get("agents")), None, "and the level is the layout's, no field of the tile");
+    let closed = app.act("tile.close tile=reader", Actor::Agent("seedling-agent".into()));
+    assert!(!closed.ok, "an agent's close is still refused: {}", closed.said);
+}
