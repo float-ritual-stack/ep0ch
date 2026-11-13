@@ -194,6 +194,10 @@ pub enum Landed {
     /// it, and who the change it carries is recorded as (none: it carries none): the draft's own actions answer,
     /// through `held`.
     Asked { at: OutlineAt, ask: Value, by: Option<Actor> },
+    /// Another window of the run hands this one a tile (one torn out, put back): the tile as a saved leaf, what
+    /// it showed there as that window kept it, the window it comes from, and who put it back there. The window's
+    /// own actions land it, as theirs.
+    Handed { leaf: Value, shown: Value, from: String, by: Actor },
 }
 
 /// An action a script asks this window to run (outline-core's `ScriptActionCall`), as the wire said it.
@@ -626,6 +630,23 @@ impl Store {
 
     /// Who the person's writes are recorded as on a host (`ep0ch-native:<the host's machine>`).
     pub fn set_person(&mut self, at: &OutlineAt, actor_id: String) { self.hub.borrow_mut().persons.insert(at.clone(), actor_id); }
+
+    /// The window a tile of this one goes back to: the run's first, else the oldest other one. None: this is the
+    /// only window there is.
+    pub fn other_window(&self) -> Option<String> { let hub = self.hub.borrow(); hub.windows.iter().find(|(window, _)| **window != self.window).map(|(_, name)| name.clone()) }
+
+    /// A tile of this window is handed to another window of the run, by its name: it lands in that window's next
+    /// turn (every window is woken). False: no window by that name is open.
+    pub fn hand(&mut self, to: &str, leaf: Value, shown: Value, by: &Actor) -> bool {
+        let from = self.window();
+        let mut hub = self.hub.borrow_mut();
+        let Some(window) = hub.windows.iter().find(|(_, name)| name.as_str() == to).map(|(window, _)| *window) else { return false };
+        hub.hear(Some(window), Landed::Handed { leaf, shown, from, by: by.clone() });
+        let wake = hub.waker();
+        drop(hub);
+        wake();
+        true
+    }
 
     /// This window pressed a button on a link: the acts of the script it runs come back here.
     pub fn pressing(&mut self, at: &OutlineAt) { self.hub.borrow_mut().pressed.insert(at.clone(), self.window); }

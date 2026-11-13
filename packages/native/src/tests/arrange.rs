@@ -358,3 +358,43 @@ fn a_press_that_runs_an_act_in_a_tile_gives_that_tile_the_keys() {
     g.app.pressed_in("tile.focus tile=tree", "reader2");
     assert_eq!(g.app.steps[from..].iter().map(Step::line).collect::<Vec<_>>(), ["tile.focus tile=tree"]);
 }
+
+/// A torn window's tile goes back into the window it was torn from: by its act, by its title dragged out of its
+/// window, and by the put-back on its title. It shows what it showed; a layout that takes no tile loses nothing.
+#[test]
+fn a_torn_window_s_tile_is_put_back_into_the_window_it_came_from() {
+    let Garden { mut app, .. } = garden(ok());
+    act(&mut app, "open id=shed");
+    let before: Vec<String> = app.layout.names.0.iter().map(|(_, name)| name.clone()).collect();
+    assert!(act(&mut app, "tile.tear tile=reader").ok);
+    let mut second = app.born().pop().expect("the act asked for a window");
+    second.settle();
+    // In the first window it is no way: its tiles are its own, and the refusal names the act that tears one out.
+    let own = act(&mut app, "tile.return");
+    assert!(!own.ok && own.said.starts_with("this window was torn from no other") && own.said.contains(&keys::cap("tile.tear").unwrap()), "{}", own.said);
+    // From the torn window, by its title dragged out of the window: the hold says where letting go puts it.
+    let mut rt = window(second);
+    assert!(element(&rt, "tile/reader/return").is_some(), "its title has the put-back");
+    let from = rt.state.steps.len();
+    hold(&mut rt, "reader", (300.0, -30.0));
+    let said = element(&rt, "holding").and_then(|e| e.text).unwrap();
+    assert!(said.contains(&crate::actions::label("tile.return")), "{said}");
+    let_go(&mut rt, (300.0, -30.0));
+    assert!(lines(&rt, from).contains(&"tile.return tile=reader".to_string()) && rt.state.closing, "{:?}", lines(&rt, from));
+    // The first window takes it in its next turn: a tile of its arrangement again, with the keys, showing the shed.
+    app.settle();
+    let names: Vec<String> = app.layout.names.0.iter().map(|(_, name)| name.clone()).collect();
+    assert_eq!({ let mut sorted = names.clone(); sorted.sort(); sorted }, { let mut sorted = before.clone(); sorted.sort(); sorted }, "{names:?}");
+    assert_eq!((app.layout.name(&app.layout.focus), app.note_of(&app.layout.named("reader").unwrap()).as_deref()), ("reader".to_string(), Some("shed")));
+    assert!(app.notice.as_ref().is_some_and(|notice| notice.said.contains("reader is back")), "{:?}", app.notice);
+    drop(rt);
+    // A locked arrangement takes no tile: the tile is in a window of its own again, and the first window says why.
+    assert!(act(&mut app, "tile.tear tile=reader").ok);
+    let mut second = app.born().pop().unwrap();
+    second.settle();
+    assert!(act(&mut app, "layout.lock on=true").ok && act(&mut second, "tile.return").ok);
+    app.settle();
+    assert!(app.layout.named("reader").is_none() && app.notice.as_ref().is_some_and(|notice| notice.tone == Tone::Problem && notice.said.starts_with("reader stays in a window of its own:") && notice.said.contains("locked")), "{:?}", app.notice);
+    let again = app.born().pop().expect("it has a window of its own again");
+    assert_eq!((again.layout.names.0.len(), again.note_of(&again.layout.focus).as_deref()), (1, Some("shed")));
+}

@@ -124,6 +124,25 @@ the per-tile memo those runs draw no tile ([6](#6-the-per-tile-memo)).
 
 **DESIGN.md §7 Mouse:** stands. The rects come from `Cx::layout` in `shell.rs`.
 
+**As built (H2):** the handler captures no rects at all. It says the cell the pointer is over as an act line
+(`layout.carry col= row= tile=`, only when the cell changes) and that it let go (`layout.drop`), and the model asks
+the layout's drop rule with the boxes the layout itself answers, so what is drawn while a title is held and where it
+lands are one answer (`layout/drop.rs`, the door's `drop.ts` by `drop-contract.json`). What held up, run headless:
+
+- **Escape during a drag never reaches a key handler.** Rune ends the drag itself (`Phase::Up`, `cancelled()`):
+  the shell says `layout.drop cancel=true` there. The same act is the `moving` layer's Escape row, for a hold made
+  by an act line (a scene), where no drag is under way.
+- **The pointer is followed outside the window** (`Drag::window_point` goes negative, or past the window's size):
+  that is how a tile is let go "outside". The headless runtime does the same; a real window's capture was not run.
+- **`Drag::screen_point` is `None` headless**, so a drop at a chosen place in another window of the run (which
+  needs both windows' frames on the desktop, `WindowHandle::placement`) was not built: a torn window's tile goes
+  back into the window it came from by `tile.return`, where the layout takes a new tile.
+- **A press in a tile's body already gave it the keys**, on bare ground, on a list's row and on a note's words
+  (`a_press_in_a_tile_s_body_gives_it_the_keys`, green before any change): `keys::follow` hears Rune's focus land
+  in the tile. The README had said it did not. What `follow` cannot hear is a press whose focus names no tile (a
+  kit part keyed by the kit) or that leaves Rune's focus where it was; a drawer's press now says its tile by the
+  same act (`App::pressed_in`). Whether a Mac's window differs was not run.
+
 ## 4. The live window
 
 **A real window on a real X server answered `act`, `peek` and `snap` over a Unix socket.**
@@ -681,7 +700,7 @@ both put right:
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
-(DESIGN.md §5, §6.1). Eight tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
+(DESIGN.md §5, §6.1). Nine tables in [`../../outline-core/fixtures/`](../../outline-core/fixtures), made by the door's
 own functions on made-up garden layouts and never edited by hand.
 
 | Table | Asks | Holds the answer of |
@@ -693,6 +712,7 @@ own functions on made-up garden layouts and never edited by hand.
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
 | `actor-contract.json` | an action's row (`touches`, `while`, `person`), who runs it (the person, an agent, a script's run with and without the invitation a press minted) and where the person is | `actorRule`: whether they may, with the door's sentence when not. Cargo asks each row of the window's `rule()` and holds it to whether, not to the words |
+| `drop-contract.json` | the tiles on screen as a drag sees them (each one's frame in cells, a tab set's labels, a content receiver, a float), the area and the tile held; a shut dock's handles and a cell | `dropAt` for every cell of the area and a cell more on each side, `zonesOf` for each tile, `handleDrop`, and for each drop the act (`dropAction`, `dropArgs`), the operation (`dropOp`) and whether a float lands there (`floatLanding`). Cargo asks `layout/drop.rs` every cell |
 | `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName`, and a refusal said from its reason and each way's own words (`whySaid`) (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
@@ -754,7 +774,8 @@ What the tables do not hold:
 
 - **A saved layout as state.** The generator's `build()` mirrors `Desk.build` (a leaf's wires, its source, its fold),
   and `saved()` mirrors the desk's save. A pure pair in `screen-layout.ts`, used by both, is the fold.
-- **Geometry.** No rectangles from `place`, and no flow squeeze, beyond what the typing guard and spine room exercise.
+- **Geometry.** No rectangles from `place`, and no flow squeeze, beyond what the typing guard and spine room exercise. (A drop's rectangles are held: `drop-contract.json`.)
+- **What the desk adds to a drop:** its label for a drop into a dock (`saysDocked`, which the window says the same way in `actions/carry.rs`), a group's own zones, a part of a note dragged out.
 - **What the desk does with a landing:** making the reader, a kind's own hand-off, a carry between two layouts.
 - **Inputs that are functions:** a mount taking an open inward, and the shell's idle rule. In the tables, busy is the rule.
 - **The built-in named layouts** (`daily`, `river`, `board`, `desk`): layouts, not screens.

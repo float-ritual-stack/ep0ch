@@ -29,6 +29,8 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         // A float is placed once a tile floats; a held tile is let go once one is held.
         ("float.place", _) => vec!["tile.float on=true tile=backlinks"],
         ("layout.drop", _) => vec!["layout.carry col=90 row=12 tile=tree"],
+        // A tile is put back from a window torn from another: the reader's own, with the first window still open.
+        ("tile.return", _) => vec!["tile.tear tile=reader"],
         // A pick names a row the tree lists: the folder the example's note is under is open.
         ("tree.pick", _) => vec!["tree.fold id=plot open=true"],
         // An extension's screen is saved under a name of the person's own first.
@@ -82,6 +84,8 @@ fn ready(case: &Case) -> Runtime<App> {
     // Its terminal tiles run a made-up shell: a program is the same every run.
     let mut app = g.app.running_on(Box::new(crate::pty::canned::Canned::read(&serde_json::json!({ "backend": "herdr-core", "keeps": true }))));
     for line in setup(case.action, &case.line, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
+    // An action of a torn window runs in the window the setup tore out (the first stays open beside it).
+    if case.action == "tile.return" { let mut torn = app.born().pop().expect("the setup tore a window out"); torn.settle(); std::mem::forget(std::mem::replace(&mut app, torn)); }
     let mut rt = window(app);
     rest(&mut rt);
     rt
@@ -167,7 +171,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.paste", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

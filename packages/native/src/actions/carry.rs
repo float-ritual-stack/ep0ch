@@ -56,7 +56,7 @@ static CARRY: ActionRow = ActionRow::new("layout.carry", Touches::Nothing, "hold
     .keys(&[KeyRow::via("a drag on a tile's title or on its tab: the tile follows the pointer")])
     .examples(&[Example { act: "layout.carry col=90 row=12 tile=tree", does: "holds the tree over the cell 90, 12: the place it would land in is lit", safe: Some(true) }]);
 
-static DROP: ActionRow = ActionRow::new("layout.drop", Touches::Shape, "let go of the tile held by its title: it lands in the place it is held over, by the act that place is (layout.move or layout.swap, run and recorded as itself), or is torn into a window of its own when it was let go outside the window (tile.tear). Held over no place, or with cancel=true, nothing moves, and the window says so")
+static DROP: ActionRow = ActionRow::new("layout.drop", Touches::Shape, "let go of the tile held by its title: it lands in the place it is held over, by the act that place is (layout.move or layout.swap, run and recorded as itself), or, let go outside the window, is torn into a window of its own (tile.tear), and from a window that was torn from another goes back into that one (tile.return). Held over no place, or with cancel=true, nothing moves, and the window says so")
     .person("a tile held by its title is the person's to let go: an agent moves a tile outright (layout.move to=<tile> where=<side>, or layout.swap)")
     .args(&[("cancel", ArgSpec::flag("true lets go with nothing moved").optional())])
     .keys(&[KeyRow::with("escape", Some("moving"), "lets go: the tile stays where it was", &[("cancel", Scalar::Flag(true))]), KeyRow::via("the pointer let go of a title it holds")])
@@ -178,8 +178,9 @@ fn let_go(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let name = app.layout.name(&held.tile);
     let stays = |app: &mut App, why: String| { app.st.notice = Some(Notice::info(why)); Outcome::answer(json!({ "tile": name, "moved": false })) };
     if args.flag("cancel") == Some(true) { return stays(app, format!("{name} stays where it was: let go with nothing moved.")) }
-    // Let go outside the window: a window of its own, by the action that tears a tile out.
-    if held.out { return app.act_request(Request { action: super::window::TEAR.id.to_string(), tile: Some(name), by: None, args: Default::default() }, by.clone()) }
+    // Let go outside the window: a window of its own, by the action that tears a tile out; from a window that was
+    // torn from another, back into that one.
+    if held.out { return app.act_request(Request { action: app.leaves_by().id.to_string(), tile: Some(name), by: None, args: Default::default() }, by.clone()) }
     // Where it is held now, asked of the arrangement as it is now (it may have changed under the hand).
     match app.held_over(&held.tile, held.at, false, None).drop {
         // A float let go over no landing is put where it was carried to.

@@ -22,7 +22,12 @@ static CLOSE: ActionRow = ActionRow::new("window.close", Touches::Screen, "close
     .keys(&[KeyRow::via("the window's own close button does the same")])
     .menu(&[MenuRow::new("Close window", "Window", None)]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &TEAR, run: tear, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Nothing }];
+pub(super) static RETURN: ActionRow = ActionRow::new("tile.return", Touches::Shape, "in a window torn from another: put its tile back into the window it came from (the run's first window, else the oldest other one), showing what it shows here, and close this window. It lands along that window's right edge, where its layout takes a new tile, with the keys; a layout that takes none (a locked one) leaves the tile in a window of its own, and says so there. A tile a block is being written in stays until that is saved or closed")
+    .keys(&[KeyRow::via("the title of a torn window's tile dragged out of its window, or the put-back on that title")])
+    .menu(&[MenuRow::new("Put back", "Tile", None)])
+    .examples(&[Example { act: "tile.return", does: "the torn window's tile is a tile of the first window again", safe: None }]);
+
+pub static ACTIONS: &[Action] = &[Action { row: &TEAR, run: tear, about: About::Any }, Action { row: &RETURN, run: put_back, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Nothing }];
 
 impl App {
     /// A window of its own for one tile of this one: the same outline over the same store, laid out as that tile
@@ -40,6 +45,56 @@ impl App {
         app.start();
         app
     }
+}
+
+impl App {
+    /// This window was torn from another: its tile can go back.
+    pub fn torn(&self) -> bool { matches!(self.screen.from, From::Torn) }
+    /// The action a tile let go outside this window runs: back to the window it was torn from, else into a window
+    /// of its own. One answer for the act and for what the hold says of it.
+    pub fn leaves_by(&self) -> &'static ActionRow { if self.torn() { &RETURN } else { &TEAR } }
+}
+
+/// What a tile shows, as it is handed between windows (and kept in the arrangement's file: the same fields).
+fn shown_json(ui: &super::TileUi) -> serde_json::Value { json!({ "note": ui.note, "history": ui.history, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject, "program": ui.program }) }
+fn shown_read(v: &serde_json::Value) -> super::TileUi {
+    let text = |key: &str| v[key].as_str().map(str::to_string);
+    let texts = |key: &str| v[key].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string));
+    super::TileUi {
+        note: text("note"), history: texts("history").collect(), unfolded: texts("unfolded").collect(), subject: text("subject"), program: text("program"),
+        narrowed: v["narrowed"].as_array().into_iter().flatten().filter_map(|pair| Some((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string()))).collect(),
+        chosen: v["chosen"].as_object().into_iter().flatten().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string()))).collect(),
+        ..Default::default()
+    }
+}
+
+/// A tile handed over by another window of the run lands here: a tile of this arrangement along its right edge, by
+/// the layout's own rule for a new tile, showing what it showed there, with the keys. A layout that takes none
+/// keeps nothing from being lost: the tile is given a window of its own again, and this window says why.
+pub(super) fn arrived(app: &mut App, leaf: &serde_json::Value, shown: &serde_json::Value, from: &str, by: &Actor) {
+    let kind = leaf["kind"].as_str().unwrap_or("tile").to_string();
+    let wanted = leaf["name"].as_str().unwrap_or(&kind).to_string();
+    // Its name is its own while no tile here has it.
+    let name = if app.layout.named(&wanted).is_none() { wanted } else { app.layout.auto_name(&kind, &[]) };
+    let mut spec = crate::layout::TileSpec::new(name.clone(), kind);
+    for (field, value) in leaf.as_object().into_iter().flatten().filter(|(field, _)| !["t", "kind", "name", "id", "wires"].contains(&field.as_str())) { spec.fields.insert(field.clone(), value.clone()); }
+    let landed = app.reshape(&crate::layout::Op::Open { tile: spec, name: Some(name.clone()), loose: true, alt: false, deliberate: None, at: crate::layout::At::Edge { dir: crate::layout::Dir::Right }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
+    let ui = shown_read(shown);
+    if landed.ok {
+        // (A tile made here is named, and its name is its id.)
+        app.st.tiles.insert(name.clone(), ui);
+        app.keep();
+        app.st.notice = Some(Notice::info(format!("{name} is back from its own window ({from}).")));
+        app.pump();
+        return;
+    }
+    // Refused: nothing is lost. It is in a window of its own again, as it was.
+    let alone = json!({ "focus": leaf["name"], "root": leaf });
+    let taken = app.store.windows();
+    let window = std::iter::once(from.to_string()).chain((2..).map(|n| format!("{from}-{n}"))).find(|candidate| !taken.contains(candidate)).unwrap_or_else(|| from.to_string());
+    let born = app.beside(&window, &alone, ui, app.ways.clone());
+    app.born.push(born);
+    app.st.notice = Some(Notice::problem(format!("{} stays in a window of its own: {}", leaf["name"].as_str().unwrap_or("the tile"), landed.said)));
 }
 
 /// Where a window that keeps no arrangement keeps what is written in it: a file of its own beside the outline's
@@ -67,6 +122,20 @@ fn tear(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     app.born.push(born);
     app.st.notice = Some(Notice::info(format!("{name} is in a window of its own ({window}).")));
     Outcome::answer(json!({ "window": window, "tile": name }))
+}
+
+fn put_back(app: &mut App, _: &Args, by: &Actor) -> Outcome {
+    if !app.torn() { return Outcome::refused(crate::actions::says(&crate::layout::Refusal::new("this window was torn from no other: its tiles are its own").way(crate::layout::Way::new(TEAR.id, "takes a tile into a window of its own")), by)) }
+    let tile = app.about().unwrap_or_else(|| app.layout.focus.clone());
+    let name = app.layout.name(&tile);
+    // A tile that holds an edit stays, in the layout's own words for it.
+    if let Some(why) = app.holds_edit(&tile) { return Outcome::refused(why) }
+    let Some(leaf) = app.layout.alone(&tile).map(|alone| alone["root"].clone()) else { return Outcome::refused(format!("no tile {name}")) };
+    let Some(to) = app.store.other_window() else { return Outcome::refused("no other window is open to take it back") };
+    if !app.store.hand(&to, leaf, shown_json(app.ui(&tile)), by) { return Outcome::refused(format!("the window {to} is gone")) }
+    // The window goes with its tile; a program in it runs on (a window that goes ends nothing its host keeps).
+    app.st.closing = true;
+    Outcome::answer(json!({ "tile": name, "window": to }))
 }
 
 fn close(app: &mut App, _: &Args, _: &Actor) -> Outcome {

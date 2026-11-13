@@ -840,6 +840,7 @@ impl App {
                 Landed::Call { at, call } => super::script::called(self, &at, &call),
                 Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
                 Landed::Asked { at, ask, by } => super::draft::asked(self, &at, &ask, by),
+                Landed::Handed { leaf, shown, from, by } => super::window::arrived(self, &leaf, &shown, &from, &by),
                 // (A link to an outline this window isn't on now is another window's to say, or nobody's.)
                 Landed::Lost { at, detail } => if at == self.at {
                     self.st.online = false;

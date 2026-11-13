@@ -117,6 +117,8 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
     // The tile with the keys says what can be done with it where it is: fold it, pop it out. A float says the way back.
     let control = |glyph: &'static rune::Icon, line: String, part: &str| IconButton::new(glyph).variant(IconButtonVariant::GhostMuted).label(actions::label(&line)).on_press(act(line)).build(k).key(format!("tile/{name}/{part}"));
     if focused && roomy && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, format!("tile.collapse tile={}", word(&name)), "fold")) }
+    // In a window torn from another, the way back to the window it came from.
+    if s.torn() { bar = bar.child(control(&glyphs::ARROW_RIGHT, format!("tile.return tile={}", word(&name)), "return")) }
     if (focused && roomy) || floats { bar = bar.child(control(&glyphs::COPY, format!("tile.float tile={}", word(&name)), "float")) }
     let bar = bar.child(control(&glyphs::CLOSE, format!("tile.close tile={}", word(&name)), "close"));
     let dragged = name.clone();
@@ -169,7 +171,7 @@ fn holding(s: &App, held: &Moving, mut area: El, k: &Kit) -> El {
     // What is held, where letting go puts it (the place's own words, or that it leaves the window) and the key that
     // lets go with nothing moved, as the key table has it: along the foot of the tiles, over everything.
     let name = s.layout.name(&held.tile);
-    let place = if held.out { Some(actions::label("tile.tear")) } else { held.drop.as_ref().map(|place| place.refused.clone().unwrap_or_else(|| place.label.clone())) };
+    let place = if held.out { Some(actions::label(s.leaves_by().id)) } else { held.drop.as_ref().map(|place| place.refused.clone().unwrap_or_else(|| place.label.clone())) };
     let said: Vec<String> = std::iter::once(name.clone()).chain(place).chain(keys::hints(s.person().layer).into_iter().map(|(cap, does)| format!("{cap} {does}"))).collect();
     let (width, height) = (s.area.cols as f32 * CELL.0, s.area.rows as f32 * CELL.1);
     area = area.child(el().key("drop/foot").absolute(0.0, height - 40.0).w(width).h(28.0).center()
