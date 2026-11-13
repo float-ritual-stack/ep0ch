@@ -108,6 +108,9 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+s` | `edit.save` | everywhere | save |
 | `mod+enter` | `edit.save` | draft | save, from the note's source |
 | `escape` | `edit.close` | draft | leave the editor, when everything is saved |
+| `mod+v` | `draft.paste` | draft | paste the clipboard |
+| `tab` | `draft.indent` | draft | indent the line, or the selected lines |
+| `shift+tab` | `draft.outdent` | draft | outdent the line, or the selected lines |
 | `tab` | `complete.accept` | complete | write the lit row |
 | `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
 | `down` | `complete.move by=1` | complete | the next row |

@@ -14,7 +14,7 @@ use super::{Actor, Step, About};
 use crate::client::{Link, PROTOCOL, Way};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
 use crate::draft::{DraftSession, Kept, Recovery};
-use crate::page::{Completion, ListAnswer, ListRow, Page, Picture, SourceRow};
+use crate::page::{Completion, CompletionRow, ListAnswer, ListRow, Page, Picture, SourceRow};
 use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
 use crate::ext::{self, Extensions};
@@ -643,6 +643,15 @@ impl App {
         self.store.read::<Completion>(draft.completes()?).filter(|found| found.token.is_some() && (!found.rows.is_empty() || found.message.is_some()))
     }
 
+    /// The lit row of a tile's open completion list, as the list has it, and what choosing it makes when the
+    /// service has drawn that (`CompletionRow.view`, on the answer asked with that row lit): what stands beside the list.
+    pub fn completing_lit(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
+        let (draft, found) = (self.draft_on(tile)?, self.completing(tile)?);
+        let row = found.rows.get(draft.completing.lit)?;
+        let view = draft.shows().and_then(|ask| self.store.read::<Completion>(ask)).and_then(|shown| shown.rows.get(draft.completing.lit)).and_then(|row| row.view.as_ref());
+        Some((row, view))
+    }
+
     // ── screens ─────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Every screen there is to open, as the service lists them: the outline's notes and its extensions'.
@@ -698,7 +707,11 @@ impl App {
             wants.extend((drawer.asks)(&cx).into_iter().map(|(role, ask)| Want { tile: tile.clone(), role, ask }));
         }
         // What completes the words being typed, for the draft with the keys.
-        if let Some(draft) = self.draft_on(&self.layout.focus) && let Some(ask) = draft.completes() { wants.push(Want { tile: draft.tile.clone(), role: "complete", ask: ask.clone() }) }
+        if let Some(draft) = self.draft_on(&self.layout.focus) && let Some(ask) = draft.completes() {
+            wants.push(Want { tile: draft.tile.clone(), role: "complete", ask: ask.clone() });
+            // And what choosing the lit row makes, once the person lit another than the first.
+            if let Some(shows) = draft.shows().filter(|shows| *shows != ask) { wants.push(Want { tile: draft.tile.clone(), role: "completes", ask: shows.clone() }) }
+        }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
