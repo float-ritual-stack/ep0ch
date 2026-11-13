@@ -662,7 +662,21 @@ Where the manual and Moonframe's `herdr_core.rs` differed, and what the window d
 
 A real pty was run: the login shell on a plain pty (`Preference::Pty`, named outright so no core or tmux server is
 looked for) ran a made-up script, with keys typed in the window and rows read back from the emulator
-(`a_real_pty_runs_a_made_up_script_keys_in_and_rows_out`). tmux, the mux's second choice, was not run.
+(`a_real_pty_runs_a_made_up_script_keys_in_and_rows_out`).
+
+tmux, the mux's second choice, was run when the wave was verified, in a container with tmux and no `hc`: a live
+window under Xvfb over two launches (a shell and an agent on `tmux -L ep0ch-native`, the agent detached, the next
+launch's shell tile attached with nothing typed and the agent listed with no tile, then given one), and
+`tmux_keeps_a_program_between_two_windows_and_no_frame_asks_it` on a server of the test's own. Two things it found,
+both put right:
+
+- **A read of the list asked tmux, every frame.** `Host::listed` ran `tmux list-sessions`, and a terminal tile
+  reads the list to draw: 119 processes in four seconds while a shell printed (`strace -f -e execve`). What a
+  keeper keeps is now asked when a terminal is opened or ended and by the host's own thread, and a read is what
+  it last said.
+- **herdr-core's list was empty until a terminal was opened.** The core was first asked inside `open`, so a
+  window that returned with every terminal detached listed nothing and refused the jump to what the core kept.
+  The first read asks now (`a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept`).
 
 ## The contract tables
 
@@ -764,7 +778,7 @@ What the tables do not hold:
 - **Covered and minimised windows:** Xvfb has no window manager, so only `hide` was run.
 - **A real pty:** the stream is canned. No program, no parser, no input latency. (W8 ran one: a script on a plain
   pty through Moonframe's emulator, [15](#15-herdr-core-w8). Its latency was not measured.)
-- **herdr-core itself:** never run here ([15](#15-herdr-core-w8)); tmux neither.
+- **herdr-core itself:** never run here ([15](#15-herdr-core-w8)). tmux was, when W8 was verified.
 - **Several windows:** answered in W7 by building on it ([13](#13-several-windows-w7)); a second window on a real
   display, and a tab torn by the pointer, were still not run.
 - **macOS:** everything ran on Linux under X11.

@@ -399,7 +399,7 @@ The mux picks what runs a program by what the machine has, and the tile says whi
 | Backend | When | What it keeps alive |
 |---|---|---|
 | **herdr-core** (`hc`) | `hc` is installed (a core that isn't running is started, as Moonframe's backend does) | The program outlives the window. The next launch's tile attaches to it, and so does `terminal.attach`. It is one of the core's own terminals, named `ep0ch-native.<outline>-<n>` for `hc ls`, and `hc attach` reaches it from any other terminal. What it reports of itself (OSC 7501: idle, working, done, blocked, error) is read from the core's list, never guessed from its screen |
-| **tmux** | no `hc`, and `tmux` is installed | The same, on a tmux server of the window's own (`tmux -L ep0ch-native`, without your `tmux.conf`). It comes with the mux as its second choice and has not been run here |
+| **tmux** | no `hc`, and `tmux` is installed | The same, on a tmux server of the window's own (`tmux -L ep0ch-native`, without your `tmux.conf`). It comes with the mux as its second choice. Run where the machine has tmux: `pty_live.rs` on a server of the test's own, and a live window under Xvfb over two launches (a shell and an agent, the agent detached, both found by the next launch) |
 | **pty** | neither | Nothing: the login shell on a pseudo-terminal that ends with the window. A tile detached runs until the window ends |
 
 - **herdr-core is the one it is built for.** A terminal is started by the window itself (`src/pty/hc.rs`) as
@@ -416,6 +416,10 @@ The mux picks what runs a program by what the machine has, and the tile says whi
   the door's own terminal tiles, as from anywhere. A terminal this window did not start is listed and gets no
   tile here. A line struck through is drawn plain, the cursor is a block, the mouse is the window's (a program
   that asks for the mouse gets no clicks), and nothing rings. `herdr-app`, which arranges windows, is not used.
+- **What keeps a program is asked off the frame.** The window asks herdr-core, or its tmux server, what it keeps
+  when anything first reads the list (so a window that returns with no terminal tile lists what the launch
+  before left), when a terminal is opened or ended, and every two seconds on a thread of the host's own. A tile
+  and the list read what it last said: tmux's answer is a process, which a frame never starts.
 - **herdr-core itself was not run in this repository's tests.** `src/tests/pty_live.rs` runs a real plain pty, and
   speaks herdr-core's protocol to a stand-in core written from herdr-gpui's client's source. On a machine with
   `hc`: `hc --skill`, then `cargo run --features pty -- -- --ws <a scratch outline>` and `hc ls`.
@@ -552,7 +556,8 @@ saying so in the kind's own words. `src/tests/pty_live.rs` (`--features pty`) is
 themselves: the login shell on a real pty runs a made-up script (it prints lines, one coloured with a wide
 character, reads a key and exits), with keys typed in the window and rows read from the emulator; and "a shell and
 an agent, detached and found by the next launch" as two launches of the window (this test binary again, twice)
-against a stand-in herdr-core in a scratch folder, which records what it was asked: each terminal started once,
+against a stand-in herdr-core in a scratch folder (and two more that leave no terminal tile behind: the window
+that returns opens no terminal and lists what the core kept all the same), which records what it was asked: each terminal started once,
 to outlive its starter at its tile's size, attached to and never typed into again, and only the one whose tile was
 closed ended. `hc` itself is not run. `cargo test -- --ignored live_the_programs` holds the list to a real
 service: the rows it writes are what runs, and a row's pick is the jump.
