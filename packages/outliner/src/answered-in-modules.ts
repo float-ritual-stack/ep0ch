@@ -23,6 +23,12 @@ import { listScreens, saveScreen } from "./screens";
 import { readTileView } from "./tile-view";
 import type { OutlinerRequest } from "./types";
 
+/**
+ * The requests the modules here answer, as one member of the wire's union: a module's request type is added here,
+ * never to types.ts (which is capped, and names this once).
+ */
+export type ModuleRequest = import("./screens").ScreensRequest | import("./list-producers").ListsRequest | import("./tile-view").TileViewRequest | import("./outline-links").KnownOutlinesRequest;
+
 /** What a module's handler is given of the service. */
 export interface ModuleHost {
   own: { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
