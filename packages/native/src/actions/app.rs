@@ -159,6 +159,10 @@ pub struct State {
     pub aimed: Option<Id>,
     /// The tile the act being run is about, as the dispatcher found it (`App::target` with what the action wants).
     pub about: Option<Id>,
+    /// The act being run is an agent's the person's press invited (`App::stands` reads it, and nothing else does).
+    pub invited: bool,
+    /// The invitations the person's presses minted that are still open: each one run's.
+    pub invites: Vec<super::script::Invite>,
     /// The screen the arrangement was laid out from, as the service listed it then (its name and a mark of its spec),
     /// which answer of the list that was read from, and whether this window's own save is what moves it next.
     pub screen_seen: Option<(String, String)>,
@@ -274,6 +278,8 @@ impl App {
                 journal: Vec::new(),
                 aimed: None,
                 about: None,
+                invited: false,
+                invites: Vec::new(),
                 screen_seen: None,
                 screens_epoch: 0,
                 screen_wrote: false,

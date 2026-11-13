@@ -32,10 +32,14 @@ pub(super) fn split(kids: Value) -> Value { let n = kids.as_array().unwrap().len
 /// The newest `lists.read` asked for a source, as the host got it.
 pub(super) fn asked_for(g: &Garden, from: &str) -> Value { g.asked.borrow().iter().rev().find(|a| a["action"] == "lists.read" && a["from"] == from).cloned().unwrap_or_else(|| panic!("no list was asked of {from}")) }
 
-/// A script's act for this window, as the service sends one.
+/// A script's act for this window, as the service sends one for a run the person's press started: the person
+/// presses the garden's button the service runs, and the act carries the invitation that press minted.
 pub(super) fn call(g: &mut Garden, request: &str, action: &str, args: Value) {
+    let pressed = act(&mut g.app, "button.press label=\"Tidy the shed\"");
+    assert!(pressed.ok, "{}", pressed.said);
+    let invitation = g.asked.borrow().iter().rev().find(|a| a["action"] == "scripts.sequence").map(|run| run["invitation"].clone()).expect("the press asked the service to run it");
     let client = g.app.store().client().to_string();
-    let line = json!({ "event": { "domain": "script", "action": "scripts.act", "script": { "requestId": request, "targetClientId": client, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy" }, "requestedBy": { "author": "user" } } } });
+    let line = json!({ "event": { "domain": "script", "action": "scripts.act", "script": { "requestId": request, "targetClientId": client, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy", "sessionId": "run-1" }, "requestedBy": { "author": "user" }, "invitation": invitation } } });
     host_says(&mut g.app, &g.said, line);
 }
 

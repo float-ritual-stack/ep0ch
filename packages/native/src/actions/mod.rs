@@ -139,14 +139,17 @@ pub fn rows() -> &'static Value {
     &ROWS
 }
 
-/// The actor rule, and the one check of who acts: whether `by` may run an action, given what its row says it
-/// touches and whose it is, where the person is and the tile the act is about. The person always may. An agent
-/// never runs what the row says is the person's own, never takes the person's keys, their draft or the tile they
-/// type in, and waits to change what they look at until they have been idle. (What an agent may do to the
-/// arrangement is the layout's own rule, asked by `reshape`.) No action refuses an agent in its own run for whose
-/// it is: it says so on its row (`person`).
-fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result<(), String> {
+/// The actor rule, and the one check of who acts: whether `by` may run an action, given how they stand, what its
+/// row says it touches and whose it is, where the person is and the tile the act is about. The person always may,
+/// and so may an agent that stands as them (`App::stands`: the run their own press started, on its invitation; the
+/// door's rule, where an invitation lifts what is the person's own too). Any other agent never runs what the row
+/// says is the person's own, never takes the person's keys, their draft or the tile they type in, and waits to
+/// change what they look at until they have been idle. (What an agent may do to the arrangement is the layout's own
+/// rule, asked by `reshape` with the same standing.) No action refuses an agent in its own run for whose it is: it
+/// says so on its row (`person`).
+pub(crate) fn rule(row: &ActionRow, by: &Actor, standing: bool, person: &Whereabouts, tile: &str) -> Result<(), String> {
     let Actor::Agent(_) = by else { return Ok(()) };
+    if standing { return Ok(()) }
     if let Some(theirs) = row.person { return Err(theirs.to_string()) }
     let way = "block.mark gets their attention";
     match row.touches {
@@ -159,10 +162,11 @@ fn rule(row: &ActionRow, by: &Actor, person: &Whereabouts, tile: &str) -> Result
         // What is the person's own of a draft (opening it, typing in it, saving, closing) says so on its row (`person`,
         // refused above); the rest is decided where the note is known: the action's, and for a patch the service's.
         Touches::Draft => Ok(()),
-        Touches::Screen => match (&person.why, person.idle) {
-            (Some(why), _) if person.busy => Err(format!("{why}; an agent doesn't move what they look at · {way}")),
+        Touches::Screen => match person.idle {
+            // Their keys are held, whatever holds them and however long ago their last key was.
+            _ if person.busy => Err(format!("{}; an agent doesn't move what they look at · {way}", person.why.as_deref().unwrap_or("the person is typing"))),
             // The door's words (its dispatcher's screen rule), with its wait.
-            (_, Some(idle)) if idle < crate::keys::IDLE => Err(format!("the person is at the keys (last key {:.1}s ago); try again once they've been idle {}s", idle.as_secs_f32(), crate::keys::IDLE.as_secs())),
+            Some(idle) if idle < crate::keys::IDLE => Err(format!("the person is at the keys (last key {:.1}s ago); try again once they've been idle {}s", idle.as_secs_f32(), crate::keys::IDLE.as_secs())),
             _ => Ok(()),
         },
     }
@@ -211,7 +215,7 @@ impl App {
         // is about no tile yet: where it lands is the layout's to say, and its rule keeps it off the person's tile.)
         let outer = (std::mem::replace(&mut self.st.aimed, aimed), self.st.about.take());
         let about = self.target(action.about);
-        if let Err(why) = rule(action.row, &by, &self.person(), &about.as_ref().map(|tile| self.layout.name(tile)).unwrap_or_default()) {
+        if let Err(why) = rule(action.row, &by, self.stands(&by), &self.person(), &about.as_ref().map(|tile| self.layout.name(tile)).unwrap_or_default()) {
             (self.st.aimed, self.st.about) = outer;
             step.said = why;
             return self.record(step);
@@ -247,6 +251,22 @@ impl App {
         self.act_request(req, by)
     }
 
+    /// Whether `by` stands as the person for the act being run: the person, or an agent their press invited (the
+    /// run of a button they pressed, while it carries the invitation that press minted). The one answer: the actor
+    /// rule reads it, the layout is told it (`App::asked`), and an action that does something only for the person
+    /// (puts the bar away, opens their editor, unfolds their tree) asks it. Who the act is recorded as is `by` itself,
+    /// always: an invited script's step and its writes are the script's.
+    pub fn stands(&self, by: &Actor) -> bool { by.is_person() || self.st.invited }
+
+    /// Runs a request an agent sends on an invitation of the person's (`invited`: this window minted it and it is
+    /// still its run's): for as long as it runs, the agent stands as the person. The one way an act is invited.
+    pub(in crate::actions) fn act_invited(&mut self, req: actline::Request, from: Option<&str>, by: Actor, invited: bool) -> Outcome {
+        let outer = std::mem::replace(&mut self.st.invited, invited);
+        let outcome = match from { Some(from) => self.act_from(req, from, by), None => self.act_request(req, by) };
+        self.st.invited = outer;
+        outcome
+    }
+
     /// Runs a line pressed in a tile, as `act_from` runs a request: what a drawer's press is.
     pub fn act_in(&mut self, line: &str, from: &str, by: Actor) -> Outcome {
         match actline::parse(line) { Ok(req) => self.act_from(req, from, by), Err(_) => self.act(line, by) }
@@ -255,7 +275,7 @@ impl App {
     /// The tile an address names in this window, as `by` says it (`^` is from the tile with the person's keys):
     /// the layout's resolver, asked by every argument that names a tile.
     pub(in crate::actions) fn tile_named(&self, address: &str, by: &Actor) -> Result<String, String> {
-        self.layout.resolve(address, Some(self.layout.focus.as_str()).filter(|_| by.is_person()), &self.screen.name)
+        self.layout.resolve(address, Some(self.layout.focus.as_str()).filter(|_| self.stands(by)), &self.screen.name)
     }
 
     /// A step that never ran, recorded with why.

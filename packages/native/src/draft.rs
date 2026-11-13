@@ -180,11 +180,7 @@ pub fn version(text: &str) -> String { format!("{:016x}", text.bytes().fold(0xcb
 /// A name for one thing to send, unlike any other: when it was begun, by which process, and which of its sends
 /// it is. A comment's or a reply's request is named by it (`DraftSession.send`), so one draft tried again is one
 /// request and the same words written another time are another.
-pub fn send_name() -> String {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let begun = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
-    format!("{begun:x}-{:x}-{:x}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-}
+pub fn send_name() -> String { crate::store::fresh() }
 
 /// What a placed span does to an offset beside it (outline-core's `PlacedSpan.caret`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

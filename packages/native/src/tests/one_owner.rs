@@ -282,7 +282,14 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
     none("a second writer of an act line's word", strays("pub fn word(value", |path| path == "actline.rs"));
     none("a value quoted for an act line by hand (JSON's quoting reads back as another value)", ["json!(value).to_string()", "json!(s).to_string()"].iter().flat_map(|quote| strays(quote, |_| false)).collect());
     none("a request written as a line outside the grammar's own file (build a `Request` and call `act_request`)", calls("line_of", |path| path == "actline.rs" || path == "parts.rs" || path == "tiles/page.rs" || path == "tiles/prim.rs"));
-    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 2, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 1 && code("actions/script.rs").matches("act_invited(").count() == 1, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    // Who a script's act runs as: the script, always. The person is made an actor only by their own hands (a key, a
+    // press, a drag) and by what the window does for itself; no action turns an agent into the person. What an
+    // agent may do on the person's press is one answer, `App::stands`, from the invitation that press minted.
+    none("the person made the actor of somebody else's act: a script's call runs as the script, and `App::stands` says how it stands", strays("Actor::Person", |path| !["actions/script.rs", "actions/ext.rs", "actions/review.rs", "actions/note.rs", "actions/nav.rs", "actions/bar.rs", "actions/list.rs", "actions/tile.rs", "actions/tree.rs", "actions/screen.rs", "actions/outline.rs", "actions/window.rs", "actions/shell.rs", "control.rs"].contains(&path)));
+    none("who asked for a run read to say how its script stands: standing comes from a press's invitation", strays("requestedBy", |_| false));
+    none("an act invited outside the one place a script's call is run", calls("act_invited", |path| path == "actions/script.rs" || path == "actions/mod.rs"));
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("self.st.invited").count()).sum::<usize>(), 3, "whether the act being run is invited is set by `act_invited` and read by `App::stands`, and by nothing else");
     // Where a press happened is no name for a tile: what comes from a tile goes through `App::act_from`, the one place
     // that says whether it is about that tile, and nothing writes a `tile=` onto a line or a request for it.
     // (The shell's drag names the tile dragged, and the grammar's own file writes a request's `tile` back as its word.)

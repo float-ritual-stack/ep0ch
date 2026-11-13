@@ -6,9 +6,14 @@
 //!   dispatcher, as whoever pressed. A button with several steps or a script, or a line whose head is no action
 //!   here, is the service's to run (`scripts.sequence`, recorded as whoever pressed): it runs the steps, and each
 //!   act it has for a window comes back to this one as a call.
-//! - **A call is answered** (`scripts.answer`): the dispatcher runs the action the script asked for, as the person
-//!   when the run is their press and as the script otherwise, and the service hears what it answered or why it
-//!   didn't run. Nothing a script asks for goes round the actor rule.
+//! - **A call is answered** (`scripts.answer`): the dispatcher runs the action the script asked for as the script,
+//!   always, and the service hears what it answered or why it didn't run. Nothing a script asks for goes round the
+//!   actor rule.
+//! - **A press invites the run it starts** (the door's `surface/invite.ts`): the person's press mints an invitation,
+//!   the service passes it on with every act of that run, and while a call carries it the script stands as the
+//!   person (`App::stands`), so their own button may open their editor or move their keys. Its step and its writes
+//!   are the script's all the same. Who the service says asked for a run is never read for this; an agent's press
+//!   mints nothing; the invitation is one run's and is spent when the run ends.
 //! - **What a press did is said on the tile**, on the part that was pressed.
 use serde_json::{Value, json};
 
@@ -17,6 +22,40 @@ use super::{Action, Actor, App, Outcome, Said, About};
 use crate::actline::{self, Args};
 use crate::parts;
 use crate::store::{Call, OutlineAt, Reply};
+
+/// An invitation the person's press minted: the token the run carries, the run it is bound to once its first act
+/// came, the tile it was pressed in (where the run's acts come from, when they name none) and when it was minted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Invite { id: String, run: Option<String>, tile: String, minted: std::time::Instant }
+
+/// How long an invitation lasts when its run never says it ended (the door's ten minutes).
+const LAPSE: std::time::Duration = std::time::Duration::from_secs(600);
+
+impl App {
+    /// The person's press, in a tile, mints an invitation for the run it starts.
+    fn invite(&mut self, tile: &str) -> String {
+        self.st.invites.retain(|invite| invite.minted.elapsed() < LAPSE);
+        let id = crate::store::fresh();
+        self.st.invites.push(Invite { id: id.clone(), run: None, tile: tile.to_string(), minted: std::time::Instant::now() });
+        id
+    }
+
+    /// The invitation a call carries, when it is one of this window's, still open and its run's: the tile its press
+    /// was made in. One run's: it is bound to the first run that carries it, and a call of another run with the same
+    /// token is not invited.
+    fn invited(&mut self, call: &Call) -> Option<String> {
+        let invite = call.invitation.as_ref().and_then(|id| self.st.invites.iter_mut().find(|invite| invite.id == *id)).filter(|invite| invite.minted.elapsed() < LAPSE)?;
+        let theirs = match (&invite.run, &call.run) {
+            (None, run) => { invite.run = run.clone(); true }
+            (Some(bound), Some(run)) => bound == run,
+            (Some(_), None) => false,
+        };
+        theirs.then(|| invite.tile.clone())
+    }
+
+    /// A run ended: the invitation it carried is spent.
+    fn spend(&mut self, run: &str) { self.st.invites.retain(|invite| invite.run.as_deref() != Some(run)) }
+}
 
 static PRESS: ActionRow = ActionRow::new("button.press", Touches::Nothing, "press a button of the note a tile shows, by the line it is written on (or by its label): an act line this window has an action for runs here, as whoever pressed; a button with several steps or a script is the service's to run, and each act it sends back is run here and answered. What it did is said on the tile, under the button")
     .args(&[
@@ -63,7 +102,10 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let waits = app.blocking;
     app.store.set_blocking(false);
     app.store.pressing(&at);
-    app.store.write(&at, "scripts.sequence", json!({ "blockId": block, "line": line, "clientId": client }), by, ran, json!({ "tile": tile, "block": block, "line": line, "label": label }));
+    // The person's press invites the run (and so does a press made on an invitation of theirs); an agent's invites nothing.
+    let mut run = json!({ "blockId": block, "line": line, "clientId": client });
+    if app.stands(by) { run["invitation"] = json!(app.invite(&name)) }
+    app.store.write(&at, "scripts.sequence", run, by, ran, json!({ "tile": tile, "block": block, "line": line, "label": label }));
     app.store.set_blocking(waits);
     say(app, &tile, &block, line, format!("{label}: running…"), true);
     Outcome::answer(json!({ "ran": "service", "block": block, "line": line }))
@@ -105,6 +147,7 @@ fn ran(app: &mut App, reply: Reply) {
 /// A run ended: the tile that waits on it says how, under the button that started it.
 pub(in crate::actions) fn ended(app: &mut App, run: &str, reason: &str, message: &str) {
     let waiting = app.tiles.iter().find_map(|(tile, ui)| ui.said.as_ref().and_then(|said| said.run.as_ref().filter(|(id, _, _)| id == run).map(|(_, label, by)| (tile.clone(), said.block.clone(), said.line, label.clone(), by.clone()))));
+    app.spend(run);
     let Some((tile, block, line, label, by)) = waiting else { return };
     let (words, ok) = went(&label, &by, reason, message);
     say(app, &tile, &block, line, words, ok);
@@ -112,9 +155,10 @@ pub(in crate::actions) fn ended(app: &mut App, run: &str, reason: &str, message:
 }
 
 /// A script's act, sent to this window (the store read it off the wire): run through the dispatcher and answered.
-/// A run the person's press started acts as the person (their press is the consent); any other acts as the script.
+/// It runs as the script, whoever started the run; on the invitation of the press that started it, the script
+/// stands as the person while it does (`App::act_invited`).
 pub(in crate::actions) fn called(app: &mut App, at: &OutlineAt, call: &Call) {
-    let by = if call.pressed { Actor::Person } else { Actor::Agent(call.script.clone()) };
+    let (by, pressed_in) = (Actor::Agent(call.script.clone()), app.invited(call));
     // The call is a request already: it goes to the dispatcher as one (as the control socket's does), never written
     // as a line and read again. A value that is no argument of an act (a list, an object) is the script's mistake,
     // said back to it.
@@ -128,9 +172,11 @@ pub(in crate::actions) fn called(app: &mut App, at: &OutlineAt, call: &Call) {
     }
     // `tile` among its arguments names the tile, as `tile=` on a line does.
     let named = args.remove("tile").and_then(|tile| tile.as_str().map(str::to_string));
-    // The tile the run was pressed in is where the call comes from, not a tile it names (`App::act_from`).
+    // The tile the run was pressed in is where the call comes from, not a tile it names (`App::act_from`): the one
+    // the service says an agent's press was asked from, else the one this window's own press was made in.
     let request = actline::Request { action: call.action.clone(), tile: named, by: None, args };
-    let outcome = match &call.tile { Some(from) => app.act_from(request, from, by), None => app.act_request(request, by) };
+    let from = call.tile.clone().or_else(|| pressed_in.clone());
+    let outcome = app.act_invited(request, from.as_deref(), by, pressed_in.is_some());
     app.st.agent_said = Some(if outcome.ok { format!("{} · {}", call.script, call.action) } else { format!("{} · {} refused: {}", call.script, call.action, outcome.said) });
     app.store.answer(at, &call.request, if outcome.ok { Ok(outcome.answer) } else { Err(outcome.said) });
 }

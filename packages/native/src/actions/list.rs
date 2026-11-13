@@ -62,7 +62,7 @@ pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         fold(app, &tile, &row.id, None);
         return Outcome::answer(json!({ "tile": app.layout.name(&tile), "row": row.id, "open": app.ui(&tile).unfolded.contains(&row.id) }));
     };
-    let folder = by.is_person() && unfolds(app, &tile, &row);
+    let folder = app.stands(by) && unfolds(app, &tile, &row);
     if folder && app.home_note(&tile).as_deref() == Some(row.id.as_str()) {
         fold(app, &tile, &row.id, None);
         return Outcome::done();

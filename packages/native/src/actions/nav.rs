@@ -33,7 +33,7 @@ pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open, about: About::
 /// the layout's (`land`).
 pub(super) fn go(app: &mut App, id: &str, by: &Actor, remember: bool) -> Outcome {
     let from = app.aimed.clone().unwrap_or_else(|| app.layout.focus.clone());
-    land(app, Request { from, note: id.to_string(), default: app.aimed.is_none() && !by.is_person(), ..Request::default() }, by, remember)
+    land(app, Request { from, note: id.to_string(), default: app.aimed.is_none() && !app.stands(by), ..Request::default() }, by, remember)
 }
 
 /// An open, placed: the layout says in which tile (`place`), and makes the room when it needs to (a new reader
@@ -48,7 +48,7 @@ pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) 
     let (name, why) = (landing.tile.clone(), landing.why.clone());
     let done = match landing.after {
         Some(Ok(done)) => done,
-        Some(Err(Refusal(why))) => { if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
+        Some(Err(Refusal(why))) => { if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
         None => return Outcome::refused(why.unwrap_or_else(|| "no reader takes this open".into())),
     };
     let Some(tile) = name.as_ref().and_then(|name| done.layout.named(name)) else { return Outcome::refused(why.unwrap_or_else(|| "no reader takes this open".into())) };
@@ -57,9 +57,9 @@ pub(super) fn land(app: &mut App, request: Request, by: &Actor, remember: bool) 
     app.show(&tile, &id, remember);
     app.keep();
     // The person's open puts the bar away; an agent's never closes what the person has open.
-    if by.is_person() { app.st.bar.open = false }
+    if app.stands(by) { app.st.bar.open = false }
     // Why it landed where it did, when that isn't where it was aimed, is said.
-    if let (Some(why), true) = (&why, by.is_person()) { app.st.notice = Some(Notice::info(why.clone())) }
+    if let (Some(why), true) = (&why, app.stands(by)) { app.st.notice = Some(Notice::info(why.clone())) }
     Outcome { said: why.clone().unwrap_or_default(), ..Outcome::answer(json!({ "tile": name, "why": why })) }
 }
 
@@ -72,12 +72,12 @@ fn back(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(at) = history.len().checked_sub(steps) else { return Outcome::refused("there is nowhere to go back to") };
     let id = history[at].clone();
     // A reader a block is being written in stays on its note: the fact the layout's own rules read, in its words.
-    if let Some(why) = app.holds_edit(&reader) { if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
+    if let Some(why) = app.holds_edit(&reader) { if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
     // Going back isn't itself a place to go back from.
     app.show(&reader, &id, false);
     app.ui_mut(&reader).history.truncate(at);
     app.keep();
-    if by.is_person() { app.st.bar.open = false }
+    if app.stands(by) { app.st.bar.open = false }
     Outcome::done()
 }
 

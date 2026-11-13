@@ -21,7 +21,7 @@ fn fold(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let id = args.text("id").unwrap_or("").to_string();
     let open = args.flag("open");
     let Some(tree) = app.about() else { return Outcome::refused("this screen has no tree to fold a row of") };
-    if !by.is_person() && open != Some(true) && app.shown().is_some_and(|page| page.ancestors.iter().any(|a| a.id == id)) {
+    if !app.stands(by) && open != Some(true) && app.shown().is_some_and(|page| page.ancestors.iter().any(|a| a.id == id)) {
         return Outcome::refused("the person's note is under that row: an agent doesn't fold it away");
     }
     super::list::fold(app, &tree, &id, open);

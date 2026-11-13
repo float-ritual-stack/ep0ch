@@ -119,18 +119,20 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     let run = asked.borrow().iter().rev().find(|a| a["action"] == "scripts.sequence").cloned().expect("the service is asked to run it");
     assert_eq!((run["blockId"].as_str(), run["line"].as_u64(), run["clientId"].as_str()), (Some("plot"), Some(13), Some(client.as_str())), "by its note and line, with this window named for its acts");
     assert_eq!(run["mutation"]["author"], "user", "recorded as whoever pressed");
+    let invitation = run["invitation"].as_str().expect("the person's press invites the run it starts").to_string();
     let reader = rt.state.reader().unwrap();
     assert_eq!(rt.state.ui(&reader).said.as_ref().unwrap().words, "Tidy the shed: running…", "the service took it and is running it");
     assert!(rt.find("tile/reader/part/5/said").is_some(), "said under the button that was pressed");
 
     // The run's script acts in this window: the call is aimed at this client, run by the dispatcher, and answered.
     let call = |request: &str, target: &str, action: &str, args: Value| json!({ "event": { "domain": "script", "action": "scripts.act", "script": {
-        "requestId": request, "targetClientId": target, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy" }, "requestedBy": { "author": "user" } } } });
+        "requestId": request, "targetClientId": target, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy", "sessionId": "run-1" }, "requestedBy": { "author": "user" }, "invitation": invitation } } });
     let answers = |asked: &Asked| -> Vec<Value> { asked.borrow().iter().filter(|a| a["action"] == "scripts.answer").cloned().collect() };
     rt.update({ let (said, line) = (said.clone(), call("r1", &client, "open", json!({ "id": "shed" }))); move |s, _| host_says(s, &said, line.clone()) });
     assert_eq!(rt.state.subject().as_deref(), Some("shed"), "the script's open ran here");
     let step = rt.state.steps.last().unwrap();
-    assert_eq!((step.line().as_str(), &step.by, step.ok), ("open id=shed", &Actor::Person, true), "a run the person's press started acts as the person");
+    // (It comes from the tile its press was made in, as a step of the press: an open from the reader.)
+    assert_eq!((step.line().as_str(), &step.by, step.ok), ("open id=shed tile=reader", &Actor::Agent("script:tidy".into()), true), "a run the person's press started acts as its script, on that press's invitation");
     assert_eq!(rt.state.agent_said.as_deref(), Some("script:tidy · open"), "and the status line names the script");
     let answered = answers(&asked);
     assert_eq!((answered.len(), answered[0]["requestId"].as_str(), answered[0]["clientId"].as_str(), answered[0].get("error")), (1, Some("r1"), Some(client.as_str()), None));
@@ -140,10 +142,11 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     assert!(answers(&asked)[1]["error"].as_str().unwrap().starts_with("no action named desk.dance"), "{}", answers(&asked)[1]);
     rt.update({ let (said, line) = (said.clone(), call("r3", "door-7", "open", json!({ "id": "plot" }))); move |s, _| host_says(s, &said, line.clone()) });
     assert_eq!((answers(&asked).len(), rt.state.subject().as_deref()), (2, Some("shed")), "a call aimed at another client is left to it");
+    // (A run nobody here pressed for carries no invitation of this window's.)
     let mut unasked = call("r4", &client, "edit", json!({}));
-    unasked["event"]["script"]["requestedBy"] = json!({ "author": "agent", "actorId": "compost-agent" });
+    unasked["event"]["script"].as_object_mut().unwrap().remove("invitation");
     rt.update({ let said = said.clone(); move |s, _| host_says(s, &said, unasked.clone()) });
-    assert!(answers(&asked)[2]["error"].is_string() && draft(&rt.state).is_none(), "a script nobody pressed acts as the script: the person's editor is not its to open");
+    assert!(answers(&asked)[2]["error"].is_string() && draft(&rt.state).is_none(), "a script nobody pressed stands as no one but itself: the person's editor is not its to open");
 
     // The run ends: the service says so, and the tile says how it went, where it was pressed. Another run's end is not this one's.
     let ended = |run: &str, reason: &str, message: &str| json!({ "event": { "domain": "script", "action": "scripts.ended", "ended": { "run": run, "reason": reason, "message": message, "requestedBy": { "author": "user" }, "written": [], "undo": true } } });

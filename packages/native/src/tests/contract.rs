@@ -346,3 +346,31 @@ fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     assert_eq!(chord_named("ctrl+l"), Some(Chord::parse("ctrl+l").unwrap()));
     assert_eq!(chord_named("+"), Some(Chord::parse("plus").unwrap()));
 }
+
+/// Who may run an action: every row of the door's actor table (`actor-contract.json`, made by its `actorRule`), asked
+/// of the one check this window makes (`actions::rule`). The person, an agent, and a script's run with and without
+/// the invitation the person's press minted, wherever the person is: both dispatchers answer alike whether the act
+/// runs. (Why not is each door's to word.)
+#[test]
+fn the_actor_rule_answers_every_row_of_the_door_s_table() {
+    use crate::actions::{Actor, ActionRow, rule};
+    use crate::keys::{Layer, Whereabouts};
+    let rows = table("actor-contract");
+    let cases = rows["cases"].as_array().unwrap();
+    assert!(cases.len() >= 200, "the table has its rows: {}", cases.len());
+    let mut refused = 0;
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let row: ActionRow = serde_json::from_value(case["row"].clone()).unwrap_or_else(|e| panic!("{name}: its row is no action row: {e}"));
+        let by = match case["actor"]["kind"].as_str() { Some("user") => Actor::Person, _ => Actor::Agent(text(&case["actor"], "id").unwrap()) };
+        let at = &case["where"];
+        let typing_in = text(at, "typingIn");
+        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)) };
+        let answer = rule(&row, &by, by.is_person() || flag(case, "invited") == Some(true), &person, case["tile"].as_str().unwrap());
+        assert_eq!(answer.is_ok(), case["refused"].is_null(), "{name}: the door says {}, this window {answer:?}", case["refused"]);
+        refused += answer.is_err() as usize;
+    }
+    assert!(refused >= 40, "the rows that refuse ran: {refused}");
+    // Each actor of the table is asked: the person, an agent, a script uninvited and a script on a press.
+    for (kind, invited) in [("user", false), ("agent", false), ("agent", true)] { assert!(cases.iter().any(|c| c["actor"]["kind"] == kind && c["invited"] == invited), "{kind}, invited {invited}") }
+}

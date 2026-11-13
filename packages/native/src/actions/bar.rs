@@ -62,7 +62,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(source) = bar::source(app, scope) else {
         return Outcome::refused(format!("the bar has no source {scope}: {}", bar::sources(app).iter().map(|s| s.id.clone()).collect::<Vec<_>>().join(", ")));
     };
-    if !by.is_person() {
+    if !app.stands(by) {
         // An agent's is a question, not the person's bar, and an act answers at once. The rows this window lists
         // itself are answered whole. A served source's are the service's answer: the ones the store holds now are
         // answered with the ask that lists them, so the agent asks the service the same thing and maps nothing.
@@ -96,7 +96,7 @@ fn close(app: &mut App, _: &Args, _: &Actor) -> Outcome {
 
 fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let named = args.text("source").zip(args.text("key"));
-    let rows = if by.is_person() {
+    let rows = if app.stands(by) {
         if !app.bar.open { return Outcome::refused("the bar isn't open") }
         bar::rows(app)
     } else {
@@ -112,17 +112,17 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(row) = row.cloned() else { return Outcome::refused("the bar has no such row") };
     if row.fill {
         // It can't run without arguments: its line goes on the bar's own line, for the person to finish.
-        if !by.is_person() { return Outcome::refused(format!("{} needs arguments: run it yourself, with them", row.key)) }
+        if !app.stands(by) { return Outcome::refused(format!("{} needs arguments: run it yourself, with them", row.key)) }
         app.st.bar.scope = bar::ACTIONS.into();
         app.st.bar.edit = draft::focused(&format!("{} ", row.line));
         app.st.bar.cursor = 0;
         return Outcome::done();
     }
     // The bar is put away first: what the row runs lands on the window, not on the bar.
-    if by.is_person() { app.st.bar.open = false }
+    if app.stands(by) { app.st.bar.open = false }
     let ran = app.act(&row.line, by.clone());
     // (The words selected in a reader when the bar opened were the row's to use: a comment took them.)
-    if by.is_person() { app.unselect() }
+    if app.stands(by) { app.unselect() }
     Outcome { answer: json!({ "ran": row.line, "answer": ran.answer }), ..ran }
 }
 

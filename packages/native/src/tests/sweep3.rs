@@ -94,3 +94,66 @@ fn return_types_a_line_under_a_row_that_would_write_nothing() {
     assert!(act(&mut g.app, "complete.enter").ok);
     assert_eq!(words(&g.app), format!("{}\n]]", &text[..text.len() - 2]), "a line is typed where the caret is, and the row is not written");
 }
+
+// ── who a script's act runs as, and who its writes are recorded as: the script, on the press's invitation ─────────────
+
+fn sent(asked: &Asked, action: &str) -> Vec<serde_json::Value> { asked.borrow().iter().filter(|a| a["action"] == action).cloned().collect() }
+
+/// A script's act for this window, as the service sends one: the run it is of, who asked for the run, and the
+/// invitation the press that started it minted (the service passes it on with every act of the run).
+fn script_act(g: &mut Garden, request: &str, invitation: Option<&str>, action: &str, args: serde_json::Value) -> serde_json::Value {
+    let client = g.app.store().client().to_string();
+    let mut script = json!({ "requestId": request, "targetClientId": client, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy", "sessionId": "run-1" }, "requestedBy": { "author": "user" } });
+    if let Some(invitation) = invitation { script["invitation"] = json!(invitation) }
+    host_says(&mut g.app, &g.said, json!({ "event": { "domain": "script", "action": "scripts.act", "script": script } }));
+    g.asked.borrow().iter().rev().find(|a| a["action"] == "scripts.answer" && a["requestId"] == request).cloned().unwrap_or_else(|| panic!("{request} was answered"))
+}
+
+/// The person presses a button the service runs. Each act the run has for this window runs as the script: its step
+/// says so, and so does what it writes. What lets it do what is the person's own (their editor, their keys) is the
+/// invitation their press minted, which the run's acts carry: never who the service says asked for the run. A call
+/// without the invitation, with one this window never minted, or after the run has ended, is an agent's like any other.
+#[test]
+fn a_pressed_script_acts_as_the_script_on_the_press_s_invitation_and_never_as_the_person() {
+    let mut g = garden(ok());
+    let pressed = act(&mut g.app, "button.press label=\"Tidy the shed\"");
+    assert!(pressed.ok, "{}", pressed.said);
+    let run = sent(&g.asked, "scripts.sequence").pop().expect("the service is asked to run it");
+    let invitation = run["invitation"].as_str().expect("the press mints an invitation and the run carries it").to_string();
+    assert_eq!(run["mutation"]["author"], "user", "the press itself is the person's");
+
+    // On the invitation the script may move the person's keys, which no other agent may; it is still the script that did.
+    let tree = g.app.layout.named("tree").unwrap();
+    let focused = script_act(&mut g, "r1", Some(&invitation), "tile.focus", json!({ "tile": "tree" }));
+    assert!(focused.get("error").is_none(), "{focused}");
+    let step = g.app.steps.last().unwrap().clone();
+    assert_eq!((g.app.layout.focus.as_str(), step.by.id().as_str(), step.ok), (tree.as_str(), "agent:script:tidy", true), "invited, it moves the keys; the step is the script's");
+    // What it writes is recorded as the script's, never as the user's.
+    let trashed = script_act(&mut g, "r2", Some(&invitation), "note.trash", json!({ "ref": "shed" }));
+    assert!(trashed.get("error").is_none(), "{trashed}");
+    let write = sent(&g.asked, "delete").pop().expect("the note was trashed on the wire");
+    assert_eq!((write["mutation"]["author"].as_str(), write["mutation"]["actorId"].as_str()), (Some("agent"), Some("script:tidy")), "the write is the script's: {write}");
+
+    // No invitation, or one nobody here minted: an agent's act, whoever the service says asked for the run.
+    for (request, carried) in [("r3", None), ("r4", Some("a-token-from-somewhere-else"))] {
+        let refused = script_act(&mut g, request, carried, "edit", json!({}));
+        assert!(refused["error"].as_str().is_some_and(|why| why.contains("editor")) && g.app.drafts.is_empty(), "{request}: the person's editor is not an uninvited script's to open: {refused}");
+    }
+    // The run ends: its invitation is spent with it.
+    host_says(&mut g.app, &g.said, json!({ "event": { "domain": "script", "action": "scripts.ended", "ended": { "run": "run-1", "reason": "done", "message": "swept", "requestedBy": { "author": "user" }, "written": [], "undo": true } } }));
+    let late = script_act(&mut g, "r5", Some(&invitation), "edit", json!({}));
+    assert!(late["error"].is_string() && g.app.drafts.is_empty(), "an invitation is one run's: {late}");
+}
+
+/// An agent's press of the same button invites nothing: the run it starts acts as an agent throughout.
+#[test]
+fn an_agent_s_press_mints_no_invitation() {
+    let mut g = garden(ok());
+    let pressed = g.app.act("button.press label=\"Tidy the shed\"", Actor::Agent("compost-agent".into()));
+    g.app.settle();
+    assert!(pressed.ok, "{}", pressed.said);
+    let run = sent(&g.asked, "scripts.sequence").pop().expect("the service is asked to run it");
+    assert!(run.get("invitation").is_none(), "an agent's press carries no invitation: {run}");
+    let refused = script_act(&mut g, "r1", None, "tile.focus", json!({ "tile": "tree" }));
+    assert!(refused["error"].is_string(), "{refused}");
+}

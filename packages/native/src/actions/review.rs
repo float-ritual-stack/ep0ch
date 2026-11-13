@@ -120,7 +120,7 @@ fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let writes = Writes::Comment { quote, near };
     if let Some(body) = args.text("body") { return post(app, None, &draft::send_name(), &note, revision, &writes, body, by) }
     // Its words are written here, by whoever is at the keys: sent as somebody else, it names them.
-    if !by.is_person() { return Outcome::refused("a comment sent over the control socket names its words: body=") }
+    if !app.stands(by) { return Outcome::refused("a comment sent over the control socket names its words: body=") }
     if let Err(no) = free(app, &tile) { return no }
     app.ui_mut(&tile).passage = None;
     app.compose(tile, note, revision, writes, by);
@@ -137,7 +137,7 @@ fn reply(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         let note = app.about().and_then(|tile| app.note_of(&tile)).unwrap_or_default();
         return post(app, None, &draft::send_name(), &note, 0, &writes, body, by);
     }
-    if !by.is_person() { return Outcome::refused("a reply sent over the control socket names its words: body=") }
+    if !app.stands(by) { return Outcome::refused("a reply sent over the control socket names its words: body=") }
     let (tile, note, revision) = match read(app) { Ok(read) => read, Err(no) => return no };
     if let Err(no) = free(app, &tile) { return no }
     app.compose(tile, note, revision, writes, by);

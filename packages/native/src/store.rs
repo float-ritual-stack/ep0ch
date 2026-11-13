@@ -204,8 +204,11 @@ pub struct Call {
     pub args: Map<String, Value>,
     /// Who the call is: the script, by the id the service records it under.
     pub script: String,
-    /// The run is the person's own press: its acts are theirs.
-    pub pressed: bool,
+    /// The run the call is one act of, by the id the service gave it (its `scripts.ended` names the same).
+    pub run: Option<String>,
+    /// The invitation the run carries, when a press minted one: the window that minted it says what it is worth.
+    /// (Who the service says asked for the run is not read: standing comes from a press, never from an attribution.)
+    pub invitation: Option<String>,
     /// The tile an agent's press was asked from, when it named one.
     pub tile: Option<String>,
 }
@@ -217,10 +220,19 @@ impl Call {
             action: call["action"].as_str().unwrap_or("").to_string(),
             args: call["args"].as_object().cloned().unwrap_or_default(),
             script: call["actor"]["actorId"].as_str().unwrap_or("script").to_string(),
-            pressed: call["requestedBy"]["author"] == "user",
+            run: call["actor"]["sessionId"].as_str().map(str::to_string),
+            invitation: call["invitation"].as_str().map(str::to_string),
             tile: call["at"]["tile"].as_str().map(str::to_string),
         })
     }
+}
+
+/// A name unlike any other this run or another makes: when it was made, by which process, and which of its names it
+/// is. What a send is named by, and the invitation a press mints.
+pub fn fresh() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let made = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    format!("{made:x}-{:x}-{:x}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 struct Wire {
