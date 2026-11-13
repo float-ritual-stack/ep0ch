@@ -2,5 +2,5 @@
 # backlinks, in their dock.
 list.pick n=1 tile=tree
 tile.split
-tile.move side=center to=backlinks tile=tree
+layout.move to=backlinks where=tabs tile=tree
 tile.focus tile=reader

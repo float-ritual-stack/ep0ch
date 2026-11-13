@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { ALT_RULES, OPEN_RULES, POLICY_KEYS, WIRE_VERBS, AGENT_LEVELS } from "@ep0ch/outline-core/screen-spec";
 
 const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
-const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "address-contract.json", "action-rows.json", "screens.json", "actor-contract.json"];
+const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "address-contract.json", "action-rows.json", "screens.json", "actor-contract.json", "drop-contract.json"];
 const made = Object.fromEntries(FILES.map(file => [file, readFileSync(join(FIXTURES, file), "utf8")]));
 const parsed = <T>(file: string): T => JSON.parse(made[file]!) as T;
 
@@ -199,5 +199,46 @@ describe("the actor table: who may run an action (the native window's dispatcher
     // Standing comes from the invitation, never from who the run says it is for: a script's run nobody pressed for is an agent's.
     for (const r of rows.filter(r => r.actor.run === "run-2")) expect(r.refused).toBe(rows.find(o => o.actor.id === "seedling-agent" && o.name.split(" runs ")[1] === r.name.split(" runs ")[1])!.refused);
     expect(made["actor-contract.json"]).not.toContain("invitation\":");
+  });
+});
+
+describe("the drop table: where a dragged tile lands (the native window's drag is held to it)", () => {
+  interface DropRow { kind: string; target?: string; dir?: string; index?: number; label: string; refused?: string; handle?: true; receive?: unknown; act: { action: string; args: Record<string, unknown> }; landing?: boolean }
+  const table = parsed<{ marks: string; cases: { name: string; tiles: { id: string }[]; area: { col: number; row: number; cols: number; rows: number }; drops: (DropRow | null)[]; cells: string[]; zones: Record<string, DropRow[]> }[]; handles: { name: string; drop: DropRow | null }[] }>("drop-contract.json");
+  const drops = table.cases.flatMap(c => c.drops).filter((d): d is DropRow => !!d), zones = table.cases.flatMap(c => Object.values(c.zones).flat());
+  const source = readFileSync(join(import.meta.dir, "../src/desk/drop.ts"), "utf8");
+
+  test("every cell of every layout is asked, with a cell more on each side, and a mark is a drop the row holds", () => {
+    for (const c of table.cases) {
+      expect(c.cells.length).toBe(c.area.rows + 2);
+      for (const line of c.cells) { expect(line.length).toBe(c.area.cols + 2); for (const mark of line) expect(table.marks.indexOf(mark)).toBeLessThan(c.drops.length); }
+      // Outside the area is nowhere.
+      expect(new Set(c.cells[0]! + c.cells.at(-1)! + c.cells.map(line => line[0]! + line.at(-1)!).join(""))).toEqual(new Set(["0"]));
+      expect(c.drops[0]).toBeNull();
+    }
+    expect(new Set(table.cases.map(c => c.name)).size).toBe(table.cases.length);
+  });
+
+  test("every place a drop can be, every word the rule writes in a zone, and both actions a drop runs", () => {
+    const kinds = new Set([...drops, ...zones].map(d => d.kind === "split" || d.kind === "edge" ? `${d.kind}:${d.dir}` : d.kind));
+    expect([...kinds].sort()).toEqual(["edge:down", "edge:left", "edge:right", "split:down", "split:left", "split:right", "split:up", "swap", "tabs"]);
+    // The words drop.ts writes in a zone or on a ghost, each said by some row.
+    const labels = [...source.matchAll(/label: (?:self \? )?"([^"]+)"(?: : "([^"]+)")?/g)].flatMap(m => [m[1]!, m[2]]).filter((l): l is string => !!l);
+    expect(labels.length).toBeGreaterThanOrEqual(11);
+    const said = new Set([...drops, ...zones].map(d => d.label));
+    expect(labels.filter(label => !said.has(label))).toEqual([]);
+    expect(new Set(drops.map(d => d.act.action))).toEqual(new Set(["layout.move", "layout.swap", "postit.shelve", "glass.pin"]));
+    // A tab's place among its set's tabs, policy's refusal in a band, a content receiver, a float's landing and not.
+    expect(drops.some(d => d.kind === "tabs" && d.index === 0) && drops.some(d => d.kind === "tabs" && (d.index ?? 0) > 1) && drops.some(d => d.kind === "tabs" && d.index === undefined)).toBe(true);
+    expect(drops.some(d => d.refused) && zones.some(z => z.refused) && drops.some(d => d.receive) && drops.some(d => d.landing) && drops.some(d => d.landing === false)).toBe(true);
+    // A tile dragged over itself shows nothing; a tab over its own set shows its sides and no middle.
+    expect(table.cases.some(c => Object.values(c.zones).some(z => z.length === 0)) && table.cases.some(c => Object.values(c.zones).some(z => z.length === 4))).toBe(true);
+  });
+
+  test("a shut dock's handle: taken, missed, onto itself, kept inside the area, refused", () => {
+    expect(table.handles.filter(h => h.drop).length).toBeGreaterThanOrEqual(4);
+    expect(table.handles.filter(h => !h.drop).length).toBeGreaterThanOrEqual(3);
+    expect(table.handles.every(h => !h.drop || (h.drop.handle === true && h.drop.act.action === "layout.move" && h.drop.act.args.where === "tabs"))).toBe(true);
+    expect(table.handles.some(h => h.drop?.refused)).toBe(true);
   });
 });

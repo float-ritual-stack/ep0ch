@@ -221,10 +221,10 @@ fn split_drag_to_a_dock_save_as_a_note_break_a_kind_read_why_and_reset() {
     assert_eq!(sits_as_laid(&rt), ["tree", "reader", "reader2", "props", "backlinks", "threads"]);
     assert_eq!((rt.state.layout.focus.as_str(), rt.state.note_of("reader2").as_deref()), ("reader2", Some("plot")));
 
-    // Drag the tree by its title onto the middle of the backlinks, in the dock: it becomes a tab there.
+    // Drag the tree by its title onto the upper middle of the backlinks, in the dock: it becomes a tab there.
     let (from, onto) = (rt.find("tile/tree/bar").unwrap(), rect_of(&rt, "tile/backlinks").unwrap());
-    drag(&mut rt, (from.0 - 40.0, from.1), (onto[0] + onto[2] / 2.0, onto[1] + onto[3] / 2.0));
-    assert!(rt.state.steps.iter().any(|step| step.line() == "tile.move side=center to=backlinks tile=tree" && step.ok), "{:?}", rt.state.steps.iter().map(crate::actions::Step::line).collect::<Vec<_>>());
+    drag(&mut rt, (from.0 - 40.0, from.1), (onto[0] + onto[2] / 2.0, onto[1] + onto[3] * 0.4));
+    assert!(rt.state.steps.iter().any(|step| step.line() == "layout.move to=backlinks where=tabs tile=tree" && step.ok), "{:?}", rt.state.steps.iter().map(crate::actions::Step::line).collect::<Vec<_>>());
     assert_eq!(sits_as_laid(&rt), ["reader", "reader2", "props", "tree", "threads"], "the tree is the dock's tab in front; the backlinks are behind it");
     assert!(rt.find("tile/tree/tab/backlinks").is_some());
 

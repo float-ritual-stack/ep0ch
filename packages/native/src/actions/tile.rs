@@ -4,7 +4,7 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::neighbour;
-use crate::layout::{At, Dir, Op, Place, TileSpec};
+use crate::layout::{At, Dir, Op, TileSpec};
 
 static SPLIT: ActionRow = ActionRow::new("tile.split", Touches::Shape, "a new tile beside this one (tile=, else the one with the keys): on its right unless dir= says another side. A reader's split shows the same note; kind= makes another kind")
     .args(&[
@@ -16,20 +16,12 @@ static SPLIT: ActionRow = ActionRow::new("tile.split", Touches::Shape, "a new ti
     .menu(&[MenuRow::new("Split", "Tile", Some("mod+d")), MenuRow::with("Split below", "Tile", Some("mod+shift+d"), &[("dir", Scalar::Text("down"))])])
     .examples(&[Example { act: "tile.split dir=down tile=reader", does: "a second reader under the first, on the same note", safe: None }]);
 
-static MOVE: ActionRow = ActionRow::new("tile.move", Touches::Shape, "move a tile (tile=, else the one with the keys) beside another, into its tabs, or along an edge of the screen: to= names the tile it goes by (or screen), side= which side of it (center: into its tabs)")
-    .args(&[
-        ("to", ArgSpec::text("the tile it goes by, as tile= names one (a name, role:<role>, an id); screen for an edge of the whole screen").kind("tile")),
-        ("side", ArgSpec::text("which side of it: left, right, top, bottom, or center for a tab beside it").choices(&["left", "right", "top", "bottom", "center"])),
-    ])
-    .keys(&[KeyRow::via("a drag on a tile's title, dropped on another tile")])
-    .examples(&[Example { act: "tile.move side=center to=backlinks tile=tree", does: "puts the tree in a tab with the backlinks, in their dock", safe: None }]);
-
 static CLOSE: ActionRow = ActionRow::new("tile.close", Touches::Shape, "close a tile (tile=, else the one with the keys). One that holds unsaved text stays, and says so")
     .keys(&[KeyRow::keys("mod+w", "close this tile"), KeyRow::via("a press on the cross in a tile's title")])
     .menu(&[MenuRow::new("Close", "Tile", Some("mod+w"))])
     .examples(&[Example { act: "tile.close tile=reader2", does: "closes the second reader", safe: None }]);
 
-static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, or dir= the next one that way from the tile that has them. The person's: an agent never moves their keys")
+pub(super) static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, or dir= the next one that way from the tile that has them. The person's: an agent never moves their keys")
     .person("the person's keys are theirs: an agent never moves them · a comment on the note gets their attention (comment body=…)")
     .args(&[("dir", ArgSpec::text("the next tile that way").optional().choices(&["left", "right", "up", "down"]))])
     .keys(&[
@@ -49,7 +41,45 @@ static DOCK: ActionRow = ActionRow::new("tile.dock", Touches::Shape, "put a tile
     .keys(&[KeyRow::via("its row in the bar")])
     .examples(&[Example { act: "tile.dock edge=left tile=tree", does: "the tree goes into a dock on the left edge", safe: None }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &SPLIT, run: split, about: About::Any }, Action { row: &MOVE, run: move_, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Any }, Action { row: &FOCUS, run: focus, about: About::Any }, Action { row: &DOCK, run: dock, about: About::Any }];
+static COLLAPSE: ActionRow = ActionRow::new("tile.collapse", Touches::Shape, "fold a tile (tile=, else the one with the keys) to a spine (on=true): a strip with its title where it stood, what it holds kept as it is; on=false opens it again; left out, the other way. dir=v is a spine down a row of tiles, dir=h one across a column of them; left out, the way its split runs. Only a tile beside others folds, and only where its container lets tiles fold")
+    .args(&[
+        ("on", ArgSpec::flag("true folds it, false opens it; left out, the other way").optional()),
+        ("dir", ArgSpec::text("v: a spine down a row of tiles; h: one across a column of them (default: the way its split runs)").optional().choices(&["v", "h"])),
+    ])
+    .keys(&[KeyRow::keys("mod+shift+c", "fold this tile to a spine, or open it again"), KeyRow::via("the fold on a tile's title; a press on a spine opens it")])
+    .menu(&[MenuRow::new("Fold to a spine", "Tile", Some("mod+shift+c"))])
+    .examples(&[Example { act: "tile.collapse on=true tile=tree", does: "folds the tree to a spine, keeping what is in it", safe: None }]);
+
+static ZOOM: ActionRow = ActionRow::new("tile.zoom", Touches::Shape, "zoom a tile (tile=, else the one with the keys) to fill the window (on=true), or put it back in its place (on=false); left out, the other way. Nothing of the arrangement changes under it")
+    .args(&[("on", ArgSpec::flag("true zooms, false unzooms; left out, the other way").optional())])
+    .keys(&[KeyRow::keys("mod+shift+enter", "zoom this tile to the whole window, or back")])
+    .menu(&[MenuRow::new("Zoom", "Tile", Some("mod+shift+enter"))])
+    .examples(&[Example { act: "tile.zoom tile=reader", does: "fills the window with the reader, or puts it back when it is zoomed", safe: None }]);
+
+static FLOAT: ActionRow = ActionRow::new("tile.float", Touches::Shape, "pop a tile (tile=, else the one with the keys) out of the layout as a float over the others (on=true), or put a float back in the layout where the containers take it (on=false); left out, the other way. A tile already that way is left as it is")
+    .args(&[("on", ArgSpec::flag("true floats it, false puts it back; left out, the other way").optional())])
+    .keys(&[KeyRow::keys("mod+shift+o", "pop this tile out as a float, or put it back"), KeyRow::via("the float on a tile's title; on a float, the same press puts it back")])
+    .menu(&[MenuRow::new("Float", "Tile", Some("mod+shift+o"))])
+    .examples(&[Example { act: "tile.float on=true tile=backlinks", does: "pops the backlinks out as a float over the other tiles", safe: None }, Example { act: "tile.float on=false tile=backlinks", does: "puts a floating backlinks tile back in the layout", safe: None }]);
+
+pub(super) static PLACE: ActionRow = ActionRow::new("float.place", Touches::Shape, "move or size a float (tile=: a tile popped out over the others, tile.float): dx dy step it (columns, rows), col row put its corner there, cols rows size it. Never smaller than a float is drawn, never off the window")
+    .args(&[
+        ("dx", ArgSpec::number("columns to move right (negative: left)").optional()), ("dy", ArgSpec::number("rows to move down (negative: up)").optional()),
+        ("col", ArgSpec::number("its left column").optional()), ("row", ArgSpec::number("its top row").optional()),
+        ("cols", ArgSpec::number("its width").optional()), ("rows", ArgSpec::number("its height").optional()),
+    ])
+    .keys(&[KeyRow::via("a float's title dragged: it follows the pointer, and let go on a tile's title, an edge of the window or a shut dock's strip it lands there (layout.move)")])
+    .examples(&[Example { act: "float.place dx=4 dy=-2 tile=backlinks", does: "moves the floating backlinks four columns right and two rows up", safe: None }]);
+
+static AGENT: ActionRow = ActionRow::new("tile.agent", Touches::Shape, "what an agent may do to a tile (tile=, else the one with the keys): policy=free (open notes in it, split, close and move it: the default), edit (write on the note it shows; no closing or moving it) or off (read it; nothing else); inherit takes the tile's own level away, so its container's and the screen's say again. Kept with the arrangement. An agent may tighten a tile, never loosen one")
+    .args(&[("policy", ArgSpec::text("free, edit, off, or inherit").choices(&["free", "edit", "off", "inherit"]))])
+    .keys(&[KeyRow::via("its row in the command bar, with the level typed (tile.agent policy=edit)")])
+    .examples(&[Example { act: "tile.agent policy=edit tile=reader", does: "lets agents write on the reader's note but not close or move the tile", safe: None }]);
+
+pub static ACTIONS: &[Action] = &[
+    Action { row: &SPLIT, run: split, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Any }, Action { row: &FOCUS, run: focus, about: About::Any }, Action { row: &DOCK, run: dock, about: About::Any },
+    Action { row: &COLLAPSE, run: collapse, about: About::Any }, Action { row: &ZOOM, run: zoom, about: About::Any }, Action { row: &FLOAT, run: float, about: About::Any }, Action { row: &PLACE, run: place_float, about: About::Any }, Action { row: &AGENT, run: agent, about: About::Any },
+];
 
 /// The tile an act is about: the one the dispatcher found for it (aimed at, else the one with the keys).
 fn target(app: &App) -> String { app.about().unwrap_or_else(|| app.layout.focus.clone()) }
@@ -77,20 +107,6 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }
     outcome
-}
-
-fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    let tile = target(app);
-    let (to, side) = (args.text("to").unwrap_or(""), args.text("side").unwrap_or("right"));
-    let dir = match side { "left" => Some(Dir::Left), "right" => Some(Dir::Right), "top" | "up" => Some(Dir::Up), "bottom" | "down" => Some(Dir::Down), _ => None };
-    let place = if to == "screen" {
-        let Some(dir) = dir else { return Outcome::refused("an edge of the screen is left, right, top or bottom") };
-        Place::Edge { dir }
-    } else {
-        let target = match app.tile_named(to, by) { Ok(target) => target, Err(why) => return Outcome::refused(why) };
-        match dir { Some(dir) => Place::Split { target, dir, pair: false, weight: None }, None => Place::Tabs { target, index: None, behind: false } }
-    };
-    app.reshape(&Op::Move { tile, to: place }, by)
 }
 
 fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
@@ -126,4 +142,23 @@ fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 fn dock(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // `on` here is "in a dock"; the layout's pin says the other way round (pinned in the layout).
     app.reshape(&Op::Pin { tile: target(app), on: args.flag("on").map(|on| !on), edge: args.text("edge").and_then(Dir::read), container: None }, by)
+}
+
+fn collapse(app: &mut App, args: &Args, by: &Actor) -> Outcome { app.reshape(&Op::Collapse { tile: target(app), on: args.flag("on"), dir: args.text("dir").map(str::to_string) }, by) }
+
+fn zoom(app: &mut App, args: &Args, by: &Actor) -> Outcome { app.reshape(&Op::Zoom { tile: target(app), on: args.flag("on"), reach: None }, by) }
+
+fn float(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let tile = target(app);
+    // A tile already that way is left as it is: the operation itself is "the other way".
+    if args.flag("on") == Some(app.layout.is_float(&tile)) { return Outcome::answer(serde_json::json!({ "tile": app.layout.name(&tile), "float": app.layout.is_float(&tile), "changed": false })) }
+    app.reshape(&Op::Float { tile, at: None }, by)
+}
+
+fn place_float(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    app.reshape(&Op::Nudge { tile: Some(target(app)), dx: args.number("dx"), dy: args.number("dy"), col: args.number("col"), row: args.number("row"), cols: args.number("cols"), rows: args.number("rows") }, by)
+}
+
+fn agent(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    app.reshape(&Op::Agents { tile: target(app), level: args.text("policy").filter(|level| *level != "inherit").map(str::to_string) }, by)
 }
