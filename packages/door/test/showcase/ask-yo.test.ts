@@ -1075,10 +1075,11 @@ describe("showcase: ask yo (PIE-1585)", () => {
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: holder().tileIdOfPane(pane) }, USER);
       await until(() => !draft(), "the edit saved and closed", 8000);
-      // Back where the section keeps it, alone, for the next test.
+      // Back where the section keeps it, alone, for the next test: its answer tile closed first, since a reader moved away
+      // from its answer is refused (PIE-1792).
+      for (const d of desks()) for (const [, p] of [...d.panes]) if (p instanceof AnswerTile) await h.app.dispatch.act({ action: "tile.close", tile: d.tileIdOfPane(p) }, USER);
       await spill?.();
       await until(() => stage().pane("ask") === pane, "the reader back on the stage", 8000);
-      for (const [, p] of [...stage().panes]) if (p instanceof AnswerTile) await h.app.dispatch.act({ action: "tile.close", tile: stage().tileIdOfPane(p) }, USER);
     }
   }, 90_000);
 

@@ -176,6 +176,19 @@ const reading = (reader: ReaderPane) => !reader.surface.draft && !reader.msg;
  * Where `answer.fold` folds the answer, in the words its description and the tile's hint row both use (PIE-1741): the
  * answer in the edit open on its note (fold.toggle's draft branch), else the reader's callout.
  */
+/**
+ * `ids` and the answer tiles beside them that read one of them (by name): what a gather takes, so no answer is left behind
+ * (PIE-1792). A reader with its edit open isn't one: its ask brings the answer beside it in the group (PIE-1585).
+ */
+export function answersWith(panes: ReadonlyMap<number, Pane>, ids: readonly number[], nameOf: (id: number) => string): number[] {
+  const names = new Set(ids.filter(id => { const r = panes.get(id); return r instanceof ReaderPane && !r.surface.draft; }).map(nameOf));
+  return [...ids, ...[...panes].filter(([id, p]) => p instanceof AnswerTile && names.has(p.source) && !ids.includes(id)).map(([id]) => id)];
+}
+/** Why a gather of `ids` built from a container or a named pair (node=, with=) would leave out an answer `all` adds, or null: it has no place there, so it would close. */
+export function answerLeftOut(panes: ReadonlyMap<number, Pane>, all: readonly number[], ids: readonly number[], nameOf: (id: number) => string): string | null {
+  const out = all.find(i => !ids.includes(i)), a = out === undefined ? undefined : panes.get(out);
+  return a instanceof AnswerTile ? `${nameOf(out!)}, ${a.source}'s answer, would be left out of the group and close: gather ${a.source} alone (it takes its answer), or ${nameOf(out!)} with it` : null;
+}
 export const FOLD_WHERE = { edit: "in the edit", note: "in the reader" } as const;
 
 export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
@@ -225,8 +238,16 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
 
 export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
-  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), it would close.
-  carryRefusal: (p, from, to, goes) => { const src = (p as AnswerTile).source, r = readerOf(from, src); return r && !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null; },
+  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), or left
+  // behind by it beside other tiles, it would close (PIE-1792). Not refused: a reader with its edit open, whose ask brings
+  // the answer beside it wherever it goes (PIE-1585); one left alone, whose group empties and goes as groups leave
+  // nothing behind (PIE-1775), the move's undo bringing both. A gather takes it with its reader (answersWith).
+  carryRefusal: (p, from, to, goes, empties) => {
+    const src = (p as AnswerTile).source, r = readerOf(from, src);
+    if (!(r instanceof ReaderPane)) return null;
+    if (!goes.has(p)) return goes.has(r) && !r.surface.draft && !empties ? `${src} goes with its answer: moved alone, the answer would close · ^W G gathers both, or ^W x on the answer first` : null;
+    return !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null;
+  },
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined, s.state?.saved as string | undefined),
