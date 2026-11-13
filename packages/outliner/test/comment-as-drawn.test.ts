@@ -3,6 +3,7 @@
 // thread anchors to that span. A quote of the source as written still lands where it always did. Made-up garden notes.
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUILTIN_CALLOUT_REGISTRY } from "@ep0ch/outline-core/callouts";
@@ -113,3 +114,46 @@ test("a quote of the source as written lands where it always did, and one that s
   // What a span must be is said when it isn't one.
   await expect(comment({ quote: "Water", within: { start: 9, end: 3 } })).rejects.toThrow("Comment within must be a span of the source");
 }));
+
+// The rows a stand-in host answers a comment from (outline-core's core-contract.json `quoted`, which the native
+// window's cargo tests run) are about a made-up note served as a page: that page is what this service answers for its
+// text, and each row is what this service does with the passage.
+test("the contract's quoted note is the page the service answers, and each quoted row is what the service does", () => fixture(async c => {
+  type Row = { name: string; text?: string; passage: BlockCommentPassage; found?: { start: number; end: number; exact: string }; refused?: { kind: string; error: string } };
+  const contract = JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/core-contract.json"), "utf8")) as
+    { quotedNote: { text: string; title: string; chips: unknown; parts: { kind: string; line: number; span: unknown; view: unknown }[] }; quoted: Row[] };
+  const note = await c.request<Block>({ action: "create", text: contract.quotedNote.text });
+  const page = await c.request<{ title: string; chips: unknown; text: string; parts: { kind: string; line: number; span: unknown; view: unknown }[] }>({ action: "notes.page", blockId: note.id });
+  expect(page.parts.map(({ kind, line, span, view }) => ({ kind, line, span, view }))).toEqual(contract.quotedNote.parts.map(({ kind, line, span, view }) => ({ kind, line, span, view })));
+  expect([page.title, page.chips, page.text]).toEqual([contract.quotedNote.title, contract.quotedNote.chips, contract.quotedNote.text]);
+  const notes = new Map<string, Block>([[contract.quotedNote.text, note]]);
+  for (const row of contract.quoted) {
+    const text = row.text ?? contract.quotedNote.text;
+    if (!notes.has(text)) notes.set(text, await c.request<Block>({ action: "create", text }));
+    const on = await c.request<Block>({ action: "get", blockId: notes.get(text)!.id });
+    const sent = createBlockComment(c, { requestId: crypto.randomUUID(), author: "user", input: { blockId: on.id, expectedRevision: on.revision, body: "Here.", source: "user", passage: row.passage } });
+    if (row.refused) await expect(sent, row.name).rejects.toMatchObject({ kind: row.refused.kind, message: row.refused.error });
+    else expect((await sent).annotations[0]!.originalTarget.anchor, row.name).toMatchObject({ kind: "text-quote", start: row.found!.start, end: row.found!.end, exact: row.found!.exact });
+  }
+}));
+
+// One owner: a text is read as drawn in outline-core's drawn-passage.ts and nowhere else, and a drawn quote is looked
+// up there with passage.ts's own lookup. The service's comment asks through `findQuoted`; the published page asks the
+// same owner for its places and keeps only what is a page's own (which of its blocks, by the drawn words around).
+test("where a drawn passage is in the source has one owner", () => {
+  const src = (pkg: string) => readdirSync(join(import.meta.dir, "../..", pkg, "src")).filter(name => /\.(ts|js|jsx)$/.test(name))
+    .map(name => ({ file: `${pkg}/src/${name}`, text: readFileSync(join(import.meta.dir, "../..", pkg, "src", name), "utf8").split("\n").filter(line => !line.trim().startsWith("//") && !line.trim().startsWith("*")).join("\n") }));
+  const files = [...src("outline-core"), ...src("outliner")];
+  const holding = (needle: string) => files.filter(f => f.text.includes(needle)).map(f => f.file).sort();
+  expect(holding("function drawnText(")).toEqual(["outline-core/src/drawn-passage.ts"]);
+  expect(holding("drawnText(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/publish-passage.ts"]);
+  expect(holding("findDrawnPassage(")).toEqual(["outline-core/src/drawn-passage.ts"]);
+  expect(holding("findQuoted(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/block-comments.ts"]);
+  // The page's finder walks no text itself: its places are the owner's (`drawnPlaces`, passage.ts's `quotePlaces`).
+  const page = files.find(f => f.file === "outliner/src/publish-passage.ts")!.text;
+  expect(page.includes(".indexOf(") || page.includes("matchAll(") || page.includes("propertyTokenMatches")).toBe(false);
+  expect(page).toContain("drawnPlaces(drawn, selection.quote)");
+  const owner = files.find(f => f.file === "outline-core/src/drawn-passage.ts")!.text;
+  expect(owner).toContain("findPassage(drawn.text, words");
+  expect(owner).toContain("quotePlaces(drawn.text, words");
+});

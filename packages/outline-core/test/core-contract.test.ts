@@ -29,3 +29,14 @@ test("every table has rows, and the cases that matter are among them", () => {
   expect(t.linkGroups.all).toEqual(["outlinks", "resources", "backlinks", "children"]);
   expect(t.links!.some(r => (r.groups as { bad?: string }).bad === "cousins")).toBe(true);
 });
+
+test("the quoted rows hold a passage found as written, one found as drawn, and each way one is refused", () => {
+  const t = JSON.parse(readFileSync(CORE_CONTRACT, "utf8")) as { quotedNote: { text: string; parts: { span: { start: number; end: number }; view: { type: string; text: string } }[] }; quoted: { text?: string; passage: { drawn?: boolean; within?: unknown }; found?: { start: number; end: number; exact: string }; refused?: { kind: string } }[] };
+  expect(t.quoted.length).toBeGreaterThan(8);
+  expect(new Set(t.quoted.map(r => r.refused?.kind ?? "found"))).toEqual(new Set(["found", "ambiguous", "not-found"]));
+  expect(t.quoted.some(r => r.passage.drawn && r.passage.within && r.found)).toBe(true);
+  for (const row of t.quoted) if (row.found) expect((row.text ?? t.quotedNote.text).slice(row.found.start, row.found.end)).toBe(row.found.exact);
+  // The note's parts are where its text has them, and its prose is drawn from that text.
+  for (const part of t.quotedNote.parts) expect(t.quotedNote.text.slice(part.span.start, part.span.end).length).toBeGreaterThan(0);
+  expect(t.quotedNote.parts.map(p => p.view.type)).toEqual(["markdown", "picture", "markdown"]);
+});
