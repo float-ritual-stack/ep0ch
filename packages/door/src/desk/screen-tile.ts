@@ -36,7 +36,7 @@ import type { Desk } from "./desk";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { isEscapeChord } from "./pty";
 import { screenNames } from "./screen-spec";
-import { kindOf, type KindHost, type TileKind } from "./tile-kinds";
+import type { KindHost, TileKind } from "./tile-kinds";
 import type { TileSpec } from "./tiles";
 
 /** A screen an exhibit makes once, as the tile joins its desk, and the tile's title. */
@@ -356,13 +356,6 @@ export function mountKinds(): TileKind[] {
       about: "a screen mounted here (screen=<name> target=<what it opens on>, part=<a container of it>): its own tiles live, folding to a spine; ^W u pops it out to the full screen. The board's (screen=board) tile.preview gives its card to a preview tile; the river's (screen=river) columns and open rule are its own",
       keys: [{ key: "m", label: "screen" }, { key: "k", label: "board", spec: () => ({ screen: "board" }) }, { key: "v", label: "river", spec: () => ({ screen: "river" }) }],
       make: s => new ScreenTile("screen", s),
-      // A group goes whole: each tile in it is asked its own kind's rule, with everything the group takes along it.
-      carryRefusal: (p, _from, to, goes) => {
-        const d = (p as ScreenTile).inner, members = d ? d.layoutGet(false).tiles.flatMap(t => d.paneNamed(t.name) ?? []) : [];
-        const all = new Set([...goes, ...members]);
-        for (const m of members) { const why = kindOf(m)?.carryRefusal?.(m, d!, to, all); if (why) return why; }
-        return null;
-      },
       actions: MOUNT_ACTIONS,
       openArgs: ["screen", "part", "target", "label", "inner", "args"],
       check: s => (s.screen || s.inner ? null : `a mount names its screen (screen=${mountable().join(", ")}), and part=<container> for a part of it`),

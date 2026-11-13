@@ -145,11 +145,12 @@ export interface TileKind {
   /** In the drawer, opens without a wire use the screen shown. Local and cross-edge wires take precedence. */
   readonly opensOnScreen?: true;
   /**
-   * Why tile `p`, on desk `from`, can't be carried to desk `to` (the drawer, a group, another screen), or null: its own
-   * rule, asked by the one carry plan (planCarry) of every tile the carry takes, a group's members too. `goes`: the panes
-   * that travel with it.
+   * Why a move would lose tile `p`, on desk `from`, or null: its own rule (an answer that would leave its reader, or be
+   * left by it), asked by `carryLoses` of every tile of the screen when tiles go to desk `to` (the drawer, a group,
+   * another screen). `goes`: the tiles that travel, a group's members too; `p` is one of them, or stays. `stays`: the
+   * tiles left on `from` (none but `p`: a group that empties and goes, PIE-1775).
    */
-  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi, goes: ReadonlySet<Pane>): string | null;
+  carryRefusal?(p: Pane, from: DeskApi, to: DeskApi, goes: ReadonlySet<Pane>, stays: readonly Pane[]): string | null;
   /** A list whose open (⏎) gives the reader it lands in the person's keys when nothing routes it (the tree); placement decides it. */
   readonly handsKeys?: true;
   /**
@@ -335,6 +336,20 @@ export interface AimedList extends Pane { source: string; show(m: Msg, desk: Des
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */
 export const kindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) : undefined);
+
+/**
+ * Why moving `moved` to desk `to` would lose a tile (PIE-1792), or null: every tile of the screen (on `desks`, its
+ * groups' too, each desk's by `panesOf`) asked its kind's `carryRefusal`, with what goes (`moved` and every tile a moved
+ * group holds). The carry (planCarry) and the gather (^W G) both ask it, so a tile that goes and one left behind are
+ * judged alike.
+ */
+export function carryLoses<D extends DeskApi>(desks: readonly D[], panesOf: (d: D) => Iterable<Pane>, moved: readonly Pane[], to: DeskApi): string | null {
+  const family = desks.flatMap(d => [...panesOf(d)].map(p => [p, d] as const));
+  const inside = new Set(moved.flatMap(p => (p as { inner?: { descend(): object[] } }).inner?.descend() ?? []));
+  const goes = new Set([...moved, ...family.filter(([, d]) => inside.has(d)).map(([p]) => p)]);
+  for (const [p, d] of family) { const why = kindOf(p)?.carryRefusal?.(p, d, to, goes, family.filter(([q, e]) => e === d && !goes.has(q)).map(([q]) => q)); if (why) return why; }
+  return null;
+}
 
 /** A note sent by a wire or a preview doesn't land in it now: it holds an edit, or the person's keys. */
 export const busyFor = (f: KindFacts): boolean => !!(f.editing || f.holdsKeys);

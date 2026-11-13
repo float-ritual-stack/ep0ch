@@ -95,7 +95,7 @@ import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
-import { AnswerTile } from "./answer-tile";
+import { AnswerTile, answersWith } from "./answer-tile";
 import { AttachedTilePane, type Attachment } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, TYPED_WHILE_OPENING, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
@@ -120,7 +120,7 @@ import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNam
 import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WKey, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
-import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
+import { allKindActions, busyFor, carryLoses, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
 /**
@@ -5654,7 +5654,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Links between a gathered tile and one that stays are kept (PIE-696), by path across the group's edge.
    */
   private gather(t: { id: number; name: string }, target: LNode | null, ids: number[], w: { id: number; name: string } | null, o: { node?: string; where?: Dir; name?: string; label?: string }, actor: Actor): TileDone {
-    this.resolveExt();
+    this.resolveExt(); ids = answersWith(this.panes, ids, i => this.nameOf(i)); const lost = carryLoses(this.top().descend(), d => d.panes.values(), ids.map(i => this.panes.get(i)!), this); if (lost) throw new ActionRefused(lost);
     const inside = new Set(ids);
     for (const id of ids) this.bindFollows(id, this.panes.get(id)!);
     const specs = (id: number) => this.specIn(id, inside);
@@ -7274,7 +7274,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!shown) throw new ActionRefused("the drawer shows nothing to bring here");
       return host.take(shown, to ?? t.name, where, actor);
     }
-    return host.put(this, t.name, actor, false, to, where);
+    return { ...host.put(this, t.name, actor, false, to, where), ...(host.isDrawer(this.top()) ? { ownTab: true } : {}) };   // from a group in the drawer: a tab of its own (PIE-1792)
   }
 
   /** Why tile `sel` can't leave this screen now, or null (nothing is done). `heir`: a new tile would take its place. */
@@ -7303,7 +7303,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let land: ReturnType<Desk["landingFor"]>;
     try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
     const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
-    const own = kindOf(pane)?.carryRefusal?.(pane, this, dest, new Set([pane, goes])); if (own) return own;
+    const own = carryLoses(this.top().descend(), d => d.panes.values(), [pane, goes], dest); if (own) return own;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
       // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
       tile: t.id, ...(how.heir ? { heir: { id: this.nextId, name: this.autoName(how.heir.kind) } } : {}),
@@ -7411,13 +7411,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In a group (gone in), its whole desk gathered again would be the group: the question offers to spill it instead (PIE-1775).
     const h = this.holder, whole = this.inGroup() && leaves(this.root).length === offer.names.length, up = h?.desk();
     const rows: { label: string; run: () => unknown }[] = [
-      { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
+      { label: `this tile · ${answersWith(this.panes, [t.id], i => this.nameOf(i)).map(i => this.nameOf(i)).join(" and its ")}`, run: () => this.run("tile.group", {}, t.name) },
       whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
     const ask: ListPicker<{ label: string; run: () => unknown }, Desk> = new ListPicker<{ label: string; run: () => unknown }, Desk>({   // a question, not a mode: no gathering card beside it; ^W leaves it for its chord
       name: "gather", items: () => rows, clickChooses: true, row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)], choose: it => void it.run(),
       keys: (k, d) => { if (k.kind !== "char" || !k.ctrl || k.ch !== "w") return false; ask.close(d, "esc"); d.key(k, d.ctx); return true; },
-      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
+      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 3), title: "gather into a group", tail: [`${fg(C.dark)}⏎ takes the lit row · ↑↓ moves`] }),   // what ⏎ picks, at any width (PIE-1792)
     }); this.overlay(ask);
     return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }

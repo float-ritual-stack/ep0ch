@@ -31,6 +31,42 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
     } finally { p.close(); }
   }, 90_000);
 
+  // The mirror (round two): ^W a on the reader moved it alone and its answer closed. The carry asks every tile it leaves
+  // behind too: refused with why, nothing moves.
+  test("^W a on the reader of an answer keeps both: refused with why", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      const screen = () => layers(p).find(l => !l.drawer && l.screen === "detail")!.tiles;
+      expect(p.act("tile.focus", `tile=${screen().find(t => t.name === "detail")!.tile}`).ok).toBe(true);
+      await until(() => screen().find(t => t.focused)?.name === "detail", "his keys on the reader");
+      p.keys("C-w", "a");
+      await Bun.sleep(1200);
+      expect(names(p)).toEqual(expect.arrayContaining(["detail/detail", "detail/answer"]));
+      expect(p.capture()).toContain("goes with its answer");
+    } finally { p.close(); }
+  }, 90_000);
+
+  // ^W G and ⏎ on "this tile or the whole split?" gathered the reader alone and its answer closed. The gather takes the
+  // answer with it, and the row says so.
+  test("^W G and ⏎ on the reader of an answer gathers both", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      const screen = () => layers(p).find(l => !l.drawer && l.screen === "detail")!.tiles;
+      expect(p.act("tile.focus", `tile=${screen().find(t => t.name === "detail")!.tile}`).ok).toBe(true);
+      await until(() => screen().find(t => t.focused)?.name === "detail", "his keys on the reader");
+      p.keys("C-w", "G"); await until(() => p.capture().includes("whole split"), "the split question");
+      expect(p.capture()).toContain("this tile · detail and its answer");
+      p.keys("Enter");
+      await until(() => layers(p).some(l => l.screen === "group"), "the group");
+      expect(names(p)).toEqual(expect.arrayContaining(["group/detail", "group/answer"]));
+      expect(names(p)).not.toContain("detail/answer");
+    } finally { p.close(); }
+  }, 90_000);
+
   // A group holding an answer, its reader outside the group: ^W a on the group carried the answer away from its
   // reader too (CodeRabbit on #1493). His keys inside the group take ^W a to the answer itself, so it's the group's own send. The carry asks every tile it takes, so it's refused the same way.
   test("a group holding an answer, sent to the drawer, keeps it: refused with why, nothing closes", async () => {
@@ -92,6 +128,40 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the drawer and groups never lo
       const strip = p.capture().split("\n").find(l => l.includes("sh |"))!;
       expect(strip).not.toContain("*sh");
       expect(strip).toContain("*Seed tray");
+    } finally { p.close(); }
+  }, 60_000);
+
+  // ^W a (tile.drawer) inside a group in the drawer said "put detail in your drawer from the group" while it made the tile a drawer
+  // tab of its own: it says what it did now.
+  test("a move to the drawer from inside a drawer's group says it made the tile a tab of its own", async () => {
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 120, 30);
+    try {
+      const drawer = () => layers(p).find(l => l.drawer)!;
+      p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
+      await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
+      expect([p.act("tile.open", "kind=reader")].map(r => [r.ok, r.out])[0]).toEqual([true, expect.any(String)]);   // the screen keeps a tile
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 3, "a third tile");
+      expect([p.act("tile.focus", "tile=reader")].map(r => [r.ok, r.out])[0]).toEqual([true, expect.any(String)]);
+      await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "reader", "his keys on the third");
+      for (const n of ["detail-preview", "detail"]) { const r = p.act("tile.drawer", `tile=${n}`); expect([n, r.ok, r.out]).toEqual([n, true, expect.any(String)]); await until(() => drawer().tiles.some(t => t.name === n), `${n} in the drawer`); }
+      const id = (n: string) => drawer().tiles.find(t => t.name === n)!.tile;
+      const g = p.act("tile.group", `tile=${id("detail")}`, `with=${id("detail-preview")}`); expect([g.ok, g.out]).toEqual([true, expect.any(String)]);
+      await until(() => layers(p).some(l => l.screen === "group"), "a group in the drawer");
+      // An agent's move from inside the group (his keys stay on the screen), said on screen as the person's would be.
+      const inGroup = layers(p).find(l => l.screen === "group")!.tiles.find(t => t.name === "detail")!;
+      expect([p.act("tile.drawer", `tile=${inGroup.tile}`)].map(r => [r.ok, r.out])[0]).toEqual([true, expect.any(String)]);
+      await until(() => p.capture().includes("your drawer"), "what it did", 5000);
+      expect(p.capture()).toContain("a tab of its own in your drawer");
+    } finally { p.close(); }
+  }, 60_000);
+
+  // At 44 columns "this tile or the whole split?" didn't say what ⏎ picks: its foot row says it now.
+  test("the split question at 44 columns says what ⏎ picks", async () => {
+    const p = await doors.pane(await doors.create("Leek trench\ndig it deep"), "Leek trench", 44, 30);
+    try {
+      p.keys("C-w", "v"); await until(() => layers(p).find(l => !l.drawer)!.tiles.length === 2, "a preview");
+      p.keys("C-w", "G"); await until(() => p.capture().includes("whole split"), "the split question");
+      expect(p.capture()).toContain("⏎ takes the lit row");
     } finally { p.close(); }
   }, 60_000);
 });
