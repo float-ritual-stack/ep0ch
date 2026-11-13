@@ -135,9 +135,9 @@ test("a quote of the source as written lands where it always did, and one that s
 // window's cargo tests run) are about a made-up note served as a page: that page is what this service answers for its
 // text, and each row is what this service does with the passage.
 test("the contract's quoted note is the page the service answers, and each quoted row is what the service does", () => fixture(async c => {
-  type Row = { name: string; text?: string; passage: BlockCommentPassage; found?: { start: number; end: number; exact: string }; whole?: { start: number; end: number; exact: string; quote: string; widened: boolean }; refused?: { kind: string; error: string } };
+  type Row = { name: string; text?: string; passage: BlockCommentPassage; found?: { start: number; end: number; exact: string }; whole?: { start: number; end: number; exact: string; quote: string; widened: boolean; at?: { start: number; end: number } }; refused?: { kind: string; error: string } };
   const contract = JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/core-contract.json"), "utf8")) as
-    { quotedNote: { text: string; title: string; chips: unknown; parts: { kind: string; line: number; span: unknown; view: unknown }[] }; quoted: Row[] };
+    { quotedNote: { text: string; title: string; chips: unknown; parts: { kind: string; line: number; span: { start: number; end: number }; view: { type: string; text?: string } }[] }; quoted: Row[] };
   const note = await c.request<Block>({ action: "create", text: contract.quotedNote.text });
   const page = await c.request<{ title: string; chips: unknown; text: string; parts: { kind: string; line: number; span: unknown; view: unknown }[] }>({ action: "notes.page", blockId: note.id });
   expect(page.parts.map(({ kind, line, span, view }) => ({ kind, line, span, view }))).toEqual(contract.quotedNote.parts.map(({ kind, line, span, view }) => ({ kind, line, span, view })));
@@ -148,7 +148,9 @@ test("the contract's quoted note is the page the service answers, and each quote
     if (!notes.has(text)) notes.set(text, await c.request<Block>({ action: "create", text }));
     const on = await c.request<Block>({ action: "get", blockId: notes.get(text)!.id });
     // Asked before anything is written (`passages.find`): the same passage as whole words, or the same refusal.
-    const asked = c.request<Record<string, unknown>>({ action: "passages.find", blockId: on.id, passage: row.passage, whole: "words" });
+    // (With the part the words end in, as a window that drew the page names it: answered with where they are in its text.)
+    const ends = row.text === undefined ? contract.quotedNote.parts.find(part => part.span.end === row.passage.within?.end && part.view.type === "markdown") : undefined;
+    const asked = c.request<Record<string, unknown>>({ action: "passages.find", blockId: on.id, passage: row.passage, whole: "words", ...(ends ? { part: { ...ends.span, text: ends.view.text! } } : {}) });
     if (row.refused) await expect(asked, row.name).rejects.toMatchObject({ kind: row.refused.kind, message: row.refused.error });
     else expect(await asked, row.name).toEqual({ blockId: on.id, revision: on.revision, ...row.whole! });
     const sent = createBlockComment(c, { requestId: crypto.randomUUID(), author: "user", input: { blockId: on.id, expectedRevision: on.revision, body: "Here.", source: "user", passage: row.passage } });
@@ -179,6 +181,35 @@ test("a passage that starts or ends inside a word is found as the whole words", 
   // What isn't there is said in the comment's own words, before a comment is written.
   await expect(find("Action Refine", "words")).rejects.toMatchObject({ kind: "not-found" });
   await expect(c.request({ action: "passages.find", blockId: bed.id, passage: { quote: "Action" }, whole: "lines" } as never)).rejects.toThrow("whole= is words");
+}));
+
+// A run of prose is one part of a page, however long, and a window that draws it has only the Markdown the service
+// handed it. Asked with the part its words end in, the service says where the passage is in that part's own text
+// (`at`, found as a page's marks are), so what is written about the passage can stand at its words and not under a
+// screen of prose. As much of the passage as that part draws; no part named, nothing said.
+test("asked with the part its words end in, a passage is found in that part's own text", () => fixture(async c => {
+  const peas = await c.request<Block>({ action: "create", text: "Early peas [type::crop]\nSown under glass." });
+  const text = ["South bed [type::bed]", "Dig it over in March.", "", "[img::pictures/bed.svg]", "", `Sow the ((${peas.id})) first, **then** the beans.`, "", "- Net them at once.", "- Stake the beans."].join("\n");
+  const bed = await c.request<Block>({ action: "create", text });
+  type Part = { kind: string; span: { start: number; end: number }; view: { type: string; text?: string } };
+  const prose = (await c.request<{ parts: Part[] }>({ action: "notes.page", blockId: bed.id })).parts.filter(part => part.kind === "prose");
+  expect(prose.length).toBe(2);
+  const find = (quote: string, part?: Part, within?: { start: number; end: number }) => c.request<{ start: number; end: number; at?: { start: number; end: number } }>({ action: "passages.find", blockId: bed.id, passage: { quote, drawn: true, ...(within ? { within } : {}) }, whole: "words", ...(part ? { part: { ...part.span, text: part.view.text! } } : {}) });
+  const drawn = (part: Part, at: { start: number; end: number }) => part.view.text!.slice(at.start, at.end);
+  // Across a reference and bold, from inside a word: the whole words, where the part's Markdown has them.
+  const first = await find("ow the Early peas first, then the bean", prose[1]);
+  expect(drawn(prose[1]!, first.at!)).toBe(`Sow the [Early peas](ep0ch:b/${peas.id}) first, **then** the beans`);
+  // In a list item under it: the place is past the paragraph, in the same part's text.
+  const item = await find("Net them", prose[1]);
+  expect(drawn(prose[1]!, item.at!)).toBe("Net them");
+  expect(item.at!.start).toBeGreaterThan(first.at!.end);
+  // From one part into the next: as much of the passage as the part named draws.
+  const across = await find("in March.\n\nSow the Early peas first", prose[1], { start: prose[0]!.span.start, end: prose[1]!.span.end });
+  expect(drawn(prose[1]!, across.at!)).toBe(`Sow the [Early peas](ep0ch:b/${peas.id}) first`);
+  // No part named, nothing said of one; a part the words are not in, the same; and a part that is none is refused.
+  expect((await find("Net them")).at).toBeUndefined();
+  expect((await find("Net them", prose[0])).at).toBeUndefined();
+  await expect(c.request({ action: "passages.find", blockId: bed.id, passage: { quote: "Net them" }, part: { start: 4, end: 2, text: "" } } as never)).rejects.toThrow("part= is the part the words end in");
 }));
 
 // The words a thread is on are marked where a page draws them: each part its passage reaches into carries a mark,
@@ -236,8 +267,8 @@ test("where a drawn passage is in the source has one owner", () => {
   expect(holding("findDrawnPassage(")).toEqual(["outline-core/src/drawn-passage.ts"]);
   expect(holding("findQuoted(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/block-comments.ts"]);
   // Where a span of the source is in a text written from it, and a passage as whole words, are that owner's too: the
-  // page asks the first for its marks, `passages.find` the second, and neither reads a text itself.
-  expect(holding("spanIn(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/note-page.ts"]);
+  // page asks the first for its marks, `passages.find` the second (and the first, for the part an asker drew), and neither reads a text itself.
+  expect(holding("spanIn(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/note-page.ts", "outliner/src/passage-find.ts"]);
   expect(holding("wholePassage(")).toEqual(["outline-core/src/drawn-passage.ts", "outliner/src/passage-find.ts"]);
   // The page's finder walks no text itself: its places are the owner's (`drawnPlaces`, passage.ts's `quotePlaces`).
   const page = files.find(f => f.file === "outliner/src/publish-passage.ts")!.text;

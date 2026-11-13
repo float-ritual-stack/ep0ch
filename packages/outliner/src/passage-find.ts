@@ -10,10 +10,15 @@
  *   word (outline-core's `wholePassage`): a press that landed past the middle of a first letter starts a selection
  *   after it, and nobody means "ction". `quote` is then the passage's words as a reader draws them, to send in the
  *   asker's place; a passage that was whole already is answered with the asker's own quote, untouched.
+ * - **Where it is in what the asker drew** (`part`): a client that draws a part of the page from the text the service
+ *   handed it (a prose part's Markdown) has no reading of the note's source, so it says which part its words end in
+ *   (that part's span of the note and the text its view is drawn from) and is answered `at`: the range of that text
+ *   the passage is, found by the one reading every renderer shares (outline-core's `spanIn`, as a page's marks are).
+ *   What is written about the passage stands there, not under a run of prose a screen long.
  *
  * A read: nothing is written, and nothing is watched (a passage is found in the text as it is now).
  */
-import { wholePassage } from "@ep0ch/outline-core/drawn-passage";
+import { spanIn, wholePassage } from "@ep0ch/outline-core/drawn-passage";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { blockCommentSelection } from "./block-comments";
 import { displayTitleOfText } from "./references";
@@ -28,6 +33,8 @@ export interface PassageFindRequest {
   passage: BlockCommentPassage;
   /** `words`: a passage that starts or ends inside a word takes the whole word. */
   whole?: "words";
+  /** The part of the page the words end in, as the asker drew it: its span of the note's text, and the text its view is drawn from. Answered with `at`. */
+  part?: { start: number; end: number; text: string };
 }
 
 /** `passages.find`'s answer: the span of the note's text the passage is, at the revision it was found in. */
@@ -42,6 +49,8 @@ export interface PassageFound {
   quote: string;
   /** The passage is wider than the words asked: they started or ended inside a word. */
   widened: boolean;
+  /** Where the passage is in the text of the `part` the asker named (UTF-16, `end` exclusive): as much of it as that part draws. Left out when no part was named, or its text hasn't the words. */
+  at?: { start: number; end: number };
 }
 
 type Note = { id: string; text: string; revision: number; effectiveDeletedRootId?: string | null };
@@ -58,6 +67,11 @@ export function foundPassage(require: (id: string) => Note, request: PassageFind
   if (anchor.kind !== "text-quote" || anchor.start === null || anchor.end === null) throw new Refusal("invalid", "passages.find finds a passage: name its words with passage.quote");
   const found = { start: anchor.start, end: anchor.end };
   const whole = request.whole === "words" ? wholePassage(block.text, found, reads) : { span: found, words: "", widened: false };
+  const part = request.part;
+  if (part !== undefined && (typeof part !== "object" || part === null || !Number.isInteger(part.start) || !Number.isInteger(part.end) || part.end <= part.start || typeof part.text !== "string")) throw new Refusal("invalid", "passages.find part= is the part the words end in: its start and end in the note's text, and the text it is drawn from");
+  // As much of the passage as that part draws, in the part's own text: an anchor, as a page's marks are (note-page.ts).
+  const within = part && { start: Math.max(whole.span.start, part.start), end: Math.min(whole.span.end, part.end) };
+  const at = part && within && within.end > within.start ? spanIn(block.text.slice(part.start, part.end), { start: within.start - part.start, end: within.end - part.start }, part.text, reads) : null;
   return { blockId: block.id, revision: block.revision, start: whole.span.start, end: whole.span.end, exact: block.text.slice(whole.span.start, whole.span.end),
-    quote: whole.widened ? whole.words : request.passage.quote, widened: whole.widened };
+    quote: whole.widened ? whole.words : request.passage.quote, widened: whole.widened, ...(at ? { at } : {}) };
 }

@@ -230,7 +230,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -250,8 +250,12 @@ export function coreContract(): string {
       if (isMiss(found)) { const refusal = quoteRefusal(found); return { ...row, refused: { kind: refusal.kind, error: refusal.message } }; }
       // The same passage as whole words (`passages.find whole=words`): its span, and the quote to send in the asker's place.
       const whole = wholePassage(c.text, found);
+      // Asked with the part its words end in (the part whose span a selection said it was `within`): where the
+      // passage is in the text that part's view is drawn from (`passages.find part=`, answered `at`).
+      const part = c.text === QUOTED_TEXT ? quotedNote().parts.find(p => p.span.end === c.passage.within?.end && p.view.type === "markdown") : undefined;
+      const at = part && spanIn(c.text.slice(part.span.start, part.span.end), { start: Math.max(whole.span.start, part.span.start) - part.span.start, end: Math.min(whole.span.end, part.span.end) - part.span.start }, (part.view as { text: string }).text);
       return { ...row, found: { ...found, exact: c.text.slice(found.start, found.end) },
-        whole: { start: whole.span.start, end: whole.span.end, exact: c.text.slice(whole.span.start, whole.span.end), quote: whole.widened ? whole.words : c.passage.quote, widened: whole.widened } };
+        whole: { start: whole.span.start, end: whole.span.end, exact: c.text.slice(whole.span.start, whole.span.end), quote: whole.widened ? whole.words : c.passage.quote, widened: whole.widened, ...(at ? { at } : {}) } };
     }),
   });
 }
