@@ -4053,7 +4053,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
       this.presses.draw(canvas, { kind, id, row, from: x, to: x + width(glyph), right: true, ...does }, glyph, sgr);
     if (lifts) button("lift", at.liftX, lifting ? "⇣" : "⇡", fg(C.yellow), lifting ? { label: "drop the lift", action: "tile.zoom", args: { reach: lifting.reach, on: false } } : { label: "lift over its column", action: "tile.zoom", args: { reach: "column", on: true } });
-    if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
+    if (arrival && (tabsOf(this.root, id)?.ids.length ?? 0) < 2) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);   // a tab set marks the tab it landed in, in its strip
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
@@ -4171,7 +4171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
       const stripRoom = room >= 2 * width(this.numLabel(id) + this.displayTitle(id)) ? room : max - x;
-      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: this.displayTitle(t), key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
+      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: `${this.arriving(t) ? "*" : ""}${this.displayTitle(t)}`, key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
       for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.presses.record({ kind: "title", id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row, label: `tab ${h.label}`, action: "tab.select" });
       put(strip!.text, "");
       if (x >= max) return this.headOut;
@@ -5634,10 +5634,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const target = o.node !== undefined ? nodeById(this.root, o.node) ?? node(this.root, o.node) : null;
     if (o.node !== undefined && !target) throw new ActionRefused(`there's no container ${o.node} on the ${this.title}; layout.get names them`);
-    const w = o.with !== undefined ? this.tile(o.with) : null;
+    const w = o.with !== undefined ? this.tile(o.with) : null; if (!target && !w && this.inGroup() && new Set(leaves(this.root)).size === 1) throw new ActionRefused(`${t.name} is a group of one already: gathering it would nest another · ctrl+] out, then shift+click a neighbour and ^W G`);
     const inside = target ? leaves(target) : [t.id];
-    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`);
-    const ids = [...inside, ...(w ? [w.id] : [])];
+    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`); const ids = [...inside, ...(w ? [w.id] : [])];
     return this.gather(t, target, ids, w, o, actor);
   }
   /** `tile.group` for the tiles selected: `ids` (in the layout's order) whole, as the group of them. */
@@ -7303,8 +7302,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (fixed) return fixed;
     let land: ReturnType<Desk["landingFor"]>;
     try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
-    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane);
-    const goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
+    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
+    const own = kindOf(pane)?.carryRefusal?.(pane, this, dest, new Set([pane, goes])); if (own) return own;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
       // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
       tile: t.id, ...(how.heir ? { heir: { id: this.nextId, name: this.autoName(how.heir.kind) } } : {}),

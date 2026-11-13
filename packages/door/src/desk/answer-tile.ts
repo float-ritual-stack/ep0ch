@@ -225,6 +225,8 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
 
 export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
+  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), it would close.
+  carryRefusal: (p, from, to, goes) => { const src = (p as AnswerTile).source, r = readerOf(from, src); return r && !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null; },
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined, s.state?.saved as string | undefined),
