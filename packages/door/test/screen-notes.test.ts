@@ -15,6 +15,7 @@ import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
+import { nowPage } from "../src/hub/now";
 
 test("a screen note's text holds its spec as data, read back as the same spec under the note's name", () => {
   const spec = readSpec({ name: "potting", title: "potting", layouts: true, layout: { focus: "tree", root: { t: "leaf", kind: "tree", name: "tree" } } });
@@ -228,6 +229,21 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     // Its keys that hold only over some kinds are served the same way, and are the door's own kinds here too: a key
     // bound only in the reader fires there, and one bound unless the tree stays out of the tree.
     expect(screenSpec("seed-bench")!.keys!.map(k => [k.key, k.only, k.unless])).toEqual([["g", ["reader"], undefined], ["y", undefined, ["tree"]]]);
+  });
+
+  test("a screen note written with a pinned tile that names no page opens pinned to this door's now page, as it was served", async () => {
+    // As a screen note has written it since before the pin was a reader's mode: `kind: pinned`, and no page.
+    const spec = { name: "now-bench", title: "now-bench", layout: { focus: "tree", root: { t: "split", dir: "row", weights: [0.4, 0.6], kids: [{ t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "pinned", name: "now" }] } } };
+    await board.request("create", { parentId: null, text: screenNoteText(spec as any), author: "user" });
+    await until(() => screenNames().includes("now-bench"), "the door registered the screen");
+    // The service serves the tile as the kind it is now: a reader, pinned, with no page of its own to name.
+    const served = (await board.request("screens.list", {})).screens.find((row: any) => row.name === "now-bench").spec.layout.root.kids[1];
+    expect(served).toMatchObject({ mode: "pinned", name: "now" });
+    expect(served.page).toBeUndefined();
+    await app.dispatch.act({ action: "screen.open", args: { name: "now-bench" } }, { kind: "user" });
+    await until(() => top().name === "now-bench", "now-bench opened");
+    const now = (top().layoutSpec().root as any).kids[1];
+    expect(now).toMatchObject({ kind: "reader", mode: "pinned", name: "now", page: nowPage().address });
   });
 
   test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {
