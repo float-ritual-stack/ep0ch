@@ -95,6 +95,9 @@ fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 
 fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let tile = target(app);
+    // A terminal's program ends with its tile, as the layout's rule says of a close (`terminal.detach` closes one
+    // and keeps its program).
+    let program = app.ui(&tile).program.clone().filter(|_| app.is_a(&tile, About::Programs));
     // The way back the closed reader kept goes with its note.
     let trail = app.ui(&tile).history.clone();
     // The close that commits asks who keeps the note the tile shows: the layout's answer (`close_heir`, the door's
@@ -107,6 +110,7 @@ fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
         app.ui_mut(&heir).history = trail;
         app.keep();
     }
+    if closed.ok && let Some(key) = program { app.program_closed(&key) }
     closed
 }
 

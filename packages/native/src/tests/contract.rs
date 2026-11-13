@@ -390,7 +390,7 @@ fn the_actor_rule_answers_every_row_of_the_door_s_table() {
         let by = match case["actor"]["kind"].as_str() { Some("user") => Actor::Person, _ => Actor::Agent(text(&case["actor"], "id").unwrap()) };
         let at = &case["where"];
         let typing_in = text(at, "typingIn");
-        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)) };
+        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)), takes_keys: false };
         let answer = rule(&row, &by, by.is_person() || flag(case, "invited") == Some(true), &person, case["tile"].as_str().unwrap());
         assert_eq!(answer.is_ok(), case["refused"].is_null(), "{name}: the door says {}, this window {answer:?}", case["refused"]);
         refused += answer.is_err() as usize;

@@ -24,6 +24,11 @@
 //!   same store, a link an outline, and the control socket naming the window an act is for.
 //! - `review.rs`: about the note: the tiles that follow the reader, a comment on a selection, a reply and a thread
 //!   resolved, a proposal applied and dismissed, a revision opened and put back, the keys and library screens.
+//! - `terminal.rs`: programs in terminal tiles, over a scripted host: rows cut at wide cells, keys in and rows out,
+//!   the key that leaves, a size, the scrollback, a paste; detached, attached and found by the next launch; the
+//!   list handed over equal to what runs; an agent's act while the person types; a window built without one.
+//! - `pty_live.rs` (the `pty` feature): the terminal's crates themselves: a real pseudo-terminal running a made-up
+//!   script, and herdr-core's protocol spoken to a stand-in core in a scratch folder.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -35,6 +40,8 @@ mod lists;
 mod live;
 mod one_owner;
 mod owners;
+#[cfg(feature = "pty")]
+mod pty_live;
 mod parity;
 mod parts;
 mod review;
@@ -43,5 +50,6 @@ mod store;
 mod support;
 mod sweep2;
 mod sweep3;
+mod terminal;
 mod ways;
 mod window;

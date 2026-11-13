@@ -31,6 +31,7 @@ use serde_json::{Map, Value, json};
 
 use crate::actions::{Actor, Then};
 use crate::client::{Link, Waker};
+use crate::pty::{self, Programs};
 
 /// How many watched answers the service keeps for one connection (outline-core's `WATCH_LIMITS.perConnection`).
 pub const WATCH_BUDGET: usize = 64;
@@ -273,6 +274,9 @@ struct Hub {
     holders: HashMap<(OutlineAt, String), Window>,
     /// What wakes each window; a link's line wakes them all, since any of them may show what it moved.
     wakers: Arc<Mutex<HashMap<Window, Waker>>>,
+    /// The programs the run's terminal tiles show (`pty.rs`): the run's, so a tile torn into another window, or
+    /// closed and opened again, finds its program as it left it.
+    programs: Programs,
 }
 
 impl Hub {
@@ -720,6 +724,84 @@ impl Store {
         self.sync();
         mine
     }
+
+    // ── programs ────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// What runs this run's programs from now (the terminal a build has, a scene's scripted one): asked once, as
+    /// the run starts. Programs held on another host are let go.
+    /// (What the launch before kept of its programs is known to the new host's registry too.)
+    pub fn programs_on(&mut self, host: Box<dyn pty::Host>) {
+        let mut hub = self.hub.borrow_mut();
+        let known = hub.programs.known();
+        hub.programs = Programs::on(host);
+        for made in known { hub.programs.remember(made) }
+    }
+
+    /// What wakes every window of the run, from any thread: handed to what runs the programs, which has news of
+    /// its own to show (a report, a terminal somebody else started).
+    pub fn waker(&self) -> Waker { self.hub.borrow().waker() }
+
+    /// A program as a drawer reads one: what it says of itself and its screen now.
+    pub fn program(&self, key: &str) -> Option<pty::Shown> { self.hub.borrow().programs.shown(key) }
+
+    /// The program held under `key` runs now.
+    pub fn program_runs(&self, key: &str) -> bool { self.hub.borrow().programs.get(key).is_some_and(|program| program.stands().running()) }
+
+    /// A program is held under `key`, by this window or another of the run.
+    pub fn holds_program(&self, key: &str) -> bool { self.hub.borrow().programs.holds(key) }
+
+    /// The run holds a program under `key`, or its host still runs one from a launch before.
+    pub fn knows_program(&self, key: &str) -> bool { let hub = self.hub.borrow(); hub.programs.holds(key) || hub.programs.kept(key) }
+
+    /// What the program `key` was started as: the kind of its tile and the line typed into it, as this run or
+    /// the launch before knew it.
+    pub fn program_made(&self, key: &str) -> Option<pty::Made> { self.hub.borrow().programs.made(key).cloned() }
+
+    /// What every program still to be found was started as: what the arrangement's file keeps of them.
+    pub fn programs_known(&self) -> Vec<pty::Made> { self.hub.borrow().programs.known() }
+
+    /// What the launch before kept of a program.
+    pub fn program_remember(&mut self, made: pty::Made) { self.hub.borrow_mut().programs.remember(made) }
+
+    /// Lets go of a program's handle and leaves it to what keeps it (`Programs::release`).
+    pub fn program_release(&mut self, key: &str) -> Option<pty::Program> { self.hub.borrow_mut().programs.release(key) }
+
+    /// A key no program has, from `stem`.
+    pub fn program_key(&self, stem: &str) -> String { self.hub.borrow().programs.free_key(stem) }
+
+    /// Starts a program, or attaches to it where its host still runs it. Every window is woken when it has
+    /// something new to show: any of them may show it.
+    pub fn program_start(&mut self, want: pty::Wanted) {
+        let mut hub = self.hub.borrow_mut();
+        let wake = hub.waker();
+        hub.programs.start(want, wake);
+    }
+
+    /// Ends a program, wherever it runs (`Programs::end`): what it was, when one was held.
+    pub fn program_end(&mut self, key: &str) -> Option<pty::Program> { self.hub.borrow_mut().programs.end(key) }
+
+    /// A way into a program: a key, a paste, a size. False when none is held under `key`, or it never started.
+    pub fn program_do(&mut self, key: &str, run: impl FnOnce(&dyn pty::Term)) -> bool { self.hub.borrow().programs.with(key, run) }
+
+    /// The tiles of this window that show a program now, each its program's key and its own name.
+    pub fn programs_placed(&mut self, tiles: Vec<(String, String)>) {
+        let mut hub = self.hub.borrow_mut();
+        let window = hub.windows.get(&self.window).cloned().unwrap_or_default();
+        hub.programs.place(&window, tiles);
+    }
+
+    /// Where a program shows: the window (None: this one) and the tile.
+    pub fn program_place(&self, key: &str) -> Option<(Option<String>, String)> {
+        let hub = self.hub.borrow();
+        let mine = hub.windows.get(&self.window).map(String::as_str).unwrap_or_default();
+        hub.programs.place_of(key).map(|(window, tile)| (Some(window.to_string()).filter(|window| window != mine), tile.to_string()))
+    }
+
+    /// Every program of the run as it says of itself, for this window (`Programs::said`).
+    pub fn programs_said(&self) -> Value { let hub = self.hub.borrow(); hub.programs.said(hub.windows.get(&self.window).map(String::as_str).unwrap_or_default()) }
+
+    /// Counts every change of what the run's programs show.
+    pub fn programs_moved(&self) -> u64 { self.hub.borrow().programs.moved() }
 
     // ── describing itself ───────────────────────────────────────────────────────────────────────────────────
 

@@ -122,6 +122,14 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
+| `mod+j` | `terminal.open` | everywhere | a shell beside the note |
+| `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
+| `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |
+| `ctrl+]` | `tile.leave` | program | back to the window's own keys |
+| `ctrl+backslash` | `terminal.detach` | program | detach: close the tile, the program runs on |
+| `shift+pageup` | `terminal.scroll lines=-12` | program | up through what scrolled off |
+| `shift+pagedown` | `terminal.scroll lines=12` | program | back down |
+| `mod+shift+v` | `terminal.paste` | program | paste the clipboard into the program |
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |

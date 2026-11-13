@@ -151,6 +151,8 @@ impl App {
         self.end_gone(&here);
         let focus = self.st.layout.focus.clone();
         for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
+        // The terminal the person stepped out of is one they step into again once their keys have been elsewhere.
+        if self.st.out_of.as_ref().is_some_and(|tile| *tile != focus) { self.st.out_of = None }
     }
 
     /// The whole arrangement leaves the window with its outline (which is parked as it stands: nothing of it goes,
@@ -169,11 +171,13 @@ impl App {
         let Some(path) = &self.kept_in else { return };
         // No screen yet is nothing to keep: the file is what a window opens as next time.
         if self.screen.is_nowhere() { return }
-        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject }))).collect();
+        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject, "program": ui.program }))).collect();
         let extension = match &self.screen.from { From::Extension(id) => Some(id.clone()), _ => None };
         // The screen is kept by its name and the revision of the note it was laid out from, never as a copy of its
         // spec: what a screen says of itself is the service's row for it, read when the window opens again.
-        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "seen": self.screen_seen.as_ref().map(|(_, mark)| mark), "layout": self.layout.save(), "tiles": tiles });
+        let kept = json!({ "screen": self.screen.name, "title": self.screen.title, "note": self.screen.note().map(|(id, revision)| json!({ "id": id, "revision": revision })), "extension": extension, "seen": self.screen_seen.as_ref().map(|(_, mark)| mark), "layout": self.layout.save(), "tiles": tiles,
+            // What each program still running was started as: a tile made for one again, this launch or the next, is of its kind.
+            "programs": self.store.programs_known().iter().map(crate::pty::Made::json).collect::<Vec<_>>() });
         if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
         if let Err(e) = std::fs::write(path, serde_json::to_vec_pretty(&kept).unwrap_or_default()) { eprintln!("ep0ch-native: can't keep the arrangement in {}: {e}", path.display()) }
     }
@@ -201,8 +205,10 @@ impl App {
             slot.narrowed = ui["narrowed"].as_array().into_iter().flatten().filter_map(|pair| Some((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string()))).collect();
             slot.chosen = ui["chosen"].as_object().into_iter().flatten().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string()))).collect();
             slot.subject = ui["subject"].as_str().map(str::to_string);
+            slot.program = ui["program"].as_str().map(str::to_string);
         }
         self.st.layout = layout;
+        for made in kept["programs"].as_array().into_iter().flatten().filter_map(crate::pty::Made::read) { self.store.program_remember(made) }
     }
 }
 

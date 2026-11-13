@@ -45,6 +45,9 @@ pub struct TileUi {
     /// The words selected in a reader, as it shows them, and the span of the note's text they were drawn within:
     /// what a comment made here is on.
     pub passage: Option<crate::draft::Quoted>,
+    /// A terminal tile's program, by the key the run holds it under (`pty::Programs`): kept with the arrangement,
+    /// so the tile finds the same program in another window, and the next launch where its host still runs it.
+    pub program: Option<String>,
 }
 
 /// What a press did, and where it was pressed: the note and the line of the part.
@@ -190,6 +193,15 @@ pub struct State {
     pub form: Option<FormUi>,
     /// The outlines this window has switched away from, each as it was left.
     pub parked: HashMap<OutlineAt, Parked>,
+    /// The terminal tile the person stepped out of (`tile.leave`): its program runs on and the keys are the
+    /// window's, until they step back in or the keys go to another tile.
+    pub out_of: Option<Id>,
+    /// The tile a paste was asked into with no words of its own, until the clipboard is read for it.
+    pub pasting: Option<Id>,
+    /// What the run's programs had shown when the window last looked (`Store::programs_moved`).
+    pub programs_seen: u64,
+    /// The terminal tile being closed with its program left running (`terminal.detach`): a close of it ends nothing.
+    pub detaching: Option<Id>,
     /// The window was asked to close: the shell closes it on the next frame.
     pub closing: bool,
     pub notice: Option<Notice>,
@@ -246,6 +258,8 @@ const KINDS: &str = "kinds";
 const ROWS: &str = "actions";
 /// Where the asker is: the screen it has open, by name (`ListsRequest.screen`: a list of the keys puts that screen's own first).
 const SCREEN: &str = "screen";
+/// What the asker runs in its terminal tiles: its programs, each as it says of itself (`ListsRequest.programs`).
+const PROGRAMS: &str = "programs";
 /// The list is of: the source it names (`from`), in a tile's fields.
 const FROM: &str = "from";
 
@@ -296,6 +310,10 @@ impl App {
                 bar: BarUi { open: false, scope: "all".into(), edit: Text::new(""), cursor: 0 },
                 form: None,
                 parked: HashMap::new(),
+                out_of: None,
+                pasting: None,
+                programs_seen: 0,
+                detaching: None,
                 closing: false,
                 notice: None,
                 agent_said: None,
@@ -312,6 +330,12 @@ impl App {
             kept_in: None,
             recovery: None,
         }
+    }
+
+    /// What runs the programs of this run's terminal tiles (`pty::Host`): said once, before the window starts.
+    pub fn running_on(mut self, host: Box<dyn crate::pty::Host>) -> App {
+        self.store.programs_on(host);
+        self
     }
 
     /// The arrangement is kept in this file between runs, and read from it now when it is there; what is being
@@ -442,6 +466,7 @@ impl App {
             About::Lists => self.drawer_of(tile).is_some_and(|drawer| drawer.lists),
             About::Tree => self.is_tree(tile),
             About::Drafts => self.draft_on(tile).is_some(),
+            About::Programs => self.drawer_of(tile).is_some_and(|drawer| drawer.takes_keys),
             About::Nothing | About::Any | About::Placed => self.spec(tile).is_some(),
         }
     }
@@ -518,7 +543,7 @@ impl App {
         let mut params = serde_json::Map::new();
         params.insert(FROM.into(), json!(from));
         for name in self.source_params(from)? {
-            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), ROWS => Some(super::rows().clone()), SCREEN => Some(json!(self.screen.name)).filter(|_| !self.screen.is_nowhere()), _ => None };
+            let own = || match name { DRAWERS => Some(json!(tiles::drawers())), KINDS => Some(json!([])), ROWS => Some(super::rows().clone()), SCREEN => Some(json!(self.screen.name)).filter(|_| !self.screen.is_nowhere()), PROGRAMS => Some(self.store.programs_said()), _ => None };
             if let Some(value) = fill(name).or_else(own) { params.insert(name.to_string(), value); }
         }
         Some(if watched { Ask::watched(&self.at, "lists.read", Value::Object(params)) } else { Ask::read(&self.at, "lists.read", Value::Object(params)) })
@@ -652,7 +677,11 @@ impl App {
         // The note a reader shows (`note_of`: the one it was told). One told none shows none and is drawn as empty:
         // it takes a closed reader's note, and no open is "already shown" in it.
         let showing = if notes { self.note_of(tile) } else { None };
-        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, ..layout::Facts::default() }
+        // A terminal's program that runs: an agent doesn't end it, and no open lands in its tile.
+        // (What it runs, in the tile's own words: the line typed into it, else its kind as the kind calls itself.)
+        let running = self.ui(tile).program.as_deref().filter(|key| self.detaching.as_deref() != Some(tile) && drawer.is_some_and(|d| d.takes_keys) && self.store.program_runs(key))
+            .map(|_| self.field_of(tile, "command").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("its {}", self.kind_of(tile).map_or(kind.clone(), |row| row.name.to_lowercase()))));
+        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, running, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: a block is being written in it. The fact is the one the layout's rules read
@@ -708,6 +737,8 @@ impl App {
     fn follow(&mut self) {
         self.open_first();
         self.screen_moved();
+        // Every terminal tile has its program: one that came with a screen is started as the window.
+        self.run_programs("window");
         // A list about a note that doesn't follow takes the note its home shows now as its subject, once, and keeps it.
         for tile in self.shown_tiles() {
             if !self.about_a_note(&tile) || !self.waits_for_a_note(&tile) || self.follows(&tile) || self.ui(&tile).subject.is_some() { continue }
