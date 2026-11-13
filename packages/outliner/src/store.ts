@@ -2869,7 +2869,7 @@ export class OutlinerStore {
 
     this.database.transaction(() => {
       this.database.query("UPDATE blocks SET parent_id = ? WHERE id = ?").run(parentId, id);
-      const updatePosition = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
+      const updatePosition = this.database.query("UPDATE blocks SET position = ?1 WHERE id = ?2 AND position IS NOT ?1");
       const now = new Date().toISOString();
       siblings.forEach((sibling, index) => updatePosition.run(index, sibling.id));
       this.normalizePositions(block.parentId);
@@ -2903,7 +2903,7 @@ export class OutlinerStore {
       const order = [...ids, ...all.filter((child) => child.effectiveDeletedRootId).map((child) => child.id)];
       const moved = ids.filter((id, index) => live[index]!.id !== id);
       const now = new Date().toISOString();
-      const updatePosition = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
+      const updatePosition = this.database.query("UPDATE blocks SET position = ?1 WHERE id = ?2 AND position IS NOT ?1");
       order.forEach((id, index) => updatePosition.run(index, id));
       for (const id of moved) {
         if (provenance) this.recordActivity(id, provenance, "move", now);
@@ -6051,9 +6051,8 @@ export class OutlinerStore {
       if (siblings) siblings.push(row);
       else children.set(row.parent_id, [row]);
     }
-    const update = this.database.query(
-      "UPDATE blocks SET effective_deleted_root_id = ? WHERE id = ?",
-    );
+    // Only rows whose Trash root changes: each write is logged whole, and rewriting all logged the outline (PIE-1786).
+    const update = this.database.query("UPDATE blocks SET effective_deleted_root_id = ?1 WHERE id = ?2 AND effective_deleted_root_id IS NOT ?1");
     const visit = (row: (typeof rows)[number], inheritedRoot: string | null): void => {
       const effectiveRoot = row.deleted_at ? row.id : inheritedRoot;
       update.run(effectiveRoot, row.id);
@@ -6064,7 +6063,7 @@ export class OutlinerStore {
 
   private normalizePositions(parentId: string | null): void {
     const siblings = this.childrenFromCurrentRead(parentId);
-    const update = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
+    const update = this.database.query("UPDATE blocks SET position = ?1 WHERE id = ?2 AND position IS NOT ?1");
     siblings.forEach((sibling, index) => update.run(index, sibling.id));
   }
 

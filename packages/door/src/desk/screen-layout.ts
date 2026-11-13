@@ -209,7 +209,7 @@ export type At<I = number> = (Place<I>
   | { kind: "next"; from: I }
   | { kind: "float"; rect?: Rect; near?: I } | { kind: "kept" /* the dock that keeps work: keptInDock (PIE-1679) */ }) & { restore?: ReturnShell[] };
 
-export { answerLands, besideOrder, type Beside, type Prefers } from "./landing";
+export { answerLands, besideOrder, landsBeside, type Beside, type Prefers } from "./landing";
 import type { Beside } from "./landing";
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */

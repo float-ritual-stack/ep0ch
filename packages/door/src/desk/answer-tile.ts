@@ -13,6 +13,10 @@ import { projectionsOf } from "../projection";
 import { tileRegistry } from "./tile-registry";
 import { unsent } from "../draft-session";
 import { UNSENT_BACK } from "../unsent";
+import type { Actor } from "../socket";
+import { TXN } from "../surface/txn";
+import type { Desk } from "./desk";
+import type { TileDone, Where } from "./tile-actions";
 
 /**
  * The answer's reader, named `source`: on its own desk, else on the desk around it (`../source`): an answer an agent
@@ -122,19 +126,36 @@ export class AnswerTile implements Pane {
    * does, unless the reader is back by the time the close comes round, with no undo step of its own. Drawn, it sees that
    * itself; a tab behind its reader isn't drawn, so the desk says so as the reader goes (PIE-1757).
    */
-  readerLeft(desk: Pick<DeskApi, "paneNamed" | "pane" | "dismiss">) {
-    if (this.closing || readerOf(desk, this.source) instanceof ReaderPane) return;
+  readerLeft(desk: Pick<DeskApi, "paneNamed" | "pane" | "dismiss" | "nameOfPane">) {
+    if (this.closing || this.readerOn(desk) instanceof ReaderPane) return;
     this.closing = true;
-    queueMicrotask(() => { if (this.closing && !(readerOf(desk, this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+    queueMicrotask(() => { if (this.closing && !(this.readerOn(desk) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+  }
+  /** The reader it last stood beside (render, or a pair's move): found again under the name it has now. */
+  private seen?: ReaderPane;
+  /** It goes on beside `r` (a pair's move, PIE-1794), whatever `r` is named where it lands or comes back to. */
+  goesWith(r: ReaderPane) { this.seen = r; }
+  /**
+   * Its reader on `desk`: by the name it reads, else the reader it last stood beside, under the name it has there now (a
+   * move or its undo renamed it, PIE-1794), which it then reads by.
+   */
+  readerOn(desk: Pick<DeskApi, "paneNamed" | "pane" | "nameOfPane">): Pane | undefined {
+    const r = readerOf(desk, this.source);
+    if (r instanceof ReaderPane || !this.seen) return r;
+    const now = desk.nameOfPane?.(this.seen);
+    if (!now) return r;
+    this.source = now;
+    return this.seen;
   }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
   private shownLive: boolean | null = null;
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
-    const reader = readerOf(desk, this.source);
+    const reader = this.readerOn(desk);
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
     // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
     // back). The next ask opens one beside the reader where it is now.
     if (!(reader instanceof ReaderPane)) { this.readerLeft(desk); return this.said("The answer's reader has gone.", w, h); }
+    this.closing = false; this.seen = reader;   // beside its reader again (moved with it, PIE-1794): a close on its way from where it was is off
     this.closing = false;
     // Its reader hasn't read its note yet (a door just restored, CodeRabbit on #1435): nothing is gone, and nothing is
     // known yet that a save should change.
@@ -176,6 +197,19 @@ const reading = (reader: ReaderPane) => !reader.surface.draft && !reader.msg;
  * Where `answer.fold` folds the answer, in the words its description and the tile's hint row both use (PIE-1741): the
  * answer in the edit open on its note (fold.toggle's draft branch), else the reader's callout.
  */
+/**
+ * `ids` and the answer tiles beside them that read one of them (by name): what a gather takes, so no answer is left behind
+ * (PIE-1792). A reader with its edit open isn't one: its ask brings the answer beside it in the group (PIE-1585).
+ */
+export function answersWith(panes: ReadonlyMap<number, Pane>, ids: readonly number[], nameOf: (id: number) => string): number[] {
+  const names = new Set(ids.filter(id => { const r = panes.get(id); return r instanceof ReaderPane && !r.surface.draft; }).map(nameOf));
+  return [...ids, ...[...panes].filter(([id, p]) => p instanceof AnswerTile && names.has(p.source) && !ids.includes(id)).map(([id]) => id)];
+}
+/** Why a gather of `ids` built from a container or a named pair (node=, with=) would leave out an answer `all` adds, or null: it has no place there, so it would close. */
+export function answerLeftOut(panes: ReadonlyMap<number, Pane>, all: readonly number[], ids: readonly number[], nameOf: (id: number) => string): string | null {
+  const out = all.find(i => !ids.includes(i)), a = out === undefined ? undefined : panes.get(out);
+  return a instanceof AnswerTile ? `${nameOf(out!)}, ${a.source}'s answer, would be left out of the group and close: gather ${a.source} alone (it takes its answer), or ${nameOf(out!)} with it` : null;
+}
 export const FOLD_WHERE = { edit: "in the edit", note: "in the reader" } as const;
 
 export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
@@ -225,8 +259,16 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
 
 export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
-  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), it would close.
-  carryRefusal: (p, from, to, goes) => { const src = (p as AnswerTile).source, r = readerOf(from, src); return r && !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null; },
+  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), or left
+  // behind by it, it would close (PIE-1792). ^W a moves the two as one (answer-pair.ts) and a gather takes it along
+  // (answersWith), so this refuses only a move of one alone. Not refused: a reader with its edit open, whose ask brings
+  // the answer beside it wherever it goes (PIE-1585).
+  carryRefusal: (p, from, to, goes) => {
+    const src = (p as AnswerTile).source, r = readerOf(from, src);
+    if (!(r instanceof ReaderPane)) return null;
+    if (!goes.has(p)) return goes.has(r) && !r.surface.draft ? `${src} goes with its answer: moved alone, the answer would close · ^W a moves both, ^W G gathers both` : null;
+    return !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null;
+  },
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined, s.state?.saved as string | undefined),
@@ -235,3 +277,56 @@ export const ANSWER_TILE: TileKind = {
   // One whose ask is gone isn't kept: a door opened next would bring back a dead tile to close (PIE-1733).
   kept: (p, desk) => (p as AnswerTile).live(desk),
 };
+
+// ── a reader and its answer move as one (PIE-1794, PIE-1792) ──
+// ^W a (tile.drawer) on either sends both, into the drawer or out of it, as one recorded step, so one ^W B brings both
+// back; a group holding just the two goes whole. Where the pair can't move together, the one carry plan refuses with why
+// (carryRefusal above); no path closes the answer.
+
+/** The pair tile `name` of `d` is half of (a reader and the answer tile reading it, both on `d`), or null. */
+export function pairOf(d: Desk, name: string): { reader: ReaderPane; answer: AnswerTile } | null {
+  const p = d.paneNamed(name);
+  if (p instanceof AnswerTile) { const r = d.paneNamed(p.source); return r instanceof ReaderPane ? { reader: r, answer: p } : null; }
+  if (!(p instanceof ReaderPane)) return null;
+  const a = d.layoutGet(false).tiles.map(t => d.paneNamed(t.name)).find((q): q is AnswerTile => q instanceof AnswerTile && q.source === name);
+  return a ? { reader: p, answer: a } : null;
+}
+
+/** What moves a tile between a desk and the drawer (the host layer's put and take), each told what goes along. */
+export interface PairHost {
+  isDrawer(d: Desk): boolean;
+  put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where, keep?: boolean, along?: readonly Pane[]): TileDone;
+  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor, along?: readonly Pane[]): TileDone;
+  resolveTile(sel: string): { desk: Desk } | null;
+}
+
+/**
+ * `tile.drawer` on half of a pair on `d`: both go, the reader where it was asked (`to`, `where`), its answer beside it
+ * there, in one transaction across both desks; a group holding just the two goes whole, by its holder's own tile.drawer.
+ */
+export function movePair(d: Desk, host: PairHost, pair: { reader: ReaderPane; answer: AnswerTile }, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
+  const h = d.holder, up = h?.desk();
+  if (h && up && d.inGroup() && d.layoutGet(false).tiles.length === 2) return up.drawerTile(up.nameOfPane(h.tile), undefined, to, where, actor);
+  const inDrawer = host.isDrawer(d), reader = d.nameOfPane(pair.reader), answer = d.nameOfPane(pair.answer);
+  // Whether the answer can follow, asked before anything moves: its own take, and a screen the two would leave blank.
+  const stays = d.takeRefusal(answer, actor) ?? (!inDrawer && !d.inGroup() && d.layoutGet(false).tiles.length === 2 ? "the screen would be blank: it keeps a tile" : null);
+  if (stays) throw new ActionRefused(`${reader} and its answer move together, and ${stays}`);
+  // Its own transaction, even inside a caller's (txn=): a rollback takes back the pair's move and nothing before it.
+  const txn = `drawer:${crypto.randomUUID()}`, touched = new Set<Desk>([d]);
+  pair.answer.goesWith(pair.reader);
+  try {
+    return TXN.run({ ...TXN.getStore(), txn }, () => {
+      const done = inDrawer ? host.take(reader, to, where, actor, [pair.answer]) : host.put(d, reader, actor, false, to, where, false, [pair.answer]);
+      const there = host.resolveTile(done.tile)?.desk;
+      if (!there) return done;
+      touched.add(there);
+      // The answer reads its reader by name: the name it has there now (the drawer may have given it another).
+      pair.answer.source = there.nameOfPane(pair.reader);
+      // The answer beside it, and the drawer's front tab back on the reader (put shows what it carried), where keys that came along stay.
+      try { if (inDrawer) host.take(answer, pair.answer.source, "right", actor); else { host.put(d, answer, actor, false, pair.answer.source, "right"); there.focusTile(done.tile, actor); } }
+      // Refused (the screen is never blank, say): the reader comes back, so both stay where they were, and the refusal says why.
+      catch (e) { pair.answer.source = reader; d.undoLayout(actor, txn, true); throw new ActionRefused(`${reader} and its answer move together, and ${e instanceof Error ? e.message : String(e)}`); }
+      return { ...done, with: there.nameOfPane(pair.answer) };
+    });
+  } finally { for (const x of touched) x.history.close(txn); }
+}

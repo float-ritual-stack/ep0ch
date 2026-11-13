@@ -14,6 +14,8 @@
 // `change_log` as they were, so a follower's log is the home's and can be read onward (`readRange`) or archived.
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
+import { statfsSync } from "node:fs";
+import { dirname } from "node:path";
 
 /** How each table takes part in the log. Every table the schema makes is named here (a test holds it to that). */
 export const LOG_TABLES: Readonly<Record<string, "replicated" | "local">> = {
@@ -206,21 +208,102 @@ export function writeGenesis(database: Database, schema: number): number {
 const GENESIS_CHUNK = 2_000;
 
 /**
- * Keeps the log's size in proportion (ADR 0009): when what was logged since the newest genesis outgrows `factor` times
- * that genesis, a new genesis is written and the entries before the previous one are deleted, so the file holds one
- * generation back for a follower or an archive that is behind. The archive keeps the history. Returns whether it ran.
+ * When the log since its newest genesis outgrows this share of that genesis, a new one is written (PIE-1786): the file
+ * then holds the outline, one genesis and at most half a genesis of edits (a quarter since it, a quarter kept from before
+ * it). For pie (its genesis about 0.8x the outline on disk) that is about 2.2x the outline at its fullest.
  */
-export function compactLog(database: Database, schema: number, factor = 4): boolean {
+export const COMPACT_FACTOR = 0.25;
+/**
+ * What a compaction adds to the disk before it frees anything (Codex on #1500): the new genesis's pages in the file
+ * and the same pages again in the WAL until a checkpoint, each page about this much more than the rows' JSON.
+ */
+const PAGE_OVERHEAD = 1.6;
+
+/** The newest genesis's lsn, its row count and its rows' bytes; null without one. */
+function genesisOf(database: Database): { lsn: number; rows: number; bytes: number } | null {
+  const lsn = latestGenesis(database);
+  if (!lsn) return null;
+  const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(lsn) as { row: string }).row) as { rows?: number }).rows ?? 0;
+  const bytes = (database.query("SELECT COALESCE(SUM(LENGTH(CAST(row AS BLOB))) + SUM(COALESCE(LENGTH(CAST(key AS BLOB)), 0)), 0) AS n FROM change_log WHERE lsn BETWEEN ? AND ?").get(lsn, lsn + rows) as { n: number }).n;
+  return { lsn, rows, bytes };
+}
+
+/** What was logged after the newest genesis's rows, in UTF-8 bytes. */
+const growthAfter = (database: Database, g: { lsn: number; rows: number }) =>
+  (database.query("SELECT COALESCE(SUM(LENGTH(CAST(row AS BLOB))) + SUM(COALESCE(LENGTH(CAST(key AS BLOB)), 0)), 0) AS n FROM change_log WHERE lsn > ?").get(g.lsn + g.rows) as { n: number }).n;
+
+/**
+ * The bytes a compaction needs free on its file's filesystem (Codex on #1500): the new genesis (the replicated rows as
+ * they are now, as their JSON in UTF-8, never the rewrites the log holds of them) in the file and again in the WAL.
+ */
+export function compactionRoom(database: Database): number {
+  let bytes = 0;
+  for (const t of replicatedTables(database)) {
+    const where = t.name === "metadata" ? ` WHERE "key" NOT IN (${LOCAL_METADATA_KEYS.map(lit).join(", ")})` : "";
+    bytes += (database.query(`SELECT COALESCE(SUM(LENGTH(CAST(${rowJson(t, "")} AS BLOB)) + LENGTH(CAST(${keyJson(t, "")} AS BLOB))), 0) AS n FROM ${q(t.name)}${where}`).get() as { n: number }).n;
+  }
+  return Math.ceil(2 * PAGE_OVERHEAD * bytes);
+}
+
+/**
+ * Keeps the log's size in proportion (ADR 0009, PIE-1786): when what was logged since the newest genesis outgrows
+ * `factor` times that genesis, a new genesis is written, in one transaction. What it replaces (the old genesis and
+ * everything before it; the edits since it stay, so a reader behind by less than a generation reads on) is deleted and
+ * its pages given back to the disk afterwards, in bounded steps between requests (`trimLog`). `free`, the bytes free
+ * on the file's own filesystem: one that can't hold the compaction's peak is refused before anything is written.
+ * Returns whether it wrote a genesis.
+ */
+export function compactLog(database: Database, schema: number, factor = COMPACT_FACTOR, free?: number): boolean {
+  if (!compactionDue(database, factor, free)) return false;
+  writeGenesis(database, schema);
+  return true;
+}
+
+/**
+ * Whether `compactLog` would write a genesis now: the log has outgrown its share, and the filesystem has the room
+ * (refused, with why, when it hasn't). Asked on a tick of its own before the genesis's, so neither holds the host's
+ * loop past a client's wait (the estimate scans the outline: about 0.27 s at pie's size).
+ */
+export function compactionDue(database: Database, factor = COMPACT_FACTOR, free?: number): boolean {
+  if (logState(database).role !== "home") return false;
+  const genesis = genesisOf(database);
+  if (!genesis) return false;
+  const growth = growthAfter(database, genesis);
+  if (growth <= factor * Math.max(genesis.bytes, 64 * 1024)) return false;
+  const needed = compactionRoom(database);
+  if (free !== undefined && free < needed) throw new Error(`not compacted: a new genesis needs about ${Math.round(needed / 1048576)} MB and its filesystem has ${Math.round(free / 1048576)} MB free; the log keeps growing until there is room`);
+  return true;
+}
+
+/** Entries deleted, or pages given back, per step of `trimLog`: each step a few tens of milliseconds. */
+const TRIM_ENTRIES = 20_000, TRIM_PAGES = 2_000;
+
+/**
+ * One bounded step of giving back what a compaction replaced: entries before the newest genesis's predecessor's edits
+ * deleted, a batch at a time, then the free pages returned to the disk (`PRAGMA incremental_vacuum`, a file at schema
+ * 13 is `auto_vacuum = INCREMENTAL`) and the WAL checkpointed. Whether there is more to do.
+ */
+export function trimLog(database: Database): boolean {
   if (logState(database).role !== "home") return false;
   const genesis = latestGenesis(database);
   if (!genesis) return false;
-  // The genesis's rows are the outline's size; what came after them is the log's growth since.
-  const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(genesis) as { row: string }).row) as { rows?: number }).rows ?? 0;
-  const size = (where: string) => (database.query(`SELECT COALESCE(SUM(LENGTH(row)), 0) AS n FROM change_log WHERE ${where}`).get(genesis, genesis + rows) as { n: number }).n;
-  if (size("lsn > ?2") <= factor * Math.max(size("lsn >= ?1 AND lsn <= ?2"), 64 * 1024)) return false;
-  writeGenesis(database, schema);
-  database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn < ?").run(genesis); }).immediate();
-  return true;
+  // The genesis before the newest, and its rows: everything through them goes.
+  const previous = (database.query("SELECT MAX(lsn) AS lsn FROM change_log WHERE op = 'g' AND lsn < ?").get(genesis) as { lsn: number | null }).lsn;
+  if (previous !== null) {
+    const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(previous) as { row: string }).row) as { rows?: number }).rows ?? 0;
+    const through = previous + rows;
+    const oldest = (database.query("SELECT MIN(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
+    database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn <= ?").run(Math.min(through, oldest + TRIM_ENTRIES - 1)); }).immediate();
+    return true;
+  }
+  const free = (database.query("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;
+  if (free > 0 && (database.query("PRAGMA auto_vacuum").get() as { auto_vacuum: number }).auto_vacuum === 2) {
+    database.exec(`PRAGMA incremental_vacuum(${TRIM_PAGES})`);
+    return true;
+  }
+  // The freed pages leave the file at a checkpoint; one a reader holds back comes at the next.
+  try { database.query("PRAGMA wal_checkpoint(TRUNCATE)").get(); } catch { /* busy: the next checkpoint */ }
+  return false;
 }
 
 /** One log entry, as a range carries it. `key` and `row` stay the JSON text the log holds. */
@@ -447,6 +530,18 @@ export class OutlineLog {
     if (range.entries.some(e => e.op === "g")) throw new RangeRefused("the home wrote a new genesis (a compaction or a schema step); the copy is made again from it", true);
     try { return applyRange(this.db(), range, this.schema); } finally { this.applied(); }
   }
-  /** Keeps the log in proportion (`compactLog`); the host asks on open and every hour. */
-  compact(factor?: number): boolean { return compactLog(this.db(), this.schema, factor); }
+  /** Keeps the log in proportion (`compactLog`), with what the file's filesystem has free; the host asks on open and every hour. */
+  compact(factor?: number): boolean { return compactLog(this.db(), this.schema, factor, this.free()); }
+  /** Whether a compaction is due and fits (`compactionDue`): the host asks this on one tick and writes the genesis on the next. */
+  due(factor?: number): boolean { return compactionDue(this.db(), factor, this.free()); }
+  /** A compaction's genesis, once `due` said so. */
+  genesis(): void { writeGenesis(this.db(), this.schema); }
+  /** What the file's own filesystem has free, when it can tell. */
+  private free(): number | undefined {
+    const file = this.db().filename;
+    try { if (file && file !== ":memory:") { const fs = statfsSync(dirname(file)); return fs.bavail * fs.bsize; } } catch { /* unknown */ }
+    return undefined;
+  }
+  /** One bounded step of giving back what a compaction replaced (`trimLog`); whether there is more. */
+  trim(): boolean { return trimLog(this.db()); }
 }

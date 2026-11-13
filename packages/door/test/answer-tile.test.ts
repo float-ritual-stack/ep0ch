@@ -41,3 +41,16 @@ test("the answer tile's hint row says what f folds first, whole in a 38-column t
   const tile = new AnswerTile("reader", ask);
   for (const cols of [38, 44]) expect([cols, visible(fitHint(tile.hint(), cols - 4).text)]).toEqual([cols, expect.stringContaining("f fold/unfold in the reader")]);
 });
+
+// CodeRabbit on #1498: a pair's move can rename the reader where it lands (or its undo give the old name back), and an
+// answer reading it by the old name closed. It follows the reader it moved with, under the name it has now.
+test("an answer whose reader was renamed by a move finds it again and doesn't close", async () => {
+  const tile = new AnswerTile("detail", ask), reader = Object.create(ReaderPane.prototype) as ReaderPane;
+  tile.goesWith(reader);
+  let dismissed = 0;
+  const desk = { paneNamed: (n: string) => (n === "detail2" ? reader : undefined), pane: () => undefined, nameOfPane: (p: unknown) => (p === reader ? "detail2" : ""), dismiss: () => { dismissed++; } } as unknown as DeskApi;
+  tile.readerLeft(desk);
+  await Promise.resolve();
+  expect(dismissed).toBe(0);
+  expect(tile.source).toBe("detail2");
+});

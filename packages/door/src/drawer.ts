@@ -1073,22 +1073,23 @@ export class AgentDrawer {
    * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
    * keeps it (its last tile, a fixed shape), or the drawer's layout won't take it there. `put` refuses with it, and a drag over the drawer shows it before the release.
    */
-  putRefusal(from: Desk, name: string, actor: Actor, to?: string, where?: Where): string | null {
+  putRefusal(from: Desk, name: string, actor: Actor, to?: string, where?: Where, along?: readonly Pane[]): string | null {
     const d = this.desk;
     if (!d) return "the drawer isn't ready (no screen is shown yet)";
     if (from === d) return d.tileNow(name, actor).float ? null : `${name} is in the drawer already`;
     // As a tab of the one shown, unless the drop says where in the drawer's layout (`to`, `where`: its drop zones').
-    return from.carryRefusal(d, name, { to, where: where ?? "tabs" }, actor);
+    return from.carryRefusal(d, name, { to, where: where ?? "tabs", ...(along ? { along } : {}) }, actor);
   }
 
   /** `keep`: the drawer stays as shown or put away (agent.lift's fetch, PIE-1337: the lift shows the tab, not the drawer). */
-  put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where, keep = false): TileDone {
+  /** `along`: tiles that go with it in the same step (its answer, PIE-1794), so the carry doesn't refuse leaving them. */
+  put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where, keep = false, along?: readonly Pane[]): TileDone {
     const d = this.desk;
-    const no = this.putRefusal(from, name, actor, to, where);
+    const no = this.putRefusal(from, name, actor, to, where, along);
     if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
     if (from === d) return this.host.ctx!()!.glass!.tuck(name, actor);
     this.dropHover = null;
-    const { keys: followed, moved, ...done } = from.carry(d, name, { to, where: where ?? "tabs" }, actor);
+    const { keys: followed, moved, ...done } = from.carry(d, name, { to, where: where ?? "tabs", ...(along ? { along } : {}) }, actor);
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along when they were in it (the carry's one rule), or when asked.
       d.focusTile(done.tile, actor);
@@ -1144,16 +1145,16 @@ export class AgentDrawer {
    * Tile `name` in the drawer back into the screen shown, beside `to` (`where`), the same way round: asked there and here
    * first, then moved, an agent tab too. The person's keys go with it when they were in it.
    */
-  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
+  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor, along?: readonly Pane[]): TileDone {
     const d = this.desk, shown = this.host.screen?.();
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const screen = tilesOf(shown);
     if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then tile.drawer on=false tile=${name}`);
-    const why = d.carryRefusal(screen, name, { to, where }, actor);
+    const why = d.carryRefusal(screen, name, { to, where, ...(along ? { along } : {}) }, actor);
     if (why) throw new ActionRefused(why);
     const glass = this.glassHasKeys(d.tileInfo(name).tile);
     if (glass) { this.keysFact.outOfGlass(); this.capture = null; }
-    const { keys, moved: _moved, ...done } = d.carry(screen, name, { to, where }, actor);
+    const { keys, moved: _moved, ...done } = d.carry(screen, name, { to, where, ...(along ? { along } : {}) }, actor);
     // The person's keys were in it in the drawer (or on the glass): they go with it, back on the screen.
     if ((keys || glass) && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); if (glass) screen.focusTile(done.tile, actor); }
     this.host.redraw();

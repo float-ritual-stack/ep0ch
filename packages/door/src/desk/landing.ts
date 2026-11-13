@@ -102,6 +102,20 @@ export function besideOrder<I>(b: Beside<I>, r: Rect | undefined): Place<I>[] {
     }
   }
 }
+/**
+ * An open beside tile `base`, refused there (a board's lanes take only their own kind), lands beside the tile `base`
+ * shows its selection in (`shown`, its preview), saying why (PIE-1790: ^W o d on a lane). An open naming its tile
+ * (tile.open to=) passes no `shown`: that tile or the refusal. `open` asks the layout.
+ */
+export function landsBeside<I, R extends { ok: boolean; refused?: string; answer?: Record<string, unknown> }>(open: (beside: I) => R, base: I, shown: I | undefined, name: (id: I) => string): R {
+  const r = open(base);
+  if (r.ok || shown === undefined) return r;
+  const there = open(shown);
+  // The layout's own answer, said why on it: the desk knows a step by that object (who asked it, for undo).
+  if (!there.ok) return r;
+  there.answer = { ...there.answer, why: `${r.refused}, so it went beside ${name(shown)}` };
+  return there;
+}
 const PLACE_WORDS: Record<Dir, string> = { left: "left of", right: "right of", up: "above", down: "below" };
 const whereWord = <I>(p: Place<I>): string => (p.kind === "edge" ? `edge-${p.dir}` : p.kind === "split" ? p.dir : p.kind);
 

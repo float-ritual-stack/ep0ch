@@ -344,7 +344,8 @@ function planRoadmapItem(
   const missing = ALLOCATOR_REQUIRED.filter(k => (k === "track" ? !tracks.length : !fields[k]));
   if (missing.length) {
     const hint = missing.map(k => (k === "priority" ? "[priority::high|medium|low]" : `[${k}::…]`)).join(" ");
-    return { refused: `${name} makes roadmap items through the workboard's allocator, which needs ${listed(missing.map(k => (k === "track" ? "a track" : k)))}: add ${hint} to the text` };
+    // What to type first: a composer that cuts a long refusal at its edge keeps the tokens (PIE-1790).
+    return { refused: `add ${hint} to the text: ${name} makes roadmap items through the workboard's allocator, which needs ${listed(missing.map(k => (k === "track" ? "a track" : k)))}` };
   }
   // An allocator field the service reads as a line's own property, not the item's, would be lost.
   const stray = parsePropertyRecords(text).find(t => ALLOCATOR_KEYS.has(t.key) && t.scope !== "block");

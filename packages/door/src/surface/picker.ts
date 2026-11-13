@@ -57,7 +57,7 @@ export interface PickerSpec<T, H> {
   bindings?: readonly ModeKey[];
   dispatch?(binding: ModeKey, host: H): void;
   clicked?(x: number, y: number, host: H): boolean;
-  clickedItem?(it: T, x: number, host: H): boolean;
+  clickedItem?(it: T, x: number, host: H, line: number): boolean;
   /** Letters that put it away besides esc; `wraps`: ↑ at the top goes round to the bottom. */
   closers?: string;
   wraps?: boolean;
@@ -179,7 +179,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const r = this.box, hit = r && x > r.col && x < Math.min(r.col + r.cols - 1, r.col + 1 + this.listW) ? this.hits.find(h => h.y === y) : undefined;
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
-    if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host)) return;
+    if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host, y - this.hits.find(h => h.i === hit.i)!.y)) return;   // `line`: which of a wrapped item's lines
     if (hit) { const g = this.bindings.find(row => row.key === "click")!.action === "picker.choose" ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button, untimed: !!this.spec.secondClickChooses && hit.i === this.sel }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }

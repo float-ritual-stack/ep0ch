@@ -73,7 +73,10 @@ Done in Jira, not here [type::virtual-branch] [query::child:jira.status=Done NOT
 
 - **On open:** a note whose copy is older than 15 minutes is fetched again.
 - **A poll every 12 minutes** while the service runs: one JQL search (`key in (…) AND updated >= -Nm`, 50 keys a search) finds changed tickets.
+  - It asks about every ticket registered here, with a ticket block or not (a `- [jira::KEY]` list item's too).
   - Only those are read again, and a poll that finds nothing writes nothing.
+  - After a restart, the first poll looks back to each copy's last read (at most a week).
+  - A sprint closing or a person renamed changes a ticket without moving its `updated`: the new read replaces the stored copy.
   - If Jira refuses a `key in` search for a deleted key, that batch is answered from one project search.
   - A search that fails keeps its window, so the next poll looks back far enough.
 - **Credentials refused (401, 403, or none):** automatic fetches pause for 15 minutes.
