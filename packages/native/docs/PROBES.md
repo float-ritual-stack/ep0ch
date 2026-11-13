@@ -524,8 +524,9 @@ What could not be done:
 - **A paste event can be fed to a headless runtime** (`Runtime::paste`), and is what `typing.rs` and the live test
   use. What `Tx::read_clipboard` reads can't be fed from a test (`read_result` is the crate's own), so the chord's
   row is tested to the ask, and `App::pasted` is handed the words.
-- **Not run:** any of this on a Mac. One paste writing a line twice was looked for and not found, in Rune's dispatch
-  (one request a press, a repeat only by key repeat) or here (one writer).
+- **Not run:** any of this on a Mac. One paste writing a line twice was looked for and not found: Rune asks for
+  the clipboard once a key event and here one hand writes. A chord held until the key repeats does paste again
+  (Rune asks on a repeat as on a press, as a Mac's own editors do), which a fast key repeat makes easy to do.
 
 **DESIGN.md §1 Draft:** stands, with `buf: keys::Text` as written. **§7 Draft safety:** the mirror is a file of the
 window's own beside the arrangement's, written as typed, not `edit-recovery.*` (that is the service's record of a
