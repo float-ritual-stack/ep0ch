@@ -267,7 +267,7 @@ describe("the plan", () => {
     const text = formatPlan(f, buildPlan(f, opts()), false);
     expect(text).toContain([
       "1 → Back up every outline",
-      `    copying, because no restore drill has run here yet (ep0ch backup drill --serve): before anything changes, a consistent copy (VACUUM INTO, by the host) of each ${HOME}/outlines/*.sqlite, integrity-checked, into ${HOME}/backups/ep0ch/20260314T092653Z`,
+      `    copying, because the backup job isn't set up here: before anything changes, a consistent copy (VACUUM INTO, by the host) of each ${HOME}/outlines/*.sqlite, integrity-checked, into ${HOME}/backups/ep0ch/20260314T092653Z`,
       "    bbs · boops · float-hub",
       "2 → Update the ep0ch checkout",
     ].join("\n"));

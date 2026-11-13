@@ -14,9 +14,10 @@ export function pruneInstallBackups(root: string, keep: number, say: (line: stri
     const outlines = new Map<string, string[]>();
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       // install writes <outline>.sqlite (and <outline>.schema-N.sqlite before a migration); anything else in the folder
-      // is someone's own file and stays.
-      if (!entry.isFile() || !/^[A-Za-z0-9][A-Za-z0-9._-]*?(?:\.schema-\d+)?\.sqlite$/.test(entry.name)) continue;
-      const name = entry.name.replace(/(?:\.schema-\d+)?\.sqlite$/, "");
+      // is someone's own file and stays. A schema step's copy is outside this retention (Codex on #1502): it is
+      // the way back across that step, and only a later verified step's copy replaces it (olderSchemaCopies).
+      if (!entry.isFile() || /\.schema-\d+\.sqlite$/.test(entry.name) || !/^[A-Za-z0-9][A-Za-z0-9._-]*?\.sqlite$/.test(entry.name)) continue;
+      const name = entry.name.replace(/\.sqlite$/, "");
       outlines.set(name, [...(outlines.get(name) ?? []), entry.name]);
     }
     for (const [name, files] of outlines) {

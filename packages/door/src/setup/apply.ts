@@ -132,6 +132,23 @@ export function olderSchemaCopies(root: string, name: string, keep: string): str
   return readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory()).flatMap(e => readdirSync(join(root, e.name)).filter(f => pattern.test(f)).map(f => join(root, e.name, f))).filter(p => resolve(p) !== resolve(keep));
 }
 
+/**
+ * Each outline's rollback point in the repository after the backup job's snapshot (Codex on #1502): its log, the entry
+ * the repository holds and the snapshot that holds it, every one confirmed uploaded (a relay the hub uploaded counts;
+ * one it couldn't, a change still waiting or a failure don't). Else why not, for install's one line.
+ */
+export function rollbackPoints(state: { outlines: Record<string, { seq?: number | null; logId?: string; snapshot?: string; pendingSince?: string; error?: string; relayed?: { via: string; uploaded?: boolean } }> } | null, names: readonly string[]): { points: { name: string; seq: number; logId: string; where: string }[] } | { why: string } {
+  if (!state) return { why: "the backup job's state couldn't be read after the archive" };
+  const points: { name: string; seq: number; logId: string; where: string }[] = [], short: string[] = [];
+  for (const name of names) {
+    const o = state.outlines[name];
+    const uploaded = !!o && !o.pendingSince && !o.error && (o.relayed ? o.relayed.uploaded === true : !!o.snapshot);
+    if (!o || !uploaded || typeof o.seq !== "number" || !o.logId) { short.push(`${name} (${!o ? "not archived" : o.error ? o.error.slice(0, 80) : o.pendingSince ? "changes not uploaded" : o.relayed && !o.relayed.uploaded ? `relayed to ${o.relayed.via}, not uploaded` : "no snapshot holds it"})`); continue; }
+    points.push({ name, seq: o.seq, logId: o.logId, where: o.relayed ? `uploaded through ${o.relayed.via}` : `snapshot ${o.snapshot!.slice(0, 8)}` });
+  }
+  return short.length ? { why: `the archive doesn't hold every outline as uploaded: ${short.join(", ")}` } : { points };
+}
+
 /** A child's stderr without the progress lines asked for with --progress (Receiving objects:  45% (90/200)). */
 export const withoutProgress = (err: string) =>
   err.split(/\r?\n/).map(l => l.split("\r").at(-1)!).filter(l => l.trim() && !/:\s+\d+% \(/.test(l)).join("\n");
@@ -140,7 +157,14 @@ export const withoutProgress = (err: string) =>
 async function updateCheckout(root: string, name: string, say: (s: string) => void, child: OnLine, env: Env, sha?: string, back = false) {
   const before = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out;
   // Going back is the code alone (PIE-1786): the checkout reset to the earlier commit; the outlines stay as they are.
-  if (back && sha) await must(["git", "-C", root, "reset", "--hard", sha], `the checkout wasn't moved; see git -C ${root} status, then rerun ep0ch install --apply --sha ${sha} --back`, { env, onLine: child });
+  if (back && sha) {
+    // Checked again right before moving: still nothing changed in tracked files, still nothing origin lacks; and
+    // `reset --keep` refuses to overwrite a file git doesn't track where the older commit has one (Codex on #1502).
+    const changed = (await run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { env })).out;
+    if (changed) throw new StepFailed(`the checkout has local changes; not moved`, `commit or move them aside (git -C ${root} status), then rerun ep0ch install --apply --sha ${sha} --back`);
+    if ((await run(["git", "-C", root, "merge-base", "--is-ancestor", "HEAD", "origin/main"], { env })).code !== 0) throw new StepFailed(`the checkout's HEAD isn't on origin/main; not moved`, `push or move its own commits aside (git -C ${root} log origin/main..HEAD), then rerun`);
+    await must(["git", "-C", root, "reset", "--keep", sha], `the checkout wasn't moved (a file of yours is where ${sha.slice(0, 8)} has one, or a local change); see git -C ${root} status, then rerun ep0ch install --apply --sha ${sha} --back`, { env, onLine: child });
+  }
   else await must(sha ? ["git", "-C", root, "merge", "--ff-only", sha] : ["git", "-C", root, "pull", "--ff-only", "--progress", "origin", "main"], `nothing was merged (--ff-only); see git -C ${root} status, fix it, and rerun ep0ch install`, { env, onLine: child });
   const after = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out;
   say(before === after ? `${name} already at ${short(after)}` : `${name} ${back ? "went back" : "fast-forwarded"} ${short(before)} → ${short(after)}`);
@@ -271,20 +295,16 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       if (step.status === "skip") { pruneInstallBackups(backupRoot, keep, say); return; }
       // The rollback point in the archive (PIE-1786): the backup job's snapshot now, then each outline's entry and time.
       if (step.archive) {
-        const started = Date.now();
-        const r = await run([process.execPath, f.repo.entry, "backup", "snapshot"], { env, timeoutMs: 900_000, onLine: child });
+        // The snapshot of this install's own host and folder, never one an inherited EP0CH_SOCKET names (Codex on #1502).
+        const r = await run([process.execPath, f.repo.entry, "backup", "snapshot"], { env: { ...env, EP0CH_SOCKET: f.host.socket, EP0CH_OUTLINES: f.host.folder }, timeoutMs: 900_000, onLine: child });
         const state = r.code === 0 && f.restic?.stateDir ? (() => { try { return readBackupState(f.restic!.stateDir); } catch { return null; } })() : null;
-        // Every outline archived by this run, or it isn't a rollback point: its entry and time now, each.
-        const missing = backups.filter(b => { const at = state?.outlines[b.name]?.at; return !at || Date.parse(at) < started - 1000; }).map(b => b.name);
-        if (state && !missing.length) {
-          for (const b of backups) {
-            const o = state.outlines[b.name]!;
-            say(`${b.name}: rollback point entry ${o.seq ?? "?"} (${o.at}); its data back: ep0ch backup restore ${b.name} --at ${o.at} --to ~/${b.name}-restored.sqlite`);
-          }
+        const points = rollbackPoints(state, backups.map(b => b.name));
+        if (r.code === 0 && "points" in points) {
+          for (const p of points.points) say(`${p.name}: rollback point entry ${p.seq} of log ${p.logId.slice(0, 8)} (${p.where}); its data back: ep0ch backup restore ${p.name} --log ${p.logId} --entry ${p.seq} --to ~/${p.name}-restored.sqlite`);
           pruneInstallBackups(backupRoot, keep, say);
           return;
         }
-        say(`copying instead: ${r.code !== 0 ? `archiving the logs failed (${(withoutProgress(r.err) || r.out).trim().split("\n").at(-1) || `exit ${r.code}`})` : `the archive run left ${missing.join(", ")} unarchived`}`);
+        say(`copying instead: ${r.code !== 0 ? `archiving the logs failed (${(withoutProgress(r.err) || r.out).trim().split("\n").at(-1) || `exit ${r.code}`})` : "why" in points ? points.why : "the archive didn't confirm every outline"}`);
       }
       try { prepareInstallBackups(backupRoot, join(f.home, "wt"), total, keep, say); }
       catch (e) { throw new StepFailed((e as Error).message, "remove stale worktrees with git worktree remove <path>, or move old install backups off this volume, then rerun ep0ch install --apply"); }
@@ -762,7 +782,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   const plan = buildPlan(facts, options);
   if (sha) {
     const repo = plan.steps.find(s => s.id === "repo")!;
-    repo.commands = repo.commands.map(c => c.startsWith("git ") ? (back ? `git -C ${sh(facts.repo.root)} reset --hard ${sha}` : `git -C ${sh(facts.repo.root)} merge --ff-only ${sha}`) : c);
+    repo.commands = repo.commands.map(c => c.startsWith("git ") ? (back ? `git -C ${sh(facts.repo.root)} reset --keep ${sha}` : `git -C ${sh(facts.repo.root)} merge --ff-only ${sha}`) : c);
     if (back && repo.status === "do") { repo.back = true; repo.title = "Take the ep0ch checkout back"; repo.why = `back ${facts.repo.checkout.behind} commit${facts.repo.checkout.behind === 1 ? "" : "s"}: ${short(facts.repo.checkout.head)} → ${short(sha)}; the outlines stay as they are`; }
   }
   if (!apply) {

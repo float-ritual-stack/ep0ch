@@ -235,7 +235,8 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
   if (!anythingElse) return { id: "backup", title, status: "skip", why: `nothing else changes, so no backup is needed (${f.databases.length} outline${f.databases.length === 1 ? "" : "s"})`, commands: [], backups };
   // The data's way back is the archive once a served restore drill has proved it (PIE-1786): every outline's log
   // archived now, its point said; the code's way back is `--sha <earlier> --back`, apart from it. Else, copies.
-  const stands = drillStandsIn(f.restic?.state ?? null, o.now.getTime());
+  const stands = f.restic ? drillStandsIn(f.restic.state, o.now.getTime(), { repo: f.restic.repo, machine: f.restic.config.machine, outlines: f.databases.map(d => ({ name: d.name, logId: f.restic!.state?.outlines[d.name]?.logId ?? null })) })
+    : { ok: false as const, why: "the backup job isn't set up here" };
   if (stands.ok) return { id: "backup", title: "Mark every outline's rollback point", status: "do", archive: true, backups,
     why: `the backups stand in for copies (a served restore drill passed ${f.restic!.state!.drill!.at}): every outline's log archived now, and the point to restore to said`, commands: ["ep0ch backup snapshot"] };
   // A served outline is copied by its host (PIE-1750); a stopped one, with no host answering, from its file.

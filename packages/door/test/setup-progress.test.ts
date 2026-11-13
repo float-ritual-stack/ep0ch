@@ -262,7 +262,7 @@ describe("the whole command, in a scratch home", () => {
 
   test("install marks a rollback point in the archive once a served drill stands in, and copies, saying why, when it can't (PIE-1786)", async () => {
     const f = home("rollback-point");
-    const env = { ...f.env, EP0CH_STATE: join(f.h, "state") };
+    const env = { ...f.env, EP0CH_STATE: join(f.h, "state"), EP0CH_BACKUP_MACHINE: "garden-shed", EP0CH_BACKUP_REPO: `${f.h}/repos/{machine}` };
     const plan = async () => {
       const out: string[] = [];
       expect(await setupCommand(["install", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot })).toBe(0);
@@ -273,14 +273,20 @@ describe("the whole command, in a scratch home", () => {
     // A served drill that passed today: the archive stands in.
     mkdirSync(join(f.h, "state/backup"), { recursive: true });
     const at = new Date().toISOString();
-    writeFileSync(join(f.h, "state/backup/state.json"), JSON.stringify({ outlines: {}, drill: { at, ok: true, detail: "restored, replayed and served 2", served: [{ outline: "field-notes", restoreMs: 900, replayMs: 300, serveMs: 400, blocks: 1 }] } }));
+    const served = (outline: string) => ({ outline, logId: null, restoreMs: 900, replayMs: 300, serveMs: 400, blocks: 1 });
+    const drill = { at, ok: true, detail: "restored, replayed and served 2", repo: `${f.h}/repos/garden-shed`, machine: "garden-shed", served: [served("field-notes")] };
+    const writeState = (d: object) => writeFileSync(join(f.h, "state/backup/state.json"), JSON.stringify({ outlines: {}, drill: d }));
+    // A drill that didn't cover every outline here: copies, saying which (Codex on #1502).
+    writeState(drill);
+    expect((await plan()).why).toMatch(/^copying, because the last served restore drill didn't cover seed-library/);
+    writeState({ ...drill, served: [served("field-notes"), served("seed-library")] });
     const stands = await plan();
     expect({ title: stands.title, archive: stands.archive }).toEqual({ title: "Mark every outline's rollback point", archive: true });
     // Applied with no repository to archive to: it copies after all, and says why in one line.
     const out: string[] = [];
     await setupCommand(["install", "--apply", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot });
     const step = JSON.parse(out.at(-1)!).steps.find((s: { id: string }) => s.id === "backup") as { done: string[] };
-    expect(step.done.join("\n")).toMatch(/copying instead: (archiving the logs failed \(.+\)|the archive run left field-notes, seed-library unarchived)/);
+    expect(step.done.join("\n")).toMatch(/copying instead: (archiving the logs failed \(.+\)|the archive doesn't hold every outline as uploaded: field-notes \(not archived\), seed-library \(not archived\))/);
     expect(step.done.join("\n")).toContain("field-notes: ");
   }, 60_000);
 

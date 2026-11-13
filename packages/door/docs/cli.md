@@ -275,7 +275,7 @@ ep0ch backup list <outline> [--machine <name>]
 
 an outline's snapshots
 ```text
-ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>
+ep0ch backup restore <outline> [--machine <name>] [--at <time> | --log <id> --entry <n>] --to <path>
 ```
 
 an outline's newest snapshot (or the newest at or before --at: an ISO time, or 3h,

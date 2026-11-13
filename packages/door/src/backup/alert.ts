@@ -58,23 +58,33 @@ export const PRUNE_RETRY_MS = 3 * 3_600_000;
 /** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
 export interface Drill {
   at: string; ok: boolean; detail: string; via?: string;
-  /** A served drill (`--serve`, PIE-1786): each outline opened by a scratch host and read, with its times. */
-  served?: { outline: string; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }[];
+  /** A served drill (`--serve`, PIE-1786): each outline opened by a scratch host and read, with its times and its log. */
+  served?: { outline: string; logId?: string | null; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }[];
+  /** The repository and the machine it drilled (Codex on #1502): a pass stands for those only. */
+  repo?: string; machine?: string;
 }
 
 /** How recent a passing served drill must be for install to stop copying outlines (PIE-1786). */
 export const SERVED_DRILL_FRESH_MS = 7 * 24 * 3_600_000;
 
+/** What install would rely on the drill for: this machine's repository, and each outline with the log it archives. */
+export interface DrillInventory { repo: string; machine: string; outlines: { name: string; logId?: string | null }[] }
+
 /**
  * Whether the backups can stand in for install's copies now (PIE-1786): a served drill passed within
- * SERVED_DRILL_FRESH_MS, on this machine's own repository. Else, why not, in words install says in one line.
+ * SERVED_DRILL_FRESH_MS, of this machine's own repository, covering every outline install has, each with the log the
+ * archive now holds of it (Codex on #1502: an outline made since, a log begun again, another repository, each copies).
+ * Else, why not, in words install says in one line.
  */
-export function drillStandsIn(s: Pick<BackupState, "drill"> | null, now: number): { ok: true } | { ok: false; why: string } {
+export function drillStandsIn(s: Pick<BackupState, "drill"> | null, now: number, inventory: DrillInventory): { ok: true } | { ok: false; why: string } {
   const d = s?.drill;
   if (!d) return { ok: false, why: "no restore drill has run here yet (ep0ch backup drill --serve)" };
   if (!d.ok) return { ok: false, why: `the last restore drill failed (${d.at}): ${d.detail.slice(0, 160)}` };
   if (!d.served?.length) return { ok: false, why: `the last restore drill (${d.at}) didn't serve its outlines from a scratch host (ep0ch backup drill --serve)` };
   if (now - Date.parse(d.at) > SERVED_DRILL_FRESH_MS) return { ok: false, why: `the last served restore drill is from ${d.at}, more than 7 days ago (ep0ch backup drill --serve)` };
+  if (d.repo !== inventory.repo || d.machine !== inventory.machine) return { ok: false, why: `the last served restore drill was of ${d.machine ?? "another machine"}'s repository ${d.repo ?? "(not recorded)"}, not ${inventory.machine}'s ${inventory.repo} (ep0ch backup drill --serve)` };
+  const uncovered = inventory.outlines.filter(o => !d.served!.some(t => t.outline === o.name && (!o.logId || t.logId === o.logId))).map(o => o.name);
+  if (uncovered.length) return { ok: false, why: `the last served restore drill didn't cover ${uncovered.join(", ")} as it is now (made since, or its log begun again; ep0ch backup drill --serve)` };
   return { ok: true };
 }
 

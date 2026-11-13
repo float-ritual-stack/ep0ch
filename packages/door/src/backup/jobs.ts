@@ -265,14 +265,14 @@ function counted(was: ForgetState | undefined, r: Ran & { cleared?: string; unlo
 
 /** Each outline's newest archive (this machine's repository) restored into a temp folder, replayed and checked. */
 /** A served drill's times for one outline (PIE-1786): restic's restore, the replay, and a scratch host opening it to read. */
-export interface DrillTimes { outline: string; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }
+export interface DrillTimes { outline: string; logId: string | null; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }
 
 /**
  * The restore drill: each outline's newest archive restored into a temp folder, replayed and checked. `serve` (PIE-1786)
  * also opens each replayed file with a scratch outline host of its own (its own folder and socket, read-only) and reads
  * its notes through it, timing each part: the proof install needs before it stops copying outlines.
  */
-export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string; serve?: boolean } = {}): Promise<{ ok: boolean; detail: string; served?: DrillTimes[] }> {
+export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string; serve?: boolean } = {}): Promise<{ ok: boolean; detail: string; served?: DrillTimes[]; repo?: string; machine?: string }> {
   const say = o.say ?? (() => {});
   // Another machine's (the hub drilling for one that can't reach its repository): that machine's repository.
   const repo = c.repoOf(o.machine ?? c.machine);
@@ -301,7 +301,7 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
         const s = await serveDrilled(folder, snap.outline);
         if ("error" in s) { verdict = s.error; line = `${snap.outline} FAILED to serve: ${s.error}`; }
         else {
-          const times = { outline: snap.outline, restoreMs: Math.round(t1 - t0), replayMs: Math.round(t2 - t1), serveMs: s.ms, blocks: s.blocks };
+          const times = { outline: snap.outline, logId: snap.logId ?? null, restoreMs: Math.round(t1 - t0), replayMs: Math.round(t2 - t1), serveMs: s.ms, blocks: s.blocks };
           served.push(times);
           // The host serves the notes out of the Trash: the file's own count of those is what it must read.
           const live = (() => { const db = new Database(out, { readonly: true }); try { return (db.query("SELECT COUNT(*) AS n FROM blocks WHERE effective_deleted_root_id IS NULL").get() as { n: number }).n; } finally { db.close(); } })();
@@ -315,7 +315,7 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
       rmSync(target, { recursive: true, force: true });
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
-  return { ok, detail: `${o.serve ? "restored, replayed and served" : "replayed"} ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}`, ...(o.serve ? { served } : {}) };
+  return { ok, detail: `${o.serve ? "restored, replayed and served" : "replayed"} ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}`, ...(o.serve ? { served, repo, machine: o.machine ?? c.machine } : {}) };
 }
 
 /** A replayed outline opened by a scratch host of its own (read-only, in `folder`), its notes read through its socket. */
@@ -336,7 +336,7 @@ async function serveDrilled(folder: string, outline: string): Promise<{ blocks: 
  * the hub, which restores this machine's snapshots from the same repository (`ep0ch backup drill --machine <this>`
  * there); when neither can, it waits, said, and the last drill stands.
  */
-export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null>; serve?: boolean } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string; served?: DrillTimes[] } } | { waiting: string }> {
+export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null>; serve?: boolean } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string; served?: DrillTimes[]; repo?: string; machine?: string } } | { waiting: string }> {
   const repo = c.repoOf(c.machine);
   const why = c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null;
   if (!why) return { drill: await drill(c, o) };

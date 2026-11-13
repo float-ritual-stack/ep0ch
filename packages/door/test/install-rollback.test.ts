@@ -83,3 +83,58 @@ test("a schema step keeps one copy per outline: the copies from earlier steps ar
     expect(olderSchemaCopies(root, "garden", join(root, "20261112T000000Z/garden.schema-12.sqlite"))).toEqual([join(root, "20261101T000000Z/garden.schema-11.sqlite")]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("--back never drops a commit origin doesn't have, nor a file git doesn't track (Codex on #1502)", async () => {
+  const dir = scratchDir("install-back-keep-");
+  const repo = join(dir, "repo"), origin = join(dir, "origin.git"), home = join(dir, "home"), outlines = join(dir, "outlines");
+  mkdirSync(home); mkdirSync(outlines);
+  const env = { HOME: home, PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`, XDG_CONFIG_HOME: join(home, ".config"), EP0CH_OUTLINES: outlines, EP0CH_STATE: join(dir, "state"), GIT_AUTHOR_NAME: "Wren", GIT_AUTHOR_EMAIL: "wren@example.test", GIT_COMMITTER_NAME: "Wren", GIT_COMMITTER_EMAIL: "wren@example.test" };
+  const git = (...args: string[]) => {
+    const r = Bun.spawnSync(["git", ...args], { env, stdout: "pipe", stderr: "pipe" });
+    if (r.exitCode) throw new Error(r.stderr.toString());
+    return r.stdout.toString().trim();
+  };
+  const output: string[] = [];
+  const io = { env, repoRoot: repo, cwd: home, platform: "other", out: (s: string) => output.push(s), err: (s: string) => output.push(s) };
+  const attempt = (sha: string) => setupCommand(["install", "--apply", "--sha", sha, "--back", "--json"], io).catch((e: Error) => { output.push(e.message); return 1; });
+  try {
+    git("init", "-qb", "main", repo);
+    mkdirSync(join(repo, "packages/door/scripts"), { recursive: true });
+    copyFileSync(resolve(import.meta.dir, "../scripts/with-secrets"), join(repo, "packages/door/scripts/with-secrets"));
+    mkdirSync(join(repo, "packages/outliner/src"), { recursive: true });
+    copyFileSync(resolve(import.meta.dir, "../../outliner/src/schema.ts"), join(repo, "packages/outliner/src/schema.ts"));
+    // The older commit tracks seed-notes; the newer one doesn't.
+    writeFileSync(join(repo, "seed-notes"), "from the older commit");
+    git("-C", repo, "add", "."); git("-C", repo, "commit", "-qm", "one");
+    const one = git("-C", repo, "rev-parse", "HEAD");
+    git("-C", repo, "rm", "-q", "seed-notes"); git("-C", repo, "commit", "-qm", "two");
+    git("clone", "-q", "--bare", repo, origin); git("-C", repo, "remote", "add", "origin", origin);
+    git("-C", repo, "fetch", "-q", "origin");
+    // A file of the person's own where the older commit has one: going back would overwrite it.
+    writeFileSync(join(repo, "seed-notes"), "the person's own notes");
+    output.length = 0;
+    expect(await attempt(one)).not.toBe(0);
+    expect(readFileSync(join(repo, "seed-notes"), "utf8")).toBe("the person's own notes");
+    expect(git("-C", repo, "log", "-1", "--format=%s")).toBe("two");
+    rmSync(join(repo, "seed-notes"));
+    // A commit origin doesn't have: going back would drop it.
+    writeFileSync(join(repo, "journal"), "local only"); git("-C", repo, "add", "journal"); git("-C", repo, "commit", "-qm", "local only");
+    const local = git("-C", repo, "rev-parse", "HEAD");
+    output.length = 0;
+    expect(await attempt(one)).not.toBe(0);
+    expect(git("-C", repo, "rev-parse", "HEAD")).toBe(local);
+    expect(output.join("\n")).toMatch(/isn't on origin\/main/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
+
+test("ordinary retention never removes a schema step's copy, even keeping one run (Codex on #1502)", async () => {
+  const { pruneInstallBackups } = await import("../src/setup/install-backups");
+  const root = scratchDir("install-keep-schema-");
+  try {
+    for (const run of ["20261101T000000Z", "20261112T000000Z", "20261113T000000Z"]) { mkdirSync(join(root, run)); writeFileSync(join(root, run, "garden.sqlite"), ""); }
+    writeFileSync(join(root, "20261101T000000Z", "garden.schema-12.sqlite"), "");
+    pruneInstallBackups(root, 1, () => {});
+    expect(readFileSync(join(root, "20261101T000000Z", "garden.schema-12.sqlite"), "utf8")).toBe("");
+    expect(() => readFileSync(join(root, "20261112T000000Z", "garden.sqlite"))).toThrow();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

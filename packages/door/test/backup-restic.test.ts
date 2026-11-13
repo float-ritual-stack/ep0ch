@@ -250,6 +250,35 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(out.filter(l => /log entry \d/.test(l)).length).toBeGreaterThanOrEqual(2);
   }, 120_000);
 
+  test("a rollback point restores to exactly its entry, however much was archived after it (Codex on #1502)", async () => {
+    const s = readBackupState(laptop.state);
+    await write(laptop, "garden", ["Sow the radishes"]);
+    expect((await snapshot(laptop, s, { say })).uploaded).toContain("garden");
+    writeBackupState(laptop.state, s);
+    const point = { logId: s.outlines.garden!.logId!, seq: s.outlines.garden!.seq! };
+    // Later writes, archived in a later snapshot: the point still restores to its own entry, not the newest.
+    await write(laptop, "garden", ["Thin the radishes", "Net the carrots"]);
+    expect((await snapshot(laptop, s, { say })).uploaded).toContain("garden");
+    writeBackupState(laptop.state, s);
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const to = join(root, "point", "garden.sqlite");
+    expect(await backupCommand(["backup", "restore", "garden", "--log", point.logId, "--entry", String(point.seq), "--to", to], io, laptop.env)).toBe(0);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    expect(holds(to, "Sow the radishes")).toBe(true);
+    expect(holds(to, "Net the carrots")).toBe(false);
+    // An entry no snapshot of that log reaches, or another log: nothing written.
+    expect(await backupCommand(["backup", "restore", "garden", "--log", point.logId, "--entry", String(s.outlines.garden!.seq! + 1000), "--to", join(root, "point", "beyond.sqlite")], io, laptop.env)).toBe(1);
+    expect(err.at(-1)).toContain("reaches entry");
+    expect(await backupCommand(["backup", "restore", "garden", "--entry", String(point.seq), "--to", join(root, "point", "nolog.sqlite")], io, laptop.env)).toBe(2);
+    // Install's check of the points after its archive: every outline uploaded, or why not.
+    const { rollbackPoints } = await import("../src/setup/apply");
+    expect(rollbackPoints(s, ["garden", "pantry"])).toMatchObject({ points: [{ name: "garden", seq: s.outlines.garden!.seq }, { name: "pantry" }] });
+    expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, snapshot: undefined, relayed: { via: "hub", uploaded: false } } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("relayed to hub, not uploaded") });
+    expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, pendingSince: "2026-11-13T00:00:00Z" } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("changes not uploaded") });
+    expect(rollbackPoints(s, ["garden", "cellar"])).toMatchObject({ why: expect.stringContaining("cellar (not archived)") });
+  }, 120_000);
+
   test("a restore from the archive holds what the live outline holds", async () => {
     await write(laptop, "pantry", ["Oats", "Lentils"]);
     const s = readBackupState(laptop.state);
@@ -313,11 +342,18 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(drill.ok).toBe(true);
     expect(drill.served?.map(t => t.outline).sort()).toEqual(["garden", "pantry"]);
     expect(drill.served!.every(t => t.serveMs >= 0 && t.blocks !== null && t.blocks > 0)).toBe(true);
-    // The gate install reads: a passing served drill stands in for its copies, for 7 days.
-    expect(drillStandsIn({ drill }, Date.parse(drill.at))).toEqual({ ok: true });
-    expect(drillStandsIn({ drill }, Date.parse(drill.at) + 8 * 86_400_000)).toMatchObject({ ok: false, why: expect.stringContaining("more than 7 days ago") });
-    expect(drillStandsIn({ drill: { ...drill, served: undefined } }, Date.parse(drill.at))).toMatchObject({ ok: false, why: expect.stringContaining("didn't serve") });
-    expect(drillStandsIn(null, 0)).toMatchObject({ ok: false, why: expect.stringContaining("no restore drill") });
+    // The gate install reads: a passing served drill stands in for its copies, for 7 days, for what it covered.
+    expect(drill.repo).toBeTruthy();
+    const at = Date.parse(drill.at);
+    const inventory = { repo: drill.repo!, machine: drill.machine!, outlines: drill.served!.map(t => ({ name: t.outline, logId: t.logId })) };
+    expect(drillStandsIn({ drill }, at, inventory)).toEqual({ ok: true });
+    expect(drillStandsIn({ drill }, at + 8 * 86_400_000, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("more than 7 days ago") });
+    expect(drillStandsIn({ drill: { ...drill, served: undefined } }, at, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("didn't serve") });
+    expect(drillStandsIn(null, 0, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("no restore drill") });
+    // Codex on #1502: an outline made since the drill, a log begun again, another repository: each copies.
+    expect(drillStandsIn({ drill }, at, { ...inventory, outlines: [...inventory.outlines, { name: "cellar" }] })).toMatchObject({ ok: false, why: expect.stringContaining("didn't cover cellar") });
+    expect(drillStandsIn({ drill }, at, { ...inventory, outlines: inventory.outlines.map(o => o.name === "garden" ? { ...o, logId: "another-log" } : o) })).toMatchObject({ ok: false, why: expect.stringContaining("didn't cover garden") });
+    expect(drillStandsIn({ drill }, at, { ...inventory, repo: "/elsewhere/repo" })).toMatchObject({ ok: false, why: expect.stringContaining("not ") });
   }, 120_000);
 
   test("`backup run` at a terminal: each step spins and ends with its time, as install's do; piped, the plain lines", async () => {

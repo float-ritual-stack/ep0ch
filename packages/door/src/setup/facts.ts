@@ -143,6 +143,8 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
     // beyond it is the way to go, as a pull's behind is; one that isn't an ancestor is no going back.
     if (back && sha) {
       if ((await git("merge-base", "--is-ancestor", sha, "HEAD")).code !== 0) throw new Error(`install ${sha} --back: ${sha.slice(0, 8)} isn't behind the checkout's HEAD; --back only goes back along main`);
+      // Nothing of the checkout's own is dropped (Codex on #1502): every commit it holds is on origin/main.
+      if ((await git("merge-base", "--is-ancestor", "HEAD", "origin/main")).code !== 0) throw new Error(`install ${sha} --back: the checkout's HEAD isn't on origin/main (it holds commits origin doesn't have), so going back would drop them; push or move them aside first (git -C ${root} log origin/main..HEAD)`);
       [ahead, behind] = [behind, ahead];
     }
   }

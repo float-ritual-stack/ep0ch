@@ -108,7 +108,7 @@ export interface Replayed { logId: string; lsn: number; at: string | null; rows:
  * its newest genesis at this build's schema up to `until` (an entry's time; default all of it) into `out`, a new file.
  * The result is an outline of its own: a new log id, recorded as forked from the old at the last entry it holds.
  */
-export function replayArchive(root: string, outline: string, out: string, o: { until?: number; logId?: string } = {}): Replayed {
+export function replayArchive(root: string, outline: string, out: string, o: { until?: number; logId?: string; through?: number } = {}): Replayed {
   if (existsSync(out)) throw new Error(`${out} already exists; not overwritten`);
   // The log the snapshot says it holds; without one (a hand-made archive), the one written to last.
   const logs = logsOf(root, outline);
@@ -117,13 +117,15 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   const ranges = segments(log.dir).flatMap(s => readSegment(s.file));
   const all: LogEntry[] = ranges.flatMap(r => r.entries);
   const until = o.until ?? Number.POSITIVE_INFINITY;
-  const upTo = all.filter(e => Date.parse(e.at) <= until);
+  // `through`: no entry past that lsn (an exact rollback point, Codex on #1502), as `until` is no entry past a time.
+  const through = o.through ?? Number.POSITIVE_INFINITY;
+  const upTo = all.filter(e => Date.parse(e.at) <= until && e.lsn <= through);
   const start = upTo.map((e, i) => ({ e, i })).filter(({ e }) => e.op === "g" && (JSON.parse(e.row ?? "{}") as { schema?: number }).schema === SCHEMA_VERSION).at(-1);
   if (!start) throw new Error(`the archive of ${outline} holds no genesis at schema ${SCHEMA_VERSION}${o.until !== undefined ? ` before ${new Date(until).toISOString()}` : ""}; restore it with the build that wrote it`);
   const entries = upTo.slice(start.i);
   checkChain(ranges, entries);
   // Whole transactions only: a cut inside one leaves it out.
-  const lastTxn = entries.at(-1)!.txn, cut = all.some(e => e.txn === lastTxn && Date.parse(e.at) > until);
+  const lastTxn = entries.at(-1)!.txn, cut = all.some(e => e.txn === lastTxn && (Date.parse(e.at) > until || e.lsn > through));
   const kept = cut ? entries.filter(e => e.txn !== lastTxn) : entries;
   const temp = `${out}.${process.pid}.part`;
   rmSync(temp, { force: true });

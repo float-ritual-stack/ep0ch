@@ -603,19 +603,23 @@ macOS; it does not write the Keychain. `keys list` and `keys check` read the sha
 `install` runs these steps in order, each skipped when it's already current, each saying what it did:
 
 1. **The rollback point** (PIE-1786). The data's way back is the archive once it has proved itself: while a served
-   restore drill (`ep0ch backup drill --serve`) passed in the last 7 days, install runs the backup job's snapshot,
-   which archives every outline's log, and says each outline's entry and time with the command that restores it
-   (`ep0ch backup restore <outline> --at <time> --to <path>`). It makes no copies. Otherwise, and when that archive
-   fails or leaves an outline out, it says why in one line and **backs up** every outline (`<outlines>/*.sqlite`)
+   restore drill (`ep0ch backup drill --serve`) passed in the last 7 days, of this machine's repository and covering
+   every outline here with the log the archive holds of it, install runs the backup job's snapshot of this host's
+   folder, which archives every outline's log, and says each outline's exact point with the command that restores it
+   (`ep0ch backup restore <outline> --log <id> --entry <n> --to <path>`, checked to end at that entry). It makes no
+   copies. Otherwise, and when that archive fails or leaves an outline not uploaded, it says why in one line and
+   **backs up** every outline (`<outlines>/*.sqlite`)
    with SQLite's `VACUUM INTO`, a consistent copy even while the host writes, into
    `~/backups/ep0ch/<UTC timestamp>/<name>.sqlite`, integrity-checked. That step runs before any other step changes
    anything, and not at all when nothing else changes. Install keeps the last 10 backup runs per outline
    (`EP0CH_INSTALL_KEEP` overrides the count), pruning older copies before the space check and after a successful
    backup. It checks destination free space against the database and WAL sizes before copying; a refusal reports
    bytes needed, bytes available, old install backups and worktree disk usage. A schema step always makes its own
-   copy of each outline it migrates first, checked (integrity and its notes counted), and keeps only the newest.
-   The code's way back is apart: `ep0ch install --apply --sha <an earlier origin/main commit> --back` resets the
-   checkout to it and leaves every outline as it is. Across a schema step it refuses, and names the copy and the restore.
+   copy of each outline it migrates first, checked (integrity and its notes counted), and keeps only the newest,
+   outside the retention above. The code's way back is apart: `ep0ch install --apply --sha <an earlier origin/main
+   commit> --back` moves the checkout back to it (`git reset --keep`, so a file of yours git doesn't track is never
+   overwritten; refused while HEAD holds commits origin/main doesn't) and leaves every outline as it is. Across a
+   schema step it refuses, and names the copy and the restore.
 2. **Update the ep0ch checkout**: `git pull --ff-only`, then `bun install --frozen-lockfile` at its root when
    needed. The door, the outliner and outline-core move together. After a fast-forward it prints
    **RUN AGAIN: ep0ch install --apply**: this process still uses the install code it started with, so the
