@@ -16,10 +16,13 @@
 // What is read (`drawnText`):
 // - a property token and a line's `^anchor`: not drawn;
 // - `((id|label))`, `[[page|label]]`, `[label](url)`: the label; `[[page]]`: its address; `((id))`: the title of the
-//   note it names, when the asker knows it (`reads.title`), each of its words drawn from the whole reference;
+//   note it names, when the asker knows it (`reads.title`), each of its words drawn from the whole reference, and
+//   read as any words are (a page draws the title through Markdown: its code ticks and emphasis are marks);
 // - a callout's `[!type]`: its icon (and the type's own title when the line gives none), as `proseMarkdown` leads it;
 // - emphasis marks, code ticks, a backslash that escapes a mark, a line's list, quote or heading marker, a code
-//   fence's own two lines, a table's pipes and its separator row: not drawn;
+//   fence's own two lines, a table's pipes and its separator row, a rule (`---`) and the line of dashes or equals
+//   signs under a heading: not drawn (a reader that shows such a line as written, in a code fence, has it in the
+//   quote, where it is read the same way);
 // - any run of blanks, a line break among them: one space.
 //
 // Offsets are UTF-16, as passage.ts keeps them. Pure: no I/O.
@@ -54,8 +57,15 @@ export interface DrawnText {
 const EMPHASIS = new Set(["*", "_", "`", "~"]);
 const LINE_MARKER = new RegExp(`^[ \\t]*(?:#{1,6}[ \\t]+|>[ \\t]?|(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?)+`);
 const TABLE_RULE = /^\s*\|?\s*:?-{2,}[\s|:-]*$/;
+/** A line that is a rule, or the line under a heading written that way: three or more dashes (blanks between them or not), or equals signs, and nothing else. */
+const RULE_LINE = /^[ \t]*(?:(?:-[ \t]*){3,}|={3,}[ \t]*)$/;
 /** What a backslash escapes in Markdown: before one of these it isn't drawn. */
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
+/**
+ * Whether the character at `i` of `text` (which ends at `to`) is a mark and no word: an emphasis mark or a code tick,
+ * or a backslash that escapes a mark (an escaped emphasis mark is left out as any is: the quote's is too).
+ */
+const isMark = (text: string, i: number, to: number) => EMPHASIS.has(text[i]!) || (text[i] === "\\" && i + 1 < to && ESCAPABLE.test(text[i + 1]!));
 
 /** `text` as a reader draws it, with the source each drawn character came from. */
 export function drawnText(source: string, reads: DrawnReads = {}): DrawnText {
@@ -108,8 +118,9 @@ export function drawnText(source: string, reads: DrawnReads = {}): DrawnText {
     const lead = calloutLead(callout, registry);
     spans.push({ start: from, end: from + close, words: callout.title ? lead.slice(0, lead.length - callout.title.length) : lead });
   }
-  // Each line's marker and anchor.
+  // Each line's marker and anchor; a rule's line whole.
   lines.forEach((line, i) => {
+    if (RULE_LINE.test(line)) return void whole(i);
     const marker = LINE_MARKER.exec(line);
     if (marker) spans.push({ start: starts[i]!, end: starts[i]! + marker[0].length });
     const anchor = fragmentAnchorMatch(line);
@@ -130,20 +141,14 @@ export function drawnText(source: string, reads: DrawnReads = {}): DrawnText {
     text += c; at.push(from); end.push(to); blank = false;
   };
   const put = (from: number, to: number) => {
-    for (let i = from; i < to; i++) {
-      const c = source[i]!;
-      if (EMPHASIS.has(c)) continue;
-      // An escaped mark is drawn without its backslash (an escaped emphasis mark is left out as any is: the quote's is too).
-      if (c === "\\" && i + 1 < to && ESCAPABLE.test(source[i + 1]!)) continue;
-      draw(c, i, i + 1);
-    }
+    for (let i = from; i < to; i++) if (!isMark(source, i, to)) draw(source[i]!, i, i + 1);
   };
   let cursor = 0;
   for (const span of kept) {
     put(cursor, span.start);
     if (span.label) put(span.label.start, span.label.end);
-    // Words the source doesn't hold are drawn as they are (a title's `_` is a letter of it), each from the whole span.
-    else if (span.words) for (let i = 0; i < span.words.length; i++) draw(span.words[i]!, span.start, span.end);
+    // Words the source doesn't hold (a title, read as any words are: its marks are no words), each from the whole span.
+    else if (span.words) for (let i = 0; i < span.words.length; i++) { if (!isMark(span.words, i, span.words.length)) draw(span.words[i]!, span.start, span.end); }
     cursor = span.end;
   }
   put(cursor, source.length);

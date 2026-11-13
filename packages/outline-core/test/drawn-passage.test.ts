@@ -69,6 +69,34 @@ test("two paragraphs are one passage, whatever stands between them as drawn", ()
   expect(at(text, "go in first. beans")).toStartWith("miss: ");
 });
 
+test("a rule between two paragraphs and the line under a heading are not drawn: a passage across one is found", () => {
+  // A reader draws `---` as a line with no words: a selection across it is the two paragraphs.
+  const text = "Peas go in first.\n\n---\n\nThe beans go in May.";
+  expect(at(text, "Peas go in first.\n\nThe beans go in May.")).toBe(text);
+  expect(at(text, "in first.\n\nThe beans")).toBe("in first.\n\n---\n\nThe beans");
+  expect(at("Peas.\n\n- - -\n\nBeans.", "Peas.\n\nBeans.")).toBe("Peas.\n\n- - -\n\nBeans.");
+  // A heading written as a line with dashes or equals signs under it.
+  expect(at("Autumn\n------\n\nMulch now.", "Autumn\n\nMulch now.")).toBe("Autumn\n------\n\nMulch now.");
+  expect(at("Autumn\n======\n\nMulch now.", "Autumn\n\nMulch now.")).toBe("Autumn\n======\n\nMulch now.");
+  // Where a reader shows such a line as written (in a code fence), the quote's is read the same way.
+  const fenced = "```yaml\n---\nbed: north\n---\n```";
+  expect(at(fenced, "---\nbed: north\n---")).toBe("bed: north");
+  // Dashes among words are words.
+  expect(at("Peas --- then beans.", "Peas --- then")).toBe("Peas --- then");
+  expect(at("- Peas\n- Beans", "- Peas\n- Beans")).toBe("Peas\n- Beans");
+});
+
+test("a reference drawn as its note's title is read as any words are: the title's marks are not drawn", () => {
+  // The page draws the title through Markdown, so its code ticks and emphasis are marks, and a `_` in a word is read
+  // as it is in any quote.
+  const titles: Record<string, string> = { [PEAS]: "`seed_list` notes, *early* ones" };
+  const title = (id: string) => titles[id];
+  expect(at(`See the ((${PEAS})) first.`, "See the seed_list notes, early ones first.", {}, { title })).toBe(`See the ((${PEAS})) first.`);
+  expect(at(`See the ((${PEAS})) first.`, "seed_list notes", {}, { title })).toBe(`((${PEAS}))`);
+  titles[PEAS] = "Row 3 \\[north\\]";
+  expect(at(`See ((${PEAS})) first.`, "See Row 3 [north] first.", {}, { title })).toBe(`See ((${PEAS})) first.`);
+});
+
 test("a table's cells and a code fence's lines are drawn without the pipes and the ticks", () => {
   const table = "| Bed | Crop |\n| --- | --- |\n| North | Peas |\n| South | Leeks |";
   expect(at(table, "North\tPeas\nSouth")).toBe("North | Peas |\n| South");

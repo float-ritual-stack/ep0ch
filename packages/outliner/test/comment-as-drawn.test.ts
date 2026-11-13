@@ -77,6 +77,22 @@ test("a chip, a callout's line and a list are found as either reader draws them"
   expect(await anchored(c, note, { quote: "- [ ] Stake the beans\n- Lift the garlic", drawn: true })).toBe("Stake the beans\n- Lift the garlic");
 }));
 
+test("a selection across a rule, and across a reference to a note whose title has marks, lands on the source it was drawn from", () => fixture(async c => {
+  const seeds = await c.request<Block>({ action: "create", text: "`seed_list` notes [type::list]\nWhat was bought." });
+  const bed = await c.request<Block>({ action: "create", text: [
+    "Far bed [type::bed]",
+    "Peas go in first.",
+    "",
+    "---",
+    "",
+    `The beans go in May: see the ((${seeds.id})) first.`,
+  ].join("\n") });
+  // A reader draws the rule as a line with no words: the selection is the two paragraphs, a blank line between.
+  expect(await anchored(c, bed, { quote: "Peas go in first.\n\nThe beans go in May", drawn: true })).toBe("Peas go in first.\n\n---\n\nThe beans go in May");
+  // The reference is drawn as its note's title, through Markdown: the title's code ticks are marks, not words.
+  expect(await anchored(c, bed, { quote: "see the seed_list notes first.", drawn: true })).toBe(`see the ((${seeds.id})) first.`);
+}));
+
 test("the same words drawn twice are refused as a source quote's repeats are, and what the reader knows picks one", () => fixture(async c => {
   const text = "Watering [type::rule]\n**Water** the beds at dusk.\n\nWater the beds at dawn too.";
   const note = await c.request<Block>({ action: "create", text });
