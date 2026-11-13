@@ -507,6 +507,28 @@ What could not be done:
 - **Not run:** a real input method (events were fed to `Runtime::ime`), spellcheck, a mouse drag selection across
   a patch landing, and anything on macOS.
 
+**As built (H1), from a first run by hand on a Mac and from reading Rune:**
+
+- **Tab is Rune's unless a row takes it.** The field's adapter is asked first, but the draft layer had no Tab row, so
+  the key fell through to focus traversal and the keys left the block. `draft.indent` and `draft.outdent` are rows
+  of the draft layer now; the list's Tab is asked before them while a list is open.
+- **A paste chord never reaches a key handler in a live window.** Rune's physical dispatch takes ⌘V (Ctrl+V) while
+  a field has focus before any `on_key` runs, reads the clipboard off the event thread and pastes into the focused
+  editor (`runtime/input/physical.rs`, `action.rs`). So a key row alone can't own a paste; the field's
+  `on_input_paste` can (it is asked before the editor), and it takes every way a paste is asked for (the chord, the
+  field's menu, the Edit menu's item on macOS). The kit's `TextArea` hands that hook to nobody, so the block's field
+  is Rune's `text_input` in the kit's frame, built in `keys.rs`. `Runtime::key` (a test, a script) does hand the
+  chord to the table, where the row runs: either way one hand writes, once.
+- **Rune's editor keeps a bare carriage return** in a field of lines: its `sanitize` folds CRLF only. Two files copied
+  in Finder paste as their paths with a carriage return between, which the service reads as one line. The window
+  makes line ends plain as the words come in (`draft::plain_ends`), as one step of the editor's undo.
+- **A paste event can be fed to a headless runtime** (`Runtime::paste`), and is what `typing.rs` and the live test
+  use. What `Tx::read_clipboard` reads can't be fed from a test (`read_result` is the crate's own), so the chord's
+  row is tested to the ask, and `App::pasted` is handed the words.
+- **Not run:** any of this on a Mac. One paste writing a line twice was looked for and not found: Rune asks for
+  the clipboard once a key event and here one hand writes. A chord held until the key repeats does paste again
+  (Rune asks on a repeat as on a press, as a Mac's own editors do), which a fast key repeat makes easy to do.
+
 **DESIGN.md §1 Draft:** stands, with `buf: keys::Text` as written. **§7 Draft safety:** the mirror is a file of the
 window's own beside the arrangement's, written as typed, not `edit-recovery.*` (that is the service's record of a
 merge after a conflict, which this window doesn't start yet).

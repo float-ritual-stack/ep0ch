@@ -40,3 +40,18 @@ test("the quoted rows hold a passage found as written, one found as drawn, and e
   for (const part of t.quotedNote.parts) expect(t.quotedNote.text.slice(part.span.start, part.span.end).length).toBeGreaterThan(0);
   expect(t.quotedNote.parts.map(p => p.view.type)).toEqual(["markdown", "picture", "markdown"]);
 });
+
+test("the indent rows hold a level in and out, tabs, a selection, and a press that moves nothing; each row's spans make its text", () => {
+  const t = JSON.parse(readFileSync(CORE_CONTRACT, "utf8")) as { indent: { text: string; dir: number; anchor: number; cursor: number; spans: { start: number; end: number; replacement: string }[]; after: { text: string }; lines: number }[] };
+  expect(t.indent.length).toBeGreaterThan(20);
+  expect(new Set(t.indent.map(r => r.dir))).toEqual(new Set([1, -1]));
+  expect(t.indent.some(r => r.lines === 0)).toBe(true);
+  expect(t.indent.some(r => r.anchor !== r.cursor && r.lines > 2)).toBe(true);
+  expect(t.indent.some(r => r.spans.some(s => s.replacement === "\t"))).toBe(true);
+  for (const row of t.indent) {
+    let text = row.text;
+    for (const span of [...row.spans].reverse()) text = text.slice(0, span.start) + span.replacement + text.slice(span.end);
+    expect(text).toBe(row.after.text);
+    expect(row.spans.length).toBe(row.lines);
+  }
+});

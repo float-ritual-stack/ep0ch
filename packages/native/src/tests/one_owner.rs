@@ -426,7 +426,7 @@ fn a_block_being_written_has_one_session_and_the_window_finds_no_passage_and_no_
     none("a second map of an offset through placed spans (`draft::map_cursor`, held by core-contract.json)", strays("fn map_cursor(", |path| path == "draft.rs"));
     // Completions: one ask, made by the session from the text and the caret; the rows are drawn and written as served.
     none("what completes a word asked outside the session", strays("\"completion.rows\"", |path| path == "draft.rs"));
-    assert!(code("draft.rs").contains("\"text\": text, \"cursor\": utf16_of(text, caret)") && !code("draft.rs").contains("\"target\""), "the service is handed the text and the caret, never a token found here");
+    assert!(code("draft.rs").contains("\"text\": text, \"cursor\": utf16_of(text, self.buf.ends().1)") && !code("draft.rs").contains("\"target\""), "the service is handed the text and the caret, never a token found here");
     none("a completion row made here: the list is the service's rows, drawn and written as served", ["CompletionRow {", "insert: format!"].iter().flat_map(|made| strays(made, |path| path == "page.rs")).collect());
     // What is typed is kept by one writer, in one file beside the arrangement's.
     none("what is being written kept outside the session's own file", strays(".drafts.json", |path| path == "draft.rs"));
@@ -732,4 +732,32 @@ fn what_h3_added_has_one_owner_each() {
     // What to do next in an empty tile is a line its action's row words, built by one builder: no drawer keys one.
     none("a way to fill an empty tile built by a drawer: `tiles::way` builds it from the action's row", strays("empty/find", |_| false));
     none("which pictures are kept decided outside the picture cache", ["pictures.held", ".behind"].iter().flat_map(|word| strays(word, |path| path == "tiles/picture.rs")).collect());
+}
+
+/// H1, typing: a level in or out is one rule's (outline-core's `indentText`, ported once), a paste enters a draft by
+/// one hand, and what a completion row says of itself is the service's word.
+#[test]
+fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place() {
+    // The rule is ported once, and asked by the one action that runs both keys.
+    none("a level in or out worked out beside `draft::indent`", ["list_lead(", "fn indent("].iter().flat_map(|word| strays(word, |path| path == "draft.rs" || path == "actions/draft.rs")).collect());
+    none("the indent rule asked outside the draft's own actions", strays("draft::indent(", |path| path == "actions/draft.rs" || path.starts_with("tests/")));
+    // Words that come in by a paste have their line ends made plain in one function, called where a paste goes in
+    // and nowhere else; no other file reads or writes a carriage return in a draft's words.
+    none("line ends made plain outside `App::paste_in`", strays("plain_ends(", |path| path == "draft.rs" || path == "actions/draft.rs"));
+    let actions = sources().into_iter().find(|(path, _)| path == "actions/draft.rs").expect("actions/draft.rs").1;
+    assert_eq!(actions.matches("plain_ends(").count(), 1, "one caller: `App::paste_in`");
+    none("a paste put in a draft outside `App::paste_in`", strays("paste_in(", |path| path == "actions/draft.rs" || path == "actions/terminal.rs"));
+    // The field hands a paste to the window before its editor takes it, in the one place fields are built; the
+    // clipboard is read for a paste in one place, and asked for only by the two paste actions.
+    none("a field's paste taken outside keys.rs", strays("on_input_paste(", |path| path == "keys.rs"));
+    none("the clipboard read outside `keys::effects`", strays("read_clipboard(", |path| path == "keys.rs"));
+    none("a paste asked of the clipboard outside the paste actions", strays("st.pasting = ", |path| path == "actions/draft.rs" || path == "actions/terminal.rs"));
+    // A block's field is built in one place (with its keys through the table and its paste through the window).
+    none("a field of lines built outside keys.rs", ["text_input(", "TextArea"].iter().flat_map(|word| strays(word, |path| path == "keys.rs")).collect());
+    // What a row of a completion list says of itself, and what choosing it makes, are read off the service's row:
+    // the drawer builds both through the registry, and the model asks for the lit row's drawing in one place.
+    none("the lit row's drawing asked outside the session", strays("ask[\"lit\"]", |path| path == "draft.rs" || path.starts_with("tests/")));
+    let page = sources().into_iter().find(|(path, _)| path == "tiles/page.rs").expect("tiles/page.rs").1;
+    assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
+    for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
 }

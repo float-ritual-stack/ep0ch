@@ -9,13 +9,13 @@
 use std::hash::{Hash, Hasher};
 
 use rune::{Align, El, ScrollSpec, Side, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Keybind, Kit, PopupItem, PopupList};
+use rune_kit::{Button, ButtonVariant, Keybind, Kit, Placement, PopupItem, PopupList, popover};
 use serde_json::{Value, json};
 
 use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use super::picture::Shown;
-use crate::actions::{self, Actor, App, Field};
+use crate::actions::{self, Actor, App};
 use crate::draft::{DraftSession, Hold};
 use crate::keys;
 use crate::page::Page;
@@ -45,7 +45,7 @@ fn facts(cx: &TileCx) -> Value {
     let page = cx.app.shown_of(cx.id);
     let editing = draft_of(cx).map(|draft| {
         let (anchor, caret) = draft.buf.ends();
-        let completing = cx.app.completing(cx.id).map(|found| json!({ "token": found.token.as_ref().map(|token| json!({ "kind": token.kind, "query": token.query })), "lit": draft.completing.lit + 1, "heading": found.heading, "message": found.message, "rows": found.rows.iter().map(|row| json!({ "label": row.label, "detail": row.detail, "kind": row.kind, "insert": row.insert })).collect::<Vec<_>>() }));
+        let completing = cx.app.completing(cx.id).map(|found| json!({ "token": found.token.as_ref().map(|token| json!({ "kind": token.kind, "query": token.query })), "lit": draft.completing.lit + 1, "heading": found.heading, "message": found.message, "rows": found.rows.iter().map(|row| json!({ "label": row.label, "detail": row.detail, "kind": row.kind, "insert": row.insert, "docs": row.docs })).collect::<Vec<_>>(), "shows": cx.app.completing_lit(cx.id).and_then(|(_, view)| view) }));
         json!({ "note": draft.note, "writes": draft.writes.kind(), "on": draft.writes.on(), "revision": draft.revision, "unsaved": draft.unsaved(), "text": draft.buf.words(), "caret": caret, "anchor": anchor, "held": draft.hold_id().is_some(), "hold": held(draft), "said": draft.told.as_ref().map(|told| json!({ "who": told.who, "did": told.did })), "completing": completing })
     });
     // Its parts, as the service framed them, a box's own after it: what an agent presses a button by (`line`, as
@@ -149,13 +149,7 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let c = &k.c;
     let (saving, unsaved) = (cx.app.saving(), draft.unsaved());
     let (name, hint) = draft.writes.named();
-    let field = keys::area(&draft.buf, Field::Draft(cx.id.to_string()), draft.lit(), c.info.bg)
-        .label(name)
-        .placeholder(hint)
-        .width(None)
-        .rows(if draft.is_block() { 4 } else { 2 })
-        .build(k)
-        .key(cx.key("source"));
+    let field = keys::area(&draft.buf, cx.id, (name, hint), if draft.is_block() { 4 } else { 2 }, draft.lit(), c.info.bg, k).key(cx.key("source"));
     // Leaving is its own act: Done when everything is saved, Discard (by name) when it isn't.
     let buttons = row().gap(6.0).center_y()
         .child(if unsaved { button(cx, "edit.close discard=true", ButtonVariant::Ghost).build(k).key(cx.key("discard")) } else { button(cx, "edit.close", ButtonVariant::Ghost).build(k).key(cx.key("done")) })
@@ -212,4 +206,18 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
         .items(items)
         .on_choose(move |s: &mut App, row, _| { s.act_in(&format!("complete.accept n={row}"), &from, Actor::Person); })
         .build(k, layer);
+    let Some((lit, shown)) = cx.app.completing_lit(cx.id) else { return };
+    let list = format!("{}-content", cx.key("complete"));
+    // Under the list: what it is a list of, in the service's word, and which row of how many is lit.
+    let count = [found.heading.clone().unwrap_or_default(), format!("{}/{}", draft.completing.lit + 1, found.rows.len())].into_iter().filter(|said| !said.is_empty()).collect::<Vec<_>>().join(" ");
+    let strip = row().key(cx.key("complete-count")).preserve_focus_on_press(true).px(8.0).h(22.0).center_y().child(text(count).font(k.ty.small).color(k.c.text_weak));
+    layer.push(popover::anchored(k, popover::raised(k, strip, k.radius.md), &list, Placement::BottomStart, 2.0));
+    // Beside it: what the lit row says of itself (its source's words, Blockdown) and what choosing it makes (the
+    // service's drawing of its example), each a primitive built by the registry. A row that says neither has no panel.
+    if lit.docs.is_none() && shown.is_none() { return }
+    let at = PrimCx::of(cx);
+    let panel = col().key(cx.key("complete-docs")).preserve_focus_on_press(true).w(360.0).padding(10.0).gap(8.0)
+        .children(lit.docs.as_ref().map(|docs| prim::build(&json!({ "type": "blockdown", "text": docs }), &at.at("complete-docs/says"), k)))
+        .children(shown.map(|view| prim::build(view, &at.at("complete-docs/makes"), k)));
+    layer.push(popover::anchored(k, popover::raised(k, panel, k.radius.md), &list, Placement::RightStart, 6.0));
 }

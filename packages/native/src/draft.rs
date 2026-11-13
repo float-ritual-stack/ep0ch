@@ -69,6 +69,10 @@ pub struct Completing {
     pub lit: usize,
     /// The person moved the lit row: Return is a choice, whatever the row says of it.
     pub moved: bool,
+    /// The same question with the lit row named, once it is not the first: its answer carries what choosing that
+    /// row makes, drawn (the list's own answer carries the first row's). The list is read from `ask` all the same,
+    /// so it stays where it is while this one is on its way.
+    pub shows: Option<Ask>,
 }
 
 /// Words of a note a comment is on, and what whoever picked them knows of where they are. Where they are in the
@@ -218,6 +222,82 @@ pub fn version(text: &str) -> String { format!("{:016x}", text.bytes().fold(0xcb
 /// request and the same words written another time are another.
 pub fn send_name() -> String { crate::store::fresh() }
 
+/// Words that come into a draft from outside it, their line ends made plain: a CRLF and a bare carriage return are
+/// each a newline. Everything that enters by a paste goes through here and nowhere else (a paste event, `draft.paste`
+/// with or without its words): a carriage return left between two lines is one line to the service, whatever is
+/// written on each (two files copied in a file manager are a path a line, a carriage return between them).
+pub fn plain_ends(words: &str) -> std::borrow::Cow<'_, str> {
+    if !words.contains('\r') { return std::borrow::Cow::Borrowed(words) }
+    std::borrow::Cow::Owned(words.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// A list item's lead, as far as a level in or out reads it (outline-core's `listLead`): how long its indent, its
+/// marker (`-`, `*`, `+`, `1.`, `1)`: up to nine digits) and the space after it are. None: the line starts no item
+/// (`-` alone isn't one; `- ` with nothing after it is).
+fn list_lead(line: &str) -> Option<(usize, usize, usize)> {
+    let blank = |rest: &str| rest.bytes().take_while(|b| matches!(b, b' ' | b'\t')).count();
+    let indent = blank(line);
+    let rest = &line[indent..];
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let marker = match rest.as_bytes().first() {
+        Some(b'-' | b'*' | b'+') => 1,
+        Some(_) if (1..=9).contains(&digits) && matches!(rest.as_bytes().get(digits), Some(b'.' | b')')) => digits + 1,
+        _ => return None,
+    };
+    let gap = blank(&rest[marker..]);
+    (gap > 0).then_some((indent, marker, gap))
+}
+
+/// A draft's lines one level in or out: the edits (apart, in order, bytes of the text) and where the selection's two
+/// ends are once they are made.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Indented { pub edits: Vec<(usize, usize, String)>, pub anchor: usize, pub caret: usize }
+
+/// The line the caret is on, or every line the selection touches, one level in or out (Tab, Shift+Tab):
+/// outline-core's `indentText`, and the one copy of it here (`fixtures/core-contract.json` holds what that answers
+/// under `indent`, and `tests/contract.rs` asks every row). A list item goes under the item above it by that item's
+/// marker and gap, or back to its parent's level; anything else moves two spaces, or one tab where the line is
+/// indented with tabs; every line moves by the first line's step; blank lines in a selection of several stay; the
+/// caret stays on its text. Offsets are bytes.
+pub fn indent(text: &str, out: bool, anchor: usize, caret: usize) -> Indented {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut starts = Vec::with_capacity(lines.len());
+    let mut at = 0;
+    for line in &lines { starts.push(at); at += line.len() + 1 }
+    let place = |offset: usize| { let offset = offset.min(text.len()); let row = starts.iter().rposition(|start| *start <= offset).unwrap_or(0); (row, offset - starts[row]) };
+    let (a, c) = (place(anchor), place(caret));
+    let (from, to) = (a.0.min(c.0), a.0.max(c.0));
+    let indent_of = |line: &str| line.bytes().take_while(|b| matches!(b, b' ' | b'\t')).count();
+    // The lines above `from` that say where they are, nearest first: a list item's lead (none for prose) and how far in.
+    let above = || lines[..from].iter().rev().filter(|line| !line.trim().is_empty()).map(|line| { let lead = list_lead(line); (lead, lead.map_or(indent_of(line), |lead| lead.0)) });
+    let (first, lead) = (lines[from], list_lead(lines[from]));
+    let ind = lead.map_or(indent_of(first), |lead| lead.0);
+    let tabs = first[..ind].contains('\t');
+    let step = if out {
+        // Back to the level of the item it is nested in: the nearest one above indented less.
+        let mut up = None;
+        if lead.is_some() { for (lead, at) in above() { if at < ind { up = lead; break } if at == 0 { break } } }
+        match up { Some(up) if !tabs => ind - up.0, _ => ind.min(if tabs { 1 } else { 2 }) }
+    } else {
+        // Under the item above it at its own level: by that item's marker and gap.
+        let mut sibling = None;
+        if lead.is_some() { for (lead, at) in above() { if at < ind { break } if lead.is_some() && at == ind { sibling = lead; break } } }
+        match sibling { Some(sibling) if !tabs => sibling.1 + sibling.2, _ => if tabs { 1 } else { 2 } }
+    };
+    let put = if tabs { "\t".to_string() } else { " ".repeat(step) };
+    // Each line that moves, and by how much: in by the step, out by the step or what indent it has.
+    let shifts: Vec<(usize, isize)> = if step == 0 { Vec::new() } else {
+        (from..=to).filter(|row| from == to || !lines[*row].trim().is_empty()).map(|row| (row, if out { -(step.min(indent_of(lines[row])) as isize) } else { step as isize })).filter(|(_, by)| *by != 0).collect()
+    };
+    let edits = shifts.iter().map(|(row, by)| if *by > 0 { (starts[*row], starts[*row], put.clone()) } else { (starts[*row], starts[*row] + by.unsigned_abs(), String::new()) }).collect();
+    let moved = |(row, col): (usize, usize)| {
+        let before: isize = shifts.iter().filter(|(at, _)| *at < row).map(|(_, by)| by).sum();
+        let own = shifts.iter().find(|(at, _)| *at == row).map_or(0, |(_, by)| *by);
+        (starts[row] as isize + before) as usize + (col as isize + own).max(0) as usize
+    };
+    Indented { edits, anchor: moved(a), caret: moved(c) }
+}
+
 /// What a placed span does to an offset beside it (outline-core's `PlacedSpan.caret`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Caret {
@@ -290,10 +370,25 @@ impl DraftSession {
         let caret = self.buf.ends().1;
         if self.changes == self.quiet_at { self.completing = Completing::default(); return }
         if self.completing.ask.is_some() && self.completing.at == (self.changes, caret) { return }
-        let text = self.buf.words();
-        let ask = Ask::read(at, "completion.rows", json!({ "text": text, "cursor": utf16_of(text, caret), "near": self.note }));
-        self.completing = Completing { ask: Some(ask), at: (self.changes, caret), lit: 0, moved: false };
+        self.completing = Completing { ask: Some(self.asks(at, None)), at: (self.changes, caret), lit: 0, moved: false, shows: None };
     }
+
+    /// `completion.rows` for the text and the caret as they are: the list, or (`lit`) the list with that row's drawn form.
+    fn asks(&self, at: &crate::store::OutlineAt, lit: Option<usize>) -> Ask {
+        let text = self.buf.words();
+        let mut ask = json!({ "text": text, "cursor": utf16_of(text, self.buf.ends().1), "near": self.note });
+        if let Some(lit) = lit { ask["lit"] = json!(lit) }
+        Ask::read(at, "completion.rows", ask)
+    }
+
+    /// Another row of the open list is lit, by the person: what choosing it makes is asked for, drawn.
+    pub fn light(&mut self, row: usize, at: &crate::store::OutlineAt) {
+        let shows = (row > 0).then(|| self.asks(at, Some(row)));
+        self.completing = Completing { lit: row, moved: true, shows, ..std::mem::take(&mut self.completing) };
+    }
+
+    /// The question whose answer carries the lit row's drawn form: the list's own while its first row is lit.
+    pub fn shows(&self) -> Option<&Ask> { self.completes().and_then(|ask| if self.completing.lit == 0 { Some(ask) } else { self.completing.shows.as_ref() }) }
 
     /// The question whose answer is for the text and the caret as they are now.
     pub fn completes(&self) -> Option<&Ask> { self.completing.ask.as_ref().filter(|_| self.completing.at == (self.changes, self.buf.ends().1)) }

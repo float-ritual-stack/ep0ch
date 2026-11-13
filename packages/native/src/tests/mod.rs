@@ -31,6 +31,9 @@
 //!   script, and herdr-core's protocol spoken to a stand-in core in a scratch folder.
 //! - `small.rs`: wave H3's: the status line and a refusal's notice let go, the toolbar past the window's buttons, a
 //!   table's header over its rows, a decoded picture kept, an empty reader's words.
+//! - `typing.rs`: writing a block as in the door (H1): Tab and Shift+Tab move a line or a selection a level as one
+//!   step each, a paste is taken by the window and keeps its lines, and the list that completes a word says what
+//!   its lit row is and how many there are.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -54,5 +57,6 @@ mod support;
 mod sweep2;
 mod sweep3;
 mod terminal;
+mod typing;
 mod ways;
 mod window;

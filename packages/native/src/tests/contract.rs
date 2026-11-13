@@ -332,6 +332,28 @@ fn a_caret_beside_a_placed_patch_goes_where_outline_core_s_map_cursor_puts_it() 
     }
 }
 
+/// A draft's lines one level in or out is outline-core's `indentText` (the door's Tab asks the same rule of its
+/// lines), asked of `draft::indent`: the same edits and the same place for the selection's two ends, for every row.
+/// The table's offsets are UTF-16 units and the window's are bytes, so each is read and written both ways.
+#[test]
+fn a_draft_s_lines_go_a_level_in_or_out_as_outline_core_s_indent_text_moves_them() {
+    use crate::draft::{byte_of, indent, utf16_of};
+    let rows = table("core-contract")["indent"].as_array().unwrap().clone();
+    assert!(rows.len() > 20);
+    for case in &rows {
+        let (name, text) = (&case["name"], case["text"].as_str().unwrap());
+        let at = |v: &Value| byte_of(text, v.as_u64().unwrap() as usize).unwrap_or_else(|| panic!("{name}: an offset inside a character"));
+        let did = indent(text, case["dir"] == -1, at(&case["anchor"]), at(&case["cursor"]));
+        let spans: Vec<Value> = did.edits.iter().map(|(start, end, with)| json!({ "start": utf16_of(text, *start), "end": utf16_of(text, *end), "replacement": with })).collect();
+        assert_eq!(json!(spans), case["spans"], "{name}: the spans");
+        let mut after = text.to_string();
+        for (start, end, with) in did.edits.iter().rev() { after.replace_range(*start..*end, with) }
+        assert_eq!(after, case["after"]["text"].as_str().unwrap(), "{name}: the text");
+        assert_eq!(json!({ "anchor": utf16_of(&after, did.anchor), "cursor": utf16_of(&after, did.caret) }), json!({ "anchor": case["after"]["anchor"], "cursor": case["after"]["cursor"] }), "{name}: the selection");
+        assert_eq!(did.edits.len() as u64, case["lines"].as_u64().unwrap(), "{name}: the lines moved");
+    }
+}
+
 /// A key a screen names (outline-core's `isKeyName`, the door's one name for a key) reads as a chord here: every
 /// name there is, a capital as Shift with its letter. The two this window has no chord for (a modifier alone, and
 /// Hyper, which no key here is) read as none, and such a key is listed and never pressed.
