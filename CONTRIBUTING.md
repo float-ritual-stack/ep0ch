@@ -262,6 +262,11 @@ how to check it (automated when possible), so it can be retired once a test or t
 - **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
   or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
   `XDG_CONFIG_HOME`.*
+- **A test that leaves module state behind.** Does a test change something every later file in the bun process
+  shares (an action set, a key table, a registry)? Drop it when its file ends. Bun's `toMatchObject` writes an
+  asymmetric matcher (`expect.any(Number)`) into the object it checks: never use one on a shared table's rows;
+  read the field (`typeof x.by`). *Seen: PIE-1774 (fake action sets), PIE-1785 (hint-clicks turned the reader's
+  step into `Any<Number>`; elements went red after it). Check: the file with its neighbours in one run.*
 - **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
   view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
   session drew every frame of a busy terminal tile, about 30% of a core); PIE-1413 (a board's 86 lanes each re-read

@@ -34,17 +34,20 @@ export class TallyDoors {
   async stop() { this.board?.close(); await this.scratch.dispose(); }
   async create(text: string) { return (await this.board.request("create", { parentId: null, text, author: "user" })).id as string; }
 
-  /** The door in a tmux pane of `cols`×`rows` on note `id`'s detail screen, once `title` is drawn. */
-  async pane(id: string, title: string, cols: number, rows: number) {
+  /**
+   * The door in a tmux pane of `cols`×`rows` on note `id`'s detail screen, once `title` is drawn. `o.state` names a state
+   * folder to share with an earlier pane (the same desk.json, as a deploy hands it over); `o.screen` opens another screen.
+   */
+  async pane(id: string, title: string, cols: number, rows: number, o: { state?: string; screen?: string[] } = {}) {
     const n = `pane${++this.panes}`, socket = join(this.scratch.root, `${n}.sock`);
-    const env = { ...process.env, ...this.scratch.env, EP0CH_STATE: join(this.scratch.root, `${n}-state`), EP0CH_CONTROL: join(this.scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh", EP0CH_MOTION: "full" };
+    const env = { ...process.env, ...this.scratch.env, EP0CH_STATE: join(this.scratch.root, `${o.state ?? n}-state`), EP0CH_CONTROL: join(this.scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh", EP0CH_MOTION: "full" };
     mkdirSync(env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     const tmux = (...args: string[]) => {
       const r = Bun.spawnSync(["tmux", "-S", socket, ...args], { env, stdout: "pipe", stderr: "pipe" });
       if (r.exitCode !== 0) throw new Error(r.stderr.toString());
       return r.stdout.toString();
     };
-    tmux("new-session", "-d", "-s", "door", "-x", String(cols), "-y", String(rows), "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
+    tmux("new-session", "-d", "-s", "door", "-x", String(cols), "-y", String(rows), "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", ...(o.screen ?? ["--screen", "detail", id]));
     tmux("set-option", "-t", "door", "remain-on-exit", "on");
     const capture = () => tmux("capture-pane", "-p", "-t", "door");
     await until(() => capture().includes(title), "the pane's reader", 15_000).catch(e => { tmux("kill-session", "-t", "door"); throw e; });

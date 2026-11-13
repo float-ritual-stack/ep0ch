@@ -36,8 +36,11 @@ import { askInBar } from "../bar/ask";
 import { lastTrashed } from "../note-trash";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs, type MoveDone } from "../note-move";
 import type { WriteBoard } from "../mcp-writes";
-import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import { runOwn, type TileHost, type ListHost, type Pane, type PaneView } from "./panes";
 import { prop } from "../props";
+
+/** What this kind asks of the desk it's on (panes.ts's DeskApi roles). */
+type TreeDesk = TileHost & ListHost;
 
 
 /** The links shown under one row: that occurrence's own (PIE-324), with which groups are folded. */
@@ -142,7 +145,7 @@ export class TreePane implements Pane {
 
   /** Settles once the top level has been read (a reveal waits for it). */
   private loaded: Promise<void> | null = null;
-  init(desk: DeskApi) {
+  init(desk: TreeDesk) {
     // Moved to another screen or into the drawer (PIE-498): it keeps its rows; nothing is read again or opened.
     if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
@@ -222,7 +225,7 @@ export class TreePane implements Pane {
     }
   }
 
-  private expand(m: Msg, desk: DeskApi, on = true, foldId = m.id): Promise<void> {
+  private expand(m: Msg, desk: TreeDesk, on = true, foldId = m.id): Promise<void> {
     // A virtual branch's results are read when it opens, beside its children, and again when the outline changes.
     // (One kept from an earlier open may be older than the outline: it is asked again.)
     if (on && foldId === m.id && isBranch(m)) void this.loadBranch(m, desk, this.branches.has(m.id) ? "again" : "first");
@@ -233,7 +236,7 @@ export class TreePane implements Pane {
    * Ask the service for a virtual branch's matches (`views.read`): the first page, or with `more` the next, or the
    * pages read so far again. What was shown stays until the answer comes.
    */
-  private async loadBranch(view: Msg, desk: DeskApi, how: "first" | "more" | "again" = "first") {
+  private async loadBranch(view: Msg, desk: TreeDesk, how: "first" | "more" | "again" = "first") {
     const had = this.branches.get(view.id);
     const b: Branch = had ?? { def: view, read: "loading", items: [], asked: 0 };
     this.branches.set(view.id, b);
@@ -254,7 +257,7 @@ export class TreePane implements Pane {
   }
 
   /** The selection moved to row `sel`: the row's note shows where the tree's select wires go (a link row's is read first). */
-  private pick(desk: DeskApi, actor: Actor = USER) {
+  private pick(desk: TreeDesk, actor: Actor = USER) {
     if (this.timer) clearTimeout(this.timer);
     const r = this.rows[this.sel];
     const id = r?.kind === "block" ? null : rowBlock(r);
@@ -278,7 +281,7 @@ export class TreePane implements Pane {
   }
 
   /** A link row's note, read once. */
-  private async target(id: string, desk: DeskApi): Promise<Msg | null> {
+  private async target(id: string, desk: TreeDesk): Promise<Msg | null> {
     const had = this.targets.get(id);
     if (had) return had;
     const m = await desk.ctx.board.get(id);
@@ -286,7 +289,7 @@ export class TreePane implements Pane {
     return m;
   }
 
-  async reveal(m: Msg, desk: DeskApi) {
+  async reveal(m: Msg, desk: TreeDesk) {
     await this.loaded;
     try {
       const chain = await desk.ctx.board.ancestors(m.id);
@@ -297,7 +300,7 @@ export class TreePane implements Pane {
   }
 
   /** Show note `m` open under its row, a virtual branch with its matches (a view that opens with them shown). */
-  async showOpen(m: Msg, desk: DeskApi) {
+  async showOpen(m: Msg, desk: TreeDesk) {
     await this.reveal(m, desk);
     await this.expand(m, desk);
     const i = this.rows.findIndex(r => r.kind === "block" && r.m.id === m.id && !r.via);
@@ -307,7 +310,7 @@ export class TreePane implements Pane {
   // ── the links under a row ──────────────────────────────────────────────────
 
   /** Show the links under note `m`'s row, revealing it first (a view that opens with them shown). */
-  async showLinksOf(m: Msg, desk: DeskApi) {
+  async showLinksOf(m: Msg, desk: TreeDesk) {
     await this.reveal(m, desk);
     const i = this.rows.findIndex(r => r.kind === "block" && r.m.id === m.id);
     if (i >= 0) this.toggleLinks(i, desk, true);
@@ -318,7 +321,7 @@ export class TreePane implements Pane {
    * group, a resource) is refused. The rows are the person's to move through: an agent's leaves the
    * selection on the row it was on.
    */
-  toggleLinks(i: number, desk: DeskApi, on?: boolean, agent = false): boolean {
+  toggleLinks(i: number, desk: TreeDesk, on?: boolean, agent = false): boolean {
     const r = this.rows[i];
     const id = rowBlock(r);
     if (!r || !id) throw new ActionRefused(r ? `row ${i + 1} is ${r.kind === "resource" ? "a resource" : "a group"}: only a note has links to show` : `no row ${i + 1}; the tree has ${this.rows.length}`);
@@ -334,7 +337,7 @@ export class TreePane implements Pane {
   }
 
   /** Ask the service for a panel's links and backlinks; what it showed stays until the answer comes. */
-  private load(key: string, desk: DeskApi) {
+  private load(key: string, desk: TreeDesk) {
     const p = this.panels.get(key);
     if (!p) return;
     const n = ++p.asked, board = desk.ctx.board;
@@ -361,7 +364,7 @@ export class TreePane implements Pane {
    * Open (open=true) or fold (false) row `i`, else the other way: a note's children, or a group of links. An
    * agent never folds away the rows the person's selection is in.
    */
-  foldRow(i: number, open: boolean | undefined, desk: DeskApi, agent = false): { row: number; open: boolean } {
+  foldRow(i: number, open: boolean | undefined, desk: TreeDesk, agent = false): { row: number; open: boolean } {
     const r = this.rows[i];
     if (!r) throw new ActionRefused(`no row ${i + 1}; the tree has ${this.rows.length}`);
     if (r.kind === "branch-note") throw new ActionRefused(`row ${i + 1} is a line of a view's results: ⏎ reads more matches or changes the depth (D); it has nothing to fold`);
@@ -393,7 +396,7 @@ export class TreePane implements Pane {
    * results only), "authored" for the view's own `[child-depth::]`, else the next of authored, 0, 1, 2, 3. A row that
    * is no view's is refused. Nothing is written: the property stays as its author set it.
    */
-  setDepth(i: number, depth: number | "authored" | undefined, desk: DeskApi, agent = false): { view: string; depth: number; authored: boolean } {
+  setDepth(i: number, depth: number | "authored" | undefined, desk: TreeDesk, agent = false): { view: string; depth: number; authored: boolean } {
     const view = this.viewOf(i);
     const b = view ? this.branches.get(view) : undefined;
     if (!view || !b) throw new ActionRefused(`row ${i + 1} is no virtual branch's: open a note with [type::virtual-branch] and its matches show beneath it`);
@@ -409,7 +412,7 @@ export class TreePane implements Pane {
   }
 
   /** Whether the person's last move of note `id` is newer than the last note they trashed (ctrl+z then means the move). */
-  private undoable(id: string, desk: DeskApi): boolean {
+  private undoable(id: string, desk: TreeDesk): boolean {
     const e = MOVE_UNDO.last("you", id);
     if (!e) return false;
     const trashed = lastTrashed(desk.ctx.board, USER)?.seq;
@@ -440,7 +443,7 @@ export class TreePane implements Pane {
    * and the links shown are asked again, once per burst. A row's note is what a pick shows in the reader, so a row never
    * keeps the copy read when the tree opened (a note saved here, in Detail or by an agent read as it was). A draft changes none.
    */
-  onEvent(desk: DeskApi, e?: OutlineEvent) {
+  onEvent(desk: TreeDesk, e?: OutlineEvent) {
     if (e && !heardBy(e, EVERY_CHANGE)) return;
     const lists = this.touches(e);
     if (!lists && !this.panels.size) return;
@@ -472,7 +475,7 @@ export class TreePane implements Pane {
     return lists.size ? lists : null;
   }
   /** Read the lists due again, one round at a time (changes meanwhile make one more); the selection stays on its row. */
-  private async reread(desk: DeskApi) {
+  private async reread(desk: TreeDesk) {
     if (this.rereading) return;
     this.rereading = true;
     try {
@@ -498,7 +501,7 @@ export class TreePane implements Pane {
    * Open row `i` as ⏎ does, as `actor`: a group folds or opens; a note opens where the tree's opens go (the keys
    * follow the person's own there, never an agent's); a resource is registered if it has to be and shown.
    */
-  async openRow(i: number, desk: DeskApi, actor: Actor = USER, fresh = false, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): Promise<Record<string, unknown>> {
+  async openRow(i: number, desk: TreeDesk, actor: Actor = USER, fresh = false, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): Promise<Record<string, unknown>> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const r = this.rows[i];
     if (!r) throw new ActionRefused(this.roots ? `no row ${i + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
@@ -527,14 +530,14 @@ export class TreePane implements Pane {
   }
 
   /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note shows where the tree's select wires go. */
-  selectRow(i: number, desk: DeskApi, show = true, actor: Actor = USER) {
+  selectRow(i: number, desk: TreeDesk, show = true, actor: Actor = USER) {
     this.picks++;
     this.sel = Math.max(0, Math.min(this.rows.length - 1, i));
     if (show) this.pick(desk, actor); else desk.redraw();
   }
 
   /** An agent picked row `i`: its note shows where the tree's selection goes; the person's selection stays. */
-  async showRow(i: number, desk: DeskApi, actor: Actor): Promise<Record<string, unknown>> {
+  async showRow(i: number, desk: TreeDesk, actor: Actor): Promise<Record<string, unknown>> {
     const id = rowBlock(this.rows[i]);
     if (!id) throw new ActionRefused(`row ${i + 1} stands for no note: open=true opens a group or shows a resource`);
     const m = await this.target(id, desk);
@@ -550,7 +553,7 @@ export class TreePane implements Pane {
    * the person is asked in the power bar. The lists it left and joined are read again, a note moved in opens its new
    * parent, and the person's selection follows the note (an agent's leaves it).
    */
-  async moveRow(at: number | string, a: Omit<MoveArgs, "id"> & { undo?: boolean }, desk: DeskApi, actor: Actor): Promise<Record<string, unknown>> {
+  async moveRow(at: number | string, a: Omit<MoveArgs, "id"> & { undo?: boolean }, desk: TreeDesk, actor: Actor): Promise<Record<string, unknown>> {
     // A row of the tree, or (act's id= for a note the tree isn't showing) a note by its id.
     const r = typeof at === "number" ? this.rows[at] : undefined;
     if (typeof at === "number") {
@@ -596,7 +599,7 @@ export class TreePane implements Pane {
 
   // ── drawing ────────────────────────────────────────────────────────────────
 
-  render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+  render(w: number, h: number, focused: boolean, desk: TreeDesk): PaneView {
     this.drawnW = w; this.drawnH = h;
     if (!this.roots) return { lines: [dim(waitingText())] };
     // The row whose note is shown where the tree's opens land is drawn bright (PIE-1207: a wire's target, not a hidden current note).
@@ -669,9 +672,9 @@ export class TreePane implements Pane {
 
   // ── keys and the mouse ─────────────────────────────────────────────────────
 
-  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold" | "tree.depth" | "tree.move", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
+  private run(desk: TreeDesk, name: "tree.links" | "tree.pick" | "tree.fold" | "tree.depth" | "tree.move", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
 
-  key(k: Key, desk: DeskApi): boolean {
+  key(k: Key, desk: TreeDesk): boolean {
     const row = this.rows[this.sel], n = this.rows.length;
     const pickTo = (i: number) => { const to = Math.max(0, Math.min(n - 1, i)); if (n && to !== this.sel) this.run(desk, "tree.pick", { n: to + 1 }); return true; };
     const to = listMove(k, { at: this.sel, n, room: this.view.room });
@@ -715,7 +718,7 @@ export class TreePane implements Pane {
    * alt-opens use the same landing path); a press that gave the tree the keys only selects. A click on a row's mark folds or
    * unfolds it (a note's children, a group, a link's own links) at once, as its disclosure.
    */
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: TreeDesk, press?: RowPress): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.wheel(k.action === "wheel-up" ? -1 : 1, desk); return true; }
     // A note dragged (PIE-943): over another row it goes under it, with alt held beside it (above it when that row is
     // above where it started, else below); let go on its own row it was a click, and the press already did that.
@@ -757,11 +760,11 @@ export class TreePane implements Pane {
     return true;
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { const to = this.sel + dir; if (to >= 0 && to < this.rows.length) this.run(desk, "tree.pick", { n: to + 1 }); }
+  wheel(dir: 1 | -1, desk: TreeDesk) { const to = this.sel + dir; if (to >= 0 && to < this.rows.length) this.run(desk, "tree.pick", { n: to + 1 }); }
 }
 
 /** A tree's actions: which row is picked (and opened), and the links shown under a row. */
-export interface TreeOn { pane: TreePane; desk: DeskApi; standing: boolean }
+export interface TreeOn { pane: TreePane; desk: TreeDesk; standing: boolean }
 
 /** Row `n` (from 1), or the first row that stands for block `id` (or its start), or the selected row. */
 function rowOf(pane: TreePane, n: number | undefined, id: string | undefined): number {

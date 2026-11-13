@@ -53,7 +53,10 @@ describe("hint clicks run their key's binding (PIE-1293)", () => {
     s.render(60, 20, h);
     const segments = stripSegments(s.hint()).filter(t => t.hit);
     const step = segments.find(t => t.hit!.action === "reading.step");
-    expect(step?.hit?.args).toMatchObject({ by: expect.any(Number) });
+    // Read, never matched against `expect.any`: Bun's toMatchObject writes an asymmetric matcher into the object it
+    // checks, and these args are the key table's own, so every later reader's step in the process stepped by `Any<Number>`
+    // (PIE-1785: elements' inline-view test went red after this file).
+    expect(typeof step?.hit?.args?.by).toBe("number");
     expect(segments.some(t => t.hit!.action === "fold.select" && typeof t.hit!.args?.by === "number")).toBe(true);
     const short: string[] = [];
     for (const t of segments) {

@@ -38,7 +38,8 @@ import { tileRegistry } from "./tile-registry";
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
-export interface DeskApi {
+/** What every tile may ask of the desk it's on: its context, a redraw, its own name and place, an action run in it (perform, press, within), focus and keys. */
+export interface TileHost {
   ctx: Ctx;
   /** The screen this desk is (the Desk itself): what a reader's edit lists its actions for (PIE-1439). */
   screen?(): import("../app").Screen;
@@ -46,67 +47,15 @@ export interface DeskApi {
   writtenTitle?(p: Pane): string | undefined;
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
-  /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
-  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null; hero?: import("./tune").TuneHero | null; list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number } | null } | null;
-  /** The tiles' own looks by tile id (PIE-675, "this tile"): what the tune inspector saves into and reads. */
-  tileLooks?: TileLooks;
-  /** The screens held one inside the next down to this desk (a mount is checked against it). */
-  mountChain?(): string[];
-  /**
-   * Tile `p` is drawn at a size that isn't its own now: folded to a spine, or in flight between two places (the layout
-   * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
-   */
-  holdsSize?(p: Pane): boolean;
-  /** Whether tile `p` is in the frame drawn lately; undefined while nothing has been drawn (a headless desk). */
-  shows?(p: Pane): boolean | undefined;
-  /**
-   * Open `m` from tile `from` (PIE-1207: the one way a tile opens a note): it lands where `placement()` puts it (a wire,
-   * `to`, the screen's rule, else the first reader not pinned), never in a hidden current note. `link`, `fresh`, `agent`:
-   * how a reader opened it (OpenHow, PIE-441); `reveal`: the person's open shows it in the outline too.
-   */
-  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false; keep?: true } & OpenHow): void;
   focusKind(kind: TileKindName, actor?: Actor): void;
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
   retirePeeks?(p: Pane, by: Actor): void;
-  historyLanded?(p: ReaderPane, by: Actor): void;
-  /** The layout permits closing this tile, including the container that keeps it. */
-  canClose?(p: Pane): boolean;
-  holdReader?(pane: ReaderPane, actor: Actor): void;
-  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
-  layoutUndoSeq?(): number | undefined;
-  /** The place in the undo order of the newest change on any of the person's layouts (the screen, the drawer, a group). */
-  layoutNewestSeq?(): number | undefined;
-  /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
-  untrash?(board: object): boolean;
-  /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
-  summaryKeys?(m: Msg): readonly string[] | null;
-  /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
-  startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
   /** The tile named `name` on this screen. */
   paneNamed?(name: string): Pane | undefined;
-  /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
-  writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended); `step` false: its owner left this desk, and the move that left it is the undo step (PIE-1716). */
   dismiss?(p: Pane, step?: boolean): void;
-  /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
-  answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
-  /** The ask the answer tile beside reader `r` shows, if one is there. */
-  shownAsk?(r: ReaderPane): string | undefined;
-  /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
-  answerAt?(r: ReaderPane): import("../edit").AnswerPlace | undefined;
-  selectionSource?(p: ReaderPane): Pane | null;
-  hasWiredPreview?(p: ReaderPane): boolean;
-  /**
-   * Tile `p`'s attachment (a reader's comment, Sources, settings, list or edit preview; a facets tile's Matches) in a tile
-   * of its own beside it (`on`), or that tile closed: the one hand-off (PIE-1443, PIE-1536). `keys`: the person's keys go to it.
-   */
-  attachedTile?(p: Pane, attachment: Attachment, on: boolean, side?: "left" | "right" | "up" | "down", keys?: boolean): Promise<unknown>;
-  hasAttachedTile?(p: Pane, attachment: Attachment): boolean;
-  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
-  trailTile?(r: ReaderPane): Promise<unknown>;
-  reopenTrail?(visit: import("../trail").Visit, actor: Actor): Promise<unknown>;
   /**
    * A tile's own key or click, as the person, through the screen's dispatcher (PIE-514): the action of `set` (its kind's,
    * a reader's note actions), in tile `p`. `quiet`: the action says its own refusal.
@@ -116,16 +65,45 @@ export interface DeskApi {
   tileIdOf?(p: Pane): string | undefined;
   /** Tile `p` has the person's focus here (a whole screen in a tile sees the person through it). */
   hasFocus?(p: Pane): boolean;
-  /** The person is in tile `p`'s edit, comment or panel (they opened it, or the keys came back to it). */
-  isIn?(p: Pane): boolean;
-  enterSession?(p: ReaderPane): void;
-  /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
-  escaped?(): void;
   /**
-   * q found nothing left to leave in a tile's own screen (a mount's, a group's): the screen holding it goes back, as q does
-   * on any desk (PIE-727: a desk holding only a group took seven presses, each refused on the status bar).
+   * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
+   * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
    */
-  leave?(): void;
+  perform?(action: string, args: Record<string, unknown>, by?: Actor, tile?: Pane | string): Promise<unknown>;
+  /**
+   * A list picker over the screen, from a tile (the home base's choices: a name to type, a machine to add): the desk's
+   * overlay, which holds the person's keys until it's put away. A choice runs the tile's action as the person.
+   */
+  overlay?(p: ListPicker<any, any>): void;
+  /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */
+  ruleFor?(touches: "tile" | "screen", actor: Actor, at?: { tile?: string; label?: string; way?: string; host?: true; action?: string }): string | null;
+  /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
+  focusPane?(p: Pane, actor: Actor): void;
+  /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
+  holdsKeys?(): boolean;
+  /** Tile `p` is on screen now (not in a shut dock, not a hidden tab). */
+  shownNow?(p: Pane): boolean;
+  /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
+  within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
+  /** The tile named `name` on this screen. */
+  pane?(name: string): Pane | undefined;
+  /** Tile `p`'s name (what `tile=` and `open from=` take). */
+  nameOfPane?(p: Pane): string;
+  /** The display path to a tile, across mounts and the drawer. */
+  pathTo?(p: Pane): string | undefined;
+}
+/** What a list that opens notes asks (a tree, a links tile, a query): where its opens land and how, what it follows, the opens it hands on. */
+export interface ListHost {
+  /**
+   * Open `m` from tile `from` (PIE-1207: the one way a tile opens a note): it lands where `placement()` puts it (a wire,
+   * `to`, the screen's rule, else the first reader not pinned), never in a hidden current note. `link`, `fresh`, `agent`:
+   * how a reader opened it (OpenHow, PIE-441); `reveal`: the person's open shows it in the outline too.
+   */
+  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false; keep?: true } & OpenHow): void;
+  /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
+  summaryKeys?(m: Msg): readonly string[] | null;
+  selectionSource?(p: ReaderPane): Pane | null;
+  hasWiredPreview?(p: ReaderPane): boolean;
   /** A `#tag` opened in reader `r` (PIE-800): the notes carrying it, in a query tile whose home is `r`. */
   openTag?(r: Pane, tag: string, actor: Actor, standing?: boolean): Promise<TagList>;
   openQuery?(r: Pane, query: string, actor: Actor, standing?: boolean): Promise<TagList>;
@@ -139,26 +117,8 @@ export interface DeskApi {
   showFrom?(from: Pane, m: Msg, by?: Actor, where?: OpenHow["where"]): void;
   /** Whether the previews tile `from`'s selection goes to all show nothing yet (a list given the keys fills only those, PIE-1426). */
   previewsEmpty?(from: Pane): boolean;
-  /**
-   * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
-   * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
-   */
-  perform?(action: string, args: Record<string, unknown>, by?: Actor, tile?: Pane | string): Promise<unknown>;
-  /**
-   * A list picker over the screen, from a tile (the home base's choices: a name to type, a machine to add): the desk's
-   * overlay, which holds the person's keys until it's put away. A choice runs the tile's action as the person.
-   */
-  overlay?(p: ListPicker<any, any>): void;
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked?(p: Pane): Pane | undefined;
-  /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */
-  ruleFor?(touches: "tile" | "screen", actor: Actor, at?: { tile?: string; label?: string; way?: string; host?: true; action?: string }): string | null;
-  /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
-  focusPane?(p: Pane, actor: Actor): void;
-  /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
-  holdsKeys?(): boolean;
-  /** Tile `p` is on screen now (not in a shut dock, not a hidden tab). */
-  shownNow?(p: Pane): boolean;
   /** The tile reader `p` follows by a link (PIE-814), and whether it's out of sight now; null when none. */
   followSource?(p: ReaderPane): { name: string; hidden: boolean } | null;
   /** The note shown where tile `from`'s opens land (the tree marks its row), or null. */
@@ -171,28 +131,8 @@ export interface DeskApi {
   followFrom?(p: ReaderPane, source: string | null, actor: Actor): void;
   /** The person picks what reader `p` follows: a picker of sources over the screen. */
   askFollow?(p: ReaderPane): void;
-  /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
-  travelPeek?(p: Pane, dir: -1 | 1): string | null;
-  /** Every column back and forward from tile `p`'s along its flow's trail, nearest first (PIE-208), or null outside a flow. */
-  travelTrail?(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null;
-  /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
-  within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
-  /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
-  coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
-  /** The tile named `name` on this screen. */
-  pane?(name: string): Pane | undefined;
-  /** Reader `p`'s note went to the trash empty (a new note closed unwritten): a tile made for it alone goes (PIE-591). */
-  noteGone?(p: Pane, id: string): void;
-  /** Tile `p`'s name (what `tile=` and `open from=` take). */
-  nameOfPane?(p: Pane): string;
-  /** The display path to a tile, across mounts and the drawer. */
-  pathTo?(p: Pane): string | undefined;
   /** The placement owner's description of a tile's destination. */
   wireDescription?(tile: string | undefined, verb: import("./screen-layout").WireVerb): string;
-  /** Tile `p` is in a dock (not pinned in the layout). */
-  inDock?(p: Pane): boolean;
-  /** The side of the screen tile `p` is on (its dock's edge, else where it's placed). */
-  sideOf?(p: Pane): "left" | "right";
   /**
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
    * shows), following the reader that shows it; its dock slides open and their keys go to it.
@@ -204,6 +144,79 @@ export interface DeskApi {
    * the list; an agent's leaves them where they are.
    */
   openLinks?(r: Pane, actor: Actor, standing: boolean, ancestor?: Msg): Promise<Record<string, unknown>>;
+}
+/** What a reader asks for its attachments and sessions: an attached tile (comment, Sources, an answer), its trail, an edit or comment session, undo's place. */
+export interface ReaderHost {
+  /** Whether tile `p` is in the frame drawn lately; undefined while nothing has been drawn (a headless desk). */
+  shows?(p: Pane): boolean | undefined;
+  historyLanded?(p: ReaderPane, by: Actor): void;
+  holdReader?(pane: ReaderPane, actor: Actor): void;
+  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
+  layoutUndoSeq?(): number | undefined;
+  /** The place in the undo order of the newest change on any of the person's layouts (the screen, the drawer, a group). */
+  layoutNewestSeq?(): number | undefined;
+  /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
+  untrash?(board: object): boolean;
+  /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
+  startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
+  /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
+  writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
+  /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
+  answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
+  /** The ask the answer tile beside reader `r` shows, if one is there. */
+  shownAsk?(r: ReaderPane): string | undefined;
+  /** Where the answer tile beside `r` is, of the pair they make (PIE-1757). */
+  answerAt?(r: ReaderPane): import("../edit").AnswerPlace | undefined;
+  /**
+   * Tile `p`'s attachment (a reader's comment, Sources, settings, list or edit preview; a facets tile's Matches) in a tile
+   * of its own beside it (`on`), or that tile closed: the one hand-off (PIE-1443, PIE-1536). `keys`: the person's keys go to it.
+   */
+  attachedTile?(p: Pane, attachment: Attachment, on: boolean, side?: "left" | "right" | "up" | "down", keys?: boolean): Promise<unknown>;
+  hasAttachedTile?(p: Pane, attachment: Attachment): boolean;
+  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
+  trailTile?(r: ReaderPane): Promise<unknown>;
+  reopenTrail?(visit: import("../trail").Visit, actor: Actor): Promise<unknown>;
+  /** The person is in tile `p`'s edit, comment or panel (they opened it, or the keys came back to it). */
+  isIn?(p: Pane): boolean;
+  enterSession?(p: ReaderPane): void;
+  /** Reader `p`'s note went to the trash empty (a new note closed unwritten): a tile made for it alone goes (PIE-591). */
+  noteGone?(p: Pane, id: string): void;
+}
+/** What the river column asks: how it shows in its flow, its peeks and its trail. */
+export interface RiverHost {
+  /** The layout permits closing this tile, including the container that keeps it. */
+  canClose?(p: Pane): boolean;
+  /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
+  travelPeek?(p: Pane, dir: -1 | 1): string | null;
+  /** Every column back and forward from tile `p`'s along its flow's trail, nearest first (PIE-208), or null outside a flow. */
+  travelTrail?(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null;
+  /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
+  coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
+}
+/** One kind's own hook each: tune's looks, a terminal's size, a builtin's dock side, the blank tile's choices, a mount's chain and leave. */
+export interface KindHooks {
+  /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
+  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null; hero?: import("./tune").TuneHero | null; list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number } | null } | null;
+  /** The tiles' own looks by tile id (PIE-675, "this tile"): what the tune inspector saves into and reads. */
+  tileLooks?: TileLooks;
+  /** The screens held one inside the next down to this desk (a mount is checked against it). */
+  mountChain?(): string[];
+  /**
+   * Tile `p` is drawn at a size that isn't its own now: folded to a spine, or in flight between two places (the layout
+   * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
+   */
+  holdsSize?(p: Pane): boolean;
+  /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
+  escaped?(): void;
+  /**
+   * q found nothing left to leave in a tile's own screen (a mount's, a group's): the screen holding it goes back, as q does
+   * on any desk (PIE-727: a desk holding only a group took seven presses, each refused on the status bar).
+   */
+  leave?(): void;
+  /** Tile `p` is in a dock (not pinned in the layout). */
+  inDock?(p: Pane): boolean;
+  /** The side of the screen tile `p` is on (its dock's edge, else where it's placed). */
+  sideOf?(p: Pane): "left" | "right";
   /** A new tile of `t.kind` in tile `tile`'s place, which goes (the blank tile's rows, PIE-565). */
   replaceTile?(tile: string | undefined, t: { kind: string; view?: string; cmd?: string; name?: string }, actor: Actor): Promise<Record<string, unknown>>;
   /** The person picks what a new tile of `kind` lacks from its kind's `choices` (a query lane's view); `then` opens it. */
@@ -213,6 +226,8 @@ export interface DeskApi {
   /** The screens to open from here: the ones people made, then the built-ins that open on nothing in particular. */
   screensToOpen?(): { name: string; made: boolean }[];
 }
+/** The desk as its tiles see it (one implementer, the Desk): every role above. A kind that needs only some asks for those. */
+export interface DeskApi extends TileHost, ListHost, ReaderHost, RiverHost, KindHooks {}
 
 export interface Pane {
   /** Made on purpose: retained with this instance across groups, spills and the drawer. */
@@ -351,7 +366,7 @@ export interface Pane {
  * tile, through the screen's dispatcher (the desk's `press`); a host with none runs it through one of its own.
  * A refusal is said, not thrown.
  */
-export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }) {
+export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: TileHost }) {
   void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, { ...on, standing: true }, () => on.desk.ctx).press(name, args));
 }
 

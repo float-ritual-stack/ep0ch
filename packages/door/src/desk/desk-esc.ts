@@ -6,11 +6,18 @@ import type { Key } from "../term";
 import { chainOf, docks, dockOf, leaves, type Dock } from "./layout";
 import { peekSource, policyOfNode } from "./screen-layout";
 import { kindOf } from "./tile-kinds";
-import { sessionName, type Pane, type ReaderPane } from "./panes";
+import { sessionName, type Pane, type ReaderPane, type SessionKind } from "./panes";
+import type { Rect } from "../canvas";
+import type { HintCard } from "../surface/hint-card";
+import type { HeldGesture } from "./gestures";
+import type { LNode } from "./layout";
+import type { LayoutState } from "./screen-layout";
+import type { ScreenSpec } from "./screen-spec";
+import type { SourceModel } from "./tile-kinds";
 
 /** The desk as these steps read it. */
 export interface DeskEscHost {
-  ctx: Ctx; layout: any; root: any; spec: any; focus: number; zoom: number | null; moving: unknown; prefix: string; pending: any; hintCard: unknown; xray: boolean; modeHintKey: string; gesture: unknown; dragging: unknown; floatDrag: unknown; linking: any; entered: { in(r: ReaderPane): boolean }; overlays: any; models: Map<unknown, any>; panes: Map<number, Pane>; liftedRect: unknown;
+  ctx: Ctx; layout: LayoutState<number>; root: LNode<number>; spec: ScreenSpec; focus: number; zoom: number | null; moving: boolean; prefix: string; pending: { pane: ReaderPane; kind: SessionKind } | null; hintCard: HintCard | null; xray: boolean; modeHintKey: string; held: HeldGesture<unknown>; linking: { desk: { nameOf(id: number): string; run(name: string, args?: Record<string, unknown>, tile?: string): void }; from: number; pick?: { then: string; prompt: string } } | null; entered: { in(r: ReaderPane): boolean }; overlays: { top(): { escCloses?(): string | null } | undefined; key(k: Key, host: never): unknown }; models: Map<string, SourceModel>; panes: Map<number, Pane>; liftedRect: Rect | null;
   run(name: string, args?: Record<string, unknown>, tile?: string): void; nameOf(id: number): string; redraw(): void; rawKeys(): boolean; holdsKeys(): boolean; keysHere(): boolean; focusedReader(): ReaderPane | null; choosingReader(): ReaderPane | undefined; boundKey(k: Key): boolean; keyIn(k: Key, ctx: Ctx): void; command(k: Key): void; endGroupGhost(): void; runningScripts(): unknown[]; contentCover(id: number): { fold?: unknown }; pickedBy(a: unknown): unknown[]; homeTile(): number | undefined; atHome(): boolean; settle(): void; render(ctx: Ctx): unknown; reenter(): void; afterKey(): void; dropLiftElsewhere(): void; key(k: Key, ctx: Ctx): void; escReadFront(): EscRead; screenKeys(): { key: string }[];
 }
 const USER = { kind: "user" } as const;
@@ -19,7 +26,7 @@ export type DeskEscName = (typeof DESK_ESC)[number] | (typeof DESK_HOME_ESC)[num
 export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
     const ctx = d.ctx, focused = d.focusedReader(), pane = d.panes.get(d.focus);
     const step = (closes: string, name: string, args: Record<string, unknown>, tile: string): EscRung => ({ closes, run: () => { d.run(name, args, tile); return true; } });
-    const shuts = (k: Dock<any> | null) => !!k?.open && k.policy?.overlay !== false && policyOfNode(d.layout, k).collapsible;
+    const shuts = (k: Dock<number> | null) => !!k?.open && k.policy?.overlay !== false && policyOfNode(d.layout, k).collapsible;
     const say = (closes: string | typeof ESC_TAKEN | null | undefined, run: () => boolean | void): EscRung | null => (closes === null ? null : closes === ESC_TAKEN ? { closes: null, run } : { closes: closes ?? null, maybe: true, run });
     return {
       // The person's own edit or comment is still opening: it's cancelled, and nothing else is.
@@ -44,7 +51,7 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
         const said = pane?.escCloses?.(d as never);
         return pane && kind?.takesKeys?.(pane) && !(kind.windowKeys && d.prefix) ? { closes: typeof said === "string" ? said : null, run: () => { pane.key(ESC_KEY, d as never); return true; } } : null;
       },
-      drag: () => (d.dragging ? { closes: "the move", run: () => { d.gesture = null; d.endGroupGhost(); ctx.flash("not moved"); d.redraw(); } } : null),
+      drag: () => (d.held.dragging ? { closes: "the move", run: () => { d.held.now = null; d.endGroupGhost(); ctx.flash("not moved"); d.redraw(); } } : null),
       choosing: () => { const c = d.choosingReader(); return c ? { closes: "the status choice", run: () => { c.key(ESC_KEY, d as never); d.redraw(); } } : null; },
       chord: () => {
         if (!d.prefix) return null;
@@ -52,7 +59,7 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
         return { closes: d.prefix === "resize" ? "resizing" : "the ^W chord", run: () => { if (held) { d.prefix = ""; ctx.flash(`still in ${sessionName(focused!)}`); d.redraw(); } else d.command(ESC_KEY); } };
       },
       "in-reader": () => (focused?.holdsKeys && d.entered.in(focused) ? { closes: focused.escCloses(d as never), run: () => { focused.key(ESC_KEY, d as never); return true; } } : null),
-      script: () => (d.runningScripts().length && !d.holdsKeys() && !d.floatDrag ? { closes: "the script", run: () => { d.run("layout.stop"); return true; } } : null),
+      script: () => (d.runningScripts().length && !d.holdsKeys() && !d.held.floatDrag ? { closes: "the script", run: () => { d.run("layout.stop"); return true; } } : null),
       // The tile's own: a filter being typed, what's lit in a reader, a keys window; a kind's own key. One that says nothing is still asked.
       tile: () => {
         if (!pane || focused?.holdsKeys || d.contentCover(d.focus).fold) return null;
@@ -67,13 +74,13 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
       peek: () => (peekSource(d.layout, d.focus) !== undefined ? step("the peek", "tile.close", {}, d.nameOf(d.focus)) : null),
       picked: () => (d.pickedBy(USER).length ? step("the picked tiles", "tile.select", { clear: true }, d.nameOf(d.focus)) : null),
       dock: () => {
-        const k = dockOf<any>(d.root, d.focus);
+        const k = dockOf<number>(d.root, d.focus);
         return shuts(k) ? (chainOf(d.root, d.focus).some(c => c.policy?.shuts) ? step("the dock", "tile.close", {}, d.nameOf(d.focus)) : step("the dock", "tile.slide", { open: false }, d.nameOf(d.focus))) : null;
       },
       "keys-home": () => { const home = d.homeTile(); return home !== undefined && !d.atHome() ? step("the keys back home", "tile.focus", {}, d.nameOf(home)) : null; },
       "sliding-dock": () => {
-        const open = d.spec.home !== undefined ? docks<any>(d.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
-        return open ? step("the dock", "tile.slide", { open: false, container: open.id }, d.nameOf(leaves<any>(open.kid)[0]!)) : null;
+        const open = d.spec.home !== undefined ? docks<number>(d.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
+        return open ? step("the dock", "tile.slide", { open: false, container: open.id }, d.nameOf(leaves<number>(open.kid)[0]!)) : null;
       },
     };
 }

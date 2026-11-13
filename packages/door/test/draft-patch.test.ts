@@ -1298,7 +1298,9 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
       if (r.exitCode !== 0) throw new Error(r.stderr.toString());
       return r.stdout.toString();
     };
-    tmux("new-session", "-d", "-s", "asks", "-x", "120", "-y", "40", "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
+    // 140 wide: the answer opens beside, and the edit's half has room for the row's whole progress (`answer in the note ·
+    // 2 blocks · beside ▸`). At 120 its count gives way to the side word, as narrow rows do (PIE-1775, PIE-1789).
+    tmux("new-session", "-d", "-s", "asks", "-x", "140", "-y", "40", "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
     const capture = () => tmux("capture-pane", "-p", "-t", "asks");
     try {
       await until(() => capture().includes("Pane garden"), "the pane's reader", 15_000);

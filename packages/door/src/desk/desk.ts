@@ -86,6 +86,8 @@ import {
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
+import { TileRecords } from "./tile-records";
+import { HeldGesture, type ElementDrag } from "./gestures";
 import { reviveWires } from "./saved-wires";
 import { frameTitle, tileNote, tileTitle } from "./tile-title";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
@@ -216,30 +218,6 @@ const REDRAW_MS = 100;
 /** A key pressed while a tile is dragged by its header: the action its ^W chord runs, on the dragged tile. */
 const DRAG_KEYS: Record<string, [string, Record<string, unknown>]> = { f: ["tile.float", {}], p: ["tile.dock", {}], a: ["tile.drawer", {}] };
 /** A header pressed: the tile (a tab) it would drag, and where. A drag of a cell or more starts moving it. */
-/** A part of a reader's note dragged out (PIE-1247): its tile and line, the pointer, and what a release there does. */
-type ElementDrag = { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string; bar: Rect | null; draft: boolean } | { kind: "detach"; drop: Drop<number>; label: string } | null };
-/** A title pressed with no modifier: where, so a release there is a click (RowPresses: the second opens its title). */
-type TitleClick = { x: number; y: number };
-/**
- * What the mouse button held down is doing (PIE-1530): one at a time, by construction.
- * - resize: a border following the pointer (layout.resize), `at` the share it was last put at.
- * - float: a float's title moving it or its ◢ corner sizing it; its title over a dock's handle, a tile's header or the
- *   screen's edge (PIE-591) is a place to dock it (`drop`).
- * - head: a press on a header (the tile, or the tab under the pointer), and the drag it became (`carry`; `drawer`: over
- *   the drawer, what a release there says).
- * - reader: a press in a reader (PIE-419) until it comes up, where its content was drawn (PIE-673's rect), and the part of
- *   its note dragged out with alt or ctrl (`element`).
- * - tile: a tile that takes every mouse event while the button is down (a terminal, a screen), and a group's tile
- *   dragged out past its content (`out`).
- * - edit: a press in a reader's open edit (`fresh`: alt- or ctrl-click; `float`: on a float in it).
- */
-type Gesture =
-  | { kind: "resize"; grab: Grab; at: number | null }
-  | { kind: "float"; id: number; size: boolean; dx: number; dy: number; drop?: Drop<number> | null; x?: number; y?: number; click?: TitleClick }
-  | { kind: "head"; id: number; x: number; y: number; click?: TitleClick; carry?: { src: number; drop: Drop<number> | null; x: number; y: number; drawer?: string | null; into?: GroupDrop } }
-  | { kind: "reader"; frame?: Rect; gutter?: Rect; pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean; at?: { x: number; y: number }; element?: ElementDrag }
-  | { kind: "tile"; id: number; r: Rect; out?: { inner: Desk; name: string; target: { to?: string; where: Where; label: string; refused?: string } | null } }
-  | { kind: "edit"; pane: ReaderPane; fresh: boolean; float: boolean };
 /** One of a tile's links as its panel and header say it (PIE-855): plain words, and what changes or cuts it (an action each). */
 export interface Wire { says: string; short?: string; /** The tile on this desk it follows (or opens into), when there is one: what a drawing decision reads (PIE-886). */ source?: number; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
 
@@ -260,7 +238,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What the screen is: its spec's name (`desk`, `welcome`), or the name a blank screen was saved under (PIE-565). */
   get name(): string { return this.madeAs ?? this.spec.name; }
   ctx!: Ctx;
-  private panes = new Map<number, Pane>();
+  private panes = new Map<number, Pane>(); private readonly recs = new TileRecords();   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
   /**
    * The screen's layout (PIE-513): the tree, the floats, the spines, the zoom, the links, the tiles' names, the
    * screen's policy and lock, the revision. One value, changed only by the screen-layout module's `apply` (one
@@ -310,17 +288,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private focus: number;
   private nextId = 1;
   private prefix: Prefix = "";
-  /** What the button held down is doing (Gesture); the getters below read it as each kind. */
-  private gesture: Gesture | null = null;
-  private get drag() { const g = this.gesture; return g?.kind === "resize" ? g : null; }
-  private get floatDrag() { const g = this.gesture; return g?.kind === "float" ? g : null; }
-  private get headPress() { const g = this.gesture; return g?.kind === "head" ? g : null; }
-  private get dragging() { return this.headPress?.carry ?? null; }
-  private get pressed() { const g = this.gesture; return g?.kind === "reader" ? g : null; }
-  private get elementDrag() { return this.pressed?.element ?? null; }
-  private get mouseTile() { const g = this.gesture; return g?.kind === "tile" ? g : null; }
-  private get outDrag() { return this.mouseTile?.out ?? null; }
-  private get editPressed() { const g = this.gesture; return g?.kind === "edit" ? g : null; }
+  private readonly held = new HeldGesture<Desk>();   // what the button held down is doing (gestures.ts): one gesture at a time
+  get drag() { return this.held.drag; } get floatDrag() { return this.held.floatDrag; } get dragging() { return this.held.dragging; }
   /** Pointer coordinates share the reading measure and full-width rows; a held pointer's row stays free to scroll past an edge. */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; pane?: ReaderPane; col: number; row: number; cols: number }, k: { x: number; y: number }) {
     if (p.frame || p.pane && (p.pane.surface.figureSizing.drag || this.views.get(this.idOf(p.pane)!)?.view.wide?.some(r => r.row === k.y - p.row))) return { x: k.x - p.col, y: k.y - p.row };
@@ -328,7 +297,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { x: k.x - p.gutter.col - p.gutter.cols, y: k.y - p.row };
     return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row };
   }
-  private gutters = new Map<number, Rect>();
+  private readonly gutters = this.recs.field("gutter");
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   /** The tile on this desk that opened tile `id` (its `Pane.openedFrom`), if it is still here. */
   private openerOf(id: number): number | undefined {
@@ -358,7 +327,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Tiles saved with a kind nobody has registered: a tile that says so stands in, saves write their spec back
    * as it was, and the tile is made again when the kind comes (`kindsChanged`).
    */
-  private unregistered = new Map<number, TileSpec>();
+  private readonly unregistered = this.recs.field("unregistered");   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
   /** Retired kinds a layout loaded here named (RETIRED_KINDS), each tile left out: said once as the screen shows (retiredSaid). */
   private dropped: string[] = [];
   /** The docks sliding over the layout as last drawn, each with its tiles (for the mouse). */
@@ -406,7 +375,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * in it, and nothing drawn there is the tile's text.
    */
   private looks = new Map<Pane, Look>();
-  private contents = new Map<number, Rect>();
+  private readonly contents = this.recs.field("content");
   private lookSrc: { board: unknown; redraw(): void } | null = null;
   /** Tile `p`'s look at `cols` columns: its kind, this screen and the note it shows. */
   private lookAt(p: Pane, cols: number): Look {
@@ -583,7 +552,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Every control painted on a frame or header this frame, with what a click runs (PIE-1530): mouse, x-ray and hints read it. */
   private presses = new PressMap();
   /** The tiles whose header carries their controls this frame. */
-  private headCtl = new Set<number>();
+  private readonly headCtl = this.recs.flag("headCtl");
   private dividers: Divider<number>[] = [];
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
   private rootArea = this.area;
@@ -696,7 +665,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, p] of tiles) { this.panes.set(id, p); if (o.start === "moved") this.movedIn.add(id); }
     this.nextId = first + tiles.length;
     try { if (r) this.commit(typeof r === "function" ? r() : r); }
-    catch (e) { for (const [id] of tiles) { this.panes.delete(id); this.movedIn.delete(id); } this.nextId = first; throw e; }
+    catch (e) { for (const [id] of tiles) { this.panes.delete(id); this.recs.drop(id); } this.nextId = first; throw e; }
     if (o.start !== false) for (const [id] of tiles) this.startTile(id, o.start === "moved");
   }
   /** A new tile asked of the layout and joined in one step (`join`): `op` names it by the id it will have. */
@@ -753,7 +722,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const id of this.panes.keys()) if (!tiles.has(id)) out.push(`tile ${id} isn't in the layout`);
     const held: [string, Iterable<number>][] = [
       ["lastIn", this.lastIn.values()], ["selected", [...this.selected.values()].flatMap(set => [...set])], ["unregistered", this.unregistered.keys()],
-      ["sourced", this.sourced.keys()], ["movedIn", this.movedIn], ["besides", [...this.memory.beside].flat()], ["opened", [...this.memory.opened.values()].flatMap(r => [...r.ids, ...(r.active !== null ? [r.active] : [])])],
+      ["sourced", this.sourced.keys()], ["movedIn", this.movedIn], ["records", this.recs.all().map(([id]) => id)], ["besides", [...this.memory.beside].flat()], ["opened", [...this.memory.opened.values()].flatMap(r => [...r.ids, ...(r.active !== null ? [r.active] : [])])],
     ];
     for (const [what, ids] of held) for (const id of ids) if (!this.panes.has(id)) out.push(`${what} keeps ${id}, which is gone`);
     if (this.ptyIn && this.idOf(this.ptyIn) === undefined) out.push("ptyIn is a tile that's gone");
@@ -1007,7 +976,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private startMotion(hint: string | undefined, what: string) {
     // The drawer's desk is ticked by no screen of its own: it snaps (nothing could settle its frames).
     if (this.ctx?.hostLayer?.isDrawer(this)) return;
-    if (what === "resize" || this.dragging || this.floatDrag || inResize()) return;
+    if (what === "resize" || this.held.dragging || this.held.floatDrag || inResize()) return;
     const plan = planMotion(hint, motionMode());
     if (!plan) return;
     const now = this.clock();
@@ -1032,20 +1001,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
    * is moving.
    */
-  async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
-    const runs = this.runningScripts();
-    if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
-    // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
-    // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
-    const failed: string[] = [];
-    const results = await Promise.all(runs.map(run => this.ctx.board.request("scripts.stop", { run, mutation: requesterOf(actor) }).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
-    const stopped: string[] = [];
-    for (const { run, ended, r } of results) if (ended) { try { this.endTxn(run, r?.sequence ? "done" : "stopped", actor); } catch { /* gone */ } stopped.push(run); }
-    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? results.some(r => r.ended && r.r?.sequence) ? "stopped; completed sequence steps remain; ctrl+z undoes what is reversible" : "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
-    this.redraw();
-    return { stopped };
-  }
-
   /** Whether a change is drawing its way (a test and the status line ask). */
   get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
   /** Snap to the settled layout (the first key or click, a peek, a snapshot) and draw it: no tick asks for that frame now (PIE-1769). True when something was in flight. */
@@ -1062,7 +1017,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const entries = this.steps.takeBack(this, actor, txn);
     if (!Array.isArray(entries)) throw new ActionRefused(entries.refused);
     const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.party === "you" ? entries[0]!.first ?? entries[0]!.what : entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };   // the person's own key says what it did (PIE-1782)
   }
 
   /**
@@ -1070,7 +1025,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
    * between them kept by identity (`Adopt`), and saved. An agent's undo, ^W B and a carry's leave the person's keys where they are (`keepFocus`), unless their tile went; on one that moved between layouts they go with it (`carriesUndone`).
    */
-  undoNewest(actor: Actor) { return this.steps.newestDesk(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true); }   // `layout.undo anywhere=true`, ^W B
+  undoNewest(actor: Actor) { return this.steps.newestDesk(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true); }   // `layout.undo anywhere=true`, ^W B: which desk takes it back is the desk's to decide
   private undoAcross(entries: LayoutEntry<Desk>[], actor: Actor, keepFocus = false): { steps: number; kept: string[] } {
     const { sides: asked, txns } = this.steps.stepOf(this, entries, this.relatives());
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }
@@ -1706,7 +1661,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(p.deliberate ? { deliberate: true } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
       ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
-      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to } : {}),
+      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to, ...(!wires.some(w => w.verb === "select") ? { linkRole: "target" as const } : {}) } : {}),   // a link alone reads back as a preview's (open and select): say it only opens
       ...(wires.some(w => w.verb !== "open") ? { wires: wires.filter(w => w.verb !== "open") } : {}),
     };
   }
@@ -1840,11 +1795,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     await Promise.all((only ? [only] : this.columnsIn()).map(c => this.fill(c)));
   }
   /** Which columns container a tile was supplied for (its id), from which source, and its key there: a refill keeps it by that key. */
-  private sourced = new Map<number, { columns: string; source: string; key: string }>();
+  private readonly sourced = this.recs.field("sourced");
   /** The columns filled at least once (by id). */
   private filledOnce = new Set<string>();
   /** A data-filled container seeds select wires for each tile it supplies. Delivery reads only the wires. */
-  private readonly selectSeeds = new Map<number, string>();
+  private readonly selectSeeds = this.recs.field("seed");
   private async fill(c0: Columns<number>): Promise<void> {
     const src = tileSource(c0.source);
     const cid = c0.id;
@@ -2057,7 +2012,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Tiles whose border cut the note's title as drawn last (PIE-815): focusing one says it whole. */
-  private readonly cutTitles = new Set<number>();
+  private readonly cutTitles = this.recs.flag("cutTitle");
   /** A tile `p` can follow (PIE-814): one with a selection (a tree, a links list) or another reader, here. */
   private followable(id: number, p: ReaderPane): boolean {
     const q = this.panes.get(id);
@@ -2634,7 +2589,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Repaint when drawn: shown, or (your drawer's desk put away) a tile of it lifted above the screen (PIE-1359). */
   redraw() { if (this.onScreen || (this.layout.lift && this.ctx?.hostLayer?.isDrawer(this.top()))) this.ctx?.redraw(); }
 
-  private arrivals = new Map<number, { by: string; note?: string; remaining: number; at: number }>();
+  private readonly arrivals = this.recs.field("arrival");
   private arriving(id: number): boolean { return (this.arrivals.get(id)?.remaining ?? 0) > 0; }
   private arrived(id: number, by: Actor, preview = false, why = "") {
     const note = this.showing(this.panes.get(id))?.id;
@@ -2870,7 +2825,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private syncModeHint(shown?: string) {
     const overlay = this.overlays.top();
-    const armed = this.ctx?.armed?.(), armedHere = armed ? [...this.panes].find(([, p]) => p instanceof ReaderPane && p.surface === armed.of)?.[0] : undefined, mode = !this.all().length ? "" : armedHere !== undefined ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging ? "" : this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";   // every paint asks, so it never throws: an empty screen has no mode; an armed edit's is the desk holding its reader (PIE-1726)
+    const armed = this.ctx?.armed?.(), armedHere = armed ? [...this.panes].find(([, p]) => p instanceof ReaderPane && p.surface === armed.of)?.[0] : undefined, mode = !this.all().length ? "" : armedHere !== undefined ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.held.drag ? "resize" : this.held.dragging ? "" : this.held.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";   // every paint asks, so it never throws: an empty screen has no mode; an armed edit's is the desk holding its reader (PIE-1726)
     if (mode === this.modeHintKey) return;
     const previous = this.modeHintKey;
     this.modeHintKey = mode;
@@ -3196,9 +3151,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
-    const id = this.idOf(p);
-    if (p && id === undefined) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
-    return this.dispatch.act({ action, args, ...(id !== undefined ? { tile: this.tileId(id) } : {}) }, by);
+    const d = p && this.idOf(p) === undefined ? this.relatives().find(x => x.idOf(p) !== undefined) : this, id = d?.idOf(p);   // a tile of the family (a grouped answer's reader, outside the group) runs on its own desk
+    if (p && (!d || id === undefined)) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
+    return d!.dispatch.act({ action, args, ...(id !== undefined ? { tile: d!.tileId(id) } : {}) }, by);
   }
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked(p: Pane): Pane | undefined {
@@ -3584,7 +3539,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(order.some(id => this.agentOf(id).level !== "free") ? { agentLimits: order.filter(id => this.agentOf(id).level !== "free").map(id => ({ ...this.tileAnswer(id), level: this.agentOf(id).level, by: this.agentOf(id).by })) } : {}),
       layoutName: this.layoutName, rule: this.rule, focusName: this.nameOf(this.focus), inTerminal: this.rawKeys() ? this.nameOf(this.focus) : null,
       linking: this.linking ? this.linking.desk.nameOf(this.linking.from) : null,
-      dragging: this.dragging ? { ...this.tileAnswer(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
+      dragging: this.held.dragging ? { ...this.tileAnswer(this.held.dragging.src), drop: this.held.dragging.drop ? dropView(this.held.dragging.drop, id => this.nameOf(id)) : null } : null,
       layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1), id => this.tileId(id)),
       tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)),
       floats: this.floats.map(f => { const p = this.panes.get(f.id)!; return { ...brief(this.showing(p)), ...this.tileAnswer(f.id), rect: this.floatRect(f), ...(madeFor(p) ? { newNote: true, writing: p instanceof ReaderPane && !!p.surface.drafting } : {}) }; }),
@@ -3767,15 +3722,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (!host || host.shown) this.drawEmpty(canvas, host?.root ?? area);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
-    if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
-    else if (this.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.elementDrag.target.drop, "detached part", this.elementDrag.x, this.elementDrag.y);
-    else if (this.elementDrag?.target?.kind === "into" && this.elementDrag.target.bar) {
+    if (this.held.dragging) this.drawGhost(canvas, this.held.dragging.drawer ? null : this.held.dragging.drop, this.nameOf(this.held.dragging.src), this.held.dragging.x, this.held.dragging.y, this.held.dragging.drawer ?? undefined);
+    else if (this.held.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.held.elementDrag.target.drop, "detached part", this.held.elementDrag.x, this.held.elementDrag.y);
+    else if (this.held.elementDrag?.target?.kind === "into" && this.held.elementDrag.target.bar) {
       // The drop line (PIE-1357): where the part lands, between the blocks, in the drop zones' accent.
-      const b = this.elementDrag.target.bar;
+      const b = this.held.elementDrag.target.bar;
       canvas.text(b.col, b.row, `${fg(C.yellow)}${"═".repeat(Math.max(0, b.cols - 2))} ▼${RESET}`, b.cols);
     }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
-    else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
+    else if (this.held.floatDrag?.drop) this.drawGhost(canvas, this.held.floatDrag.drop, this.nameOf(this.held.floatDrag.id), this.held.floatDrag.x ?? 0, this.held.floatDrag.y ?? 0);
     withStripOwner(undefined, full.cols, () => this.drawDocks(canvas, host?.root ?? full));   // the drawer's edges in the drawer, where the person looks for what it kept
     if (this.layout.lift) return { lines: canvas.lines(), placements };
     return this.finishFrame(canvas, area, cols, rows, placements, !!host);
@@ -3804,9 +3759,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
-    // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) {
-      const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
+    for (const [d, o] of this.holder ? [] : this.descend().flatMap(d => [...d.overlays.all()].reverse().map(o => [d, o] as const))) {   // images would bleed through an overlay; a group's or mount's is drawn over the whole screen, not its tile (PIE-1783)
+      const p = d.focusedPane(), values = p ? d.lookAt(p, cols).values : lookFor(d.lookSrc, { screen: d.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
       const box = o.drawn?.();
@@ -3837,7 +3791,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * resize goes on (src/resize.ts), a tile whose size changed keeps showing this one (cut or padded to its box) when
    * the frame has no time left to lay it out again (pickReflows).
    */
-  private views = new Map<number, { cols: number; rows: number; view: PaneView; ms: number; frame: number; at: number }>();
+  private readonly views = this.recs.field("view");
   private frameNo = 0;
   /** The tiles this frame lays out again though a resize is going on; null: every tile, as always. */
   private reflows: Set<number> | null = null;
@@ -4065,7 +4019,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
     // At rest, its frame in the look's tone when its `edge` asks for one (PIE-675); every state above keeps its own colour.
     const toned = lv.edge !== "none" && lv.tone !== "neutral" ? TONE[lv.tone] : null;
-    const edgeC = no?.loud ? TONE.amber : arrival ? bright : this.linking ? (this.panes.get(id) === this.linkingFrom() ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
+    const edgeC = no?.loud ? TONE.amber : arrival ? bright : this.linking ? (this.panes.get(id) === this.linkingFrom() ? C.lmagenta : C.magenta) : this.held.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
     const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // One of the person's own left open here (PIE-812) is theirs again with the keys; another's takes e.
     const tail = (held ? fg(C.dark) + (pane instanceof ReaderPane && pane.surface.keepsOnFocusAway() ? " (kept open)" : " (e enters)") : "") + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
@@ -4099,7 +4053,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
       this.presses.draw(canvas, { kind, id, row, from: x, to: x + width(glyph), right: true, ...does }, glyph, sgr);
     if (lifts) button("lift", at.liftX, lifting ? "⇣" : "⇡", fg(C.yellow), lifting ? { label: "drop the lift", action: "tile.zoom", args: { reach: lifting.reach, on: false } } : { label: "lift over its column", action: "tile.zoom", args: { reach: "column", on: true } });
-    if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
+    if (arrival && (tabsOf(this.root, id)?.ids.length ?? 0) < 2) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);   // a tab set marks the tab it landed in, in its strip
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
@@ -4217,7 +4171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
       const stripRoom = room >= 2 * width(this.numLabel(id) + this.displayTitle(id)) ? room : max - x;
-      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: this.displayTitle(t), key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
+      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: `${this.arriving(t) ? "*" : ""}${this.displayTitle(t)}`, key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
       for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.presses.record({ kind: "title", id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row, label: `tab ${h.label}`, action: "tab.select" });
       put(strip!.text, "");
       if (x >= max) return this.headOut;
@@ -4471,7 +4425,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The drop the pointer is over: its outline, what it does, and the tile being carried, at the pointer. */
   private drawGhost(canvas: Canvas, drop: Drop<number> | null, name: string, x: number, y: number, drawer?: string) {
-    const src = this.dragging?.src;
+    const src = this.held.dragging?.src;
     const tile = src !== undefined && drop && drop.kind !== "edge" && !drop.handle ? this.dropTiles().find(t => t.id === drop.target) : undefined;
     drawDrop(canvas, this.area, drop, name, x, y, drawer, tile, src, to => refusal(this.layout, dropOp(src!, to), this.layoutCtx(USER)));
   }
@@ -4701,7 +4655,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let d: Desk = this;
     for (;;) {
       const p = d.panes.get(d.focus);
-      if (d.prefix || d.dragging || d.floatDrag || d.drag || d.linking || d.pickedBy(USER).length || !(p instanceof ScreenTile) || !p.inner || !p.nestsTiles()) return d;
+      if (d.prefix || d.held.dragging || d.held.floatDrag || d.held.drag || d.linking || d.pickedBy(USER).length || !(p instanceof ScreenTile) || !p.inner || !p.nestsTiles()) return d;
       d = p.inner;
     }
   }
@@ -4719,15 +4673,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
     const over = [...this.models.values()].map(m => m.hint?.() ?? null).find(h => h !== null) ?? null;
     if (over !== null) return line(over);
-    if (this.elementDrag) {
-      const t = this.elementDrag.target, why = t?.kind === "detach" ? t.drop.refused : undefined;
+    if (this.held.elementDrag) {
+      const t = this.held.elementDrag.target, why = t?.kind === "detach" ? t.drop.refused : undefined;
       return line(fg(why ? C.lred : C.lmagenta) + (why ? `✕ ${why}` : t ? t.label : "drag it onto another note, a tile's side or header, or the screen's edge") + RESET);
     }
-    if (this.dragging || this.floatDrag) {
-      const why = this.dragging?.drop?.refused ?? this.dragging?.into?.refused ?? this.floatDrag?.drop?.refused;
+    if (this.held.dragging || this.held.floatDrag) {
+      const why = this.held.dragging?.drop?.refused ?? this.held.dragging?.into?.refused ?? this.held.floatDrag?.drop?.refused;
       return line(fg(why ? C.lred : C.lmagenta) + (why ? `✕ ${why}` : "moving") + RESET);
     }
-    if (this.drag || this.prefix === "resize") return line(fg(C.lmagenta) + "resizing" + RESET);
+    if (this.held.drag || this.prefix === "resize") return line(fg(C.lmagenta) + "resizing" + RESET);
     if (this.prefix === "move" || this.prefix === "tab") return line(fg(C.lmagenta) + "moving" + RESET);
     if (this.pickedBy(USER).length) return line(fg(C.lmagenta) + "gathering" + RESET);
     if (this.linking) return line(fg(C.lmagenta) + "linking" + RESET);
@@ -4831,15 +4785,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the link dropped it). A reader's press ends with nothing fired (PIE-1615); a held border or float corner stops holding a resize.
    */
   private releaseLost(): void {
-    const reader = this.pressed ?? this.editPressed;
-    if (reader) { this.gesture = null; reader.pane.surface.endPress(); return this.redraw(); }
-    if (!this.drag && !this.floatDrag?.size) return;
-    this.gesture = null; this.save(); resizeEnded();
+    const reader = this.held.pressed ?? this.held.editPressed;
+    if (reader) { this.held.now = null; reader.pane.surface.endPress(); return this.redraw(); }
+    if (!this.held.drag && !this.held.floatDrag?.size) return;
+    this.held.now = null; this.save(); resizeEnded();
     this.redraw();
   }
 
   key(k: Key, ctx: Ctx): void {
-    if (k.kind === "mouse" && k.action === "down" && (this.pressed || this.editPressed)) this.releaseLost();
+    if (k.kind === "mouse" && k.action === "down" && (this.held.pressed || this.held.editPressed)) this.releaseLost();
     if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
       if (hit && this.onFrame(hit[0], k.x, k.y)) {
@@ -4949,7 +4903,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A dock sliding over shuts when the keys go elsewhere (tile.slide, as its key and an agent do it); one that takes its room, or can't collapse, stays. */
   private shutLeftDocks() {
-    if (!this.dragging && !this.headPress) for (const d of docks(this.root)) {
+    if (!this.held.dragging && !this.held.headPress) for (const d of docks(this.root)) {
       if (!d.open || d.policy?.overlay === false || d.policy?.stays || !leaves(d.kid).length || leaves(d.kid).includes(this.focus) || dockOf(this.root, this.focus)?.edge === d.edge) continue;
       if (!policyOfNode(this.layout, d).collapsible) continue;
       this.step(this.nameOf(leaves(d.kid)[0]!), t => ({ op: "slide", tile: t.id, open: false, container: d.id, keysLeft: true }), USER, () => undefined);
@@ -4957,7 +4911,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private keyIn(k: Key, ctx: Ctx) {
-    if (this.overlays.key(k, this) !== null) return this.redraw();
+    const raised = k.kind === "mouse" && !this.holder ? this.descend().find(d => d !== this && d.overlays.top()) : undefined;   // a group's overlay is drawn over this screen: its clicks are in this screen's cells
+    if (this.overlays.key(k, this) !== null || (raised && raised.overlays.key(k, raised) !== null)) { raised?.redraw(); return this.redraw(); }
     if (this.linking && k.kind !== "mouse") return this.linkKey(k);
     // In a terminal tile: every key is the program's, but the escape chord and the mouse. Once the program
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.
@@ -4987,10 +4942,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (held && heldKind?.takesKeys?.(held) && k.kind !== "mouse" && !windowKey) { held.key(k, this); return; }
     // A key while a tile is dragged acts on that tile, as its ^W chord does (the same actions): f floats it, p puts it
     // in a dock (or pins it), a puts it in your drawer. The drag ends there.
-    const mid = this.dragging && k.kind === "char" && !k.ctrl ? DRAG_KEYS[k.ch] : undefined;
-    if (mid && this.dragging) {
-      const src = this.nameOf(this.dragging.src);
-      this.gesture = null;
+    const mid = this.held.dragging && k.kind === "char" && !k.ctrl ? DRAG_KEYS[k.ch] : undefined;
+    if (mid && this.held.dragging) {
+      const src = this.nameOf(this.held.dragging.src);
+      this.held.now = null;
       return this.run(mid[0], mid[1], src);
     }
     // An edit or comment of the person's kept open on the focused reader (brought back by a restore, or left by a ^W
@@ -5020,7 +4975,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         }
         // The drag and release of a press the desk took before the keys came back into this edit (a float's title, a
         // border, a press elsewhere: PIE-812 re-enters the edit on that press) stay the desk's.
-        const desks = k.action !== "down" && !this.editPressed && !!(this.headPress || this.pressed || this.dragging || this.mouseTile || this.drag || this.floatDrag || this.outDrag);
+        const desks = k.action !== "down" && !this.held.editPressed && !!(this.held.headPress || this.held.pressed || this.held.dragging || this.held.mouseTile || this.held.drag || this.held.floatDrag || this.held.outDrag);
         if (focused.editing && !desks && k.action !== "wheel-up" && k.action !== "wheel-down") {
           if (k.action === "down") this.floatsWhereTheyAre();
           if ((k.action === "down" || k.action === "drag" || k.action === "up") && this.clickIn(focused, k)) return this.redraw();
@@ -5394,32 +5349,32 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = node ? policyOfNode(this.layout, node) : effective([{ by: "screen", policy: this.layout.policy }]);
     const id = node ? node.id ?? "" : "screen";
     const tname = this.nameOf(tile);
-    const set = (args: Record<string, unknown>) => this.run("layout.policy", { node: id, ...args }, tname);
+    const act = (action: string, args: Record<string, unknown> = {}, on = tname) => ({ act: { action, args, tile: on }, run: () => { this.run(action, args, on); } }), set = (args: Record<string, unknown>) => act("layout.policy", { node: id, ...args });   // a row says the action it runs, as data, and runs that
     const onOff = (b: boolean) => (b ? "on" : "off");
     const flag = (k: "draggable" | "droppable" | "closable" | "resizable" | "collapsible", about: string) => ({
       label: `${k} · ${about}`, value: own[k] === undefined ? `${onOff(at[k])} (from ${at.by[k] ?? "the default"})` : onOff(own[k]!),
       // Cycles: from above → off → on → from above.
-      run: () => (own[k] === undefined ? set({ [k]: false }) : own[k] === false ? set({ [k]: true }) : set({ clear: k })),
+      ...(own[k] === undefined ? set({ [k]: false }) : own[k] === false ? set({ [k]: true }) : set({ clear: k })),
     });
     const rows: ReturnType<Desk["policyRows"]> = [{
       label: "locked · the shape is fixed, the contents live", value: own.locked ? "on" : at.locked ? `on (from ${at.by.locked})` : "off",
-      run: () => (node ? set({ locked: !own.locked }) : this.run("layout.lock")),
+      ...(node ? set({ locked: !own.locked }) : act("layout.lock")),
     }, flag("draggable", "its tiles move out"), flag("droppable", "it takes tiles"), flag("closable", "its tiles close"), flag("resizable", "its borders move")];
     const ag = ["free", "edit", "off"] as const, agNow = own.agents ?? "free";
-    rows.push({ label: "agents · what an agent may do to its tiles (free, edit only, hands off)", value: own.agents ?? `${at.agents}${at.by.agents ? ` (from ${at.by.agents})` : " (the default)"}`, run: () => set({ agents: ag[(ag.indexOf(agNow) + 1) % ag.length] }) });
+    rows.push({ label: "agents · what an agent may do to its tiles (free, edit only, hands off)", value: own.agents ?? `${at.agents}${at.by.agents ? ` (from ${at.by.agents})` : " (the default)"}`, ...set({ agents: ag[(ag.indexOf(agNow) + 1) % ag.length] }) });
     const kinds = [...new Set((node ? leaves(node) : this.all()).map(i => this.panes.get(i)!.kind))];
-    rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", run: () => (own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
+    rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", ...(own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
     const notes = this.all().filter(i => kindOf(this.panes.get(i))?.accepts?.notes && !(node && leaves(node).includes(i))).map(i => this.nameOf(i));
     const rule = (o: OpenRule) => `${o}: ${OPEN_RULE_WORDS[o]}`, next = OPEN_RULES[(OPEN_RULES.indexOf(own.opens ?? at.opens) + 1) % OPEN_RULES.length]!;   // ⏎ steps through them (self: in place, PIE-1516), then back to the one from above
-    rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, run: () => (own.opens === OPEN_RULES.at(-1) ? set({ clear: "opens" }) : set({ opens: next })) });
+    rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, ...(own.opens === OPEN_RULES.at(-1) ? set({ clear: "opens" }) : set({ opens: next })) });
     if (!node) {
-      for (const k of ["gap", "inset"] as const) rows.push({ label: `${k} · ${TILE_ACTIONS.def("layout.policy")!.args![k]!.about}`, value: String(own[k] ?? 0), run: () => set({ [k]: ((own[k] ?? 0) + 1) % 9 }), adjust: by => set({ [k]: Math.max(0, Math.min(k === "gap" ? 8 : Infinity, (own[k] ?? 0) + by)) }) });
+      for (const k of ["gap", "inset"] as const) rows.push({ label: `${k} · ${TILE_ACTIONS.def("layout.policy")!.args![k]!.about}`, value: String(own[k] ?? 0), ...set({ [k]: ((own[k] ?? 0) + 1) % 9 }), adjust: by => set({ [k]: Math.max(0, Math.min(k === "gap" ? 8 : Infinity, (own[k] ?? 0) + by)) }).run() });
       const order = ["over", "beside", "none"] as const, now = own.host ?? "over";
-      rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", run: () => set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
+      rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", ...set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
     }
     rows.push({
       label: "opens into · where its tiles' opens land", value: own.opensInto ?? (at.opensInto ? `${at.opensInto} (from ${at.by.opensInto})` : "—"),
-      run: () => { const i = own.opensInto ? notes.indexOf(own.opensInto) : -1; const next = notes[i + 1]; return next ? set({ opensInto: next }) : set({ clear: "opensInto" }); },
+      ...(() => { const i = own.opensInto ? notes.indexOf(own.opensInto) : -1; const next = notes[i + 1]; return next ? set({ opensInto: next }) : set({ clear: "opensInto" }); })(),
     });
     if (node) {
       // Measured as laid out without a zoom (PIE-869: with another tile zoomed its tiles weren't on screen, and ⏎ here
@@ -5431,27 +5386,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         label: `${k} size · cells (+ - change it)`,
         // A lock that's set says so, and how to clear it, where it's seen (PIE-869).
         value: own[k] === undefined ? "—" : `${own[k]}${k === "fixed" && ignored ? " · ignored: nothing beside" : ""} · ⏎ clears`,
-        run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })),
-        adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }),
+        run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })).run(),
+        adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }).run(),
       }));
       rows.splice(1, 0, ...sizes);
     }
     if (node && isLine(node) && node.dir === "row") {
       const spines = SPINES;
       rows.push({ label: "spines · book, left, right, centre, or toward the invoker", value: at.spines,
-        run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
+        ...set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
       rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
-        run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
+        ...set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }).run() });
       for (const entry of this.dispatch.menu(this.tileId(tile), USER, "layout.gather")) rows.push({
-        label: entry.label, value: "", run: () => this.run(entry.action, { ...entry.args, node: id }, tname),
+        label: entry.label, value: "", ...act(entry.action, { ...entry.args, node: id }),
       });
     }
     if (node?.t === "dock") {
       rows.push(flag("collapsible", "it slides shut"));
-      rows.push({ label: "overlay · slides over (off: takes its room)", value: onOff(node.policy?.overlay !== false), run: () => set({ overlay: node.policy?.overlay === false }) });
-      rows.push({ label: "stays · open when the keys leave it", value: onOff(!!node.policy?.stays), run: () => set({ stays: !node.policy?.stays }) });
+      rows.push({ label: "overlay · slides over (off: takes its room)", value: onOff(node.policy?.overlay !== false), ...set({ overlay: node.policy?.overlay === false }) });
+      rows.push({ label: "stays · open when the keys leave it", value: onOff(!!node.policy?.stays), ...set({ stays: !node.policy?.stays }) });
       const order: Dir[] = ["left", "up", "right", "down"];
-      rows.push({ label: "edge · where it slides from", value: node.edge, run: () => this.run("tile.dock", { edge: order[(order.indexOf(node.edge) + 1) % 4] }, this.nameOf(leaves(node.kid)[0]!)) });
+      rows.push({ label: "edge · where it slides from", value: node.edge, ...act("tile.dock", { edge: order[(order.indexOf(node.edge) + 1) % 4] }, this.nameOf(leaves(node.kid)[0]!)) });
     }
     return rows;
   }
@@ -5679,10 +5634,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const target = o.node !== undefined ? nodeById(this.root, o.node) ?? node(this.root, o.node) : null;
     if (o.node !== undefined && !target) throw new ActionRefused(`there's no container ${o.node} on the ${this.title}; layout.get names them`);
-    const w = o.with !== undefined ? this.tile(o.with) : null;
+    const w = o.with !== undefined ? this.tile(o.with) : null; if (!target && !w && this.inGroup() && new Set(leaves(this.root)).size === 1) throw new ActionRefused(`${t.name} is a group of one already: gathering it would nest another · ctrl+] out, then shift+click a neighbour and ^W G`);
     const inside = target ? leaves(target) : [t.id];
-    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`);
-    const ids = [...inside, ...(w ? [w.id] : [])];
+    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`); const ids = [...inside, ...(w ? [w.id] : [])];
     return this.gather(t, target, ids, w, o, actor);
   }
   /** `tile.group` for the tiles selected: `ids` (in the layout's order) whole, as the group of them. */
@@ -6811,7 +6765,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   resizeBorder(at: { path?: string; split?: string }, border: number, share: number, actor: Actor) {
     const r = this.apply({ op: "resize", ...(at.split !== undefined ? { split: at.split } : {}), ...(at.path !== undefined ? { path: at.path } : {}), border, share }, actor);
     // During a border drag, desk.json is written once, on release.
-    if (!this.drag) this.save();
+    if (!this.held.drag) this.save();
     this.redraw();
     return r.answer as { split: string | undefined; path: string; border: number; share: number; tiles: string[] };
   }
@@ -6866,16 +6820,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.failedOpens.delete(p);
       if (this.entered.in(p)) this.entered.clear();
     }
-    const g = this.gesture;
-    if ((g?.kind === "float" || g?.kind === "tile" || g?.kind === "head") && g.id === id || (g?.kind === "reader" || g?.kind === "edit") && g.pane === p) { if (g.kind === "float" && g.size) resizeEnded(); if (g.kind === "reader" || g.kind === "edit") g.pane.surface.endPress(); this.gesture = null; }
+    this.held.forget(id, p);
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
     this.memory.forget(id);
-    this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
+    this.panes.delete(id); this.recs.drop(id);
   }
-  /** Tiles moved here whole (from the drawer): when this screen goes for good, one still running goes back to the drawer. */
-  private readonly movedIn = new Set<number>();
+  private readonly movedIn = this.recs.flag("movedIn");   // TileRecord.movedIn
 
   /** `pane.split`: tile.open along the longer side (or `dir`): one code path, one rule. `pane` is the new tile's number. */
   async splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): Promise<PaneDone> {
@@ -6902,9 +6854,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return out;
   }
   /** A float is being moved or sized by the mouse: the drag stays this screen's until the button comes up, over the drawer too. */
-  floatGesture(): boolean { return !!this.floatDrag; }
-  draggedFloat(): string | null { return this.floatDrag && !this.floatDrag.size ? this.nameOf(this.floatDrag.id) : null; }
-  floatDrop(): Drop<number> | null { return this.floatDrag?.drop ?? null; }
+  floatGesture(): boolean { return !!this.held.floatDrag; }
+  draggedFloat(): string | null { return this.held.floatDrag && !this.held.floatDrag.size ? this.nameOf(this.held.floatDrag.id) : null; }
+  floatDrop(): Drop<number> | null { return this.held.floatDrag?.drop ?? null; }
   get lifted() { return this.layout.lift; }
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }
@@ -7141,7 +7093,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone {
     const t = sel ? this.tile(sel) : null;
     const r = this.apply({ op: "place", ...(t ? { tile: t.id } : {}), ...a }, actor);
-    if (!this.floatDrag) this.save();
+    if (!this.held.floatDrag) this.save();
     this.redraw();
     return { ...r.answer, ...this.tileAnswer(this.tile(String(r.answer.tile)).id) };
   }
@@ -7350,8 +7302,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (fixed) return fixed;
     let land: ReturnType<Desk["landingFor"]>;
     try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
-    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane);
-    const goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
+    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane), goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
+    const own = kindOf(pane)?.carryRefusal?.(pane, this, dest, new Set([pane, goes])); if (own) return own;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
       // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
       tile: t.id, ...(how.heir ? { heir: { id: this.nextId, name: this.autoName(how.heir.kind) } } : {}),
@@ -7462,12 +7414,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
       whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
-    this.overlay(new ListPicker<{ label: string; run: () => unknown }, Desk>({
-      name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
-      row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-      choose: it => void it.run(),
+    const ask: ListPicker<{ label: string; run: () => unknown }, Desk> = new ListPicker<{ label: string; run: () => unknown }, Desk>({   // a question, not a mode: no gathering card beside it; ^W leaves it for its chord
+      name: "gather", items: () => rows, clickChooses: true, row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)], choose: it => void it.run(),
+      keys: (k, d) => { if (k.kind !== "char" || !k.ctrl || k.ch !== "w") return false; ask.close(d, "esc"); d.key(k, d.ctx); return true; },
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
-    }));
+    }); this.overlay(ask);
     return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }
 
@@ -7583,11 +7534,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** The tile the person is dragging by its header now (a drop on the drawer takes it there), or null. */
-  draggedTile(): string | null { return this.dragging ? this.nameOf(this.dragging.src) : null; }
+  draggedTile(): string | null { return this.held.dragging ? this.nameOf(this.held.dragging.src) : null; }
   /** The drag ends with nothing moved here (it was dropped on the drawer, or outside this screen). */
-  cancelDrag() { if (this.headPress || this.floatDrag) this.gesture = null; this.foreign = null; this.redraw(); }
+  cancelDrag() { if (this.held.headPress || this.held.floatDrag) this.held.now = null; this.foreign = null; this.redraw(); }
   /** The dragged tile is over the drawer (the status bar's chip, or the dock): the drag says it lands there. */
-  drawerHover(label: string | null) { const h = this.headPress; if (h?.carry && (h.carry.drawer ?? null) !== label) { h.carry = { ...h.carry, drawer: label }; this.redraw(); } }
+  drawerHover(label: string | null) { const h = this.held.headPress; if (h?.carry && (h.carry.drawer ?? null) !== label) { h.carry = { ...h.carry, drawer: label }; this.redraw(); } }
   /**
    * A tile from outside this screen (the drawer's) dragged over it at x, y: where it would land here, by the same drop
    * zones a tile of this screen gets, with the reason policy refuses it; drawn as the ghost until `cancelDrag`.
@@ -7608,9 +7559,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * of its note under the press is being dragged (its line, its target under the pointer). False when it's no part
    * (the header, a blank): the reader's own drag (a selection) goes on.
    */
-  private dragElement(p: NonNullable<Desk["pressed"]>, k: { x: number; y: number }): boolean {
+  private dragElement(p: NonNullable<HeldGesture<Desk>["pressed"]>, k: { x: number; y: number }): boolean {
     if (!p.fresh || !p.at) return false;
-    if (!this.elementDrag) {
+    if (!this.held.elementDrag) {
       // Three cells, so a held alt-click's jitter stays a click (it opens beside); a blank line between parts is no part.
       if (Math.abs(k.x - p.at.x) + Math.abs(k.y - p.at.y) < 3 || !p.pane.msg || !isOutlineNote(p.pane.msg)) return false;
       const from = this.pressedAt(p, p.at), line = p.pane.surface.elementLine(from.x, from.y);
@@ -7646,8 +7597,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A dragged part let go (PIE-1247): into a note (embed or copy, asked), or detached where the zones say; anywhere else it stays. */
   private dropElement() {
-    const e = this.elementDrag!;
-    this.gesture = null;
+    const e = this.held.elementDrag!;
+    this.held.now = null;
     const t = e.target, src = this.nameOf(e.src);
     if (!t) { this.ctx.flash("not moved: drop a part on another note, a tile's side or header, or the screen's edge"); return this.redraw(); }
     if (t.kind === "detach") {
@@ -7761,23 +7712,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const o = this.origin(at![0], hit), near = this.local(at![0], hit, k.x, k.y);
     const popup = this.views.get(at![0])?.view.completion?.drawn;
     const overPopup = popup && near.y >= popup.row && near.y < popup.row + popup.items.length;
-    const { x, y } = k.action === "down" || overPopup ? near : this.pressedAt({ ...o, gutter: this.gutters.get(at![0]), frame: this.editPressed?.float ? this.views.get(at![0])?.view.frame : undefined }, k);
+    const { x, y } = k.action === "down" || overPopup ? near : this.pressedAt({ ...o, gutter: this.gutters.get(at![0]), frame: this.held.editPressed?.float ? this.views.get(at![0])?.view.frame : undefined }, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
     // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as ctrl+l does: in the detail the last one
     // opened in, not a new one each time (besideEdit).
     if (k.action === "up") {
-      if (this.editPressed?.pane !== pane) return false;
-      const mod = this.editPressed.fresh;
-      this.gesture = null;
+      if (this.held.editPressed?.pane !== pane) return false;
+      const mod = this.held.editPressed.fresh;
+      this.held.now = null;
       pane.release(x, y, this, mod ? (m, how) => this.openFromTile(m, { ...how, from: pane, reveal: true }) : undefined);
       return true;
     }
     // A drag in an open edit selects in its draft (the press placed the cursor).
-    if (k.action === "drag") { if (this.editPressed?.pane !== pane) return false; pane.drag(x, y, this); return true; }
+    if (k.action === "drag") { if (this.held.editPressed?.pane !== pane) return false; pane.drag(x, y, this); return true; }
     // Only where the reader is on top: a float or a dock drawn over its popup keeps the click.
     if (!(this.topTileAt(k.x, k.y) === at![0] && this.inBody(at![0], hit, k.x, k.y))) return false;
-    this.gesture = { kind: "edit", pane, float: !!pane.surface.floatAt(k.x - o.col, k.y - o.row), fresh: !!((k.mods ?? 0) & 24) };
+    this.held.now = { kind: "edit", pane, float: !!pane.surface.floatAt(k.x - o.col, k.y - o.row), fresh: !!((k.mods ?? 0) & 24) };
     pane.press(x, y, this, !!((k.mods ?? 0) & 4));
     return true;
   }
@@ -7848,7 +7799,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * screen's own drop zones. True when the pointer is out there (the group's desk is not told); false inside.
    */
   private dragOut(k: Extract<Key, { kind: "mouse" }>): boolean {
-    const m = this.mouseTile, p = m ? this.panes.get(m.id) : undefined;
+    const m = this.held.mouseTile, p = m ? this.panes.get(m.id) : undefined;
     if (!m || !(p instanceof ScreenTile) || !p.group || !p.inner) return false;
     const name = p.inner.draggedTile();
     if (!name) return false;
@@ -7865,38 +7816,38 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Sideways wheel reports as steps: one a swipe. */
   private readonly swipe = new SidewaysWheel();
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
-    const p = this.pressed;
+    const p = this.held.pressed;
     if (k.action === "up") {
-      const t = this.headPress ?? this.floatDrag, click = t?.click ? { id: t.id, ...t.click } : null;
+      const t = this.held.headPress ?? this.held.floatDrag, click = t?.click ? { id: t.id, ...t.click } : null;
       if (t) t.click = undefined;
       if (click && k.x === click.x && k.y === click.y && this.titlePresses.press(click.id) === "open") {
-        this.gesture = null;
+        this.held.now = null;
         if (click.id !== this.focus) this.run("tile.focus", {}, this.nameOf(click.id));
         return this.run("tile.title", {}, this.nameOf(click.id));
       }
       // A resize let go (src/resize.ts): laid out and scaled for where it ended.
-      if (this.drag) { this.gesture = null; resizeEnded(); this.save(); }
-      if (this.floatDrag) {
-        const g = this.floatDrag;
-        this.gesture = null;
+      if (this.held.drag) { this.held.now = null; resizeEnded(); this.save(); }
+      if (this.held.floatDrag) {
+        const g = this.held.floatDrag;
+        this.held.now = null;
         if (g.size) resizeEnded();
         if (g.drop && !g.drop.refused) return void this.run(g.drop.receive?.action ?? "layout.move", g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
         if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
         this.save(); return this.redraw();
       }
       // A tile of a group let go outside it: it goes out onto this screen, where the drop zones say.
-      if (this.outDrag) {
-        const o = this.outDrag;
-        this.gesture = null; this.foreign = null;
+      if (this.held.outDrag) {
+        const o = this.held.outDrag;
+        this.held.now = null; this.foreign = null;
         o.inner.cancelDrag();
         if (!o.target) this.ctx.flash(`not moved: ${o.name} stays in the group · drop it on a tile's side, its header or centre, or the screen's edge`);
         else if (o.target.refused) this.ctx.flash(`not moved: ${o.target.refused}`);
         else o.inner.run("layout.move", { out: true, ...(o.target.to ? { beside: o.target.to } : {}), where: o.target.where }, o.name);
         return this.redraw();
       }
-      if (this.elementDrag) return this.dropElement();
-      const d = this.dragging, h = this.headPress;
-      if (h) this.gesture = null;
+      if (this.held.elementDrag) return this.dropElement();
+      const d = this.held.dragging, h = this.held.headPress;
+      if (h) this.held.now = null;
       if (d?.drop) {
         const drop = d.drop;
         this.run(drop.receive?.action ?? (drop.kind === "swap" ? "layout.swap" : "layout.move"), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
@@ -7911,34 +7862,34 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (this.inFlow(h.id)) this.run("tile.widen", {}, this.nameOf(h.id));
         this.redraw();
       }
-      if (this.mouseTile) { const m = this.mouseTile; this.gesture = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); }
-      if (p) { this.gesture = null; const at = this.pressedAt(p, k); p.pane.release(at.x, at.y, this, p.fresh ? (m, how) => this.openFromTile(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined, p.focusing); this.redraw(); }
+      if (this.held.mouseTile) { const m = this.held.mouseTile; this.held.now = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); }
+      if (p) { this.held.now = null; const at = this.pressedAt(p, k); p.pane.release(at.x, at.y, this, p.fresh ? (m, how) => this.openFromTile(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined, p.focusing); this.redraw(); }
       return;
     }
     if (k.action === "drag") {
-      const t = this.headPress ?? this.floatDrag;
+      const t = this.held.headPress ?? this.held.floatDrag;
       if (t) t.click = undefined;
       this.titlePresses.forget();
       // A float's title moves it, its corner sizes it: float.place, as H J K L and an agent's.
-      if (this.floatDrag) {
-        const f = this.floats.find(x => x.id === this.floatDrag!.id), g = this.floatDrag;
+      if (this.held.floatDrag) {
+        const f = this.floats.find(x => x.id === this.held.floatDrag!.id), g = this.held.floatDrag;
         if (g.size) resizeHeld();
         if (f) { const at = this.floatRect(f); this.run("float.place", g.size ? { cols: k.x - at.col + 1, rows: k.y - at.row + 1 } : { col: k.x - g.dx, row: k.y - g.dy }, this.nameOf(g.id)); }
-        if (!g.size && this.floatDrag === g) { g.drop = this.floatDock(g.id, k.x, k.y); g.x = k.x; g.y = k.y; this.redraw(); }
+        if (!g.size && this.held.floatDrag === g) { g.drop = this.floatDock(g.id, k.x, k.y); g.x = k.x; g.y = k.y; this.redraw(); }
         return;
       }
       // A border follows the pointer by layout.resize (the same action an agent calls).
       // A report that wouldn't move it (the pointer within the cell, or past where the border stops) does nothing: a
       // frame for it would lay out every tile again for nothing.
-      if (this.drag) {
+      if (this.held.drag) {
         resizeHeld();
-        const g = this.drag, split = g.grab.d.node.id, f = dragShare(g.grab, k.x, k.y);
+        const g = this.held.drag, split = g.grab.d.node.id, f = dragShare(g.grab, k.x, k.y);
         if (split && f !== null && f !== g.at) { g.at = f; this.run("layout.resize", { split, border: g.grab.d.i, share: f }); }
         return;
       }
-      if (this.headPress) {
-        const h = this.headPress;
-        if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
+      if (this.held.headPress) {
+        const h = this.held.headPress;
+        if (!this.held.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
         const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(h.id, to), this.layoutCtx(USER));
         const handles = this.dockHandles();
@@ -7949,8 +7900,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         h.carry = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? this.saysDocked(dropAt(this.dropTiles(this.panes.get(h.id)), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse)), x: k.x, y: k.y };
         return this.redraw();
       }
-      if (this.mouseTile && this.dragOut(k)) return;
-      if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); return; }
+      if (this.held.mouseTile && this.dragOut(k)) return;
+      if (this.held.mouseTile) { const m = this.held.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); return; }
       // Alt (or ctrl) held and moved: the part under the press comes out of the reader (PIE-1247), not a selection.
       if (p && this.dragElement(p, k)) return;
       if (p) { const at = this.pressedAt(p, k); return p.pane.drag(at.x, at.y, this); }
@@ -8008,8 +7959,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;
         if (id !== this.focus || this.floats.at(-1)?.id !== id) this.run("tile.focus", {}, this.nameOf(id));
-        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.gesture = { kind: "float", id, size: true, dx: 0, dy: 0, ...click }; resizeHeld(); return this.redraw(); }
-        if (k.y === r.row) { this.gesture = { kind: "float", id, size: false, dx: k.x - r.col, dy: k.y - r.row, ...click }; return this.redraw(); }
+        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.held.now = { kind: "float", id, size: true, dx: 0, dy: 0, ...click }; resizeHeld(); return this.redraw(); }
+        if (k.y === r.row) { this.held.now = { kind: "float", id, size: false, dx: k.x - r.col, dy: k.y - r.row, ...click }; return this.redraw(); }
       }
       // A spine: a click opens it (and gives it the keys), as ⏎ on it does.
       const sp = this.spines.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
@@ -8026,7 +7977,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A border the policy keeps where it is (locked, resizable off, a fixed size) doesn't follow the pointer: said once.
         const why = d.d.node.id ? refusal(this.layout, { op: "resize", split: d.d.node.id, border: d.d.i, share: d.d.sizes[0] / Math.max(1, d.d.sizes[0] + d.d.sizes[1]) }, this.layoutCtx(USER)) : null;
         if (why) { this.ctx.flash(why); return this.redraw(); }
-        this.gesture = { kind: "resize", grab: d, at: null }; resizeHeld(); return;
+        this.held.now = { kind: "resize", grab: d, at: null }; resizeHeld(); return;
       }
       if (!hit) return;
       const [id, r] = hit;
@@ -8039,7 +7990,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const grab = tab && set?.ids.includes(tab.id) ? tab.id : id;
         // Shift+click on a title picks the tile to gather with others (tile.select): no focus, no drag.
         if (((k.mods ?? 0) & 4) && !this.isFloat(grab)) return this.run("tile.select", {}, this.nameOf(grab));
-        this.gesture = { kind: "head", id: grab, x: k.x, y: k.y, ...click };
+        this.held.now = { kind: "head", id: grab, x: k.x, y: k.y, ...click };
         if (grab !== id) this.run("tab.select", {}, this.nameOf(grab));
         else if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
         return this.redraw();
@@ -8057,16 +8008,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           // A click its kind gives an action (in a terminal: typing in it); the tile gets the click when it asks for the mouse.
           const a = press(pane, k);
           if (a) this.run(a.action, a.args ?? {}, this.nameOf(id));
-          if (pane.mouse?.(k, x, y, this, how)) this.gesture = { kind: "tile", id, r: this.origin(id, r) };
-        } else if (pane?.mouse) { this.gesture = { kind: "tile", id, r: this.origin(id, r) }; pane.mouse(k, x, y, this, how); }
+          if (pane.mouse?.(k, x, y, this, how)) this.held.now = { kind: "tile", id, r: this.origin(id, r) };
+        } else if (pane?.mouse) { this.held.now = { kind: "tile", id, r: this.origin(id, r) }; pane.mouse(k, x, y, this, how); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
           // The press that gives the keys back to an edit of theirs left open there (PIE-812) keeps its cursor and
           // selection where they were, as the keys coming back by ^W leave them; a control in its frame still runs (its
           // release is the edit's, as any press in it: clickIn).
           const o = this.origin(id, r);
-          if (focusing && pane.editing && this.entered.in(pane)) { this.gesture = { kind: "edit", pane, fresh: false, float: !!pane.surface.floatAt(k.x - o.col, k.y - o.row) }; pane.press(x, y, this, false, true); return this.redraw(); }
-          this.gesture = { kind: "reader", frame: pane.surface.floatAt(k.x - o.col, k.y - o.row) ? this.views.get(id)?.view.frame : undefined, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing, at: { x: k.x, y: k.y } };
+          if (focusing && pane.editing && this.entered.in(pane)) { this.held.now = { kind: "edit", pane, fresh: false, float: !!pane.surface.floatAt(k.x - o.col, k.y - o.row) }; pane.press(x, y, this, false, true); return this.redraw(); }
+          this.held.now = { kind: "reader", frame: pane.surface.floatAt(k.x - o.col, k.y - o.row) ? this.views.get(id)?.view.frame : undefined, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing, at: { x: k.x, y: k.y } };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).

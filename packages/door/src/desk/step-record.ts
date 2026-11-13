@@ -35,6 +35,8 @@ export interface LayoutEntry<D = unknown> {
   owner: string;
   /** What it was, in words: `resize`, `close`, `laid out review`; a transaction says how many steps it joined. */
   what: string;
+  /** The first step's words (`what` before a transaction's later steps counted it): what the person's one key did (PIE-1782). */
+  first?: string;
   txn?: string;
   /** Actions that joined this entry (a transaction's count). */
   steps: number;
@@ -187,7 +189,7 @@ export class DeskSteps<D extends object = object> {
       if (t?.entry && t.entry === newest) { t.entry.steps++; t.touched = now; t.entry.what = `${t.entry.steps} steps`; return t.entry; }
     }
     if (!txn && what === "resize" && newest && !newest.txn && newest.what === "resize" && newest.party === party && now - newest.at < COALESCE_MS) { newest.at = now; return newest; }
-    const entry: LayoutEntry<D> = { desk: this.desk, seq: undoStamp(), before, ...(shape !== undefined ? { shape } : {}), by, party, owner: by.kind === "agent" && by.for ? by.for : party, what, steps: 1, at: now, ...(txn ? { txn } : {}) };
+    const entry: LayoutEntry<D> = { desk: this.desk, seq: undoStamp(), before, ...(shape !== undefined ? { shape } : {}), by, party, owner: by.kind === "agent" && by.for ? by.for : party, what, first: what, steps: 1, at: now, ...(txn ? { txn } : {}) };
     this.all.push(entry);
     const mine = this.list;
     if (mine.length > KEEP) this.take(mine[0]!);

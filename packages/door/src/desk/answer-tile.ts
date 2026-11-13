@@ -14,6 +14,15 @@ import { tileRegistry } from "./tile-registry";
 import { unsent } from "../draft-session";
 import { UNSENT_BACK } from "../unsent";
 
+/**
+ * The answer's reader, named `source`: on its own desk, else on the desk around it (`../source`): an answer an agent
+ * grouped with another tile (PIE-1782) still reads the reader it answers. A reader gone into a group leaves its answer
+ * outside, which closes as an attached tile does (PIE-1716).
+ */
+function readerOf(desk: Pick<DeskApi, "paneNamed" | "pane">, source: string): Pane | undefined {
+  return desk.paneNamed?.(source) ?? desk.pane?.(`../${source}`);
+}
+
 /** An agent's answer callout, as the service writes it under an ask line: `> [!note]+ @yo answered`. */
 const ANSWER_FOLD = /^>\s*\[!note\][+-]?\s+@[a-z][a-z0-9-]*\s+answered\s*$/;
 
@@ -99,8 +108,8 @@ export class AnswerTile implements Pane {
     return { lines: lines.slice(this.top, this.top + h) };
   }
   /** Whether its ask is still in its reader's note (typed or saved): one that's gone isn't kept in a saved layout (PIE-1733). */
-  live(desk: Pick<DeskApi, "paneNamed">): boolean {
-    const reader = desk.paneNamed?.(this.source);
+  live(desk: Pick<DeskApi, "paneNamed" | "pane">): boolean {
+    const reader = readerOf(desk, this.source);
     if (reader instanceof ReaderPane && reading(reader)) return true;   // a door just restored: its note isn't read yet
     return reader instanceof ReaderPane && (this.shown(reader.surface.draft?.text ?? reader.msg?.text ?? "") !== undefined || this.keptAside(reader));
   }
@@ -113,15 +122,15 @@ export class AnswerTile implements Pane {
    * does, unless the reader is back by the time the close comes round, with no undo step of its own. Drawn, it sees that
    * itself; a tab behind its reader isn't drawn, so the desk says so as the reader goes (PIE-1757).
    */
-  readerLeft(desk: Pick<DeskApi, "paneNamed" | "dismiss">) {
-    if (this.closing || desk.paneNamed?.(this.source) instanceof ReaderPane) return;
+  readerLeft(desk: Pick<DeskApi, "paneNamed" | "pane" | "dismiss">) {
+    if (this.closing || readerOf(desk, this.source) instanceof ReaderPane) return;
     this.closing = true;
-    queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); });
+    queueMicrotask(() => { if (this.closing && !(readerOf(desk, this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); });
   }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
   private shownLive: boolean | null = null;
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
-    const reader = desk.paneNamed?.(this.source);
+    const reader = readerOf(desk, this.source);
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
     // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
     // back). The next ask opens one beside the reader where it is now.
@@ -174,7 +183,7 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
     summary: `fold or unfold this answer: ${FOLD_WHERE.edit} while one is open on its note, else ${FOLD_WHERE.note} (its callout as the note is read)`, keys: "f", touches: "tile", replay: "safe",
     args: {},
     async run(_, { pane, desk }, actor) {
-      const reader = desk.paneNamed?.(pane.source);
+      const reader = readerOf(desk, pane.source);
       if (!(reader instanceof ReaderPane)) throw new ActionRefused("open the answer's note first");
       const fold = pane.answer(reader.surface.draft?.text ?? reader.msg?.text ?? "");
       if (!fold) throw new ActionRefused("this ask has no answer to fold");
@@ -201,7 +210,7 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
       { act: "answer.follow tile=answer n=1", does: "follows the answer's first link, or presses it when it is a button, as its reader would" },
     ],
     async run({ n, alt }, { pane, desk }, actor) {
-      const reader = desk.paneNamed?.(pane.source), link = pane.links[n - 1];
+      const reader = readerOf(desk, pane.source), link = pane.links[n - 1];
       if (!(reader instanceof ReaderPane)) throw new ActionRefused("open the answer's note first");
       // A button (PIE-1699): the reader's own press of that line, as a click on it in the note, attributed to whoever asks.
       const press = link?.press;
@@ -216,6 +225,8 @@ export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
 
 export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
+  // It reads the reader it answers: carried where that reader can't be reached (the drawer, another screen), it would close.
+  carryRefusal: (p, from, to, goes) => { const src = (p as AnswerTile).source, r = readerOf(from, src); return r && !goes.has(r) && readerOf(to, src) !== r ? `the answer goes with its reader, ${src}: it stays beside it` : null; },
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined, s.state?.saved as string | undefined),

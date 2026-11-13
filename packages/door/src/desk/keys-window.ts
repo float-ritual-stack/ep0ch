@@ -15,7 +15,7 @@ import { filterLine, type LineField } from "../surface/line";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { chips, tabStrip } from "../surface/chip-rows";
 import type { Key } from "../term";
-import type { DeskApi, Pane, PaneView } from "./panes";
+import type { TileHost, Pane, PaneView } from "./panes";
 import { TILE_ACTIONS } from "./tile-actions";
 import { tileRegistry } from "./tile-registry";
 import type { ScreenSpec } from "./screen-spec";
@@ -125,7 +125,7 @@ export class KeysPane implements Pane {
   }
   selected(): Binding | null { const r = this.rows(); return r[Math.min(this.at, r.length - 1)]?.b ?? null; }
 
-  render(w: number, h: number, _focused: boolean, _desk: DeskApi): PaneView {
+  render(w: number, h: number, _focused: boolean, _desk: TileHost): PaneView {
     this.hits = []; this.buttons = [];
     const rows = this.rows(), all = this.all();
     if (this.at >= rows.length) this.at = Math.max(0, rows.length - 1);
@@ -256,7 +256,7 @@ export class KeysPane implements Pane {
 
   /** Esc: the rebind waiting, the filter typed, then this window as a tile (esc-rule.ts). */
   escCloses() { return this.record ? "the rebind" : this.field ? "the filter" : !this.screen ? "the keys window" : undefined; }
-  key(k: Key, desk: DeskApi): boolean {
+  key(k: Key, desk: TileHost): boolean {
     if (this.record && k.kind !== "mouse") return this.recordKey(k, desk);
     if (this.field && k.kind !== "mouse") {
       const b = modeBinding(KEYS_FILTER_KEYS, k);
@@ -269,7 +269,7 @@ export class KeysPane implements Pane {
     return false;
   }
   /** A rebind's next key: the new key (a ^W chord takes two), ⏎ saves it, esc cancels. */
-  private recordKey(k: Key, desk: DeskApi): boolean {
+  private recordKey(k: Key, desk: TileHost): boolean {
     const r = this.record!;
     if (r.key) { const b = modeBinding(KEYS_RECORD_KEYS, k); if (b) { this.act(desk, b.action); return true; } }
     else if (k.kind === "esc") { this.act(desk, "keys.cancel"); return true; }
@@ -281,9 +281,9 @@ export class KeysPane implements Pane {
     desk.redraw();
     return true;
   }
-  private act(desk: DeskApi, name: string, args: Record<string, unknown> = {}) { void desk.press?.(this, KEYS_WINDOW_ACTIONS, name, args); }
+  private act(desk: TileHost, name: string, args: Record<string, unknown> = {}) { void desk.press?.(this, KEYS_WINDOW_ACTIONS, name, args); }
 
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: TileHost): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.act(desk, "keys.select", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const hit = this.hits.find(h => h.y === y && x >= h.from && x < h.to);
@@ -495,7 +495,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
 const needs = (name: string): string[] => Object.entries(allActionSets().find(s => s.has(name))?.def(name)?.args ?? {}).filter(([, a]) => !(a as { optional?: boolean }).optional).map(([k]) => k);
 
 /** Give binding `b` key `to` in its place: what it would take is said in the answer, and the window says what changed. */
-function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string, unknown> {
+function save(p: KeysPane, b: Binding, to: string, desk: TileHost): Record<string, unknown> {
   const e = rebindEffects(b, to, p.all());
   if (e.problem) throw new ActionRefused(`${keyCaption(to)}: ${e.problem}`);
   setKeys(b.id, keysAfter(p, b, to));
