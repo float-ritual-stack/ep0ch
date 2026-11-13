@@ -3,7 +3,7 @@
 // when it dropped. "The other machine" is an outline host in a scratch folder of its own, reached through a fake ssh
 // (test/fake-ssh.ts as EP0CH_SSH); this machine's sshd isn't used.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createOutlinerClient, OutlinerClient } from "../src/client";
 import { forwardFor } from "../src/machine-forward";
@@ -17,7 +17,7 @@ const root = scratchDir("outliner-machine-");
 const far = join(root, "far");
 let host: OutlineHost;
 const saved: Record<string, string | undefined> = {};
-const VARS = ["EP0CH_SSH", "FAKE_SSH_LOG", "FAKE_SSH_HOME", "FAKE_SSH_OUTLINES", "FAKE_SSH_BIN"];
+const VARS = ["EP0CH_SSH", "FAKE_SSH_LOG", "FAKE_SSH_HOME", "FAKE_SSH_OUTLINES", "FAKE_SSH_BIN", "EP0CH_MCP_MIRROR_DIR", "EP0CH_MCP_MIRRORS"];
 const sshCalls = () => readFileSync(join(root, "ssh.log"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l) as string[]);
 const envFor = (folder: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv =>
   ({ HOME: join(root, "home"), EP0CH_OUTLINES: join(root, "outlines"), XDG_CONFIG_HOME: join(root, "config"), OUTLINER_WORKSPACE_ROOT: folder, ...extra });
@@ -36,6 +36,8 @@ beforeAll(async () => {
   Object.assign(process.env, {
     EP0CH_SSH: join(root, "bin", "ssh"), FAKE_SSH_LOG: join(root, "ssh.log"), FAKE_SSH_HOME: join(far, "home"),
     FAKE_SSH_OUTLINES: join(far, "outlines"), FAKE_SSH_BIN: join(root, "bin"),
+    // The host here reads links in this process: its copies' folder is the test's, never the person's ~/outline-mirrors.
+    EP0CH_MCP_MIRROR_DIR: join(root, "copies"), EP0CH_MCP_MIRRORS: "",
   });
 });
 
@@ -137,3 +139,9 @@ test("page embeds reach another machine's page and anchor through the block link
     expect(out).toContain(`!((attic:${draft.id}))`);
   } finally { await near.close(); }
 }, 30_000);
+
+test("a link read whose machine answers follows none of its outlines nobody listed (PIE-1779)", async () => {
+  // float-2, Nov 12: one read of a laptop outline that missed its deadline made a follower of it, and its ask kept the
+  // gateway following that outline from then on.
+  expect(existsSync(join(root, "copies", "box-a", "pie.sqlite"))).toBe(false);
+});

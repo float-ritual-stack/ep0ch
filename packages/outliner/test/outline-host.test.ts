@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, setSystemTime, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -613,16 +613,28 @@ async function followedCopy(mirrors: string, machine: string, outline: string, s
     const read = await follower.read();
     if ("error" in read) throw new Error(`${outline}@${machine}'s copy: ${read.error}`);
   } finally { await follower.close(); }
+  // The gateway's ask, which outlives this follower: a process that still runs (this one) asks for the copy (PIE-1779).
+  writeFileSync(join(mirrors, machine, ".follow", `${outline}.${process.pid}.want`), "");
   // What the copy holds once its follower stopped (a range that landed after the read is in it): its own record.
   return (JSON.parse(readFileSync(join(mirrors, machine, ".follow", `${outline}.json`), "utf8")) as { asOf: string }).asOf;
+}
+
+/** The copies' folder and the one list of what this machine follows (EP0CH_MCP_MIRRORS), for one test. */
+function followsHere(mirrorRoot: string, mirrors: string) {
+  const previous = { dir: process.env.EP0CH_MCP_MIRROR_DIR, list: process.env.EP0CH_MCP_MIRRORS };
+  Object.assign(process.env, { EP0CH_MCP_MIRROR_DIR: mirrorRoot, EP0CH_MCP_MIRRORS: mirrors });
+  cleanups.push(() => {
+    for (const [key, value] of [["EP0CH_MCP_MIRROR_DIR", previous.dir], ["EP0CH_MCP_MIRRORS", previous.list]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
 }
 
 test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
   sshReachesNobody(root);
-  const previous = process.env.EP0CH_MCP_MIRROR_DIR;
-  process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
-  cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
+  // No list here (float-2's host reads none): the copies a running process asked for are read, as the gateway's are.
+  followsHere(mirrorRoot, "");
   const host = await startHost(root, "garden");
   await host.create("garden");
   const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
@@ -635,6 +647,9 @@ test("away machines answer links from a read-only copy while silent forwards tim
   const asOf = await followedCopy(mirrorRoot, "laptop", "orchard", far.socketPath);
   await far.close();
   const before = readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"));
+  // A copy an earlier list left in the folder (float-2, Nov 12: eight of them, one the laptop no longer has): a link
+  // read finds the file, and never asks for it to be followed again (PIE-1779).
+  copyFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"), join(mirrorRoot, "laptop", "attic.sqlite"));
   const layout = layoutOf(root);
   mkdirSync(layout.remoteDir, { recursive: true });
   // Real sockets that accept but never answer exercise the whole machine deadline.
@@ -656,14 +671,13 @@ test("away machines answer links from a read-only copy while silent forwards tim
   expect(resolved.references[0]).toMatchObject({ status: "resolved", blockId: pear.id, outline: "orchard", machine: "laptop" });
   expect(resolved.away).toContainEqual({ machine: "laptop", asOf });
   expect(readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"))).toEqual(before);
+  expect(existsSync(join(mirrorRoot, "laptop", ".follow", "attic.want"))).toBe(false);
 }, 15_000);
 
 test("an away machine's big copies answer links while the door's reads keep their turn (PIE-1546)", async () => {
   const root = scratch(), mirrorRoot = join(root, "copies");
   sshReachesNobody(root);
-  const previous = process.env.EP0CH_MCP_MIRROR_DIR;
-  process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
-  cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
+  followsHere(mirrorRoot, "");
   const logged: string[] = [];
   const error = console.error;
   console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };

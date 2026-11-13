@@ -95,6 +95,10 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 - **Every process asks for the copies it needs** (`.follow/<outline>.want` in the folder), and the owner follows
   each one asked for, so a process that attaches still gets its copy. A follower's connection writes nothing of its
   home's outside an apply (TEMP triggers skip it), so the store's open-time recoveries leave the copy as the log made it.
+- **What is followed is `EP0CH_MCP_MIRRORS`, the one list** (PIE-1779). Each process's ask is its own file,
+  `.follow/<outline>.<pid>.want`, gone when its last follower there closes; the owner follows an outline while any
+  running process asks for it, and stops the loop once none does. A link read follows the list and what a running
+  process asked for, never every file in the folder nor an outline whose live read missed its deadline.
 - **`ep0ch backup follow`** looks at its copies every 10 seconds, which takes the folder over when its owner exits. It
   runs the followers on their own (the `ep0ch-follow` unit, written by install when
   `EP0CH_MCP_MIRRORS` is in `backup.env`): on a machine with no gateway, it is the off-machine copy of an outline.

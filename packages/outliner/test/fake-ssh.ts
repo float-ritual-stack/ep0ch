@@ -6,7 +6,8 @@
 //                                                  FAKE_SSH_OUTLINES, `ep0ch` on PATH from FAKE_SSH_BIN)
 //   ssh -f -N -M -S <ctl> … -L <local>:<remote> -- <machine>
 //                                                  forwards <local> to <remote> from a process of its own (its pid in
-//                                                  <ctl>), once it listens; `StreamLocalBindUnlink` replaces a dead file
+//                                                  <ctl>), once it listens; `StreamLocalBindUnlink` replaces a dead file;
+//                                                  ended, it leaves <local> behind, as OpenSSH does
 //   ssh -S <ctl> -O check|exit -- <machine>       whether that process runs; ending it
 //   ssh -S <ctl> -O forward -L <local>:<remote> -- <machine>
 //                                                  one more forward over that connection (a process of its own, ended
@@ -63,7 +64,10 @@ if (argv[0] === "--serve") {
     c.on("error", end); r.on("error", end); c.on("close", end); r.on("close", end);
   });
   server.listen(local, () => writeFileSync(ctl, String(process.pid)));
-  const quit = () => { server.close(); rmSync(local, { force: true }); rmSync(ctl, { force: true }); process.exit(0); };
+  // As OpenSSH does (9.6, measured on float-box, PIE-1779): its control socket goes with it, and the forward's local
+  // socket file stays behind, so a link that waits for that file to go waits forever.
+  // (No server.close(): a closing listener unlinks its path, and that path may be a link's route by now.)
+  const quit = () => { rmSync(ctl, { force: true }); process.exit(0); };
   process.on("SIGTERM", quit);
   process.on("SIGINT", quit);
   const ownerFile = process.env.FAKE_SSH_OWNER_FILE;

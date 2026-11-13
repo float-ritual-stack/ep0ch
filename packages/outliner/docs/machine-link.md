@@ -54,11 +54,19 @@ heartbeats schedule recovery directly, without waiting for a close handshake on
 a broken connection. Disconnect destroys pending streams: requests, especially writes, are
 never replayed by the transport.
 
-The link and SSH use the same forward lock. A link taking over an SSH forward
-ends that dedicated SSH master and waits for its listener to release the path;
-existing clients reconnect. It does not end unrelated SSH sessions. The link's own
-listener survives an SSH fallback; a later request selects the link again once
-its host answers. After link loss, the next client can start SSH normally. Read-only mirror fallback
+Which transport serves a machine is decided in one place, outline-core's
+`ensureForward` (PIE-1779). A link is up once its proof checks, without waiting
+for the forward lock. The link's server then asks `ensureForward`, which takes the
+lock and routes the shared socket to the link with one rename. A read in flight
+over SSH finishes on the connection it started on; every new one goes over the
+link. Each SSH master left behind the link is ended once it has had its own 30
+seconds there (`forwardBehindLink`, `retireForward`, by its pid), so one started
+after a stall never ends early on an earlier one's clock. Nothing waits for SSH's socket file to go: OpenSSH
+leaves it behind when it ends. A link on another protocol carries no reads and
+leaves SSH as it is. The link's own listener survives an SSH fallback; a later
+request selects the link again once its host answers. After link loss, the next
+client ends any SSH master that lost its socket to the link and starts SSH
+normally. Read-only mirror fallback
 belongs to PIE-1057 and the existing mirror consumers, not to this transport.
 
 `ep0ch link status [--json]` and `ep0ch status [--json]` report link/SSH, whether the

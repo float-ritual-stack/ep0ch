@@ -136,6 +136,24 @@ async function updateCheckout(root: string, name: string, say: (s: string) => vo
   return changed.split("\n").filter(Boolean);
 }
 
+type LinkRow = Awaited<ReturnType<typeof import("@ep0ch/outliner/link").linkStatus>>[number];
+/**
+ * The machine link after install restarted it: ok when each machine's link process runs again (a new pid) and, for a
+ * connector, is through to its server; slow when a connector runs but hasn't got through (a server that is busy, a
+ * line that is slow: the rest of the install still runs, PIE-1779); down when a link process isn't running again.
+ * Whether a machine dials back in to a server is that machine's (a laptop asleep or away): a server only has to run.
+ */
+export function linkAfterRestart(mode: "serve" | "connect", machines: readonly string[], before: readonly LinkRow[], links: readonly LinkRow[]): { kind: "ok" | "slow" | "down"; said: string } {
+  const direction = mode === "serve" ? "inbound" : "outbound";
+  const said = links.filter(l => l.transport === "link").map(l => `${l.machine}: ${l.up ? "up" : l.reason}`).join("; ");
+  const rows = machines.map(machine => ({
+    was: before.find(l => l.machine === machine && l.direction === direction),
+    now: links.find(l => l.machine === machine && l.direction === direction && l.transport === "link"),
+  }));
+  if (rows.some(({ was, now }) => !now?.running || now.pid === was?.pid)) return { kind: "down", said };
+  return { kind: mode === "connect" && rows.some(({ now }) => !now!.up) ? "slow" : "ok", said };
+}
+
 async function waitFor(check: () => Promise<boolean>, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (await check()) return true; await Bun.sleep(250); }
@@ -386,21 +404,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         }
       }
       const machines = config.mode === "serve" ? config.machines : [config.machine];
-      const direction = config.mode === "serve" ? "inbound" : "outbound";
-      const ready = async () => {
-        const links = await linkStatus(f.host.folder);
-        return machines.every(machine => {
-          const was = before.find(l => l.machine === machine && l.direction === direction);
-          const now = links.find(l => l.machine === machine && l.direction === direction && l.transport === "link");
-          // The server's side is ours to restart and check; whether a machine dials back in is that machine's (a laptop
-          // asleep or away). A connector must reach its server; a server only has to be running again.
-          return now?.running && now.pid !== was?.pid && (config.mode !== "connect" || now.up);
-        });
-      };
-      if (!(await waitFor(ready, 60_000))) {
-        const links = await linkStatus(f.host.folder);
-        throw new StepFailed(`The machine link did not return within a minute: ${links.filter(l => l.transport === "link").map(l => `${l.machine}: ${l.up ? "up" : l.reason}`).join("; ")}`,
-          "run ep0ch link status on both ends, then ep0ch install --apply on the end that is down");
+      const outcome = async () => linkAfterRestart(config.mode, machines, before, await linkStatus(f.host.folder));
+      if (!(await waitFor(async () => (await outcome()).kind === "ok", 60_000))) {
+        const after = await outcome();
+        if (after.kind === "down") throw new StepFailed(`The machine link did not return within a minute: ${after.said}`, "run ep0ch link status on both ends, then ep0ch install --apply on the end that is down");
+        // Running again but not through to its server yet: said, and the install goes on (PIE-1779).
+        if (after.kind === "slow") { say(`machine link restarted, not up yet: ${after.said}`); return [{ ok: false, message: `the machine link restarted but hasn't reached its server within a minute (${after.said}); ep0ch link status says when it does` }]; }
       }
       const links = (await linkStatus(f.host.folder)).filter(l => l.transport === "link");
       say(`machine link verified; ${links.map(l => `${l.machine}: ${l.up ? "up" : "away"}${l.reason ? ` (${l.reason})` : ""}`).join("; ")}`);

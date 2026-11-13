@@ -203,6 +203,17 @@ export class OutlinerTimeoutError extends Error {
 }
 
 /**
+ * The connection closed before its answer (PIE-1779): an SSH forward whose far end is gone, a host that stopped. Not
+ * busy: nothing is computing it. Said at once, never as the timeout it once waited out.
+ */
+export class OutlinerClosedError extends Error {
+  constructor() {
+    super("the outline host closed the connection before it answered");
+    this.name = "OutlinerClosedError";
+  }
+}
+
+/**
  * Whether a failed request means the outline host is busy (PIE-1047): it didn't answer in time, or its answer ran past
  * the host's time budget ("still counting"). A reader says so and asks again; it never gives up on the host.
  */
@@ -277,12 +288,16 @@ export class OutlinerClient {
       socket.destroy();
     };
     socket.setEncoding("utf8");
+    let answered = false;
     socket.on("error", fail);
+    // Closed with no answer (an SSH forward ended under it, a host that stopped): said now, not at the timeout (PIE-1779).
+    socket.once("close", () => { if (!answered) fail(new OutlinerClosedError()); });
     socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       const newline = buffer.indexOf("\n");
       if (newline < 0) return;
+      answered = true;
       clearTimeout(timeout);
       // One request per connection: the answer is in, so close outright rather than half-close.
       socket.destroy();
