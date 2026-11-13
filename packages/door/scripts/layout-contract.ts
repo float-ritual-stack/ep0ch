@@ -3,7 +3,7 @@
 // rows and screens). Nothing here decides anything: each table is made by calling the door's function on made-up input
 // (scripts/layout-contract/cases.ts) and recording what came back.
 //
-//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the six tables to packages/outline-core/fixtures/
+//   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts            write the seven tables to packages/outline-core/fixtures/
 //   scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check    write nothing; exit 1 naming each table that is stale
 //
 //   layout-contract.json   { layout, tiles, actor, person, op }      → the layout after, or the refusal   (apply)
@@ -12,6 +12,7 @@
 //                          a `tile=` → the address it is                                                  (parseTileAddress)
 //   action-rows.json       every action the door has, as its row                                          (ActionSet, actionRow)
 //   screens.json           the door's built-in screens, each as its spec                                  (screenSpec, specData)
+//   actor-contract.json    { row, actor, invited, where, tile } → may they run it, or why not             (actorRule)
 //
 // test/layout-contract.test.ts makes them again and fails when a checked-in table is stale, so a change to a layout rule
 // shows as a changed row in the same PR. It runs this script as a process of its own: the tables name every tile kind and
@@ -27,7 +28,9 @@ import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";
 import { actionRow, actRequestOf, allActionSets, coerceActionArgs, lineWords, type ActionRow, type ArgSpec } from "../src/surface/actions";
 import { isAgentLevel, type AgentLevel } from "../src/surface/agent-level";
-import { layoutStanding } from "../src/surface/dispatch";
+import { actorRule, layoutStanding } from "../src/surface/dispatch";
+import { INVITES } from "../src/surface/invite";
+import type { Whereabouts } from "../src/whereabouts";
 import { visible } from "../src/style";
 import {
   apply, init, leaves, node, placement, policyOf, reviveTree, serialize,
@@ -271,7 +274,47 @@ function addressRow(c: { address: string; from?: string }) {
   }
 }
 
-/** The six tables, by file name, as text. */
+// ── who may run an action: the actor rule ──
+
+/** Where the person is, for the actor table: their keys and typing against the tile `reader` an act is about. */
+const WHERES: Record<string, Pick<Whereabouts, "focus" | "typingIn" | "busy" | "idle">> = {
+  "the person is elsewhere and idle": { focus: "beds", typingIn: null, busy: false, idle: 60_000 },
+  "their keys are on the tile": { focus: "reader", typingIn: null, busy: false, idle: 60_000 },
+  "they type in the tile": { focus: "reader", typingIn: "reader", busy: true, idle: 60_000 },
+  "they type in another tile": { focus: "beds", typingIn: "beds", busy: true, idle: 60_000 },
+  "they pressed a key half a second ago": { focus: "beds", typingIn: null, busy: false, idle: 500 },
+};
+const THEIRS = "the editor is the person's: an agent changes a note's text with draft.patch";
+
+/**
+ * Whether an actor may run an action, as the door's one rule answers (`actorRule`): every way an action touches the
+ * person's (`touches`, `while`, `person`), asked by the person, by an agent, and by a script's run with and without
+ * the invitation a press of the person's minted (`invited`), wherever the person is. A second dispatcher is held to
+ * the answer (may they, or not); the words of a refusal are each door's own.
+ */
+function actorRows() {
+  const rows: Record<string, unknown>[] = [];
+  const press = INVITES.mint("you");
+  INVITES.bind(press, "run-1");
+  const actors: { said: string; actor: Actor; invited: boolean }[] = [
+    { said: "the person", actor: USER, invited: false },
+    { said: "an agent", actor: { kind: "agent", id: "seedling-agent" }, invited: false },
+    { said: "a script's run nobody pressed for", actor: { kind: "agent", id: "script:tidy", run: "run-2", for: "you" }, invited: false },
+    { said: "a script's run on the person's press", actor: { kind: "agent", id: "script:tidy", run: "run-1", for: "you", invitation: press }, invited: true },
+  ];
+  const defs: { touches: "nothing" | "shape" | "tile" | "draft" | "screen"; while?: "typing" }[] = [{ touches: "nothing" }, { touches: "shape" }, { touches: "tile" }, { touches: "tile", while: "typing" }, { touches: "draft" }, { touches: "screen" }];
+  for (const def of defs) for (const person of [undefined, THEIRS]) for (const { said, actor, invited } of actors) for (const [where, at] of Object.entries(WHERES)) {
+    const row = { id: `contract.${def.touches}`, summary: "an action that touches this of the person's", args: {}, touches: def.touches, ...(def.while ? { while: def.while } : {}), ...(person ? { person } : {}) };
+    const refused = actorRule(row, actor, { keys: "screen", screen: "contract", away: null, ...at }, { tile: { name: "reader" }, action: row.id });
+    // The invitation is a token of this run of the script: the table says only that the actor carries one.
+    const { invitation: _, ...who } = actor as Actor & { invitation?: string };
+    rows.push({ name: `${said} runs an action that touches ${def.touches}${def.while ? ` while ${def.while}` : ""}${person ? ", the person's own" : ""}: ${where}`, row, actor: who, invited, where: at, tile: "reader", refused });
+  }
+  INVITES.spend(press);
+  return rows;
+}
+
+/** The seven tables, by file name, as text. */
 export function contractTables(): Record<string, string> {
   const layout = LAYOUT_CASES.map(layoutRow), place = PLACE_CASES.map(placeRow);
   for (const [what, rows] of [["layout", layout], ["place", place]] as const) {
@@ -297,6 +340,7 @@ export function contractTables(): Record<string, string> {
     "act-lines.json": table({ about: "An act line: its words, the request it is, and (typed) its arguments as the action's row types them. A tile= is one of five kinds of address. Made by lineWords(), actRequestOf(), the door's coerceActionArgs() and parseTileAddress(); never edited by hand.", by: BY }, { lines: ACT_LINES.map(c => actLine(c, specs)), addresses: TILE_ADDRESSES.map(tile => ({ tile, address: parseTileAddress(tile) })) }),
     "address-contract.json": table({ about: "Which tile an address names (tile=, to=, a follower's source) among the tiles a window has: the one tile, why none has it (none), or the refusal when several do (refused). A plain name is the caller's own to read after these (name). Made by outline-core's parseTileAddress(), resolveAddress(), resolveRelative() and whyNone(), in the order the door's desk asks them; never edited by hand.", by: BY }, { tiles: ADDRESS_TILES, cases: ADDRESS_CASES.map(addressRow) }),
     "action-rows.json": table({ about: "Every action the door has, as its row (outline-core's ActionRow) under the scope of its set. Made from the door's action sets; never edited by hand.", by: BY }, { rows }),
+    "actor-contract.json": table({ about: "Whether an actor may run an action, and why not: the person, an agent, and a script's run with and without the invitation the person's press minted (invited), wherever the person is. Made by the door's actorRule(); never edited by hand. refused is the door's sentence, or null: a second dispatcher is held to whether it refuses, and words its own refusal.", by: BY }, { cases: actorRows() }),
     "screens.json": table({ about: "The door's built-in screens, each as its spec (outline-core's ScreenSpec) and the argument a target fills. drawn names a field the screen drew as it made its spec (a hint row's strip): the table holds its words, without the colours and click marks. Made from the door's screen registry; never edited by hand.", by: BY }, { screens }),
   };
 }

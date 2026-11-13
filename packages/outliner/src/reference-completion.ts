@@ -1,5 +1,5 @@
 import {completionTargetAtCursor,type CompletionTarget} from "@ep0ch/outline-core/completion-triggers";
-import {insertSelection,insertSlots,insertText,mergeSourceAnswers,pickId,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
+import {enterKeeps,insertSelection,insertSlots,insertText,mergeSourceAnswers,pickId,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
 import type {SnippetSlot} from "@ep0ch/outline-core/completion-snippet";
 import type {CompletionPickedRequest,CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
 import type {OutlinerRequester} from "./client-target";
@@ -45,12 +45,16 @@ export interface ReferenceCompletionState {
   pickKey?:string;
   /** What was typed: the letters the list lights. */
   query?:string;
-  /** Its one row is a new page nobody has chosen yet: ⏎ is the editor's (a new line), ↓ or a click chooses it. */
-  lone?:boolean;
+  /** The line the token is in, as typed when the list was made: what the Return rule compares a row's writing with. */
+  line?:string;
 }
+/**
+ * Whether ⏎ is the editor's rather than the list's (null: it inserts the lit row): outline-core's one rule
+ * (`enterKeeps`), asked with what this list holds. A new page nobody has chosen yet, a row that says so and a row
+ * that would leave the line as typed keep ⏎ a new line; ↓, a click or tab chooses.
+ */
 export function referenceEnterKeeps(state:ReferenceCompletionState):string|null {
-  const item=state.items[state.index];
-  return state.moved ? null : state.lone ? "new line" : item?.enter ?? null;
+  return enterKeeps(state.items[state.index],{chosen:!!state.moved,line:state.line??"",start:state.line===undefined?0:state.start,end:state.line===undefined?0:state.end});
 }
 export interface ReferenceCompletionProvider {
   querySuggest?(input:QuerySuggestRequest):Promise<QuerySuggestAnswer>;
@@ -133,8 +137,8 @@ export class ReferenceCompletionSession {
       if(!this.current(generation))return;
       if(!result.items.length&&!result.queryWords&&!SAYS_EMPTY.has(target.kind)){this.dismiss();return;}
       result.index=Math.max(0,result.items.findIndex(item=>item.insertion===selected));
-      // A new page alone on the list is chosen on purpose (↓, a click, tab): ⏎ stays the editor's until then.
-      if(result.items.length===1&&result.items[0]!.newPage)result.lone=true;
+      // (A new page is chosen on purpose, and a row that would write nothing takes no ⏎: `referenceEnterKeeps`.)
+      result.line=b.lines[b.row]??'';
       this.selectedInsertion=result.items[result.index]?.insertion;
       result.generation=generation;this.show(result);void this.enrich(generation);
       if(result.queryWords)this.wordsTimer=setTimeout(async()=>{
@@ -145,7 +149,7 @@ export class ReferenceCompletionSession {
         if(index<0)return;
         if(words.message&&!words.items.length){if(this.unavailableSaid)words.message='';else this.unavailableSaid=true;}
         this.selectedInsertion=words.items[index]?.insertion;
-        this.show({...words,index,generation,moved:this.state?.moved});
+        this.show({...words,index,generation,moved:this.state?.moved,line:this.state?.line});
       },QUERY_WORDS_PAUSE_MS);
     }catch(error){if(this.current(generation))this.show({start:target.start,end:target.end,index:0,items:[],message:`Lookup failed: ${error instanceof Error?error.message:String(error)}`});}
   }
@@ -157,9 +161,9 @@ export class ReferenceCompletionSession {
       item.context=context.selected?[...context.ancestors.map(blockDisplayTitle),snippet(context.selected.text)].filter(Boolean).join('\n\n'):'Target unavailable';this.changed();
     }catch(error){if(this.current(generation)&&this.state?.items[this.state.index]===item){item.context=`Context unavailable: ${error instanceof Error?error.message:String(error)}`;this.changed();}}
   }
-  /** Whether ⏎ inserts the lit row: there is one, and it isn't a lone new page nobody chose on purpose (↓ first, PIE-592). */
+  /** Whether ⏎ inserts the lit row: there is one, and the one rule doesn't keep ⏎ the editor's (`referenceEnterKeeps`; PIE-592). */
   get chooses():boolean{return !!this.state?.items.length&&!referenceEnterKeeps(this.state);}
-  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.moved=true;this.state.docsTop=0;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
+  move(delta:number):void{if(!this.state)return;this.state.moved=true;this.state.docsTop=0;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
   scrollDocs(by:number):void {
     const s=this.state;if(!s)return;
     s.docsTop=Math.max(0,Math.min(Math.max(0,(s.docsLines??0)-(s.docsRect?.height??1)),(s.docsTop??0)+by));this.changed();

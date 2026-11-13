@@ -29,7 +29,8 @@ use crate::store::Ask;
 /// How long a hold lasts unless it is renewed, and how often it is (the door's `DRAFT_LEASE_MS`, `DRAFT_HEARTBEAT_MS`).
 pub const LEASE: std::time::Duration = std::time::Duration::from_secs(15);
 pub const BEAT: std::time::Duration = std::time::Duration::from_secs(5);
-/// How long the keys are quiet before the service is told the draft was typed in (the door's `DRAFT_TOUCH_MS`).
+/// How long the keys are quiet before the service is told the draft was typed in. (The door waits too, a second:
+/// its `DRAFT_TOUCH_MS`. The two waits are each window's own.)
 pub const QUIET: std::time::Duration = std::time::Duration::from_millis(600);
 
 /// A draft's hold on the service: while it is held, an agent's patch on the note comes to this window.
@@ -180,11 +181,7 @@ pub fn version(text: &str) -> String { format!("{:016x}", text.bytes().fold(0xcb
 /// A name for one thing to send, unlike any other: when it was begun, by which process, and which of its sends
 /// it is. A comment's or a reply's request is named by it (`DraftSession.send`), so one draft tried again is one
 /// request and the same words written another time are another.
-pub fn send_name() -> String {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let begun = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
-    format!("{begun:x}-{:x}-{:x}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-}
+pub fn send_name() -> String { crate::store::fresh() }
 
 /// What a placed span does to an offset beside it (outline-core's `PlacedSpan.caret`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

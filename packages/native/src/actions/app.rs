@@ -159,6 +159,10 @@ pub struct State {
     pub aimed: Option<Id>,
     /// The tile the act being run is about, as the dispatcher found it (`App::target` with what the action wants).
     pub about: Option<Id>,
+    /// The act being run is an agent's the person's press invited (`App::stands` reads it, and nothing else does).
+    pub invited: bool,
+    /// The invitations the person's presses minted that are still open: each one run's.
+    pub invites: Vec<super::script::Invite>,
     /// The screen the arrangement was laid out from, as the service listed it then (its name and a mark of its spec),
     /// which answer of the list that was read from, and whether this window's own save is what moves it next.
     pub screen_seen: Option<(String, String)>,
@@ -274,6 +278,8 @@ impl App {
                 journal: Vec::new(),
                 aimed: None,
                 about: None,
+                invited: false,
+                invites: Vec::new(),
                 screen_seen: None,
                 screens_epoch: 0,
                 screen_wrote: false,
@@ -460,23 +466,23 @@ impl App {
         // (A list that follows a note asks for that note first: it is never where the first note comes from.)
         self.ui(tile).note.clone().or_else(|| self.layout.all().into_iter().filter(|tile| !self.attached(tile) && !self.waits_for_a_note(tile)).find(|tile| self.is_tree(tile)).and_then(|tree| self.rows_of(&tree).first().map(|row| row.id.clone())))
     }
-    /// The note a follower is about: its source tile's (`source: tile:<name>`), else the reader's.
-    pub fn followed_by(&self, tile: &str) -> Option<String> { self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| self.reader()).and_then(|reader| self.note_of(&reader)) }
-    /// The reader a list about a note is about the note of: the tile it names as its source, when that reads notes;
-    /// else, following, the reader an act about the open note means.
+    /// The reader a tile that reads no notes speaks for, and the one answer to it: the tile it names as its source
+    /// (`source: tile:<name>`) when that reads notes, else the reader its selection feeds, else where the screen says
+    /// opens land, else the reader an act about the open note means. Its subject when it follows, the note it marks
+    /// as open, the reader a press in it acts in and where its own opens land are all this tile (`home_note`,
+    /// `act_from`, `facts`): never a list, and never one reader for one of them and another for the next.
     pub fn home_of(&self, tile: &str) -> Option<Id> {
-        self.source_of(tile).filter(|source| self.reads_notes(source)).or_else(|| if self.follows(tile) { self.reader() } else { None })
+        self.source_of(tile).filter(|source| self.reads_notes(source))
+            .or_else(|| self.layout.select_targets(tile).into_iter().find(|to| self.reads_notes(to)))
+            .or_else(|| self.landing())
+            .or_else(|| self.reader())
     }
+    /// The note that reader shows: what a follower is about, and what a list marks as the one open.
+    pub fn home_note(&self, tile: &str) -> Option<String> { self.home_of(tile).and_then(|reader| self.note_of(&reader)) }
     /// The words selected in a reader are let go, in every reader: the bar had the keys and is put away, and what
     /// was selected when it opened is shown selected no longer (the runtime clears a selection when a field takes
     /// the keys, and tells no one). What the bar ran has had them by now, when it was a comment.
     pub(in crate::actions) fn unselect(&mut self) { for ui in self.st.tiles.values_mut() { ui.passage = None } }
-    /// The note a tree marks as the one open: the note of the reader its selection feeds, else the reader's.
-    pub fn selected_in(&self, tile: &str) -> Option<String> {
-        let fed = self.layout.select_targets(tile).into_iter().find(|to| self.reads_notes(to));
-        fed.or_else(|| self.reader()).and_then(|reader| self.note_of(&reader))
-    }
-
     /// The note on screen for an act that names none: the reader's.
     pub fn subject(&self) -> Option<String> { self.reader().and_then(|reader| self.note_of(&reader)) }
     /// The reader's page, once it has come.
@@ -551,8 +557,8 @@ impl App {
     /// about one note, the one it holds (the one its home showed when it first listed). A list about no note: none.
     pub fn subject_of(&self, tile: &str) -> Option<String> {
         if let Some(of) = self.field_of(tile, OF).and_then(Value::as_str) { return Some(of.to_string()) }
-        if self.follows(tile) { return self.followed_by(tile) }
-        if self.about_a_note(tile) { return self.ui(tile).subject.clone().or_else(|| self.followed_by(tile)) }
+        if self.follows(tile) { return self.home_note(tile) }
+        if self.about_a_note(tile) { return self.ui(tile).subject.clone().or_else(|| self.home_note(tile)) }
         None
     }
 
@@ -635,12 +641,15 @@ impl App {
         let drawer = self.drawer_of(tile);
         // A reader a block is being written in holds an edit: an open lands beside it, and it isn't closed.
         let editing = self.draft_on(tile).map(|draft| format!("{} {}", draft.writes.what(), self.page_of(tile).map_or(draft.note.as_str(), |p| p.title.as_str())));
-        // A tile that reads no notes has a home, where its own opens land when no wire or container says: the tile
-        // it follows (`source: tile:`), else where the screen says opens land.
+        // A tile that reads no notes has a home, where its own opens land when no wire or container says: the reader
+        // it speaks for (`home_of`, the one answer), never a list it follows.
         let notes = drawer.is_some_and(|d| d.notes);
-        let follows = self.source_of(tile);
-        let home = if notes { None } else { follows.or_else(|| self.landing()).map(|id| self.layout.name(&id)) };
-        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing: drawer.filter(|d| d.notes).and_then(|_| self.note_of(tile)), editing, home, ..layout::Facts::default() }
+        let home = if notes { None } else { self.home_of(tile).map(|id| self.layout.name(&id)) };
+        // The note a reader was told to show. One told none shows none, as the layout's rules read it (it takes a
+        // closed reader's note, and no open is "already shown" in it): what it draws meanwhile, the outline's first
+        // note, is what an empty reader looks like here (`note_of`), not a note it holds.
+        let showing = if notes { self.ui(tile).note.clone() } else { None };
+        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: a block is being written in it. The fact is the one the layout's rules read
@@ -699,12 +708,12 @@ impl App {
         // A list about a note that doesn't follow takes the note its home shows now as its subject, once, and keeps it.
         for tile in self.shown_tiles() {
             if !self.about_a_note(&tile) || !self.waits_for_a_note(&tile) || self.follows(&tile) || self.ui(&tile).subject.is_some() { continue }
-            if let Some(note) = self.followed_by(&tile) { self.ui_mut(&tile).subject = Some(note) }
+            if let Some(note) = self.home_note(&tile) { self.ui_mut(&tile).subject = Some(note) }
         }
         let readers: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.reads_notes(tile)).collect();
         let trees: Vec<Id> = self.shown_tiles().into_iter().filter(|tile| self.is_tree(tile)).collect();
         for tree in trees {
-            let Some(note) = self.selected_in(&tree) else { continue };
+            let Some(note) = self.home_note(&tree) else { continue };
             if self.ui(&tree).revealed.as_deref() == Some(note.as_str()) { continue }
             let Some(ancestors) = self.store.read::<Page>(&self.page_ask(&note)).map(|page| page.ancestors.iter().map(|a| a.id.clone()).collect::<Vec<_>>()) else { continue };
             // Its ancestors unfold, so the tree shows where it is.

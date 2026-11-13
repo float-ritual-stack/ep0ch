@@ -282,7 +282,14 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
     none("a second writer of an act line's word", strays("pub fn word(value", |path| path == "actline.rs"));
     none("a value quoted for an act line by hand (JSON's quoting reads back as another value)", ["json!(value).to_string()", "json!(s).to_string()"].iter().flat_map(|quote| strays(quote, |_| false)).collect());
     none("a request written as a line outside the grammar's own file (build a `Request` and call `act_request`)", calls("line_of", |path| path == "actline.rs" || path == "parts.rs" || path == "tiles/page.rs" || path == "tiles/prim.rs"));
-    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 2, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 1 && code("actions/script.rs").matches("act_invited(").count() == 1, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    // Who a script's act runs as: the script, always. The person is made an actor only by their own hands (a key, a
+    // press, a drag) and by what the window does for itself; no action turns an agent into the person. What an
+    // agent may do on the person's press is one answer, `App::stands`, from the invitation that press minted.
+    none("the person made the actor of somebody else's act: a script's call runs as the script, and `App::stands` says how it stands", strays("Actor::Person", |path| !["actions/script.rs", "actions/ext.rs", "actions/review.rs", "actions/note.rs", "actions/nav.rs", "actions/bar.rs", "actions/list.rs", "actions/tile.rs", "actions/tree.rs", "actions/screen.rs", "actions/outline.rs", "actions/window.rs", "actions/shell.rs", "control.rs"].contains(&path)));
+    none("who asked for a run read to say how its script stands: standing comes from a press's invitation", strays("requestedBy", |_| false));
+    none("an act invited outside the one place a script's call is run", calls("act_invited", |path| path == "actions/script.rs" || path == "actions/mod.rs"));
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("self.st.invited").count()).sum::<usize>(), 3, "whether the act being run is invited is set by `act_invited` and read by `App::stands`, and by nothing else");
     // Where a press happened is no name for a tile: what comes from a tile goes through `App::act_from`, the one place
     // that says whether it is about that tile, and nothing writes a `tile=` onto a line or a request for it.
     // (The shell's drag names the tile dragged, and the grammar's own file writes a request's `tile` back as its word.)
@@ -446,7 +453,7 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // The reads that list them are asked by nobody here: a tile asks `lists.read`, as for any list.
     none("a note's threads, proposals or revisions read by the window itself: they are lists the service answers", ["\"annotations.list\"", "\"draft.proposals.list\"", "\"proposals.outcomes\"", "\"components.schemas\""].iter().flat_map(|read| strays(read, |_| false)).collect());
     // A row's own press is the act line its cell carries: no drawer and no model writes one for it.
-    none("an act line written for a row's own press: run the cell's own (`act`)", ["\"proposal.apply id=", "\"proposal.dismiss id=", "\"reply thread=", "\"resolve thread=", "\"revision.restore revision=", "format!(\"reply ", "format!(\"proposal."].iter().flat_map(|line| strays(line, |path| path == "actions/review.rs")).collect());
+    none("an act line written for a row's own press: run the cell's own (`act`)", ["\"proposal.apply id=", "\"proposal.dismiss id=", "\"reply thread=", "\"resolve thread=", "\"revision.restore revision=", "\"revision.restore of=", "format!(\"reply ", "format!(\"proposal."].iter().flat_map(|line| strays(line, |path| path == "actions/review.rs")).collect());
     for path in ["tiles/list.rs", "tiles/diff.rs", "tiles/page.rs", "tiles/prim.rs"] { for word in ["\"Apply\"", "\"Dismiss\"", "\"Reply\"", "\"Resolve\"", "\"Restore\""] { assert!(!code(path).contains(word), "{path} has {word}: a press is called what its row's cell says") } }
     // A change is drawn as served: one builder, in the registry, which compares nothing.
     assert!(code("tiles/prim.rs").contains("ty: \"diff\"") && code("tiles/prim.rs").contains("build: super::diff::build"), "the diff primitive is the registry's, built in tiles/diff.rs");
@@ -471,6 +478,29 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     none("a request about a note named outside the action that sends it", calls("request_id", |path| path == "actions/review.rs"));
     // Which reader a press in a list about a note means: the dispatcher's `act_from`, asking `App::home_of`.
     none("the reader a list follows chosen for an act outside the dispatcher", calls("home_of", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    // Which reader a list speaks for is that one function, whoever asks (its subject when it follows, the note it
+    // marks as open, where its opens land, the reader a press in it acts in): the tile its source names and the
+    // reader its selection feeds are read there and nowhere else, so no two of them can name different readers.
+    none("the reader a list's selection feeds read outside `App::home_of` (and the layout's own rule for a float)", calls("select_targets", |path| path == "actions/app.rs" || path.starts_with("layout")));
+    assert_eq!(code("actions/app.rs").matches(".select_targets(").count(), 1, "`App::home_of` is the one reader of where a list's selection goes");
+    // (A source that is itself a list is another question, with its own one reader: whose question a list asks, `question_of`.)
+    assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
+    none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
+    none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // What an agent the dispatcher holds back does instead is an action this window has, named from its row. The
+    // door's own way (`block.mark`) is spelled nowhere but in the layout's sentences, which are the door's by contract
+    // (sweep 3's debt: the layout names a way out in the door's words and keys, where it should name the act as data).
+    none("the door's way to get the person's attention named in this window's own words", strays("block.mark", |path| path.starts_with("layout")));
+    // What a close leaves of the closed reader's note is the layout's to say (`close_heir`, beside the rule for where
+    // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
+    none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
+    assert!(code("actions/tile.rs").contains("heir: true") && !code("actions/tile.rs").contains(".showing") && !code("actions/tile.rs").contains("facts("), "tile.close asks the layout who keeps the note, and reads no tile's facts to decide it");
+    // What a reader shows, as the layout's rules read it, is the note it was told: never what it draws while told none.
+    assert!(code("actions/app.rs").contains("let showing = if notes { self.ui(tile).note.clone() } else { None };"), "`Facts.showing` is the note a reader was told");
+    // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
+    // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
+    assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");
+    none("a row's writing compared with the text to say whose Return is: the service says it on the row", ["insert == ", "== row.insert", "== &row.insert"].iter().flat_map(|word| strays(word, |_| false)).collect());
     // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.
     assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
     assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));

@@ -132,6 +132,21 @@ test("completion.rows asked with the text and the cursor finds the token and ans
   await expect(client.request({ action: "completion.rows", text: "Sow", cursor: 9 })).rejects.toThrow("cursor");
 });
 
+// Whether Return is the field's or the list's is outline-core's one rule (`enterKeeps`); a window that reads no
+// Blockdown is told its answer on the row: one that would leave the line as typed says Return types a line.
+test("completion.rows for a text and a cursor says, on the row, when Return is the field's: a row that would leave the line as typed", async () => {
+  const { store, client } = await service();
+  store.create("Seed list [page::seed-list]");
+  const text = "See [[seed-list]]";
+  const done = await client.request<{ token: { start: number; end: number } | null; rows: { insert: string; enter?: string }[] }>({ action: "completion.rows", text, cursor: text.length - 2 });
+  expect(done.token).toMatchObject({ start: 4, end: text.length });
+  expect(done.rows[0]).toMatchObject({ insert: "[[seed-list]]", enter: "new line" });
+  // A row that would write something says nothing: Return takes it.
+  const begun = await client.request<{ rows: { insert: string; enter?: string }[] }>({ action: "completion.rows", text: "See [[see", cursor: 9 });
+  expect(begun.rows[0]).toMatchObject({ insert: "[[seed-list]]" });
+  expect(begun.rows[0]!.enter).toBeUndefined();
+});
+
 test("a row left out of the text-and-cursor form takes what its source said of it: nothing is offered that can't be chosen", async () => {
   const { store, client } = await service();
   store.create("Shed [page::shed]");

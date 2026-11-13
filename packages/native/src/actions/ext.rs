@@ -126,7 +126,7 @@ fn configure(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         // Nothing to set: an agent reads them; the person gets the form, a field each as the schema says them.
         let fields: Vec<Value> = settings.fields.iter().map(|field| json!({ "name": field.name, "type": field.ty, "about": field.about(), "value": field.value, "default": field.default, "state": field.state })).collect();
         let answer = json!({ "id": id, "state": settings.state, "file": settings.file, "fields": fields, "secrets": settings.secrets.iter().map(|secret| json!({ "name": secret.name, "state": secret.state, "reference": secret.reference })).collect::<Vec<_>>() });
-        if !by.is_person() { return Outcome::answer(answer) }
+        if !app.stands(by) { return Outcome::answer(answer) }
         let fields = settings.fields.iter().enumerate().map(|(n, field)| FormField { name: field.name.clone(), edit: if n == 0 { super::draft::focused(&field.now()) } else { Text::new(&field.now()) }, was: field.now() }).collect();
         app.st.form = Some(FormUi { extension: id, title: super::label(CONFIGURE.id), fields, said: None });
         app.st.bar.open = false;

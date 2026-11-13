@@ -6,11 +6,11 @@ use serde_json::{Value, json};
 use super::support::*;
 use crate::actions::{Actor, App};
 
-fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
-fn with(mut leaf: Value, more: Value) -> Value { for (key, value) in more.as_object().unwrap() { leaf[key] = value.clone() } leaf }
-fn agent() -> Actor { Actor::Agent("seedling-agent".into()) }
-fn note_in(app: &App, tile: &str) -> Option<String> { app.layout.named(tile).and_then(|id| app.note_of(&id)) }
-fn row_of(spec: Value) -> Value {
+pub(super) fn leaf(kind: &str, name: &str) -> Value { json!({ "t": "leaf", "kind": kind, "name": name }) }
+pub(super) fn with(mut leaf: Value, more: Value) -> Value { for (key, value) in more.as_object().unwrap() { leaf[key] = value.clone() } leaf }
+pub(super) fn agent() -> Actor { Actor::Agent("seedling-agent".into()) }
+pub(super) fn note_in(app: &App, tile: &str) -> Option<String> { app.layout.named(tile).and_then(|id| app.note_of(&id)) }
+pub(super) fn row_of(spec: Value) -> Value {
     let mut row = screen_row("beds", json!(null), json!([]));
     row["spec"] = spec;
     row["spec"]["name"] = json!("beds");
@@ -19,7 +19,7 @@ fn row_of(spec: Value) -> Value {
 }
 
 /// A window laid out as the screen `beds`, whose spec is `spec`.
-fn laid(spec: Value) -> Garden {
+pub(super) fn laid(spec: Value) -> Garden {
     let mut g = garden(ok());
     screens_are(&mut g, json!([row_of(spec)]));
     let opened = act(&mut g.app, "screen.open name=beds");
@@ -27,15 +27,19 @@ fn laid(spec: Value) -> Garden {
     g
 }
 
-fn split(kids: Value) -> Value { let n = kids.as_array().unwrap().len(); json!({ "t": "split", "dir": "row", "weights": vec![1.0 / n as f64; n], "kids": kids }) }
+pub(super) fn split(kids: Value) -> Value { let n = kids.as_array().unwrap().len(); json!({ "t": "split", "dir": "row", "weights": vec![1.0 / n as f64; n], "kids": kids }) }
 
 /// The newest `lists.read` asked for a source, as the host got it.
-fn asked_for(g: &Garden, from: &str) -> Value { g.asked.borrow().iter().rev().find(|a| a["action"] == "lists.read" && a["from"] == from).cloned().unwrap_or_else(|| panic!("no list was asked of {from}")) }
+pub(super) fn asked_for(g: &Garden, from: &str) -> Value { g.asked.borrow().iter().rev().find(|a| a["action"] == "lists.read" && a["from"] == from).cloned().unwrap_or_else(|| panic!("no list was asked of {from}")) }
 
-/// A script's act for this window, as the service sends one.
-fn call(g: &mut Garden, request: &str, action: &str, args: Value) {
+/// A script's act for this window, as the service sends one for a run the person's press started: the person
+/// presses the garden's button the service runs, and the act carries the invitation that press minted.
+pub(super) fn call(g: &mut Garden, request: &str, action: &str, args: Value) {
+    let pressed = act(&mut g.app, "button.press label=\"Tidy the shed\"");
+    assert!(pressed.ok, "{}", pressed.said);
+    let invitation = g.asked.borrow().iter().rev().find(|a| a["action"] == "scripts.sequence").map(|run| run["invitation"].clone()).expect("the press asked the service to run it");
     let client = g.app.store().client().to_string();
-    let line = json!({ "event": { "domain": "script", "action": "scripts.act", "script": { "requestId": request, "targetClientId": client, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy" }, "requestedBy": { "author": "user" } } } });
+    let line = json!({ "event": { "domain": "script", "action": "scripts.act", "script": { "requestId": request, "targetClientId": client, "action": action, "args": args, "actor": { "author": "agent", "actorId": "script:tidy", "sessionId": "run-1" }, "requestedBy": { "author": "user" }, "invitation": invitation } } });
     host_says(&mut g.app, &g.said, line);
 }
 

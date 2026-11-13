@@ -97,6 +97,18 @@ const stream = (o: { memory?: Record<string, unknown>; policy?: Policy; flowPoli
 /** One tile alone: the almanac. */
 const almanac = (o: { policy?: Policy } = {}): Scene => ({ layout: { focus: "almanac", ...(o.policy ? { policy: o.policy } : {}), root: T("reader", "almanac") }, tiles: { almanac: { showing: "almanac-june" } } });
 
+/**
+ * Two readers side by side: the bed, whose opens are wired to the spare reader beside it (`to`: another tile, or a
+ * path on another screen), which shows no note until the scene says so.
+ */
+const pair = (o: { to?: string; spare?: Partial<TileFacts>; beds?: Partial<TileFacts>; bed?: Partial<TileFacts>; wired?: false; policy?: Policy; focus?: string } = {}): Scene => ({
+  layout: {
+    focus: o.focus ?? "bed", ...(o.policy ? { policy: o.policy } : {}),
+    root: row([T("tree", "beds"), T("reader", "bed", o.wired === false ? {} : { wires: [{ verb: "open", to: o.to ?? "spare" }] }), T("reader", "spare")], [0.2, 0.4, 0.4], { id: "s1" }),
+  },
+  tiles: { beds: { lists: true, ...o.beds }, bed: { showing: "north-bed", ...o.bed }, spare: { ...o.spare } },
+});
+
 /** A float over the garden: a note on the trellis, popped out. */
 const TRELLIS = { tile: T("reader", "trellis"), rect: { col: 40, row: 6, cols: 70, rows: 24 } };
 const withFloat = (o: Parameters<typeof garden>[0] = {}): Scene => garden({ ...o, floats: [TRELLIS], tiles: { trellis: { showing: "trellis-plan" }, ...o.tiles } });
@@ -174,6 +186,26 @@ export const LAYOUT_CASES: LayoutCase[] = [
   { name: "close: the screen's default limits agents too", scene: garden({ policy: { agents: "edit" } }), by: AGENT, op: { op: "close", tile: "log" } },
   { name: "close: gone already (its program ended), no rule asks", scene: plots(), op: { op: "close", tile: "sown", gone: true } },
   { name: "close: a tile that isn't there is refused", scene: garden(), op: { op: "close", tile: "orchard" } },
+  // What a close leaves of the closed reader's note (closeHeir): asked by the close that commits (`heir: true`).
+  { name: "close, its note kept: the empty reader its opens are wired to takes the note", scene: pair(), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: not asked, nothing is answered of the note", scene: pair(), op: { op: "close", tile: "bed" } },
+  { name: "close, its note kept: the reader its container's rule opens into takes it, with no wire", scene: pair({ wired: false, policy: { opensInto: "spare" } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: with no wire and no rule, no tile is its heir", scene: pair({ wired: false }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: another tile shows the note already, so none takes it", scene: pair({ beds: { showing: "north-bed" } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader that shows a note of its own keeps it", scene: pair({ spare: { showing: "south-bed" } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a pinned reader takes none", scene: pair({ spare: { pinned: true } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader holding an edit takes none", scene: pair({ spare: { editing: "an edit of seed-list" } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader holding work takes none", scene: pair({ spare: { holds: true } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader that follows a list takes none", scene: pair({ spare: { follower: true } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader that isn't available takes none", scene: pair({ spare: { available: false } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: an agent's close leaves the reader with the person's keys as it is", scene: pair({ focus: "spare" }), by: AGENT, op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: an agent's close gives it to the heir when the person is away from this layout", scene: pair({ focus: "spare" }), by: AGENT, person: { here: false }, op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: an agent's close gives it to a heir the person isn't in", scene: pair({ focus: "beds" }), by: AGENT, op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: opens wired across to another screen, the heir is there", scene: pair({ to: "nursery/reader" }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a tile gone already has no heir", scene: pair(), op: { op: "close", tile: "bed", gone: true, heir: true } },
+  { name: "close, its note kept: a kind that clears keeps its place and its note goes nowhere", scene: pair({ bed: { clearsOnClose: true } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a reader that shows no note leaves none", scene: pair({ bed: { showing: undefined } }), op: { op: "close", tile: "bed", heir: true } },
+  { name: "close, its note kept: a tile that reads no notes leaves none", scene: pair({ beds: { showing: "north-bed" }, bed: { showing: undefined } }), person: { focus: "beds" }, op: { op: "close", tile: "beds", heir: true } },
   { name: "release: a tile leaves whole for an undo to put back", scene: garden(), op: { op: "release", tile: "log" } },
   { name: "release: a tile that isn't there is refused", scene: garden(), op: { op: "release", tile: "orchard" } },
   { name: "peek.release: a peek stops following the tile it was opened from", scene: garden({ beds: { wires: [{ verb: "select", to: "glance" }] }, floats: [{ tile: T("reader", "glance"), rect: { col: 60, row: 4, cols: 64, rows: 20 }, peekOf: "beds" }] }), op: { op: "peek.release", tile: "glance" } },

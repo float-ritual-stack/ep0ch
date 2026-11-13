@@ -121,7 +121,8 @@ async function proposals(own: Own, request: ListsRequest): Promise<Answered> {
  * The texts a note (`of`) had, the one it has now first, then the earlier ones the service keeps, newest first. A row
  * is a revision, keyed by its number: when it was saved, by whom, its size and first line. An earlier one folds: named
  * in `open`, it carries its text against the note as it is now (what was there, what came since), and its press is
- * `revision.restore`.
+ * `revision.restore`, naming the note it is a text of (`of`): a list that kept its note while its reader moved on
+ * never has a client guess whose revision 3 is meant.
  */
 async function revisions(own: Own, request: ListsRequest): Promise<Answered> {
   const of = subject(request), shown = open(request);
@@ -133,7 +134,7 @@ async function revisions(own: Own, request: ListsRequest): Promise<Answered> {
     return row({
       id, label: `Revision ${r.revision}${current ? " · the note now" : ""}`,
       detail: [`${when(r.savedAt)} ${revisionByline(r)}`.trim(), `${r.lines} line${r.lines === 1 ? "" : "s"}`, r.firstLine].filter(Boolean).join(" · "),
-      ...(current ? {} : { folds: true, cells: [press("Restore", "revision.restore", { revision: id })] }),
+      ...(current ? {} : { folds: true, cells: [press("Restore", "revision.restore", { of, revision: id })] }),
       ...(unfolded ? { open: true, view: textDiff(await text(r.revision), now, { from: `revision ${r.revision}`, to: `the note now (revision ${listed.revision})` }) } : {}),
     });
   }));

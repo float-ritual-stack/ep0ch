@@ -17,13 +17,17 @@ export const REVISION_DEFS = {
     keys: [{ via: "the tile menu's \"an earlier revision\"" }],
     touches: "draft", draft: "replace", replay: "ask",
     menu: noteRow("an earlier revision", "", { now: ({ surface }) => (surface.session ? { hide: true } : null) }),
-    args: { revision: { type: "number", optional: true, about: "the revision (`ep0ch revisions <note>` lists them); default the one before what the edit holds" } },
+    args: {
+      revision: { type: "number", optional: true, about: "the revision (`ep0ch revisions <note>` lists them); default the one before what the edit holds" },
+      of: { type: "string", optional: true, about: "the note the revision is of (a block id), as the row of a list of revisions names it (lists.read from=revisions): refused when the reader shows another note" },
+    },
     examples: [
       { act: "revision.restore", does: "puts the revision before the edit's text into the edit, unsaved, as one undo step" },
       { act: "revision.restore revision=3", does: "puts revision 3's text into the edit, unsaved, as one undo step" },
     ],
-    async run({ revision }, { surface, host }, actor) {
-      surface.requireNote();
+    async run({ revision, of }, { surface, host }, actor) {
+      const shown = surface.requireNote();
+      if (of !== undefined && of !== shown.id) throw new ActionRefused(`this reader shows another note (${shown.id}), not ${of}: open it there first`);
       const { draft: d } = await surface.ensureDraft(host);
       const list = await host.ctx.board.revisions(d.blockId);
       const from = d.revisionShown ?? d.base;

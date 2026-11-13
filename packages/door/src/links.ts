@@ -47,6 +47,7 @@ export const ALL_LINK_GROUPS: readonly LinkGroupName[] = [...DEFAULT_LINK_GROUPS
 export const isLinkGroup = (name: string): name is LinkGroupName => LINK_GROUPS.some(g => g.group === name);
 import { prop } from "./props";
 import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
+import { isNoteUnder } from "@ep0ch/outline-core/derived";
 import { ListView, listRowLines, type ListHandle, type ListViewRow } from "./surface/list-view";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
@@ -67,11 +68,13 @@ export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<
 export const isAnnotationBlock = (m: Msg) => isMarkType(prop(m, "type"));
 
 /**
- * The notes under `id` as the Children group lists them: the service's children (comments left out), each with the
- * facets the service computes (`blocks.facets`). A child the facets read doesn't know any more keeps no facets.
+ * The notes under `id` as the Children group lists them: the service's children that are notes of it (outline-core's
+ * `isNoteUnder`, the one answer: a comment on it and an edit proposed beside it are left out, as the service's lists
+ * leave them out), each with the facets the service computes (`blocks.facets`). A child the facets read doesn't know
+ * any more keeps no facets.
  */
 export async function readChildren(board: Pick<SocketBoard, "children" | "facets">, id: string): Promise<ChildLink[]> {
-  const kids = (await board.children(id)).filter(m => !isAnnotationBlock(m));
+  const kids = (await board.children(id)).filter(m => isNoteUnder(prop(m, "type")));
   if (!kids.length) return [];
   const { facets } = await board.facets(kids.map(k => k.id));
   return kids.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));

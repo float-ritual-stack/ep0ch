@@ -250,7 +250,7 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
         }
         "revisions" => {
             let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-            let mut earlier = json!({ "id": "2", "label": "Revision 2", "detail": "2031-03-30 18:00 by tidy-agent · 2 lines · Take the fork", "folds": true, "cells": [{ "text": "Restore", "act": "revision.restore revision=\"2\"" }] });
+            let mut earlier = json!({ "id": "2", "label": "Revision 2", "detail": "2031-03-30 18:00 by tidy-agent · 2 lines · Take the fork", "folds": true, "cells": [{ "text": "Restore", "act": format!("revision.restore of=\"{}\" revision=\"2\"", ask["of"].as_str().unwrap()) }] });
             if open.contains(&"2") {
                 earlier["open"] = json!(true);
                 earlier["view"] = json!({ "type": "diff", "from": "revision 2", "to": "the note now (revision 3)", "added": 1, "removed": 1, "lines": [{ "op": "same", "text": "Take the fork [type::chore]" }, { "op": "del", "text": "After the rain." }, { "op": "add", "text": "Before the rain." }] });
@@ -314,9 +314,17 @@ fn completion(text: &str, cursor: usize) -> Value {
     let query = &line[open + 2..];
     let start = cursor - line[open..].encode_utf16().count();
     let pages = [("Seed list", "seed-list", "a page"), ("Shed", "shed", "a page"), ("Sowing calendar", "sowing-calendar", "a page")];
-    let rows: Vec<Value> = pages.iter().filter(|(title, _, _)| title.to_lowercase().contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") })).collect();
+    // A link already closed after the cursor is part of the token, and a row that would leave it as typed says Return
+    // is the field's (`enter`: the service's word, outline-core's `enterKeeps`), as `completion.rows` answers it.
+    let closed = String::from_utf16_lossy(&units[cursor.min(units.len())..]).starts_with("]]");
+    let (end, token) = if closed { (cursor + 2, format!("[[{query}]]")) } else { (cursor, format!("[[{query}")) };
+    let rows: Vec<Value> = pages.iter().filter(|(title, address, _)| title.to_lowercase().contains(&query.to_lowercase()) || address.contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| {
+        let mut row = json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") });
+        if row["insert"] == token.as_str() { row["enter"] = json!("new line") }
+        row
+    }).collect();
     let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
-    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": cursor, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
+    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
 }
 
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }

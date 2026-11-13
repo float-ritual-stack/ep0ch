@@ -1004,11 +1004,23 @@ test('empty completion states retain editor keys and Escape dismisses without ca
 });
 
 test('a lone new page is the editor\'s ⏎ (a new line) until ↓ chooses it (PIE-592, PIE-1340)',async()=>{
- const current=state();current.completion={start:0,end:5,index:0,items:[{label:'new page · Seed swap',insertion:'[[Seed swap]]',newPage:'Seed swap'}],lone:true};
+ const current=state();current.completion={start:0,end:5,index:0,items:[{label:'new page · Seed swap',insertion:'[[Seed swap]]',newPage:'Seed swap'}],line:'[[See'};
  const editor=harness(current);
  await editor.press({name:'return'});await editor.press({name:'down'});
  expect(editor.intents).toEqual([{type:'buffer.newline'},{type:'completion.move',delta:1}]);
- current.completion.lone=false;await editor.press({name:'return'});
+ // ↓ is a deliberate choice (the list's own `move` says so): ⏎ takes the row now.
+ current.completion!.moved=true;await editor.press({name:'return'});
+ expect(editor.intents.at(-1)).toEqual({type:'completion.accept'});
+});
+
+test('a row that would leave the line as typed takes no ⏎: the editor types a line, as in the door (outline-core\'s enterKeeps)',async()=>{
+ const current=state();current.completion={start:4,end:17,index:0,items:[{label:'Seed list',insertion:'[[seed-list]]'}],line:'See [[seed-list]]'};
+ const editor=harness(current);
+ await editor.press({name:'return'});
+ expect(editor.intents).toEqual([{type:'buffer.newline'}]);
+ // The same row over a token only begun is taken.
+ current.completion={start:4,end:9,index:0,items:[{label:'Seed list',insertion:'[[seed-list]]'}],line:'See [[see'};
+ await editor.press({name:'return'});
  expect(editor.intents.at(-1)).toEqual({type:'completion.accept'});
 });
 

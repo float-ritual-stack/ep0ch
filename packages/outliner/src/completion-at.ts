@@ -9,7 +9,7 @@
  * needs a client that runs that write first: the door does, and such a row is left out here until a thin client can.
  */
 import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
-import { completionSaid, insertSelection, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf } from "@ep0ch/outline-core/completion-source";
+import { completionSaid, enterKeeps, insertSelection, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf } from "@ep0ch/outline-core/completion-source";
 import type { CompletionAtRequest, CompletionAtRow, CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 
 /** The request has the text and the cursor in place of a detected token. */
@@ -40,10 +40,13 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
   const merged = mergeSourceAnswers(answers, target.query, { picks: found.picks });
   const listed: CompletionAtRow[] = merged.map((merged, index) => {
     const insert = insertText(merged.insert), select = insertSelection(merged.insert);
+    // Whether Return is the field's while this row is lit and nothing has been chosen: the one rule's answer, said on
+    // the row (a row that would leave the line as typed among them), so the window compares no text to know.
+    const enter = enterKeeps({ insertion: insert, ...(merged.enter ? { enter: merged.enter } : {}) }, { chosen: false, line: lines[row] ?? "", start, end });
     return {
       id: `${index}`, label: merged.label, from: merged.from, insert, pick: pickId(insert),
       ...(merged.kind ? { kind: merged.kind } : {}), ...(merged.detail ? { detail: merged.detail } : {}), ...(merged.group ? { group: merged.group } : {}),
-      ...(select ? { select } : {}), ...(merged.enter ? { enter: merged.enter } : {}),
+      ...(select ? { select } : {}), ...(enter ? { enter } : {}),
     };
   });
   const said = completionSaid(answers, listed.length);

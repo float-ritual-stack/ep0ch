@@ -33,6 +33,9 @@ static SELECT: ActionRow = ActionRow::new("passage.select", Touches::Tile, "pick
     .keys(&[KeyRow::via("words selected in a reader, with the mouse")])
     .examples(&[Example { act: "passage.select quote=\"Before the rain.\"", does: "picks those words of the open note for a comment", safe: Some(true) }]);
 
+/// How an agent gets the person's attention in this window: the action a refusal of the dispatcher's names as the way.
+pub(super) static ATTENTION: &ActionRow = &COMMENT;
+
 static COMMENT: ActionRow = ActionRow::new("comment", Touches::Draft, "comment on the note a reader shows: on quote= (words of it, as its text has them; near= the offset to be nearest, among repeats), else on the words selected there, else on the whole note. With body= it is sent at once, recorded as whoever acts; left out, it opens to be written where the note is read, in the editor a block has, and edit.save sends it")
     .args(&[
         ("quote", ArgSpec::text("the exact words to comment on, as the note's text has them").optional()),
@@ -65,7 +68,10 @@ static DISMISS: ActionRow = ActionRow::new("proposal.dismiss", Touches::Nothing,
 
 static RESTORE: ActionRow = ActionRow::new("revision.restore", Touches::Draft, "go back to an earlier text of the note a reader shows: revision= its number, as the list of revisions gives it (left out: the one before the note now). The editor opens, or the open one is used, and that text goes in as one step its own way back takes out; nothing is written until it is saved")
     .person(EDITOR)
-    .args(&[("revision", ArgSpec::number("the revision; left out, the one before the note now").optional())])
+    .args(&[
+        ("revision", ArgSpec::number("the revision; left out, the one before the note now").optional()),
+        ("of", ArgSpec::text("the note the revision is of (a block id), as the row of a list of revisions names it: refused when the reader shows another note").optional().kind("note")),
+    ])
     .keys(&[KeyRow::via("Restore on a revision, in the list of a note's revisions")])
     .examples(&[Example { act: "revision.restore revision=2", does: "puts revision 2's text in the editor, to save or drop", safe: None }]);
 
@@ -117,7 +123,7 @@ fn comment(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let writes = Writes::Comment { quote, near };
     if let Some(body) = args.text("body") { return post(app, None, &draft::send_name(), &note, revision, &writes, body, by) }
     // Its words are written here, by whoever is at the keys: sent as somebody else, it names them.
-    if !by.is_person() { return Outcome::refused("a comment sent over the control socket names its words: body=") }
+    if !app.stands(by) { return Outcome::refused("a comment sent over the control socket names its words: body=") }
     if let Err(no) = free(app, &tile) { return no }
     app.ui_mut(&tile).passage = None;
     app.compose(tile, note, revision, writes, by);
@@ -134,7 +140,7 @@ fn reply(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         let note = app.about().and_then(|tile| app.note_of(&tile)).unwrap_or_default();
         return post(app, None, &draft::send_name(), &note, 0, &writes, body, by);
     }
-    if !by.is_person() { return Outcome::refused("a reply sent over the control socket names its words: body=") }
+    if !app.stands(by) { return Outcome::refused("a reply sent over the control socket names its words: body=") }
     let (tile, note, revision) = match read(app) { Ok(read) => read, Err(no) => return no };
     if let Err(no) = free(app, &tile) { return no }
     app.compose(tile, note, revision, writes, by);
@@ -237,6 +243,9 @@ fn decided(app: &mut App, reply: Reply) {
 
 fn restore(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let (tile, note, now) = match read(app) { Ok(read) => read, Err(no) => return no };
+    // The note a list's row is of is the row's to say (the service writes it into the press): a list that kept its
+    // note while the reader moved on puts none of that note's texts into another's editor.
+    if let Some(of) = args.text("of").filter(|of| *of != note) { return Outcome::refused(format!("{} shows another note ({note}), not {of}: open it there first", app.layout.name(&tile))) }
     // Something else being written there (a comment) keeps the tile; the block's own draft is what the text goes into.
     if app.draft_on(&tile).is_some_and(|draft| !draft.is_block()) && let Err(no) = free(app, &tile) { return no }
     let revision = match args.number("revision") { Some(n) if n >= 1.0 => n as u64, Some(_) => return Outcome::refused("revision= is a revision's number, from 1"), None if now > 1 => now - 1, None => return Outcome::refused("this note has no earlier text: it is at its first revision") };

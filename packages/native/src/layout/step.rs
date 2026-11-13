@@ -2,7 +2,7 @@
 //! the door's sentence, so a person reads the same words in both doors and the contract table can hold them.
 use serde_json::{Map, Value, json};
 
-use super::placement::{self, Destination, Route, covers_of};
+use super::placement::{self, Destination, Heir, Route, covers_of};
 use super::tree::{self, Axis, Cover, Dir, Effective, Id, Layer, Node, Path, Place, Policy, Rect, SPINE, Target, TileSpec, chain_of, effective, flow_holding, node_by_id, node_by_key, normalise, parent_of, tabs_of};
 use super::{At, By, Ctx, Facts, Float, Fold, Layout, Lift, MARK_THEM, Op, OpenedFrom, Wire, agent_refusal, held_back, keys_in, typing_in};
 
@@ -238,7 +238,7 @@ impl Step<'_, '_> {
         if self.agent() { self.agent_gate(op)? }
         match op {
             Op::OpenNote { .. } | Op::Open { .. } => self.open(op, false),
-            Op::Close { tile, gone } => self.close(tile, *gone),
+            Op::Close { tile, gone, heir } => self.close(tile, *gone, *heir),
             Op::Release { tile } => { self.present(tile)?; self.lift(tile); Ok(()) }
             Op::PeekRelease { tile } => {
                 if let Some(at) = self.d.floats.iter().position(|f| f.spec.id == *tile) {
@@ -560,7 +560,7 @@ impl Step<'_, '_> {
         self.touch(id);
     }
 
-    fn close(&mut self, id: &str, gone: bool) -> Done {
+    fn close(&mut self, id: &str, gone: bool, asks_heir: bool) -> Done {
         self.present(id)?;
         let (name, f) = (self.name(id), self.facts(id));
         if !gone {
@@ -577,9 +577,16 @@ impl Step<'_, '_> {
             if self.agent() && let Some(running) = &f.running { return no(format!("{name} is running {running}; an agent doesn't end it")) }
         }
         if !gone && !self.ctx.empties && !self.d.is_float(id) && self.tree().leaves().len() <= 1 { return no(format!("{name} is the screen's last tile: it stays (the screen is never blank)")) }
+        // Who keeps its note, asked while its wires are there (the door's `closeHeir`).
+        let heir = if gone || !asks_heir || f.clears_on_close { None } else { placement::close_heir(&self.d, id, self.ctx) };
         if !f.clears_on_close { self.lift(id) }
         let mut answer = Map::new();
         answer.insert("tile".into(), json!(name));
+        match heir {
+            Some(Heir::Across(path)) => { answer.insert("heirAcross".into(), json!(path)); answer.insert("note".into(), json!(f.showing)); }
+            Some(Heir::To(to)) => { answer.insert("heir".into(), json!(self.name(&to))); answer.insert("note".into(), json!(f.showing)); }
+            None => {}
+        }
         if let Some(went) = self.went.take() { answer.insert("keys".into(), went); }
         self.answer = answer;
         Ok(())

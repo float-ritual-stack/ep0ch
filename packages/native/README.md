@@ -185,8 +185,9 @@ src/ (Rust, Rune)                                      the outline host
   of the sort is refused), checks the actor against what the row touches there, runs it and records the step. A
   request that was never a line (a script's call, a row's pick) goes in as it is (`act_request`); a line is
   written by one writer (`actline::word`). A press comes from its tile without naming it (`App::act_from`): a
-  note's button that edits runs in its reader, and one that folds the tree or sorts a list runs where the same
-  line typed in the bar would. `App`'s state is
+  note's button that edits runs in its reader, one in a list that acts on a note runs in the reader that list
+  speaks for (`App::home_of`), and one that folds the tree or sorts a list runs where the same line typed in the
+  bar would. `App`'s state is
   private to `actions/`: a view reads everything and changes nothing except by a line.
 - **An action describes itself** (`actions/row.rs`, outline-core's `ActionRow`): its name, summary, arguments,
   what it touches, its keys and its menu labels. Nothing restates them: a button names its act line and is
@@ -259,6 +260,11 @@ src/ (Rust, Rune)                                      the outline host
   an action for runs here, through the dispatcher, as whoever pressed. A button with steps or a script is the
   service's to run (`scripts.sequence`): the window registers as itself (`events.subscribe`), each act the run has
   for a window comes back as a call, the dispatcher runs it and the store answers (`scripts.answer`).
+- **A script's act runs as the script, on the invitation of the press that started it.** The person's press mints
+  an invitation, the service passes it on with every act of that run, and while a call carries it the script
+  stands as the person (`App::stands`, the one answer: the actor rule reads it, the layout is told it): their own
+  button may open their editor or move their keys. The step and the write are the script's all the same. Who
+  the service says asked for a run is never read; an agent's press invites nothing; a run's end spends it.
 - **The window is a function of what's chosen and what's answered** (`actions/app.rs`). Each tile on screen wants
   what its drawer asks (a reader its note's page, a list its one list; a hidden tab asks nothing), and the bar its
   words; an answer lands in the slot of its own ask, or nowhere. There is no "is this answer still for what's on
@@ -316,8 +322,13 @@ src/ (Rust, Rune)                                      the outline host
 - **One send is one request** (`DraftSession.send`, `draft::send_name`): a comment's or a reply's request is named
   by its draft and its words, so a draft tried again is the request it was and the same words written another time
   (a second "Agreed." in a thread) are another, which the service writes.
-- **A press in a list about a note is about the reader it follows** (`App::act_from`): Reply and Restore act in
-  the reader whose note the list is of, as the list's opens land there.
+- **A list speaks for one reader** (`App::home_of`): the tile it names as its source when that reads notes, else
+  the reader its selection feeds, else where the screen's opens land. Its subject when it follows, the note it
+  marks as open, where its own opens land and the reader a press in it acts in are that one tile. Reply and
+  Restore act there, and Restore names the note its text is of (`revision.restore of=…`), so a list that kept its
+  note while the reader moved on puts nothing into another note's editor.
+- **A closed reader's note stays on screen** when the layout says a reader is its heir (`close_heir`, the door's
+  rule by contract: the empty reader its opens land in). `tile.close` shows it there, with the way back.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
   list is asked, `App::ask_of`) and the name of the screen it has open, and the service answers them as rows, the
   line each key runs written by outline-core's one writer: that screen's own keys first (the service's spec, the
@@ -350,8 +361,9 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
 
 - **An act is attributed.** Its write carries `mutation: {author: "agent", actorId}`, its step says who, and the
   toolbar's status line names the agent and the action.
-- **An act takes nothing of the person's.** Not their keys, not the bar they have open or its lit row, not the
-  editor: `edit`, `edit.save`, `edit.close`, `draft.paste`, the completion list's actions, `bar.close` and
+- **An act takes nothing of the person's,** unless it is a step of a button they pressed themselves (the run
+  carries their press's invitation; its acts are still recorded as the script's). Not their keys, not the bar they
+  have open or its lit row, not the editor: `edit`, `edit.save`, `edit.close`, `draft.paste`, the completion list's actions, `bar.close` and
   `notice.dismiss` are refused to an agent with why, `tile.focus` is the person's alone, and an agent's `open`
   lands without taking their keys: beside the reader when a block is being written in it.
 - **An agent changes a note's text with `draft.patch`** (`observed=`, `replacement=`, `start=` when the passage is
@@ -398,14 +410,18 @@ a script's act is run and answered, and every component's own example is drawn: 
 read and patched under the caret by what the host says; kept as typed and found back by the next window; how the
 kit's editor carries undo, an input method and a long block), and `one_owner.rs`, which scans the source for a second place that
 binds a key, writes to the wire, lists rows, labels a button, issues an `Op`, places an open, draws a part, keeps a
-kind or a screen, maps an answer to rows, writes a line's word, chooses the tile an act is about or names Rune
+kind or a screen, maps an answer to rows, writes a line's word, chooses the tile an act is about, says which
+reader a list speaks for, makes the person the actor of somebody else's act or names Rune
 outside the renderer seam (`shell.rs`, `tiles/`, `bar.rs`, `list.rs`, `keys.rs`, `control.rs`, `main.rs`: the
-model names no Rune type). `owners.rs` and `sweep2.rs` hold the same deciders by what the window does, and
+model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the same deciders by what the window does
+(sweep 3's: a pressed script acts as the script on its press's invitation, a list speaks for one reader, a closed
+reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here), and
 `review.rs` has what is about a note (the tiles
 that follow the reader, a comment written on words selected in the window, a reply and a thread resolved by the
 row's own presses, a proposal applied and dismissed on the wire, a revision opened and put back, the keys screen made
 from the rows handed over, a component's example drawn), and
-`contract.rs` also asks every row of `outline-core/fixtures/core-contract.json` (outline-core's own rules, as the
+`contract.rs` also asks every row of `actor-contract.json` (who may run an action, as the door's dispatcher answers
+it) and of `outline-core/fixtures/core-contract.json` (outline-core's own rules, as the
 window ports them: a list's sections, the new-note rule that applies, a screen filled with its target, a question
 narrowed by picks). The stand-in host answers the screens and kinds from
 `outline-core/fixtures/served-screens.json`, which the outliner's own test writes from a real service with the screens
@@ -456,8 +472,11 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A saved custom screen: two readers, the tree in a tab with the backlinks](docs/screen-dark.png)
 
+![A reader closed: its note stays on screen, in the reader its opens were wired to](docs/heir-dark.png)
+
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens`, `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
+`heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
@@ -491,6 +510,9 @@ toolbar button is
   between lanes, and `grid` is drawn as rows. A tree lists at most a thousand rows and says when there are more.
 - The board here is the matches of one question in lanes; the door's own board (a hub's views as lanes) and its
   desk (its named layouts) are still the door's, under the same names.
+- A refusal of the layout's is the door's sentence: it names the door's keys and actions as the way out (`^W P`,
+  `tile.collapse`, `block.mark`), which this window has none of. The reason is right; the way is not yet this
+  window's to word.
 - A dock that slides over the layout is drawn where the layout says, without the door's tab strip along its edge;
   a drag shows no hint of where a tile will drop.
 - A press inside a tile's body doesn't give it the keys by itself (its title, its tab or `tile.focus` does): Rune's

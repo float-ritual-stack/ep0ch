@@ -28,7 +28,7 @@ fn op_of(v: &Value, kind_of: &dyn Fn(&str) -> String) -> Op {
     match v["op"].as_str().unwrap() {
         "open" if v.get("placement").is_some() => Op::OpenNote { request: Request::read(&v["placement"]), tile: spec(tile(), Some(text(v, "kind").unwrap_or_else(|| "reader".into()))), name: text(v, "name") },
         "open" => Op::Open { tile: spec(tile(), text(v, "kind")), name: text(v, "name"), loose: flag(v, "loose") == Some(true), alt: flag(v, "alt") == Some(true), deliberate: flag(v, "deliberate"), at: At::read(&v["at"]).expect("an at"), keys: flag(v, "keys") != Some(false), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
-        "close" => Op::Close { tile: tile(), gone: flag(v, "gone") == Some(true) },
+        "close" => Op::Close { tile: tile(), gone: flag(v, "gone") == Some(true), heir: flag(v, "heir") == Some(true) },
         "release" => Op::Release { tile: tile() },
         "peek.release" => Op::PeekRelease { tile: tile() },
         "replace" => Op::Replace { tile: tile(), with: spec(text(v, "with").unwrap(), text(v, "kind")), name: text(v, "name"), link: text(v, "link"), verb: text(v, "verb"), select_from: texts(v, "selectFrom") },
@@ -168,7 +168,10 @@ fn every_row_of_the_layout_contract_answers_as_the_door_does() {
         let got = applied(&layout::apply(&l, &op, &ctx), true);
         if let Some(why) = differs(&got, &case["result"], "") { wrong.push(format!("{} ({}): {why}", case["name"], case["op"]["op"])) }
     }
-    assert!(asked >= 310, "the table has its rows: {asked}");
+    assert!(asked >= 329, "the table has its rows: {asked}");
+    // What a close leaves of its note is among them: a tile here, one across an edge, and none.
+    let heirs: Vec<&Value> = table["cases"].as_array().unwrap().iter().filter(|case| case["op"]["heir"] == true).collect();
+    assert!(heirs.len() >= 18 && heirs.iter().any(|case| case["result"]["answer"]["heir"].is_string()) && heirs.iter().any(|case| case["result"]["answer"]["heirAcross"].is_string()) && heirs.iter().any(|case| case["result"]["answer"].get("note").is_none()), "the close that asks who keeps its note is asked every way");
     assert!(wrong.is_empty(), "{} of {asked} rows answer differently:\n{}", wrong.len(), wrong.join("\n"));
 }
 
@@ -345,4 +348,32 @@ fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     assert_eq!(chord_named("esc"), Some(Chord::parse("escape").unwrap()));
     assert_eq!(chord_named("ctrl+l"), Some(Chord::parse("ctrl+l").unwrap()));
     assert_eq!(chord_named("+"), Some(Chord::parse("plus").unwrap()));
+}
+
+/// Who may run an action: every row of the door's actor table (`actor-contract.json`, made by its `actorRule`), asked
+/// of the one check this window makes (`actions::rule`). The person, an agent, and a script's run with and without
+/// the invitation the person's press minted, wherever the person is: both dispatchers answer alike whether the act
+/// runs. (Why not is each door's to word.)
+#[test]
+fn the_actor_rule_answers_every_row_of_the_door_s_table() {
+    use crate::actions::{Actor, ActionRow, rule};
+    use crate::keys::{Layer, Whereabouts};
+    let rows = table("actor-contract");
+    let cases = rows["cases"].as_array().unwrap();
+    assert!(cases.len() >= 200, "the table has its rows: {}", cases.len());
+    let mut refused = 0;
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let row: ActionRow = serde_json::from_value(case["row"].clone()).unwrap_or_else(|e| panic!("{name}: its row is no action row: {e}"));
+        let by = match case["actor"]["kind"].as_str() { Some("user") => Actor::Person, _ => Actor::Agent(text(&case["actor"], "id").unwrap()) };
+        let at = &case["where"];
+        let typing_in = text(at, "typingIn");
+        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)) };
+        let answer = rule(&row, &by, by.is_person() || flag(case, "invited") == Some(true), &person, case["tile"].as_str().unwrap());
+        assert_eq!(answer.is_ok(), case["refused"].is_null(), "{name}: the door says {}, this window {answer:?}", case["refused"]);
+        refused += answer.is_err() as usize;
+    }
+    assert!(refused >= 40, "the rows that refuse ran: {refused}");
+    // Each actor of the table is asked: the person, an agent, a script uninvited and a script on a press.
+    for (kind, invited) in [("user", false), ("agent", false), ("agent", true)] { assert!(cases.iter().any(|c| c["actor"]["kind"] == kind && c["invited"] == invited), "{kind}, invited {invited}") }
 }

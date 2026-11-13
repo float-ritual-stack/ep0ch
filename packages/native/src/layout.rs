@@ -280,7 +280,8 @@ pub enum Op {
     OpenNote { request: Request, tile: TileSpec, name: Option<String> },
     /// A new tile at a place.
     Open { tile: TileSpec, name: Option<String>, loose: bool, alt: bool, deliberate: Option<bool>, at: At, keys: bool, link: Option<Id>, verb: Option<String>, select_from: Vec<Id> },
-    Close { tile: Id, gone: bool },
+    /// `heir`: answer who keeps its note (`close_heir`), asked only by the close that commits.
+    Close { tile: Id, gone: bool, heir: bool },
     Release { tile: Id },
     PeekRelease { tile: Id },
     Replace { tile: Id, with: TileSpec, name: Option<String>, link: Option<Id>, verb: Option<String>, select_from: Vec<Id> },

@@ -59,6 +59,15 @@ const FAMILIES: Family[] = [
     },
   },
   {
+    question: "what the notes under a note are (a comment on it and an edit proposed beside it are none)",
+    // outline-core's isNoteUnder is the one answer, the service's lists and pages ask it too (its tree, a page's own
+    // list, CHILDREN_QUERY). A list of a note's children filtered by another reading lists a block the others leave out.
+    pattern: /\bisNoteUnder\(|\.filter\(\w+ => !is(?:AnnotationBlock|MarkType)\(/g,
+    allowed: {
+      "links.ts": { n: 1, why: "readChildren: the links tile's Children, by the one answer" },
+    },
+  },
+  {
     question: "is yolo on (agents hold the door)",
     pattern: /\bagentsYolo\b/g,
     allowed: {

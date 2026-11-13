@@ -53,13 +53,13 @@ fn new(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // serves a tile's, so no name is tried twice and none is mapped here).
     let kind = app.kind_of(&from).map(|row| row.kind.clone()).or_else(|| app.spec(&from).map(|spec| spec.kind.clone()));
     let rule = app.spec_now().and_then(|spec| spec.new_note(kind.as_deref())).cloned();
-    if by.is_person() && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
+    if app.stands(by) && let Some(action) = rule.as_ref().and_then(|rule| rule["action"].as_str()) {
         // The rule's action is a request as it stands (its arguments are data): run as one, from the tile it was made in.
         let given = rule.as_ref().and_then(|rule| rule["args"].as_object()).cloned().unwrap_or_default();
         return app.act_from(crate::actline::Request { action: action.to_string(), tile: None, by: None, args: given }, &app.layout.name(&from), by.clone());
     }
     let parent = args.text("near").map(str::to_string).or_else(|| app.subject());
-    if by.is_person() && let (Some(p), Some(tree)) = (&parent, app.target(About::Tree)) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
+    if app.stands(by) && let (Some(p), Some(tree)) = (&parent, app.target(About::Tree)) { app.ui_mut(&tree).unfolded.insert(p.clone()); }
     let opens = rule.as_ref().and_then(|rule| rule["opens"].as_str()).unwrap_or("float");
     let at = app.at.clone();
     app.store.write(&at, "create", json!({ "parentId": parent, "text": args.text("text").unwrap_or("") }), by, created, json!({ "parent": parent, "from": from, "opens": opens }));
@@ -103,7 +103,7 @@ fn trash(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     if app.draft_of(&id).is_some() {
         let why = "This note has a draft open on it: save or close it before it goes to the Trash.".to_string();
-        if by.is_person() { app.st.notice = Some(Notice::problem(why.clone())) }
+        if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) }
         return Outcome::refused(why);
     }
     let parent = app.shown().filter(|p| p.id == id).and_then(|p| p.ancestors.last().map(|a| a.id.clone())).or_else(|| app.parent_of(&id));

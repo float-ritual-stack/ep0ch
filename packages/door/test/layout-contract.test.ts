@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { ALT_RULES, OPEN_RULES, POLICY_KEYS, WIRE_VERBS, AGENT_LEVELS } from "@ep0ch/outline-core/screen-spec";
 
 const FIXTURES = join(import.meta.dir, "../../outline-core/fixtures");
-const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "address-contract.json", "action-rows.json", "screens.json"];
+const FILES = ["layout-contract.json", "place-contract.json", "act-lines.json", "address-contract.json", "action-rows.json", "screens.json", "actor-contract.json"];
 const made = Object.fromEntries(FILES.map(file => [file, readFileSync(join(FIXTURES, file), "utf8")]));
 const parsed = <T>(file: string): T => JSON.parse(made[file]!) as T;
 
@@ -177,5 +177,27 @@ describe("the action rows, the screens and the act lines", () => {
     expect(t.lines.some(l => l.args)).toBe(true);
     expect(t.lines.some(l => l.argsRefused)).toBe(true);
     expect(new Set(t.addresses.map(a => a.address.kind))).toEqual(new Set(["id", "role", "slot", "relative", "name"]));
+  });
+});
+
+describe("the actor table: who may run an action (the native window's dispatcher is held to it)", () => {
+  interface ActorRow { name: string; row: { touches: string; while?: string; person?: string }; actor: { kind: "user" | "agent"; id?: string; run?: string }; invited: boolean; where: { focus: string; typingIn: string | null; busy: boolean; idle: number }; tile: string; refused: string | null }
+  const rows = parsed<{ cases: ActorRow[] }>("actor-contract.json").cases;
+
+  test("it asks every way an action touches the person's, of the person, an agent and a script's run with and without a press's invitation", () => {
+    expect(new Set(rows.map(r => r.row.touches))).toEqual(new Set(["nothing", "shape", "tile", "draft", "screen"]));
+    expect(rows.some(r => r.row.while === "typing")).toBe(true);
+    for (const [kind, invited, script] of [["user", false, false], ["agent", false, false], ["agent", false, true], ["agent", true, true]] as const) {
+      expect(rows.some(r => r.actor.kind === kind && r.invited === invited && !!r.actor.run === script)).toBe(true);
+    }
+    expect(new Set(rows.map(r => r.name)).size).toBe(rows.length);
+  });
+
+  test("the person and a run on their press's invitation are never refused; what is the person's own is refused to every other agent; no token is written down", () => {
+    for (const r of rows.filter(r => r.actor.kind === "user" || r.invited)) expect(r.refused).toBeNull();
+    for (const r of rows.filter(r => r.actor.kind === "agent" && !r.invited && r.row.person)) expect(r.refused).toBe(r.row.person!);
+    // Standing comes from the invitation, never from who the run says it is for: a script's run nobody pressed for is an agent's.
+    for (const r of rows.filter(r => r.actor.run === "run-2")) expect(r.refused).toBe(rows.find(o => o.actor.id === "seedling-agent" && o.name.split(" runs ")[1] === r.name.split(" runs ")[1])!.refused);
+    expect(made["actor-contract.json"]).not.toContain("invitation\":");
   });
 });

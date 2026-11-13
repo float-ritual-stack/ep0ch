@@ -58,7 +58,14 @@ impl App {
     pub(super) fn asked<T>(&self, by: &Actor, ask: impl FnOnce(&Ctx) -> T) -> T {
         let facts = |id: &str| self.facts(id);
         let person = self.person();
-        let mut ctx = match by { Actor::Person => Ctx::person(&facts, self.area), Actor::Agent(id) => Ctx::agent(id, &facts, self.area) };
+        // How they stand is the one answer (`App::stands`): an agent the person's press invited acts as them for the
+        // arrangement too (its opens take their keys, their typing is not guarded from their own press), and the
+        // layout still knows it is an agent that did it (the door's `layoutStanding`).
+        let mut ctx = match by {
+            Actor::Person => Ctx::person(&facts, self.area),
+            Actor::Agent(id) if self.stands(by) => Ctx { by: layout::By::Agent(id.clone()), ..Ctx::person(&facts, self.area) },
+            Actor::Agent(id) => Ctx::agent(id, &facts, self.area),
+        };
         ctx.typing_in = person.typing_in.as_deref().and_then(|name| self.layout.named(name));
         ctx.busy = person.busy;
         ctx.lands = self.spec_now().and_then(|spec| spec.lands()).map(str::to_string);

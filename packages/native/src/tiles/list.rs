@@ -48,13 +48,13 @@ fn facts(cx: &TileCx) -> Value {
         "columns": answer.map(|a| a.list.columns.clone()), "facets": answer.map(|a| a.facets.iter().map(|f| f.key.clone()).collect::<Vec<_>>()),
         "hint": answer.and_then(|a| a.hint.clone()), "truncated": answer.is_some_and(|a| a.truncated), "sort": answer.and_then(|a| a.sort.clone()), "group": answer.and_then(|a| a.group.clone()),
         "question": cx.app.question_of(cx.id), "narrowed": cx.ui.narrowed, "chosen": cx.ui.chosen, "unfolded": cx.ui.unfolded,
-        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.selected_in(cx.id),
+        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.home_note(cx.id),
     })
 }
 
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.selected_in(cx.id), cx.app.question_of(cx.id)).hash(&mut h);
+    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.home_note(cx.id), cx.app.question_of(cx.id)).hash(&mut h);
     h.finish()
 }
 
@@ -193,7 +193,7 @@ fn listed(cx: &TileCx, at: &Place, view: &Rc<ListView>, items: Vec<Item>, k: &Ki
     let tree = view.arrange == TREE;
     let table = view.arrange == TABLE;
     let columns = view.columns.len();
-    let selected = if at.page { None } else { cx.app.selected_in(cx.id) };
+    let selected = if at.page { None } else { cx.app.home_note(cx.id) };
     let (items, keyed, kit) = (Rc::new(items), view.clone(), k.clone());
     let (held, built, name) = (items.clone(), view.clone(), cx.name.clone());
     let (keys, place) = (at.clone(), at.clone());
