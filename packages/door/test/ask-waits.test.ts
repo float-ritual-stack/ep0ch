@@ -13,7 +13,11 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
   let board: SocketBoard, panes = 0;
   const log = () => join(scratch.root, "tally.log");
   const asked = () => (existsSync(log()) ? readFileSync(log(), "utf8").split("\n").filter(Boolean) : []);
+  // The door's touch and the service's quiet, a fifth of a person's (1 s and 1.5 s): a pause past both is still a pause,
+  // and the file stays inside its budget (PIE-1788).
+  const TOUCH_MS = 200, QUIET_MS = 300;
   beforeAll(async () => {
+    scratch.hostEnv = { OUTLINER_AGENT_QUIET_MS: String(QUIET_MS) };
     board = new SocketBoard(await scratch.start());
     await board.info();
     const dir = join(scratch.workspace, "extensions", "tally");
@@ -33,7 +37,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
   /** The door in a tmux pane of `cols`×`rows` on the note's detail screen. */
   async function pane(id: string, title: string, cols: number, rows: number) {
     const n = `pane${++panes}`, socket = join(scratch.root, `${n}.sock`);
-    const env = { ...process.env, ...scratch.env, EP0CH_STATE: join(scratch.root, `${n}-state`), EP0CH_CONTROL: join(scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh" };
+    const env = { ...process.env, ...scratch.env, EP0CH_STATE: join(scratch.root, `${n}-state`), EP0CH_CONTROL: join(scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh", EP0CH_DRAFT_TOUCH_MS: String(TOUCH_MS) };
     mkdirSync(env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     const tmux = (...args: string[]) => {
       const r = Bun.spawnSync(["tmux", "-S", socket, ...args], { env, stdout: "pipe", stderr: "pipe" });
@@ -64,14 +68,14 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an ask waits for the person, a
       await until(() => p.capture().includes("editing"), "the edit");
       p.keys("C-End", "Enter");
       p.type(`@tally the be${cols}`);
-      // Well past the door's touch (1 s) and the service's quiet (1.5 s): nothing sent, and the line says when it will be.
-      await Bun.sleep(4000);
+      // Well past the door's touch and the service's quiet (three times both): nothing sent, and the line says when it will be.
+      await Bun.sleep(3 * (TOUCH_MS + QUIET_MS));
       expect(asked().length).toBe(before);
       expect(p.flat()).toContain("asksonceyouleave");
       // Longer than the edit is wide, at either size: it wraps (PIE-1757).
       const rest = `ds ${"by the east fence ".repeat(Math.ceil(cols / 17))}${cols}`;
       p.type(rest);
-      await Bun.sleep(2500);
+      await Bun.sleep(3 * (TOUCH_MS + QUIET_MS));
       expect(asked().length).toBe(before);
       // Off the line by one ↑ up its wrap (PIE-1757: the cursor stays on the line, a row up, and that is leaving it): sent,
       // as finally written.

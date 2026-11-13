@@ -3,7 +3,7 @@
 // it: a real tmux pane over a scratch service (TallyDoors), his keys, or an agent's act. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { TallyDoors, type Pane } from "./tally-pane";
+import { TallyDoors, type Pane, idle } from "./tally-pane";
 
 type Tile = { tile: string; name: string; kind: string; focused: boolean };
 type Layer = { drawer: boolean; screen: string; tiles: Tile[] };
@@ -25,7 +25,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
     await doors.ask(p, "@tally the sticks");
     p.keys("C-s"); await until(() => !p.capture().includes("editing"), "saved");
     await until(() => answers(p).length === 1, "its answer beside it");
-    await Bun.sleep(2200);   // his keys idle, so an agent may lay the desk out
+    await idle();   // his keys idle, so an agent may lay the desk out
     expect(p.act("tile.open", "kind=reader", "name=spare", `to=${spareBeside}`, "where=down").ok).toBe(true);
     await until(() => screen(p).some(t => t.name === "spare"), "a spare reader");
     return p;
@@ -33,7 +33,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
   /** His keys on tile `name` of layer `screenName` (an act, then waited for). */
   async function keysOn(p: Pane, name: string, screenName = "detail") {
     const t = layers(p).find(l => l.screen === screenName)!.tiles.find(x => x.name === name)!;
-    await Bun.sleep(2200);   // his keys idle since his last key, so the act may move them
+    await idle();   // his keys idle since his last key, so the act may move them
     expect(p.act("tile.focus", `tile=${t.tile}`).ok).toBe(true);
     await until(() => layers(p).find(l => l.screen === screenName)!.tiles.find(x => x.focused)?.name === name, `his keys on ${name}`);
   }
@@ -94,7 +94,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
     try {
       await gatherPair(p);
       await keysOn(p, "spare");
-      await Bun.sleep(2200);
+      await idle();
       const group = screen(p).find(t => t.kind === "screen")!;
       const r = p.act("tile.drawer", `tile=${group.tile}`);
       expect([r.ok, r.out]).toEqual([true, expect.any(String)]);
@@ -116,7 +116,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a reader and its answer move a
     const p = await pairDesk(177, "answer");
     try {
       await keysOn(p, "spare");
-      await Bun.sleep(2200);
+      await idle();
       // The answer's own container locked, so the reader may go but its answer can't follow.
       expect(p.act("layout.policy", "tile=answer", "locked=true").ok).toBe(true);
       const earlier = p.act("tile.open", "kind=reader", "name=extra", "to=detail", "where=down", "txn=walk-1");

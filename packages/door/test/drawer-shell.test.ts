@@ -2,7 +2,7 @@
 // shell when he opens it next. A real tmux pane over a scratch service (TallyDoors), his keys. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { cellOf, TallyDoors, type Pane } from "./tally-pane";
+import { cellOf, TallyDoors, type Pane, idle } from "./tally-pane";
 
 type Tile = { tile: string; name: string; kind: string; focused: boolean; rect?: { col: number; row: number; cols: number; rows: number } };
 type Layer = { drawer: boolean; screen: string; tiles: Tile[] };
@@ -41,11 +41,11 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a fresh drawer keeps its shell
       await doors.ask(p, "@tally the sticks");
       p.keys("C-s"); await until(() => !p.capture().includes("editing"), "saved");
       await until(() => layers(p).find(l => !l.drawer)!.tiles.some(t => t.kind === "answer"), "its answer beside it");
-      await Bun.sleep(2200);
+      await idle();
       expect(p.act("tile.open", "kind=reader", "name=spare", "to=detail", "where=down").ok).toBe(true);
       await until(() => names(p).includes("detail/spare"), "a spare reader");
       expect(layers(p).some(l => l.drawer)).toBe(false);
-      if (layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name !== "detail") { await Bun.sleep(2200); expect(p.act("tile.focus", "tile=detail").ok).toBe(true); }
+      if (layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name !== "detail") { await idle(); expect(p.act("tile.focus", "tile=detail").ok).toBe(true); }
       await until(() => layers(p).find(l => !l.drawer)!.tiles.find(t => t.focused)?.name === "detail", "his keys on the reader");
       p.keys("C-w", "a");
       await until(() => names(p).includes("drawer/detail") && names(p).includes("drawer/answer"), "the pair in the drawer", 5000).catch(e => { throw new Error(`${e.message}: ${names(p).join()}`); });
@@ -67,7 +67,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a fresh drawer keeps its shell
     await doors.ask(p, "@tally the sticks");
     p.keys("C-s"); await until(() => !p.capture().includes("editing"), "saved");
     await until(() => layers(p).find(l => !l.drawer)!.tiles.some(t => t.kind === "answer"), "its answer beside it");
-    await Bun.sleep(2200);
+    await idle();
     expect(p.act("tile.open", "kind=reader", "name=spare", "to=detail", "where=down").ok).toBe(true);
     await until(() => names(p).includes("detail/spare"), "a spare reader");
     return p;

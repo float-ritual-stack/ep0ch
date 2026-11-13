@@ -36,6 +36,9 @@ export async function openLinked(outlines: string, url: string, remoteAddress: s
 type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string; server?: string; streams?: boolean };
 /** Each SSH connection's grace behind the link: longer than a follower's request (15 s), so what it carried finishes. */
 const RETIRE_AFTER_MS = 30_000;
+/** How often each end of a link pings, and how long it waits with nothing heard before it ends the link (silence: a dead link). */
+const HEARTBEAT = { everyMs: 10_000, deadMs: 25_000 };
+type Heartbeat = typeof HEARTBEAT;
 const savedState = (path: string): LinkState | undefined => {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return; }
 };
@@ -47,7 +50,7 @@ function saveState(path: string, state: LinkState) {
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
 type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; doors?: Map<string, { path: string; server: SocketServer }>; doorsSaid?: string; /** The SSH connection left behind this link, and since when (its grace). */ behind?: { pid: number; since: number }; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
-export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void>; /** What ssh runs with (EP0CH_SSH names it); default this process's. */ env?: NodeJS.ProcessEnv; /** How long SSH keeps carrying what it started after the link takes over (default RETIRE_AFTER_MS). */ retireAfterMs?: number }) {
+export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; /** Tests: a shorter heartbeat (default HEARTBEAT). */ heartbeat?: Heartbeat; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void>; /** What ssh runs with (EP0CH_SSH names it); default this process's. */ env?: NodeJS.ProcessEnv; /** How long SSH keeps carrying what it started after the link takes over (default RETIRE_AFTER_MS). */ retireAfterMs?: number }) {
   let reporting = Promise.resolve();
   let openId = 0;
   const opens = new Map<number, { ws: ServerWebSocket<Peer>; finish: (result: OpenResult) => void }>();
@@ -243,7 +246,8 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
     const path = join(o.outlines, ".remote", `${machine}.link.json`);
     saveState(path, { machine, since: savedState(path)?.since, pid: process.pid, up: false, reason: "waiting for connector" });
   }
-  const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
+  const beat = o.heartbeat ?? HEARTBEAT;
+  const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > beat.deadMs) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, beat.everyMs);
   return { port: server.port!, async stop() {
     // The CLI signal handler can exit before an awaited stop resumes: release its sockets first.
     updates.close(); clearInterval(heartbeat); clearInterval(retirement);
@@ -256,7 +260,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
 /** How often the connector looks at its door sessions again. */
 const DOOR_POLL_MS = Number(process.env.EP0CH_LINK_DOOR_POLL_MS) || 2000;
 
-export function connectLink(o: { server: string; machine: string; key: string; host: string; doors?: () => Promise<LinkDoor[]>; doorSocket?: (key: string) => string | null; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
+export function connectLink(o: { server: string; machine: string; key: string; host: string; /** Tests: a shorter heartbeat (default HEARTBEAT). */ heartbeat?: Heartbeat; doors?: () => Promise<LinkDoor[]>; doorSocket?: (key: string) => string | null; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
   const updatePath = o.statusPath ? join(o.statusPath, "../link-update.json") : undefined;
   let update = updatePath ? readLinkFile<LinkUpdate>(updatePath) : undefined;
   let receipts = update?.receipts ?? [];
@@ -360,7 +364,8 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           }
           since = new Date().toISOString(); state(true);
           o.log(`link ${o.machine} up since ${since}`);
-          heartbeat = setInterval(() => { if (Date.now() - last > 25_000) endAttempt("heartbeat timed out"); else socket.send("ping"); }, 10_000);
+          const beat = o.heartbeat ?? HEARTBEAT;
+          heartbeat = setInterval(() => { if (Date.now() - last > beat.deadMs) endAttempt("heartbeat timed out"); else socket.send("ping"); }, beat.everyMs);
         } else if (authenticated && typeof message.open === "string") {
           const id = message.id;
           void (async () => {

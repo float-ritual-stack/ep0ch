@@ -9,6 +9,11 @@ import { Scratch, until } from "./scratch";
 
 export type Pane = Awaited<ReturnType<TallyDoors["pane"]>>;
 
+/** How long a tally pane's person must be away before an agent's act may move what they see (EP0CH_SHELL_IDLE_MS; a person's is 2 s). */
+export const IDLE_MS = 300;
+/** Wait until the person's keys count as idle, so an agent's act may lay the desk out. */
+export const idle = () => Bun.sleep(IDLE_MS + 200);
+
 export class TallyDoors {
   readonly scratch = new Scratch();
   board!: SocketBoard;
@@ -18,6 +23,9 @@ export class TallyDoors {
   asked = () => (existsSync(this.log()) ? readFileSync(this.log(), "utf8").split("\n").filter(Boolean) : []);
 
   async start() {
+    // A person's pause before an ask goes (the door's touch, 1 s; the service's quiet, 1.5 s), a fifth as long: the same
+    // rules, waited out sooner, so the files on these panes stay inside their budget (PIE-1788). A file's own hostEnv wins.
+    this.scratch.hostEnv = { OUTLINER_AGENT_QUIET_MS: "300", ...this.scratch.hostEnv };
     this.board = new SocketBoard(await this.scratch.start());
     await this.board.info();
     const dir = join(this.scratch.workspace, "extensions", "tally");
@@ -40,7 +48,7 @@ export class TallyDoors {
    */
   async pane(id: string, title: string, cols: number, rows: number, o: { state?: string; screen?: string[] } = {}) {
     const n = `pane${++this.panes}`, socket = join(this.scratch.root, `${n}.sock`);
-    const env = { ...process.env, ...this.scratch.env, EP0CH_STATE: join(this.scratch.root, `${o.state ?? n}-state`), EP0CH_CONTROL: join(this.scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh", EP0CH_MOTION: "full" };
+    const env = { ...process.env, ...this.scratch.env, EP0CH_STATE: join(this.scratch.root, `${o.state ?? n}-state`), EP0CH_CONTROL: join(this.scratch.root, `${n}.ctl`), EP0CH_DAEMON: "0", EP0CH_DRAFT_TOUCH_MS: "200", EP0CH_SHELL_IDLE_MS: String(IDLE_MS), EP0CH_DAILY_AGENT: "sh", EP0CH_MOTION: "full" };
     mkdirSync(env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     const tmux = (...args: string[]) => {
       const r = Bun.spawnSync(["tmux", "-S", socket, ...args], { env, stdout: "pipe", stderr: "pipe" });

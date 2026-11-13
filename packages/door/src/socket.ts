@@ -1671,19 +1671,23 @@ export class SocketBoard implements Board {
    * draft back (a `draft` event of kind `read`) and runs a request line written there once quiet. A hold that
    * lapsed is taken again, quietly.
    */
-  private async touch(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
-    if (h.gone || !h.holdId) return;
+  private async touch(h: { blockId: string; revision: number; holdId: string | null; gone: boolean; owed?: boolean }) {
+    if (h.gone) return;
+    // Not granted yet (a grant takes up to 250 ms, more under load): kept, and sent once it is (Codex on #1508).
+    if (!h.holdId) { h.owed = true; return; }
+    h.owed = false;
     try { await this.request("drafts.touch", { holdId: h.holdId }); }
     catch (e) { if (refusalKindOf(e) === "not-found") { h.holdId = null; await this.holdOn(h); } }
   }
 
-  private holdOn(h: { blockId: string; revision: number; holdId: string | null; asking?: Promise<void>; gone: boolean }): Promise<void> {
+  private holdOn(h: { blockId: string; revision: number; holdId: string | null; asking?: Promise<void>; gone: boolean; owed?: boolean }): Promise<void> {
     let asking: Promise<void> | undefined;
     asking = (async () => {
       try {
         const r = await this.scriptRun.exit(() => this.request("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS }));
         if (h.gone) { await this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
         h.holdId = r.holdId;
+        if (h.owed) void this.touch(h);   // a touch that came while it was asked for
       } catch { h.holdId = null; /* tried again at the next heartbeat */ }
       finally { if (h.asking === asking) h.asking = undefined; }
     })();
