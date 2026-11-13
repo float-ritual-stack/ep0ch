@@ -295,6 +295,8 @@ export function pairOf(d: Desk, name: string): { reader: ReaderPane; answer: Ans
 /** What moves a tile between a desk and the drawer (the host layer's put and take), each told what goes along. */
 export interface PairHost {
   isDrawer(d: Desk): boolean;
+  /** The drawer's desk, made on first asking (its shell started): asked before the pair's transaction opens (PIE-1798). */
+  readonly desk: Desk | null;
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where, keep?: boolean, along?: readonly Pane[]): TileDone;
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor, along?: readonly Pane[]): TileDone;
   resolveTile(sel: string): { desk: Desk } | null;
@@ -311,6 +313,9 @@ export function movePair(d: Desk, host: PairHost, pair: { reader: ReaderPane; an
   // Whether the answer can follow, asked before anything moves: its own take, and a screen the two would leave blank.
   const stays = d.takeRefusal(answer, actor) ?? (!inDrawer && !d.inGroup() && d.layoutGet(false).tiles.length === 2 ? "the screen would be blank: it keeps a tile" : null);
   if (stays) throw new ActionRefused(`${reader} and its answer move together, and ${stays}`);
+  // A fresh drawer made first, as put makes it before its carry: inside the pair's transaction its shell's start would be a
+  // step of the move, and ^W B would take the shell back with it (PIE-1798).
+  void host.desk;
   // Its own transaction, even inside a caller's (txn=): a rollback takes back the pair's move and nothing before it.
   const txn = `drawer:${crypto.randomUUID()}`, touched = new Set<Desk>([d]);
   pair.answer.goesWith(pair.reader);
