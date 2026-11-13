@@ -29,8 +29,10 @@ fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> { cx.app.note_of(cx.id).map(|no
 /// The draft written in this tile, when it is of the note the tile shows.
 fn draft_of<'a>(cx: &'a TileCx) -> Option<&'a DraftSession> { cx.app.draft_on(cx.id) }
 
-/// How a draft's hold stands, in words: who else can reach it while it is written.
+/// How a draft's hold stands, in words: who else can reach it while it is written. (A comment or a reply is held
+/// by nobody: it is nobody else's to change.)
 fn held(draft: &DraftSession) -> String {
+    if !draft.is_block() { return String::new() }
     match &draft.hold {
         Hold::Held { .. } => "Held on the service: an agent's edit lands here, in front of you, and never in the block you are typing in.".to_string(),
         Hold::Asked => "Asking the service to hold this draft…".to_string(),
@@ -44,7 +46,7 @@ fn facts(cx: &TileCx) -> Value {
     let editing = draft_of(cx).map(|draft| {
         let (anchor, caret) = draft.buf.ends();
         let completing = cx.app.completing(cx.id).map(|found| json!({ "token": found.token.as_ref().map(|token| json!({ "kind": token.kind, "query": token.query })), "lit": draft.completing.lit + 1, "heading": found.heading, "message": found.message, "rows": found.rows.iter().map(|row| json!({ "label": row.label, "detail": row.detail, "kind": row.kind, "insert": row.insert })).collect::<Vec<_>>() }));
-        json!({ "note": draft.note, "revision": draft.revision, "unsaved": draft.unsaved(), "text": draft.buf.words(), "caret": caret, "anchor": anchor, "held": draft.hold_id().is_some(), "hold": held(draft), "said": draft.told.as_ref().map(|told| json!({ "who": told.who, "did": told.did })), "completing": completing })
+        json!({ "note": draft.note, "writes": draft.writes.kind(), "on": draft.writes.on(), "revision": draft.revision, "unsaved": draft.unsaved(), "text": draft.buf.words(), "caret": caret, "anchor": anchor, "held": draft.hold_id().is_some(), "hold": held(draft), "said": draft.told.as_ref().map(|told| json!({ "who": told.who, "did": told.did })), "completing": completing })
     });
     // Its parts, as the service framed them, a box's own after it: what an agent presses a button by (`line`, as
     // `button.press line=` counts: from 1), and reads a component's state from.
@@ -60,7 +62,8 @@ fn facts(cx: &TileCx) -> Value {
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&cx.ui.note, cx.ui.history.len(), cx.app.loading_of(cx.id), cx.ui.said.as_ref().map(|said| (&said.block, said.line, &said.words))).hash(&mut h);
-    if let Some(draft) = draft_of(cx) { (&draft.note, draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
+    // (The hint row says the keys of the layer they are in: the editor's, or the open list's.)
+    if let Some(draft) = draft_of(cx) { (&draft.note, draft.writes.kind(), draft.writes.on(), draft.revision, draft.unsaved(), cx.app.saving(), &draft.buf, draft.changes, held(draft), draft.told.as_ref().map(|told| (&told.who, &told.did)), cx.app.writing(cx.id).name()).hash(&mut h) }
     // A picture that finished decoding is drawn: how each of the page's pictures stands is part of what is shown.
     for picture in cx.app.shown_of(cx.id).into_iter().flat_map(|page| page.pictures()) {
         match cx.app.picture(picture) { Some(Shown::Ready { image, .. }) => (2u8, image.size().is_some()).hash(&mut h), Some(Shown::Failed(why)) => (1u8, why).hash(&mut h), _ => 0u8.hash(&mut h) }
@@ -77,14 +80,20 @@ fn button(cx: &TileCx, line: &str, variant: ButtonVariant) -> Button {
 /// The page, walked: what stands above its parts, each part, what stands under them, every one a primitive built
 /// by its type (`prim.rs`). Nothing here knows what a part is. While the note is being written here, its source
 /// stands where what is drawn from it would: in place of its parts, and of what the page makes of its own first
-/// line (a primitive that says `source`).
+/// line (a primitive that says `source`). A comment or a reply being written here is the same field over the
+/// note, which stays as it reads. Words selected in the note are told to the window as they are (`passage.select`).
 fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Kit) -> El {
     let at = PrimCx::of(cx);
-    let mut body = col().key(cx.key("note")).w_full().max_w(820.0).padding(24.0).gap(14.0);
+    let from = cx.name.clone();
+    let mut body = col().key(cx.key("note")).w_full().max_w(820.0).padding(24.0).gap(14.0)
+        .on_selection_change(move |s: &mut App, change: &rune::SelectionChange, _| if !change.dragging() { s.act_in(&selected(change), &from, Actor::Person); });
     let (mut head, mut foot) = (Vec::new(), Vec::new());
     if let Some(page) = page { (head, foot) = parts::around(page) }
-    for prim in head.iter().filter(|prim| draft.is_none() || prim["source"] != true) { body = body.child(prim::build(prim, &at, k)) }
-    match (draft, page) {
+    // The block's own text being written, or something else written about it.
+    let (own, aside) = (draft.filter(|draft| draft.is_block()), draft.filter(|draft| !draft.is_block()));
+    for prim in head.iter().filter(|prim| own.is_none() || prim["source"] != true) { body = body.child(prim::build(prim, &at, k)) }
+    if let Some(aside) = aside { body = body.child(editor(cx, aside, k)) }
+    match (own, page) {
         (Some(draft), _) => body = body.child(editor(cx, draft, k)),
         (None, Some(page)) => for (i, part) in page.parts.iter().enumerate() { body = body.child(prim::build(part, &at.at(format!("part/{i}")), k)) },
         (None, None) => {}
@@ -95,22 +104,33 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     k.scroll_bar(col().key(cx.key("scroll")).w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(row().w_full().justify_center().child(body.opacity(opacity))))
 }
 
+/// The act line a selection in the note says: the words selected, as copying takes them; none when it is cleared.
+fn selected(change: &rune::SelectionChange) -> String {
+    match change.selection().map(|selection| selection.text()).filter(|words| !words.trim().is_empty()) {
+        Some(words) => format!("passage.select quote={}", actions::word(words)),
+        None => "passage.select".to_string(),
+    }
+}
+
 fn empty(cx: &TileCx, k: &Kit) -> El {
     let cap = |line: &str| keys::cap(line).unwrap_or_else(|| actions::label(line));
     let said = if cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty()) { "Calling the outline…".to_string() } else if cx.app.note_of(cx.id).is_none() { format!("Nothing here yet. {} starts a note.", cap("note.new")) } else { format!("Pick a note, or find one with {}.", cap("bar.open")) };
     col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(said).font(k.ty.body).color(k.c.text_muted))
 }
 
-/// The block's Blockdown source where the block stands: what was read is what a save sends back. The field grows
-/// with its text and has no scroll of its own, so the page's scroll is the one that follows the caret.
+/// What is being written in this tile, in its one field: a block's Blockdown source where the block stands (what
+/// was read is what a save sends back), or a comment or a reply over the note it is about, under what it is on.
+/// The field's name and its words while empty are the draft's own (`Writes::named`). It grows with its text and has
+/// no scroll of its own, so the page's scroll is the one that follows the caret.
 fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let c = &k.c;
     let (saving, unsaved) = (cx.app.saving(), draft.unsaved());
+    let (name, hint) = draft.writes.named();
     let field = keys::area(&draft.buf, Field::Draft(cx.id.to_string()), draft.lit(), c.info.bg)
-        .label("Block source")
-        .placeholder("Title [key::value]\nThen the note, in Blockdown.")
+        .label(name)
+        .placeholder(hint)
         .width(None)
-        .rows(4)
+        .rows(if draft.is_block() { 4 } else { 2 })
         .build(k)
         .key(cx.key("source"));
     // Leaving is its own act: Done when everything is saved, Discard (by name) when it isn't.
@@ -119,15 +139,18 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
         .child(button(cx, "edit.save", ButtonVariant::Contrast).disabled(saving || !unsaved).build(k).key(cx.key("save")));
     // What somebody else last did to the text, by name, then how the draft is held.
     let told = draft.told.as_ref().map(|told| text(told.line()).key(cx.key("told")).font(k.ty.small).color(c.info.fg).wrap());
-    let status = col().grow(1.0).min_w(0.0).gap(2.0)
-        .children(told)
-        .child(text(held(draft)).key(cx.key("held")).font(k.ty.small).color(c.text_faint).wrap());
+    let how = Some(held(draft)).filter(|held| !held.is_empty()).map(|held| text(held).key(cx.key("held")).font(k.ty.small).color(c.text_faint).wrap());
+    let status = col().grow(1.0).min_w(0.0).gap(2.0).children(told).children(how);
+    // What a comment or a reply is on, over its field: the words it quotes, the comment it answers.
+    let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
     // What the keys do where they are now, from the table: the save that keeps you here, then the draft's own (the
     // Esc that leaves), or the list's while one is open over the block (the Esc that puts it away, the keys that choose).
     let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(cx.app.writing(cx.id))).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
         line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
     });
-    col().key(cx.key("editor")).w_full().gap(8.0)
+    let framed = if draft.is_block() { col().key(cx.key("editor")).w_full().gap(8.0) } else { col().key(cx.key("editor")).w_full().gap(8.0).padding(12.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_focus) };
+    framed
+        .children(on)
         .child(field)
         .child(row().w_full().gap(10.0).child(status).child(buttons))
         .child(hints)

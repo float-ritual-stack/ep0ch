@@ -41,6 +41,9 @@ const SCRIPT_ENDED: &str = "scripts.ended";
 /// What the service asks the holder of a draft, each an event aimed at this window (outline-core's
 /// `DraftHolderRequest`): its draft as it is, a patch, a patch taken back, and the spans of one the service placed.
 const DRAFT_ASKS: &[&str] = &["draft.read", "draft.patch", "draft.revert", "draft.place"];
+/// The writes that make a block (a note, a comment, a reply): the wire records who made one as `author` and
+/// `provenance`, where every other write carries `mutation`.
+const AUTHORED: &[&str] = &["create", "annotations.batch", "annotations.reply"];
 /// How many answers nobody shows are kept for `last` and a quick return.
 const IDLE_KEPT: usize = 128;
 
@@ -378,7 +381,7 @@ impl Hub {
 
     fn stamped(&self, at: &OutlineAt, action: &str, mut params: Value, by: &Actor) -> Value {
         let (author, actor_id) = match by { Actor::Person => ("user", self.persons.get(at).cloned().unwrap_or_else(|| PERSON.to_string())), Actor::Agent(id) => ("agent", id.clone()) };
-        if action == "create" {
+        if AUTHORED.contains(&action) {
             // The store records who made a block: a person's names no client, an agent's names the agent.
             params["author"] = json!(author);
             if let Actor::Agent(id) = by { params["provenance"] = json!({ "actorId": id }) }

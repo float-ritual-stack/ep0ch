@@ -53,6 +53,9 @@ pub struct ListRow {
     pub folds: bool,
     #[serde(default)]
     pub open: bool,
+    /// What it shows under itself: a primitive, drawn as any is (a proposal's change, a thread's replies, an example).
+    #[serde(default)]
+    pub view: Option<Value>,
 }
 
 impl ListRow {
@@ -65,6 +68,12 @@ impl ListRow {
             other => other.to_string(),
         }
     }
+
+    /// The act line a cell runs when it is a press of its own (the service's word, as a row's `act` is).
+    pub fn cell_act(v: &Value) -> Option<&str> { v.get("act").and_then(Value::as_str).filter(|line| !line.is_empty()) }
+
+    /// It is more than a line: it has presses of its own, or something drawn under it.
+    pub fn tall(&self) -> bool { self.view.is_some() || self.cells.iter().any(|cell| ListRow::cell_act(cell).is_some()) }
 }
 
 fn yes() -> bool { true }

@@ -90,6 +90,7 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 fn close(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     if !app.bar.open { return Outcome::refused("the bar isn't open") }
     app.st.bar.open = false;
+    app.unselect();
     Outcome::done()
 }
 
@@ -120,6 +121,8 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // The bar is put away first: what the row runs lands on the window, not on the bar.
     if by.is_person() { app.st.bar.open = false }
     let ran = app.act(&row.line, by.clone());
+    // (The words selected in a reader when the bar opened were the row's to use: a comment took them.)
+    if by.is_person() { app.unselect() }
     Outcome { answer: json!({ "ran": row.line, "answer": ran.answer }), ..ran }
 }
 

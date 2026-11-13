@@ -151,6 +151,13 @@
     "source": [
       "text"
     ],
+    "diff": [
+      "from",
+      "to",
+      "lines",
+      "added",
+      "removed"
+    ],
     "part": [
       "kind",
       "block",

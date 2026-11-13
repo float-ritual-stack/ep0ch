@@ -47,7 +47,7 @@ export function pagePicture(spec: MediaSpec, svg?: string): PagePicture {
 }
 
 /**
- * What a part of a page is drawn as: a primitive of the catalogue (primitive.ts), or one of the four a page adds.
+ * What a part of a page is drawn as: a primitive of the catalogue (primitive.ts), or one of the five a page adds.
  * A client draws each by its `type` and reads nothing else of the note.
  */
 export type PagePrimitive =
@@ -60,13 +60,28 @@ export type PagePrimitive =
   | ({ type: "picture" } & PagePicture)
   /** Lines as they were written: a component nobody has an answer or a drawing for. Never hidden. */
   | { type: "source"; text: string }
+  | DiffPrimitive
   | PagePart;
+
+/**
+ * One line of a change: as it was and still is (`same`), written (`add`), taken out (`del`), or a run of lines the
+ * same on both sides left out, said in words (`skip`).
+ */
+export interface DiffLine { op: "same" | "add" | "del" | "skip"; text: string }
+
+/**
+ * A change to a text, line by line, as the service found it: a proposal's patch against its note, a revision against
+ * the note as it is now (`lists.read from=proposals|revisions`, a row's `view`). A client draws the lines and diffs
+ * nothing. `from` and `to` name the two sides in words; `added` and `removed` count the lines each way.
+ */
+export interface DiffPrimitive { type: "diff"; from?: string; to?: string; lines: DiffLine[]; added: number; removed: number }
 
 /** The primitive types a page adds to the catalogue's, each with the fields it takes (a part's are `PagePart`'s). */
 export const PAGE_PRIMITIVE_FIELDS = {
   markdown: ["text"],
   picture: ["path", "svg", "alt", "width", "height", "align", "fit", "focus", "dim", "problems"],
   source: ["text"],
+  diff: ["from", "to", "lines", "added", "removed"],
   part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "needs", "view"],
 } as const satisfies { [T in Exclude<PagePrimitive["type"], Primitive["type"]>]: readonly string[] };
 
@@ -120,7 +135,7 @@ export function withActs<P extends PagePrimitive>(prim: P): P {
   const walked = (p: PagePrimitive): PagePrimitive => {
     switch (p.type) {
       case "part": return { ...p, view: withActs(p.view) };
-      case "list": return { ...p, rows: p.rows.map(row => { const act = row.act ?? actOf(row.do); return { ...row, ...(act ? { act } : {}), ...(row.cells ? { cells: row.cells.map(cell) } : {}) }; }) };
+      case "list": return { ...p, rows: p.rows.map(row => { const act = row.act ?? actOf(row.do); return { ...row, ...(act ? { act } : {}), ...(row.cells ? { cells: row.cells.map(cell) } : {}), ...(row.view ? { view: withActs(row.view) } : {}) }; }) };
       case "table": {
         const acts = p.rows.map((_, n) => p.acts?.[n] ?? opens(p.links?.[n]) ?? null);
         return { ...p, rows: p.rows.map(row => row.map(cell)), ...(acts.some(Boolean) ? { acts } : {}) };

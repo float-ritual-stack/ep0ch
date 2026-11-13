@@ -1,0 +1,6 @@
+# A screen with keys of its own (scenes/about.seed.ts saves it as a note): the bean rows in its reader, and the list
+# of the keys beside it, that screen's own first. They are the key table's first rows too, while it is open.
+bar.open scope=screens query=seed-list
+bar.pick n=1
+bar.open scope=search query="Bean rows"
+bar.pick n=1

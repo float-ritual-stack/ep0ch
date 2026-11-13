@@ -15,9 +15,10 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use rune::{El, Icon, ScrollSpec, col, el, row, text};
-use rune_kit::{Badge, BadgeVariant, Kit, glyphs};
+use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, ControlSize, Kit, glyphs};
 use serde_json::{Value, json};
 
+use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use crate::actions::{App, word};
 use crate::list::{self, Rows};
@@ -41,7 +42,8 @@ fn facts(cx: &TileCx) -> Value {
     let answer = cx.app.list_of(cx.id);
     json!({
         "from": answer.map(|a| a.from.clone()), "arrange": answer.map(|a| a.list.arrange.clone()), "title": answer.and_then(|a| a.list.title.clone()),
-        "rows": answer.map(|a| a.list.rows.iter().map(|r| json!({ "id": r.id, "label": r.label, "detail": r.detail, "depth": r.depth, "group": r.group, "act": r.act, "open": r.open })).collect::<Vec<_>>()),
+        // (A row's own presses are its cells that carry an act line; what it shows under itself is said by its type.)
+        "rows": answer.map(|a| a.list.rows.iter().map(|r| json!({ "id": r.id, "label": r.label, "detail": r.detail, "depth": r.depth, "group": r.group, "act": r.act, "folds": r.folds, "open": r.open, "cells": r.cells, "shows": r.view.as_ref().map(crate::parts::ty) })).collect::<Vec<_>>()),
         "groups": answer.map(|a| a.list.groups.iter().map(|g| json!({ "name": g.name, "label": g.label, "count": g.count })).collect::<Vec<_>>()),
         "columns": answer.map(|a| a.list.columns.clone()), "facets": answer.map(|a| a.facets.iter().map(|f| f.key.clone()).collect::<Vec<_>>()),
         "hint": answer.and_then(|a| a.hint.clone()), "truncated": answer.is_some_and(|a| a.truncated), "sort": answer.and_then(|a| a.sort.clone()), "group": answer.and_then(|a| a.group.clone()),
@@ -79,11 +81,16 @@ impl Place {
     /// A row's element: what a test, a script and an agent press it by.
     fn row_key(&self, cx: &TileCx, id: &str) -> String { if self.page { self.key(cx, id) } else { self.key(cx, format!("row/{id}")) } }
     /// What a press on a row runs. In a list tile, the tile's pick of it (`list.pick`, which runs the row's own act
-    /// line and folds a folder's row that is already open); on a page, the row's own act line, from the page's tile.
-    /// A row with no act line is words.
+    /// line, folds a folder's row that is already open, and opens or folds a row that only folds); on a page, the
+    /// row's own act line, from the page's tile. A row with no act line that folds nothing is words.
     fn pick(&self, cx: &TileCx, r: &ListRow) -> Option<impl Fn(&mut App) + Clone + 'static> {
-        let act = r.act.as_ref()?;
-        Some(cx.act(if self.page { act.clone() } else { format!("list.pick id={}", word(&r.id)) }))
+        let line = match (&r.act, self.page) {
+            (Some(act), true) => act.clone(),
+            (Some(_), false) => format!("list.pick id={}", word(&r.id)),
+            (None, false) if r.folds && self.unfolds(cx) => format!("list.pick id={}", word(&r.id)),
+            (None, _) => return None,
+        };
+        Some(cx.act(line))
     }
     /// What a press on a chip (a property and one of its values) runs: a list tile's question is narrowed by it
     /// (`facets.set`); on a page it is a question of its own, in the bar (`bar.narrow`, as the page's own chips are).
@@ -91,6 +98,8 @@ impl Place {
         cx.act(format!("{} key={} value={}", if self.page { "bar.narrow" } else { "facets.set" }, word(key), word(value)))
     }
     fn narrowed(&self, cx: &TileCx, key: &str, value: &str) -> bool { !self.page && cx.ui.narrowed.iter().any(|(k, v)| k == key && v == value) }
+    /// Its rows open: a list tile whose source says it reads which are (a tree's folders, a revision's change).
+    fn unfolds(&self, cx: &TileCx) -> bool { !self.page && cx.app.unfolds(cx.id) }
 }
 
 /// A chip that narrows by a property and one of its values.
@@ -101,30 +110,47 @@ fn chip(cx: &TileCx, at: &Place, key: &str, value: &str, said: String, on: bool,
         .on_press(at.chip(cx, key, value))
 }
 
-/// One row: its mark and label, the properties it carries as chips, and its detail under it (or beside it, in a tree).
+/// One row: its mark and label, the properties it carries as chips, and its detail under it (or beside it, in a
+/// tree). A cell that carries an act line is a press of its own on the row (the service's word on what it runs), and
+/// what the row shows under itself (`view`) is a primitive, built by the registry as any is: a change, a thread's
+/// replies, an example. A row that folds, in a list whose rows open, shows which way it is.
 fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &Kit) -> El {
     let c = &k.c;
-    let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
+    let tall = r.tall();
+    let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
     let mut line = row().w_full().gap(6.0).center_y();
+    let fold = if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT };
     if tree {
-        let icon = if !r.folds { &DOT } else if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT };
+        let icon = if !r.folds { &DOT } else { fold };
         line = line.child(el().w(r.depth.min(12) as f32 * 14.0)).child(rune::icon(icon, 14.0).color(c.text_faint));
+    } else if r.folds && at.unfolds(cx) {
+        line = line.child(rune::icon(fold, 14.0).color(c.text_faint));
     }
     if let Some(mark) = &r.mark { line = line.child(text(mark.clone()).font(k.ty.small).color(c.text_faint)) }
     line = line.child(label);
-    // A list with no columns of its own shows a row's cells after its label.
-    for cell in r.cells.iter().map(ListRow::cell).filter(|cell| !cell.is_empty()) { line = line.child(Badge::new(cell).variant(BadgeVariant::Subtle).build(k)) }
-    for chip_ in r.chips.iter().take(3) { line = line.child(chip(cx, at, &chip_.key, &chip_.value, chip_.value.clone(), at.narrowed(cx, &chip_.key, &chip_.value), &format!("row/{}/chip", r.id), k)) }
-    let body = match r.detail.as_deref().filter(|d| !d.is_empty() && !tree) {
-        Some(detail) => col().w_full().gap(1.0).child(line).child(text(detail.to_string()).font(k.ty.small).color(c.text_faint).truncate()),
-        None => line,
-    };
-    let fill = if selected { c.surface_hover } else if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT };
-    let shaped = body.px(8.0).py(if tree { 0.0 } else { 4.0 }).h(height(r, tree)).radius(k.radius.sm).fill(fill).key(at.row_key(cx, &r.id));
-    match at.pick(cx, r) {
-        Some(run) => k.interactive(shaped).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
-        None => shaped,
+    // A list with no columns of its own shows a row's cells after its label: words, or a press of its own.
+    for (n, cell) in r.cells.iter().enumerate() {
+        let words = ListRow::cell(cell);
+        if words.is_empty() { continue }
+        line = line.child(match ListRow::cell_act(cell) {
+            Some(act) => Button::new(words).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(cx.act(act)).build(k).key(format!("{}/press/{n}", at.row_key(cx, &r.id))),
+            None => Badge::new(words).variant(BadgeVariant::Subtle).build(k),
+        });
     }
+    for chip_ in r.chips.iter().take(3) { line = line.child(chip(cx, at, &chip_.key, &chip_.value, chip_.value.clone(), at.narrowed(cx, &chip_.key, &chip_.value), &format!("row/{}/chip", r.id), k)) }
+    let detail = r.detail.as_deref().filter(|d| !d.is_empty() && !tree).map(|detail| { let said = text(detail.to_string()).font(k.ty.small).color(c.text_faint); if tall { said.wrap() } else { said.truncate() } });
+    let head = match detail { Some(detail) => col().w_full().gap(1.0).child(line).child(detail), None => line };
+    let fill = if selected { c.surface_hover } else if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT };
+    let head = head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill);
+    let head = match at.pick(cx, r) {
+        Some(run) => k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
+        None => head,
+    };
+    if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
+    // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
+    let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
+    if let Some(view) = &r.view { whole = whole.child(el().w_full().px(8.0).child(prim::build(view, &PrimCx::of(cx).at(format!("{}row/{}/view", at.under, r.id)).in_row(), k))) }
+    whole
 }
 
 fn height(r: &ListRow, tree: bool) -> f32 { if tree || r.detail.as_deref().is_none_or(str::is_empty) { LINE } else { TWO } }
@@ -237,8 +263,9 @@ fn lanes_el(cx: &TileCx, at: &Place, view: &Rc<ListView>, sections: &[Section], 
 /// A `list` primitive on a page (a view in a note, its links, the notes under it), drawn by the list drawer: the
 /// same sections, headers and rows a list tile draws, built only where they are in view of the page's scroll. A
 /// pick runs the row's own act line from the page's tile. `key`: the element the list is; `under`: what its rows
-/// are keyed under.
-pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, k: &Kit) -> El {
+/// are keyed under. `in_row`: it is under a row of another list (an example drawn in the library), where its rows
+/// are built whole, the first few of them: rows built only in view can't hold a list built only in view.
+pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, in_row: bool, k: &Kit) -> El {
     let view: ListView = serde::Deserialize::deserialize(prim).unwrap_or_default();
     let (at, view) = (Place::page(cx, under), Rc::new(view));
     let mut out = col().key(key).w_full().gap(2.0);
@@ -251,13 +278,18 @@ pub fn on_page(prim: &Value, cx: &TileCx, key: String, under: &str, k: &Kit) -> 
         // A page has no height of its own to give a lane: each shows a few rows and scrolls the rest.
         let kit = k.clone();
         let (place, name) = (at.clone(), cx.name.clone());
-        return out.child(lanes_el(cx, &at, &view, &sections, &move |part, rows| list::bounded(&format!("tile/{name}/{}{part}/rows", place.under), PAGE_LANE, &kit, rows), k));
+        let app = cx.app;
+        return out.child(lanes_el(cx, &at, &view, &sections, &move |part, rows| { let key = format!("tile/{name}/{}{part}/rows", place.under); if in_row { list::whole(key, app, PAGE_LANE, &kit, rows) } else { list::bounded(&key, PAGE_LANE, &kit, rows) } }, k));
     }
     // One section with one declared group needs no header of its own: the part's frame names it.
     let plain = sections.len() == 1 && view.groups.len() == 1 && !sections[0].rows.is_empty();
     let drawn = if plain { sections[0].rows.iter().copied().map(Item::Row).collect() } else { items(&sections) };
-    out.child(list::rows(at.key(cx, "rows"), listed(cx, &at, &view, drawn, k)))
+    let rows = listed(cx, &at, &view, drawn, k);
+    out.child(if in_row { list::whole(at.key(cx, "rows"), cx.app, IN_ROW, k, rows) } else { list::rows(at.key(cx, "rows"), rows) })
 }
+
+/// The most rows of a list drawn under a row of another list.
+const IN_ROW: usize = 24;
 
 /// The most rows a lane shows on a page before it scrolls.
 const PAGE_LANE: usize = 8;

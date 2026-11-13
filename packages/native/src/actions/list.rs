@@ -8,7 +8,7 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, Touches};
 use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 
-static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks")
+static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks; a row that only folds (a revision, a component) shows what is under it, or puts it away")
     .args(&[("id", ArgSpec::text("the row's id, as the list gives it").optional()), ("n", ArgSpec::number("the row, from 1").optional())])
     .keys(&[KeyRow::via("a press on a row of a list")])
     .examples(&[Example { act: "list.pick n=1 tile=beds", does: "opens the first bed where the tile's opens land", safe: None }]);
@@ -55,7 +55,13 @@ pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         (None, None) => return Outcome::refused("a pick names a row: id= or n="),
     };
     let Some(row) = row.cloned() else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
-    let Some(line) = row.act.clone() else { return Outcome::refused(format!("the row {} runs nothing when picked", row.label)) };
+    let Some(line) = row.act.clone() else {
+        // A row that runs nothing and folds, in a list whose rows open: a pick shows what is under it, or puts it
+        // away (a revision's change, a component's example). The tile's own state, whoever picks.
+        if !unfolds(app, &tile, &row) { return Outcome::refused(format!("the row {} runs nothing when picked", row.label)) }
+        fold(app, &tile, &row.id, None);
+        return Outcome::answer(json!({ "tile": app.layout.name(&tile), "row": row.id, "open": app.ui(&tile).unfolded.contains(&row.id) }));
+    };
     let folder = by.is_person() && unfolds(app, &tile, &row);
     if folder && app.selected_in(&tile).as_deref() == Some(row.id.as_str()) {
         fold(app, &tile, &row.id, None);

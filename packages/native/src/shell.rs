@@ -151,7 +151,9 @@ fn dock_strip(side: Dir, at: Rect, width: f32, height: f32, k: &Kit) -> El {
 /// The screen's toolbar: who answers, then one button an act line of the screen's own list.
 fn toolbar(s: &App, k: &Kit) -> El {
     let c = &k.c;
-    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().px(10.0).py(6.0)
+    // A press on the toolbar leaves the words selected in a note selected, and the keys where they are: its button
+    // that comments is pressed for those words (a press anywhere else in the window lets a selection go first).
+    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().px(10.0).py(6.0).keeps_text_selection()
         .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate())
         .child(Badge::new(s.screen.title.clone()).variant(BadgeVariant::Subtle).build(k).key("screen-name"));
@@ -217,7 +219,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         }
         for (path, at) in &base.docks { if let Some(Node::Dock { side, open: false, .. }) = s.layout.tree().at(path) { area = area.child(dock_strip(*side, *at, width, height, &k)) } }
     }
-    let mut body = col().key("shell").w_full().h_full().child(toolbar(s, &k));
+    // (The window's own ground is the theme's page: a light theme's translucent surfaces read as light over it.)
+    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child(toolbar(s, &k));
     if let Some(n) = notice(s, &k) { body = body.child(el().w_full().px(10.0).pb(6.0).child(n)) }
     // What a tile draws over the window (the list that completes what is typed in it, at its caret), while the bar is
     // away. The caret is read only while there is something to hang on it: a view that reads it runs again when it moves.

@@ -109,8 +109,9 @@
                       "t": "split",
                       "dir": "col",
                       "weights": [
-                        0.5,
-                        0.5
+                        0.3,
+                        0.3,
+                        0.4
                       ],
                       "kids": [
                         {
@@ -128,6 +129,33 @@
                           "source": "tile:reader",
                           "subject": "follows",
                           "role": "backlinks"
+                        },
+                        {
+                          "t": "tabs",
+                          "active": 0,
+                          "tabs": [
+                            {
+                              "t": "leaf",
+                              "kind": "screens.threads",
+                              "name": "threads",
+                              "source": "tile:reader",
+                              "role": "threads"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.proposals",
+                              "name": "proposals",
+                              "source": "tile:reader",
+                              "role": "proposals"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.revisions",
+                              "name": "revisions",
+                              "source": "tile:reader",
+                              "role": "revisions"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -161,6 +189,32 @@
       "problems": []
     },
     {
+      "name": "keys",
+      "title": "keys",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "keys",
+        "title": "keys",
+        "layout": {
+          "focus": "keys",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.keymap",
+            "name": "keys",
+            "role": "keymap"
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
       "name": "kitchen",
       "title": "Kitchen",
       "from": "extension",
@@ -174,18 +228,32 @@
             "t": "split",
             "dir": "row",
             "weights": [
-              0.3,
-              0.7
+              0.22,
+              0.4,
+              0.38
             ],
             "kids": [
               {
                 "t": "split",
                 "dir": "col",
                 "weights": [
-                  0.6,
-                  0.4
+                  0.4,
+                  0.35,
+                  0.25
                 ],
                 "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.tree",
+                    "name": "tree",
+                    "wires": [
+                      {
+                        "verb": "select",
+                        "to": "reader"
+                      }
+                    ],
+                    "role": "tree"
+                  },
                   {
                     "t": "leaf",
                     "kind": "screens.extensions",
@@ -231,15 +299,50 @@
                     "role": "activity"
                   }
                 ]
+              },
+              {
+                "t": "split",
+                "dir": "col",
+                "weights": [
+                  0.34,
+                  0.33,
+                  0.33
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.threads",
+                    "name": "threads",
+                    "source": "tile:reader",
+                    "role": "threads"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.proposals",
+                    "name": "proposals",
+                    "source": "tile:reader",
+                    "role": "proposals"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.revisions",
+                    "name": "revisions",
+                    "source": "tile:reader",
+                    "role": "revisions"
+                  }
+                ]
               }
             ]
           }
         },
         "toolbar": [
+          "back",
           "bar.open",
           "bar.open scope=screens",
           "bar.open scope=extensions",
           "bar.open scope=outlines",
+          "edit",
+          "comment",
           "tile.tear",
           "screen.reset"
         ],
@@ -278,6 +381,32 @@
                 "role": "reader"
               }
             ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "library",
+      "title": "library",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "library",
+        "title": "library",
+        "layout": {
+          "focus": "components",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.components",
+            "name": "components",
+            "role": "components"
           }
         },
         "toolbar": [
@@ -391,7 +520,7 @@
       "kind": "screens.tree",
       "extension": "screens",
       "name": "Outline",
-      "about": "the outline tree; ⏎ opens a note where its opens land",
+      "about": "the outline as a tree; a pick opens a note where the tile's opens land",
       "drawer": "list",
       "fields": {
         "from": "children"
@@ -407,7 +536,7 @@
       "kind": "screens.reader",
       "extension": "screens",
       "name": "Reader",
-      "about": "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "about": "a reader of notes: it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
       "drawer": "page",
       "replaces": [
         "reader"
@@ -420,7 +549,7 @@
       "kind": "screens.query",
       "extension": "screens",
       "name": "Query",
-      "about": "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"type=bed\", source=tile:<its home reader>: a tag opened in a reader, PIE-800); a board lane is one",
+      "about": "the notes a saved view lists (view=<the virtual branch's block id>), or the matches of a question in the views' grammar (query=\"type=bed\"; source=tile:<its home reader> when it was opened from a reader); a board's lane is one",
       "drawer": "list",
       "fields": {
         "from": "query"
@@ -436,7 +565,7 @@
       "kind": "screens.backlinks",
       "extension": "screens",
       "name": "Links",
-      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until it is aimed again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values a door that groups them by stage uses, in that order (others are said as other, never hidden)",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -469,7 +598,7 @@
       "kind": "screens.facets",
       "extension": "screens",
       "name": "Facets",
-      "about": "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>; ^W o # opens it on the tags facet (args.open=[tag], no calendar)",
+      "about": "the properties the notes have, each opening to its values with how often and how lately each is used; a value picked narrows the question (values of one property are ORed, properties ANDed), and the selection reads as a query in the views' grammar; query=<a starting query>",
       "drawer": "list",
       "fields": {
         "from": "facets"
@@ -485,7 +614,7 @@
       "kind": "screens.matches",
       "extension": "screens",
       "name": "Matches",
-      "about": "a facets tile's Matches (PIE-1443: the notes its selection leaves, grouped Pinned, Today, Yesterday, Previous 7 days, then months) in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and ⏎ opens. Opened by facets.place place=tile (ctrl+o), closed when Matches goes back",
+      "about": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first, in a tile of its own beside it; its select and open wires say where a pick is shown and where it opens",
       "drawer": "list",
       "fields": {
         "from": "query",
@@ -528,6 +657,89 @@
       ],
       "serves": [
         "who"
+      ]
+    },
+    {
+      "kind": "screens.threads",
+      "extension": "screens",
+      "name": "Comments",
+      "about": "the comment threads on the note another tile shows (source=tile:<name>): the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "threads",
+        "subject": "follows"
+      },
+      "replaces": [
+        "threads"
+      ],
+      "serves": [
+        "threads"
+      ]
+    },
+    {
+      "kind": "screens.proposals",
+      "extension": "screens",
+      "name": "Proposals",
+      "about": "the edits waiting beside the note another tile shows (source=tile:<name>): who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "proposals",
+        "subject": "follows"
+      },
+      "replaces": [
+        "proposals"
+      ],
+      "serves": [
+        "proposals"
+      ]
+    },
+    {
+      "kind": "screens.revisions",
+      "extension": "screens",
+      "name": "Revisions",
+      "about": "the texts the note another tile shows had (source=tile:<name>), newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
+      "drawer": "list",
+      "fields": {
+        "from": "revisions",
+        "subject": "follows"
+      },
+      "replaces": [
+        "revisions"
+      ],
+      "serves": [
+        "revisions"
+      ]
+    },
+    {
+      "kind": "screens.keymap",
+      "extension": "screens",
+      "name": "Keys",
+      "about": "every way to press an action in this door: its keys, the act line they run, where they hold and what they do, read from the actions' own rows; a pick runs the line",
+      "drawer": "list",
+      "fields": {
+        "from": "actions"
+      },
+      "replaces": [
+        "keymap"
+      ],
+      "serves": [
+        "keymap"
+      ]
+    },
+    {
+      "kind": "screens.components",
+      "extension": "screens",
+      "name": "Components",
+      "about": "every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn",
+      "drawer": "list",
+      "fields": {
+        "from": "components"
+      },
+      "replaces": [
+        "components"
+      ],
+      "serves": [
+        "components"
       ]
     },
     {
@@ -708,6 +920,82 @@
       "from": "clients",
       "about": "Who's here",
       "params": []
+    },
+    {
+      "from": "threads",
+      "about": "Comments",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "proposals",
+      "about": "Proposals",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "revisions",
+      "about": "Revisions",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        }
+      ]
+    },
+    {
+      "from": "actions",
+      "about": "Keys",
+      "placeholder": "A key, an action or what it does",
+      "params": [
+        {
+          "name": "actions",
+          "about": "the asker's own actions, each as its row",
+          "required": true
+        },
+        {
+          "name": "screen",
+          "about": "the screen the asker has open, by name: its own keys are listed first"
+        },
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        }
+      ]
+    },
+    {
+      "from": "components",
+      "about": "Components",
+      "placeholder": "A component's name",
+      "params": [
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        },
+        {
+          "name": "of",
+          "about": "the note an example asks about as `this` (left out: the outline's first)"
+        }
+      ]
     },
     {
       "from": "screens",

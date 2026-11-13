@@ -171,6 +171,7 @@ declare module "@ep0ch/outline-core/action-row" {
 }
 
 declare module "@ep0ch/outline-core/list-row" {
+  import type { PagePrimitive } from "@ep0ch/outline-core/note-page";
   import type { RuleTone } from "@ep0ch/outline-core/rules";
   import type { SearchQuery } from "@ep0ch/outline-core/search-match";
   /** The tones a row is drawn in: the component primitives' (`good`, `warn`, … ). */
@@ -244,6 +245,12 @@ declare module "@ep0ch/outline-core/list-row" {
       folds?: boolean;
       open?: boolean;
       kids?: number;
+      /**
+       * What the row shows under itself, drawn as any primitive is: a proposal's change (a `diff`), a thread's replies, a
+       * component's own example. A row that `folds` in a list whose source reads `open` carries it while it is open
+       * (`lists.read`'s `open` names the rows that are), so a long one is answered only when asked for.
+       */
+      view?: PagePrimitive;
   }
   /** A property a row shows: its key and one of its values, as written. */
   export interface ListChip {
@@ -555,6 +562,119 @@ declare module "@ep0ch/outline-core/rules" {
   export type RuleTone = (typeof RULE_TONES)[number];
 }
 
+declare module "@ep0ch/outline-core/note-page" {
+  import type { SourceRange } from "@ep0ch/outline-core/code-ranges";
+  import type { ComponentKind } from "@ep0ch/outline-core/component-at";
+  import type { Align, ContentWidth, Focus } from "@ep0ch/outline-core/media-line";
+  import type { Primitive } from "@ep0ch/outline-core/primitive";
+  /**
+   * A picture a note shows (a media line, `[img::path]`; or an ```svg fence, whose text is the picture): where its bytes
+   * are and how the note asks for it to be laid out. A client reads a file's bytes with `media.read`.
+   */
+  export interface PagePicture {
+      /** The file's path as written: `media.read` answers its bytes. None for a picture drawn from the note's own text. */
+      path?: string;
+      /** An ```svg fence's text: the picture itself. */
+      svg?: string;
+      alt?: string;
+      /** `fit` keeps the reading measure; `full` fills the width there is. */
+      width: ContentWidth;
+      /** Its height in terminal rows, when the note says one. */
+      height?: number;
+      align?: Align;
+      /** A header's: crop to fill its band (`cover`) or show it whole (`contain`). */
+      fit?: "cover" | "contain";
+      /** The point a crop keeps in view, as fractions across and down. */
+      focus?: Focus;
+      /** 0 as it is … 1 black. */
+      dim?: number;
+      /** What's written on its line that isn't a layout value: said under it. */
+      problems?: string[];
+  }
+  /**
+   * What a part of a page is drawn as: a primitive of the catalogue (primitive.ts), or one of the five a page adds.
+   * A client draws each by its `type` and reads nothing else of the note.
+   */
+  export type PagePrimitive = Exclude<Primitive, {
+      type: "box";
+  }>
+  /** A box: its children are the parts written inside it. */
+   | {
+      type: "box";
+      title?: string;
+      children: PagePrimitive[];
+  }
+  /** Prose as Markdown (the render target): Blockdown links written as Markdown links (`blockHref`, `pageHref`). */
+   | {
+      type: "markdown";
+      text: string;
+  }
+  /** A picture where it stands in the note. (The note's header image is the page's `hero`, not a part.) */
+   | ({
+      type: "picture";
+  } & PagePicture)
+  /** Lines as they were written: a component nobody has an answer or a drawing for. Never hidden. */
+   | {
+      type: "source";
+      text: string;
+  } | DiffPrimitive | PagePart;
+  /**
+   * One line of a change: as it was and still is (`same`), written (`add`), taken out (`del`), or a run of lines the
+   * same on both sides left out, said in words (`skip`).
+   */
+  export interface DiffLine {
+      op: "same" | "add" | "del" | "skip";
+      text: string;
+  }
+  /**
+   * A change to a text, line by line, as the service found it: a proposal's patch against its note, a revision against
+   * the note as it is now (`lists.read from=proposals|revisions`, a row's `view`). A client draws the lines and diffs
+   * nothing. `from` and `to` name the two sides in words; `added` and `removed` count the lines each way.
+   */
+  export interface DiffPrimitive {
+      type: "diff";
+      from?: string;
+      to?: string;
+      lines: DiffLine[];
+      added: number;
+      removed: number;
+  }
+  /** What a part was written as: `componentAt`'s kinds (component-at.ts), prose, and a picture. Said for a reader of the data; nothing draws by it. */
+  export type PagePartKind = ComponentKind | "prose" | "picture";
+  /**
+   * One part of a note's body, in order: where it is written, the service's word on its answer, and what to draw
+   * (`view`). The frame is the same for every part; a part of prose has only its place and its view.
+   */
+  export interface PagePart {
+      type: "part";
+      kind: PagePartKind;
+      /** The note it is written in. */
+      block: string;
+      /** Where its lines are in that note's text, in UTF-16 code units (`end` exclusive): `text.slice(start, end)` is it as written. */
+      span: SourceRange;
+      /** The line of the note (from 0) it starts on: how a press names a button (`scripts.sequence`). */
+      line: number;
+      /** A component's name as written (`graph-stat`, `links`, `button`). */
+      name?: string;
+      /** A figure's kind (`stat`, `check`…). */
+      figure?: string;
+      title?: string;
+      /** The question it asks, in the views' grammar: a client opens it as a query. */
+      query?: string;
+      /** How fresh the answer is, as a page's footer says it ("live · 3 results"). */
+      status?: string;
+      /** Why it has no answer, or what is wrong with the one it has: the service's words. */
+      error?: string;
+      /** More matched than the view holds. */
+      truncated?: true;
+      /** A button whose press is the service's to run (several steps, or a script): `scripts.sequence` with `block` and `line`. */
+      sequence?: true;
+      /** The slots a button's line leaves empty (`{bed}` with `bed=` unwritten): a press has nothing to run until each is written or asked for. Any other `error` on a button is said and stops no press. */
+      needs?: string[];
+      view: PagePrimitive;
+  }
+}
+
 declare module "@ep0ch/outline-core/search-match" {
   /** A query, prepared once for every document it is matched against. */
   type SearchMode = "search" | "completion";
@@ -577,4 +697,269 @@ declare module "@ep0ch/outline-core/heading-styles" {
   export type BandPattern = (typeof BAND_PATTERNS)[number];
   export const BAND_ALIGNS: readonly ["left", "center", "right"];
   export type BandAlign = (typeof BAND_ALIGNS)[number];
+}
+
+declare module "@ep0ch/outline-core/media-line" {
+  export type ContentWidth = "fit" | "full";
+  export type Align = "left" | "center" | "right";
+  /** A point in an image, as fractions of it across and down. */
+  export type Focus = {
+      x: number;
+      y: number;
+  };
+}
+
+declare module "@ep0ch/outline-core/code-ranges" {
+  /** An offset range of the text: `start` inclusive, `end` exclusive. */
+  export interface SourceRange {
+      start: number;
+      end: number;
+  }
+}
+
+declare module "@ep0ch/outline-core/component-at" {
+  import type { ButtonCall } from "@ep0ch/outline-core/button-call";
+  import type { ComponentBlock } from "@ep0ch/outline-core/component-block";
+  import type { LinkBlockSpec } from "@ep0ch/outline-core/link-blocks";
+  import type { SiteBlock } from "@ep0ch/outline-core/site-blocks";
+  import type { UseCall } from "@ep0ch/outline-core/template-use";
+  import type { ViewSpec } from "@ep0ch/outline-core/view-spec";
+  /** A component found at a line: what it is, the line it ends on (inclusive), and its own reading. */
+  export type ComponentAt = 
+  /** A `::view`, or a `::graph-table` with a query or a view: a collection the service answers. */
+  {
+      kind: "view";
+      end: number;
+      block: ComponentBlock;
+      spec: ViewSpec;
+  }
+  /** `::links`, `::outlinks`, `::backlinks`, `::resources`. */
+   | {
+      kind: "links";
+      end: number;
+      block?: ComponentBlock;
+      spec: LinkBlockSpec;
+  }
+  /** `::use`: a template drawn in place of its line. */
+   | {
+      kind: "use";
+      end: number;
+      call: UseCall;
+  }
+  /** `::button`: a labelled press. */
+   | {
+      kind: "button";
+      end: number;
+      call: ButtonCall;
+  }
+  /** `::fields`. */
+   | {
+      kind: "fields";
+      end: number;
+      site: Extract<SiteBlock, {
+          kind: "fields";
+      }>;
+  }
+  /** `::if`: `end` is its closing `::`. */
+   | {
+      kind: "if";
+      end: number;
+      site: Extract<SiteBlock, {
+          kind: "if";
+      }>;
+  }
+  /** A `::graph-*` figure: `figure` is its kind (`stat`, `check`…). */
+   | {
+      kind: "figure";
+      end: number;
+      block: ComponentBlock;
+      figure: string;
+  }
+  /** A `::box`: its body (the lines between its two) is note content, read line by line as the note is. */
+   | {
+      kind: "box";
+      end: number;
+      block: ComponentBlock;
+  }
+  /** Any other component block (an extension's, one nobody knows): its block, as written. */
+   | {
+      kind: "component";
+      end: number;
+      block: ComponentBlock;
+  };
+  export type ComponentKind = ComponentAt["kind"];
+}
+
+declare module "@ep0ch/outline-core/component-block" {
+  /** A component block found in a note's lines: its name, its arguments, and its first and last line (inclusive). */
+  export interface ComponentBlock {
+      name: string;
+      args: string | null;
+      start: number;
+      end: number;
+      attrs?: string; /** Its `^name` (PIE-747): the id it has inside its note. */
+      id?: string;
+  }
+}
+
+declare module "@ep0ch/outline-core/view-spec" {
+  export interface ViewSpec {
+      props: Record<string, unknown>;
+      args?: Record<string, string>;
+      key?: string;
+      error?: string; /** A YAML key the graph-table doesn't take, said as the write warning says it (PIE-1513). */
+      warning?: string;
+  }
+}
+
+declare module "@ep0ch/outline-core/link-blocks" {
+  export type LinkGroupName = "outlinks" | "resources" | "backlinks" | "children" | "matches";
+  /** The inline component's names: every group, or one. */
+  export const LINK_BLOCK_KINDS: readonly ["links", "outlinks", "resources", "backlinks"];
+  export type LinkBlockKind = (typeof LINK_BLOCK_KINDS)[number];
+  /** Where an inline component draws its selected row (PIE-693): beside the list, under it, or not at all. */
+  export type LinkPreview = "right" | "below" | "none";
+  /**
+   * What an inline component asks: whose links (default the note it's in), which groups, a filter, a title; and
+   * (PIE-693) a query whose matches it lists, and where it previews the selected row.
+   */
+  export interface LinkBlockSpec {
+      kind: LinkBlockKind;
+      of: string | null;
+      filter: string;
+      title: string | null;
+      /** Its `^name` on the first line (PIE-747): its id inside the note, the key its view state is kept under. */
+      id?: string;
+      /** The groups written (`groups:`), or null for its name's. */
+      groups: LinkGroupName[] | null;
+      /** A query in the saved views' grammar: its matches are the `matches` group. */
+      query: string | null;
+      /** The matches' order, in the views' sort words (`day desc`, PIE-1720); the service's own order when left out. */
+      sort?: string;
+      preview: LinkPreview;
+      /**
+       * The stage values its group headers and Stage name, in order (`stages: [next, doing, waiting]`, PIE-819), or null
+       * for every value its rows carry. Rows with another value stay listed, said as "other".
+       */
+      stages: string[] | null;
+      lines?: number;
+      /**
+       * How tall its preview draws (PIE-1720): a number of rows, or `fill` for the previewed note's own length, drawn
+       * whole in the note so the reader's one scroll carries it. Left out, the preview's default.
+       */
+      height?: number | "fill";
+      problem?: string;
+  }
+}
+
+declare module "@ep0ch/outline-core/template-use" {
+  /** One `::use` line of a note. */
+  export interface UseCall {
+      /** The line (from 0) it is written on. */
+      line: number;
+      /** The template as written (`[[meeting-template]]`, `((id))`, a Work ID, an id, or `type:meeting`); null when the line names none. */
+      of: string | null;
+      /** The call's props, in the order written: every attribute but the reserved ones (`of`, `act`, `as`…). */
+      props: {
+          key: string;
+          value: string;
+      }[];
+      /** Reserved attributes written on the line that `::use` doesn't take (`as=new`, `freeze=all`), for a message. */
+      reserved: {
+          key: string;
+          value: string;
+      }[];
+      /** The line couldn't be read as a call (no template named): what to write. */
+      problem?: string;
+  }
+}
+
+declare module "@ep0ch/outline-core/button-call" {
+  /** One step: what it runs (`source`, its {slots} filled from the line) and, for a step with slots, the line as written (`written`). */
+  export interface ButtonStep {
+      kind: "act" | "script";
+      source: string;
+      written?: string;
+  }
+  /** One button, including its closed body when present. */
+  export interface ButtonCall {
+      /** The line (from 0) it is written on. */
+      line: number;
+      endLine: number;
+      steps: ButtonStep[];
+      sequence: boolean;
+      /** Repeated slots of an of= script, in authored order. */
+      props: Record<string, string[]>;
+      /** What the button says: `label=`, else the script's or action's name. */
+      label: string;
+      /** The action line a press runs; null when the line names none. */
+      act: string | null;
+      /** The alternate press, when supplied. */
+      alt?: string;
+      /** The alternate press as written, when it names a slot (`tile.zoom tile={lift}`): what its slots are asked as (slotArgs). */
+      altWritten?: string;
+      /** How it looks (PIE-1287): what the line says of glyph, tone, frame and fill; the door's button part draws it. */
+      look: ButtonLookWords;
+      /** The slots the line fills itself (PIE-1298): `target=` for a `{target}` in act= or in an of= script's values, in the order written. */
+      slots: ButtonSlot[];
+      /** The slots with no value yet, in the order the button reads them: a press asks for each (never runs with one open). */
+      empty: string[];
+      /** The slots its alt= reads with no value yet (PIE-1316): the alt press asks for each; absent when none is open. */
+      altEmpty?: string[];
+      /** The line couldn't be read as a button, or reads as something other than what was written: what to write. */
+      problem?: string;
+      /** A look word it doesn't take (`tone=red`): what to write. It still runs; only its look falls back. */
+      lookProblem?: string;
+      /**
+       * The container's marks before it on its line, as written (`- `, `  1. `, `> `, `> - `), when it sits in a list item or a
+       * quote (PIE-1224); a button at the start of its line has none.
+       */
+      prefix?: string;
+  }
+  /** A button's tone: a theme role, never a colour. */
+  export const BUTTON_TONES: readonly ["quiet", "primary", "danger"];
+  /** A button's frame: `none` is one row (a filled band with fill=on), the rest are the box glyph sets, three rows high. */
+  export const BUTTON_FRAMES: readonly ["none", "box", "round", "heavy", "double"];
+  export type ButtonTone = typeof BUTTON_TONES[number];
+  export type ButtonFrame = typeof BUTTON_FRAMES[number];
+  /** What a `::button` line says of its look; a word it can't read is left out and named in `problem`. */
+  export interface ButtonLookWords {
+      glyph?: string;
+      tone?: ButtonTone;
+      frame?: ButtonFrame;
+      fill?: boolean;
+  }
+  /** A word on the button's line that a `{key}` elsewhere on it reads. */
+  export interface ButtonSlot {
+      key: string;
+      value: string;
+  }
+}
+
+declare module "@ep0ch/outline-core/site-blocks" {
+  /** What a `::fields` asks: which key, in whose note, and its title. */
+  export interface FieldsSpec {
+      key: string;
+      of: string | null;
+      title: string | null;
+      problem?: string;
+  }
+  /** What an `::if` asks: the query `this` must match. */
+  export interface IfSpec {
+      where: string;
+      problem?: string;
+  }
+  export type SiteBlock = {
+      kind: "fields";
+      spec: FieldsSpec;
+      start: number;
+      end: number;
+  }
+  /** `end` is the closing `::` line; the body is the lines between (`start + 1` to `end - 1`). */
+   | {
+      kind: "if";
+      spec: IfSpec;
+      start: number;
+      end: number;
+  };
 }

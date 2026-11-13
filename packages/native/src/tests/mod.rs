@@ -20,6 +20,8 @@
 //! - `ext.rs`: extensions and outlines: one installed from the bar's row, used, configured by its form and removed;
 //!   a switch of outline and back to a block as it was being written; a tile torn into a second window over the
 //!   same store, a link an outline, and the control socket naming the window an act is for.
+//! - `review.rs`: about the note: the tiles that follow the reader, a comment on a selection, a reply and a thread
+//!   resolved, a proposal applied and dismissed, a revision opened and put back, the keys and library screens.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
@@ -33,6 +35,7 @@ mod one_owner;
 mod owners;
 mod parity;
 mod parts;
+mod review;
 mod shell;
 mod store;
 mod support;

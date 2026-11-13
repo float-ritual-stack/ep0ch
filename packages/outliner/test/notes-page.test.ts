@@ -187,7 +187,7 @@ test("a note with no body has no parts; one in Trash is refused; the request nee
 });
 
 test("the page is whole: the notes above, under and linking to it, each as every list names a note", async () => {
-  const { create, page } = await setup();
+  const { client, create, page } = await setup();
   const plot = await create("Plot [type::place]");
   const shed = await create("Shed [type::place]\n[room::north]", plot.id);
   const onions = await create("Lift the onions [type::chore]", shed.id);
@@ -201,6 +201,11 @@ test("the page is whole: the notes above, under and linking to it, each as every
   // The notes under it are the one list too: a row says what it shows and the act line a pick runs. A note with none has no list.
   expect(p.under).toMatchObject({ type: "list", title: "Under this note · 2", rows: [{ id: onions.id, label: "Lift the onions", folds: true, act: `open id="${onions.id}"` }, { label: "Water the beans", act: expect.stringMatching(/^open id="/) }] });
   expect((await page(plan.id)).under).toBeUndefined();
+  // A comment on the note is a block under it, and is not listed as a note of it: its threads list it.
+  await client.request({ action: "annotations.batch", requestId: "c1", operations: [{ operationId: "1", type: "block-comment", input: { blockId: plan.id, expectedRevision: plan.revision, body: "Which shed?", source: "user" } }], author: "user" });
+  const commented = await page(plan.id);
+  expect([commented.children, commented.under]).toEqual([[], undefined]);
+  expect((await client.request<{ list: { rows: { label: string }[] } }>({ action: "lists.read", from: "threads", of: plan.id })).list.rows.map(r => r.label)).toEqual(["Which shed?"]);
   // The body's properties too, as the service read them.
   expect(p.properties).toEqual([{ key: "type", value: "place" }, { key: "room", value: "north" }]);
 });

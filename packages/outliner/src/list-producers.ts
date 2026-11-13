@@ -18,57 +18,22 @@
  * Watched as `notes.page` is (`watch: "later"`): answered now and again on each pass that reaches it.
  */
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, linkGroupsNamed } from "@ep0ch/outline-core/link-blocks";
-import { actOf, LIST_MAX_ROWS, listRowMatches, type Activation, type ListAnswer, type ListGroup, type ListPrimitive, type ListRow, type ListSource } from "@ep0ch/outline-core/list-row";
+import { listRowMatches, type ListAnswer, type ListGroup, type ListPrimitive, type ListRow, type ListSource } from "@ep0ch/outline-core/list-row";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { QuestionFacet, QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { clauseText } from "@ep0ch/outline-core/query-clauses";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
+import { ABOUT_PRODUCERS } from "./about-producers";
+import { capped, names, opens, row, runs, subject, titled, type Answered, type Listed, type ListsRequest, type Own, type Producer } from "./list-producer";
 import { readLinks, type LiveHost } from "./publish-live";
 import { EXTENSION_PRODUCERS } from "./list-extensions";
 import type { ScreensList } from "./screens";
 
-/** What a client asks a list of. Declared here, beside the producers: types.ts names it once in the request union. */
-export interface ListsRequest {
-  id: string; action: "lists.read"; watch?: string; generation?: number;
-  /** What to list: a producer's name (`sources` lists them). */
-  from: string;
-  /** The note it is about (a tree's top, a note's links and properties). */
-  of?: string | null;
-  /** Words (a search) or a question in the views' grammar (a query, lanes, facets). */
-  query?: string;
-  /** A tree: the folders whose notes are listed under them. */
-  open?: string[];
-  /** A property name to group by (lanes), as `blocks.query` reads `group`. */
-  group?: string;
-  /** `"<property|created|updated|title>[ asc|desc]"`, as `blocks.query` reads `sort`. */
-  sort?: string;
-  /** How the rows are arranged, when the asker says: `rows`, `table`, `lanes`, `grid`. */
-  arrange?: string;
-  /** The property names a table shows, in order (`title`, `updated` and `created` are the note's own). */
-  columns?: string[] | string;
-  /** A note's links: which groups (`children`, `outlinks,backlinks`), as a links tile saves them. */
-  linkGroups?: string[] | string;
-  limit?: number;
-  /** The screens: the kinds and drawers the asker draws, as `screens.list` takes them. */
-  kinds?: string[]; drawers?: string[];
-}
-
-export type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
-type Listed = { id: string; title?: string; hasChildren?: boolean; parentId?: string | null; updatedAt?: string; createdAt?: string; properties?: { key: string; value: string }[] };
-export type Answered = Omit<ListAnswer, "from" | "anyChange">;
-export interface Producer { row: ListSource; read(own: Own, request: ListsRequest): Promise<Answered> }
+export type { ListsRequest } from "./list-producer";
 
 const NOTE_FIELDS = ["title", "hasChildren"] as const;
-const titled = (title: string | undefined) => title?.trim() ? title : "untitled";
-const row = (r: Omit<ListRow, "act">): ListRow => { const act = actOf(r.do); return act ? { ...r, act } : r; };
-const opens = (id: string): Activation => ({ open: id });
-const runs = (action: string, args: Record<string, string>): Activation => ({ run: { action, args } });
-/** The row helpers, for a module that adds sources of its own (list-extensions.ts). */
-export { row as listed, opens, runs };
-const names = (v: string[] | string | undefined): string[] => (typeof v === "string" ? v.split(/[\s,]+/) : v ?? []).map(s => s.trim()).filter(Boolean);
 const day = (iso: string | undefined) => iso?.slice(0, 10) ?? "";
-const capped = (limit: number | undefined) => Math.max(1, Math.min(typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : LIST_MAX_ROWS, LIST_MAX_ROWS));
 
 /** The notes under `parent` (null: the top level), in outline order, each with its list title. */
 async function level(own: Own, parent: string | null): Promise<Listed[]> {
@@ -183,12 +148,6 @@ async function search(own: Own, request: ListsRequest): Promise<Answered> {
   return { list: { type: "list", arrange: "rows", rows, empty: "Nothing matches." }, ...(found.completeness.kind === "truncated" ? { truncated: true } : {}) };
 }
 
-/** The note a list about one note is of: asked by `of`, refused in words when none is named. */
-function subject(request: ListsRequest): string {
-  if (typeof request.of !== "string" || !request.of) throw new Refusal("invalid", `lists.read from=${request.from} is about one note: name it with of=<a block id>`);
-  return request.of;
-}
-
 /**
  * A note's links (`of`), a group a relation, read as a page's `::links` reads them (`readLinks`: the one reading of a
  * note's outlinks, resources, backlinks and children). `linkGroups` names some (as a links tile saves them); left
@@ -272,9 +231,10 @@ async function screens(own: Own, request: ListsRequest): Promise<Answered> {
 const QUESTIONS = "query";
 const QUERY = { name: "query", about: "a question in the views' grammar (type=bed NOT stage=done): any property" };
 const LIMIT = { name: "limit", about: "the most rows" };
+const OPEN_FOLDERS = { name: "open", about: "the folders whose notes are listed under them" };
 
 const PRODUCERS: readonly Producer[] = [
-  { row: { from: "children", about: "The outline", params: [{ name: "of", about: "the note at its top (left out: the outline's top level)" }, { name: "open", about: "the folders whose notes are listed under them" }, LIMIT] }, read: tree },
+  { row: { from: "children", about: "The outline", params: [{ name: "of", about: "the note at its top (left out: the outline's top level)" }, OPEN_FOLDERS, LIMIT] }, read: tree },
   { row: { from: "search", about: "Notes", placeholder: "Words in a title or a note", params: [{ name: "query", about: "words in a title or a note", required: true }, LIMIT], bar: { main: true } }, read: search },
   { row: { from: QUESTIONS, about: "Query", placeholder: "type=letter mail=waiting · any property, as views read it", params: [QUERY, { name: "sort", about: "a property name, or created, updated, title; then asc or desc" }, { name: "group", about: "a property name: its values are the list's sections" }, { name: "columns", about: "the property names a table shows" }, { name: "arrange", about: `${ARRANGED.join(", ")}` }, LIMIT], bar: { facets: true } }, read: (own, request) => matches(own, request) },
   { row: { from: "lanes", about: "Lanes", params: [QUERY, { name: "group", about: "the property name whose values are the lanes", required: true }, { name: "sort", about: "the order in each lane" }, LIMIT] }, read: (own, request) => matches(own, request, true) },
@@ -283,6 +243,7 @@ const PRODUCERS: readonly Producer[] = [
   { row: { from: "properties", about: "Properties", params: [{ name: "of", about: "the note", required: true }] }, read: properties },
   { row: { from: "activity", about: "Last callers", params: [LIMIT] }, read: activity },
   { row: { from: "clients", about: "Who's here", params: [] }, read: own => clients(own) },
+  ...ABOUT_PRODUCERS,
   { row: { from: "screens", about: "Screens", placeholder: "A screen's name", params: [{ name: "query", about: "words of its name" }, { name: "kinds", about: "the tile kinds the asker draws" }, { name: "drawers", about: "the drawers the asker has" }], bar: {} }, read: screens },
 ];
 

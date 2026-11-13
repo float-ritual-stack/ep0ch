@@ -228,6 +228,73 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
             let rows: Vec<Value> = all.iter().filter(|s| s["spec"].is_object()).filter(|s| words.is_empty() || s["name"].as_str().unwrap_or("").contains(words)).map(|s| json!({ "id": s["name"], "label": s["title"], "detail": "a screen", "act": format!("screen.open name=\"{}\"", s["name"].as_str().unwrap()) })).collect();
             answer(json!({ "type": "list", "arrange": "rows", "rows": rows, "empty": "No screens here: the screens extension adds the ones every door ships (extensions.install id=screens)." }))
         }
+        // The lists about one note (the outliner's about-producers.ts): a row's own presses are cells with the act
+        // line each runs, and what it shows under itself is its `view`.
+        "threads" | "proposals" | "revisions" if ask["of"].as_str().is_none() => Err(("invalid", format!("lists.read from={from} is about one note: name it with of=<a block id>"))),
+        "threads" => {
+            let of = ask["of"].as_str().unwrap();
+            let thread = format!("thread-{of}");
+            answer(json!({ "type": "list", "arrange": "rows", "title": "Comments · 1 open", "groups": [{ "name": "open", "label": "Open", "count": 1 }], "empty": "No comments on this note yet.", "rows": [{
+                "id": thread, "label": "Which rain?", "detail": "you · 2031-04-01 09:00 · 1 reply · on “Before the rain.”", "group": "open",
+                "cells": [{ "text": "Reply", "act": format!("reply thread=\"{thread}\"") }, { "text": "Resolve", "act": format!("resolve thread=\"{thread}\"") }],
+                "view": { "type": "box", "children": [{ "type": "text", "tone": "dim", "text": "“Before the rain.”" }, { "type": "text", "strong": true, "text": "you · 2031-04-01 09:00" }, { "type": "blockdown", "text": "Which rain?" }, { "type": "text", "strong": true, "text": "compost-agent · 2031-04-01 09:05" }, { "type": "blockdown", "text": "Friday's." }] },
+            }] }))
+        }
+        "proposals" => {
+            let proposal = format!("proposal-{}", ask["of"].as_str().unwrap());
+            answer(json!({ "type": "list", "arrange": "rows", "title": "Proposals · 1", "empty": "No edits are waiting beside this note.", "rows": [{
+                "id": proposal, "label": "An edit from tidy-agent", "detail": "2031-04-01 09:00 · not applied: the person was typing there",
+                "cells": [{ "text": "Apply", "act": format!("proposal.apply id=\"{proposal}\"") }, { "text": "Dismiss", "act": format!("proposal.dismiss id=\"{proposal}\"") }],
+                "view": { "type": "diff", "from": "the note now", "to": "with the edit", "added": 1, "removed": 1, "lines": [{ "op": "skip", "text": "line 2 of 2" }, { "op": "del", "text": "Before the rain." }, { "op": "add", "text": "Before Friday's rain." }] },
+            }] }))
+        }
+        "revisions" => {
+            let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            let mut earlier = json!({ "id": "2", "label": "Revision 2", "detail": "2031-03-30 18:00 by tidy-agent · 2 lines · Take the fork", "folds": true, "cells": [{ "text": "Restore", "act": "revision.restore revision=\"2\"" }] });
+            if open.contains(&"2") {
+                earlier["open"] = json!(true);
+                earlier["view"] = json!({ "type": "diff", "from": "revision 2", "to": "the note now (revision 3)", "added": 1, "removed": 1, "lines": [{ "op": "same", "text": "Take the fork [type::chore]" }, { "op": "del", "text": "After the rain." }, { "op": "add", "text": "Before the rain." }] });
+            }
+            Ok(json!({ "from": from, "list": { "type": "list", "arrange": "rows", "title": "Revisions · 2 kept", "rows": [{ "id": "3", "label": "Revision 3 · the note now", "detail": "2031-04-01 09:00 by you · 2 lines" }, earlier] }, "open": open.iter().filter(|id| **id == "2").collect::<Vec<_>>(), "anyChange": true }))
+        }
+        // The asker's own actions, as the ways to press them (about-producers.ts): a row a key row of a row handed
+        // over, its line written by the one writer.
+        "actions" => {
+            let Some(handed) = ask["actions"].as_array() else { return Err(("invalid", "lists.read from=actions lists the asker's own actions: hand them over as actions=[<each action's row>]".into())) };
+            let mut rows: Vec<Value> = Vec::new();
+            // The keys of the screen the asker has open come first, as its spec has them (the outliner's `actions` producer).
+            let open = screens.as_array().into_iter().flatten().find(|s| ask["screen"].as_str().is_some_and(|name| s["name"] == name));
+            for (n, key) in open.and_then(|s| s["spec"]["keys"].as_array()).into_iter().flatten().enumerate() {
+                let mut args: Vec<String> = key["args"].as_object().into_iter().flatten().map(|(k, v)| format!("{k}=\"{}\"", v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect();
+                if let Some(tile) = key["tile"].as_str() { args.push(format!("tile=\"{tile}\"")) }
+                let line = std::iter::once(key["action"].as_str().unwrap_or("").to_string()).chain(args).collect::<Vec<_>>().join(" ");
+                rows.push(json!({ "id": format!("this screen#{n}"), "label": key["key"], "detail": key["says"], "mark": key["action"], "group": "this screen", "cells": [key["key"], line, "this screen", key["says"]], "act": line }));
+            }
+            for action in handed {
+                let id = action["id"].as_str().unwrap_or("");
+                for (n, way) in action["keys"].as_array().into_iter().flatten().enumerate() {
+                    let Some(keys) = way["keys"].as_str() else { continue };
+                    let args: Vec<String> = way["args"].as_object().into_iter().flatten().map(|(k, v)| format!("{k}=\"{}\"", v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect();
+                    let line = std::iter::once(id.to_string()).chain(args).collect::<Vec<_>>().join(" ");
+                    let place = way["on"].as_str().unwrap_or("everywhere");
+                    rows.push(json!({ "id": format!("{id}#{n}"), "label": keys, "detail": way["does"], "mark": id, "group": place, "cells": [keys, line, place, way["does"]], "act": line }));
+                }
+            }
+            answer(json!({ "type": "list", "arrange": "table", "columns": ["keys", "act", "where", "does"], "headers": ["keys", "act", "where", "does"], "rows": rows, "title": "Keys" }))
+        }
+        "components" => {
+            let open: Vec<&str> = ask["open"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            let mut stat = json!({ "id": "graph-stat", "label": "Stat tiles", "detail": "`::graph-stat` on a line of its own", "mark": "graph-stat", "group": "figures", "folds": true });
+            if open.contains(&"graph-stat") {
+                stat["open"] = json!(true);
+                stat["view"] = json!({ "type": "box", "children": [{ "type": "blockdown", "text": "A row of numbers, each over its label." }, { "type": "box", "title": "As written", "children": [{ "type": "source", "text": "::graph-stat\nbeds: 4\n::" }] },
+                    { "type": "box", "title": "As drawn", "children": [part("plot", "figure", 1, json!({ "name": "graph-stat", "figure": "stat" }), json!({ "type": "row", "children": [{ "type": "stat", "label": "beds", "value": "4" }] })),
+                        // (An example may list notes: a list under a row of the list it is shown in.)
+                        part("plot", "links", 5, json!({ "name": "links", "title": "The beds" }), json!({ "type": "list", "rows": [{ "id": "beans", "label": "Water the beans", "act": opens("beans") }] }))] }] });
+            }
+            Ok(json!({ "from": from, "list": { "type": "list", "arrange": "rows", "title": "Components · 2", "groups": [{ "name": "layout", "label": "layout", "count": 1 }, { "name": "figures", "label": "figures", "count": 1 }],
+                "rows": [{ "id": "callout", "label": "Callouts", "detail": "`> [!type]` at the start of a quote", "mark": "callout", "group": "layout", "folds": true }, stat] }, "open": open.iter().filter(|id| **id == "graph-stat").collect::<Vec<_>>(), "anyChange": true }))
+        }
         "extensions" => answer(waiting.rows(words)),
         "outlines" => answer(json!({ "type": "list", "arrange": "rows", "empty": "No outline by that name: this lists the ones there are and makes none.", "rows": known()["outlines"].as_array().unwrap().iter().filter(|o| words.is_empty() || o["name"].as_str().unwrap().contains(words)).map(|o| {
             let (name, machine) = (o["name"].as_str().unwrap(), o["machine"].as_str());
@@ -338,6 +405,24 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             // two pages for a `[[` left open, and no token anywhere else.
             "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize)),
             "completion.picked" => Ok(json!({})),
+            // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
+            // lifecycle, a proposal applied or dismissed, and a revision's text.
+            "annotations.batch" => match ask["operations"][0]["input"]["passage"]["quote"].as_str() {
+                Some("words nobody wrote") => Err(("not-found", "Comment quote or context was not found; read the current source and select it again (nearest: Before the rain.)".into())),
+                _ => Ok(json!({ "annotations": [{ "block": { "id": "thread-new" }, "body": ask["operations"][0]["input"]["body"] }], "deduplicated": false })),
+            },
+            "annotations.reply" => Ok(json!({ "annotations": [{ "block": { "id": "reply-new" }, "body": ask["input"]["body"] }], "deduplicated": false })),
+            "annotations.lifecycle" => Ok(json!({ "block": { "id": ask["input"]["annotationId"] }, "lifecycle": ask["input"]["lifecycle"] })),
+            "draft.proposal.apply" => match ask["proposalId"].as_str() {
+                Some("proposal-gone") => Err(("invalid", "This proposal's passage is no longer in the note; it isn't applied".into())),
+                _ => Ok(json!({ "outcome": "applied", "edits": [{ "blockId": "plot", "route": "saved", "revision": 4 }] })),
+            },
+            "draft.proposal.dismiss" => Ok(json!({ "dismissed": true, "proposalId": ask["proposalId"] })),
+            "block.revisions" => match ask["revision"].as_u64() {
+                Some(2) => Ok(json!({ "revision": 2, "savedAt": "2031-03-30T18:00:00.000Z", "author": "agent", "actorId": "tidy-agent", "chars": 30, "lines": 2, "firstLine": "Take the fork", "text": format!("{} [type::chore]\nAfter the rain.", titled(&note)) })),
+                Some(other) => Err(("failed", format!("Revision {other} of {note} isn't kept (the note is at revision 3; ep0ch revisions lists the ones kept)"))),
+                None => Ok(json!({ "blockId": note, "revision": 3, "revisions": [] })),
+            },
             action => Err(("failed", format!("no action {action}"))),
         }
     });

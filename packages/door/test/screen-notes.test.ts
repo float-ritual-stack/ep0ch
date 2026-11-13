@@ -238,11 +238,12 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     await app.dispatch.act({ action: "screen.open", args: { name: "potting-bench" } }, { kind: "user" });
     await until(() => top().name === "potting-bench", "potting-bench opened");
     const tiles = get().tiles;
-    expect(tiles.map(t => t.name)).toEqual(["tree", "reader", "props", "backlinks"]);
+    expect(tiles.map(t => t.name)).toEqual(["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]);
     // The service lists each tile's kind as the screens extension's row names it; the door's own kinds answer to
     // those names (desk/shipped.ts), so the tree, the reader and the links draw. The properties list is a kind this
-    // door has no drawer for: it keeps its spec and says the kind isn't one it has.
-    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "screens.props"], ["backlinks", null]]);
+    // door has no drawer for, and so are the lists about the reader's note (its comments, proposals and revisions,
+    // which this door shows in its own margin and windows): each keeps its spec and says the kind isn't one it has.
+    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "screens.props"], ["backlinks", null], ["threads", "screens.threads"], ["proposals", "screens.proposals"], ["revisions", "screens.revisions"]]);
     expect(() => render()).not.toThrow();
   });
 });

@@ -8,7 +8,8 @@
 //!   open over a draft), then the rows that hold everywhere.
 //! - **The open screen's own keys come before the rows'** (`ScreenBind`, its spec's `keys` as the service lists
 //!   them): each runs its action as the person while a tile has the keys, never while something is typed, and
-//!   only on the kinds it says. `peek` lists them with the rows (`from: screen`).
+//!   only on the kinds it says. `peek` lists them with the rows (`from: screen`). A key is named there as screens
+//!   name keys (`L`, `ctrl+l`, `esc`), read as a chord by `chord_named`.
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
 //!   same table.
@@ -203,17 +204,28 @@ pub struct ScreenBind {
 impl ScreenBind {
     fn read(bind: &Value) -> Option<ScreenBind> {
         let (spec, action) = (bind["key"].as_str()?, bind["action"].as_str()?);
-        // A screen names a key by its one name: a capital is that letter with Shift, and two keys go by shorter names.
-        let mut letters = spec.chars();
-        let named = match (letters.next(), letters.next()) { (Some(c), None) if c.is_uppercase() => format!("shift+{}", c.to_lowercase()), _ => spec.replace("pgup", "pageup").replace("pgdn", "pagedown") };
         Some(ScreenBind {
-            spec: spec.to_string(), chord: Chord::parse(&named).map_err(|e| format!("{spec} is no key here: {e}")),
+            spec: spec.to_string(), chord: chord_named(spec).ok_or_else(|| format!("{spec} is no key here")),
             request: actline::Request { action: action.to_string(), tile: bind["tile"].as_str().map(str::to_string), by: None, args: bind["args"].as_object().cloned().unwrap_or_default() },
             rule: bind.clone(),
         })
     }
     /// It holds while a tile of `kind` has the keys.
     fn holds(&self, kind: Option<&str>) -> bool { crate::screen::holds_on(&self.rule, kind) }
+}
+
+/// A key as a screen names it (outline-core's `isKeyName`: `l`, `L`, `,`, `ctrl+l`, `alt+c`, `esc`, `pgup`,
+/// `alt+left`), read as a chord: a capital is Shift with its letter, with modifiers before it too, and the two
+/// pages are named in full here. Held to the names there are by `core-contract.json`. None: no chord here is that
+/// key (a modifier alone, Hyper), and it is listed and never pressed.
+pub fn chord_named(key: &str) -> Option<Chord> {
+    let (mods, last) = match key.rsplit_once('+') { Some((mods, last)) if !last.is_empty() => (Some(mods), last), _ => (None, key) };
+    let mut chars = last.chars();
+    let name = match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_uppercase() => format!("shift+{}", c.to_lowercase()),
+        _ => match last { "pgup" => "pageup".to_string(), "pgdn" => "pagedown".to_string(), other => other.to_string() },
+    };
+    Chord::parse(&match mods { Some(mods) => format!("{mods}+{name}"), None => name }).ok()
 }
 
 /// The open screen's own keys, in the order it lists them.

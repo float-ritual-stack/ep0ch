@@ -15,7 +15,7 @@
 import { listRowMatches, type ListGroup, type ListRow } from "@ep0ch/outline-core/list-row";
 import type { ExtensionSettings } from "@ep0ch/outline-core/protocol";
 import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
-import { listed, runs, opens, type Answered, type ListsRequest, type Own, type Producer } from "./list-producers";
+import { row as listed, runs, opens, type Answered, type ListsRequest, type Own, type Producer } from "./list-producer";
 import type { KnownOutlines } from "./outline-links";
 
 type Entry = { id: string; name?: string; description?: string; state: string; error?: string; partOf?: string; settings?: ExtensionSettings };

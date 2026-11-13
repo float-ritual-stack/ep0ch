@@ -21,5 +21,5 @@ test("fixtures/primitives.json lists every primitive type with its fields", () =
   expect(primitivesFixture()).toBe(fixture("primitives.json"));
   const { types, fields, page } = JSON.parse(fixture("primitives.json")) as { types: string[]; fields: Record<string, string[]>; page: Record<string, string[]> };
   expect(Object.keys(fields).sort()).toEqual([...types].sort());
-  expect(Object.keys(page)).toEqual(["markdown", "picture", "source", "part"]);
+  expect(Object.keys(page)).toEqual(["markdown", "picture", "source", "diff", "part"]);
 });
