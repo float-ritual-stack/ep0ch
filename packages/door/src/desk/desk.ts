@@ -44,8 +44,6 @@ import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { agentRefusal as draftRefusal } from "../draft-session";
-import { whyNot, type Way } from "@ep0ch/outline-core/way-out";
-import { refusalSaid } from "../surface/way-out";
 import { retitle, titleWords } from "@ep0ch/outline-core/header-line";
 import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
@@ -84,7 +82,7 @@ import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, answerLands, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, saidBy, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
@@ -906,7 +904,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : this.inGroup() ? { goes: true } : {}), self: this.layoutSelf(),
       beside: this.memory.beside, opened: this.memory.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
-      actor, says: why => refusalSaid(why, actor), standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
+      actor, says: who.says, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -2248,7 +2246,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") {
-      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(refusalSaid(whyNot(dest.reason, ...(dest.ways ?? [])), by));
+      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(saidBy(this.layoutCtx(by), { reason: dest.reason, ways: dest.ways ?? [] }));
       return null;
     }
     if (dest.kind === "across") {
@@ -2927,7 +2925,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ],
       tiles: () => d.tiles(),
       resolveTile: (sel: string, o?: ResolveOpts) => d.resolveTile(sel, o),
-      revision: (expected: unknown, actor: Actor) => { const why = revisionRefusal(d.layout, expected); return why && refusalSaid(why, actor); },
+      revision: (expected: unknown, actor: Actor) => { const why = revisionRefusal(d.layout, expected); return why && saidBy(d.layoutCtx(actor), why); },
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
         return p instanceof ReaderPane ? { board: d.ctx ? p.context(d).board : undefined, blockId: p.msg?.id ?? null, session: p.surface.draftSession() } : null;
@@ -5508,7 +5506,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Why an agent may not do `what` to tile `id` (PIE-639), in the layout's words, or null. */
   private agentNo(id: number, what: string, by: Actor): string | null {
     const a = this.agentOf(id), why = a.level === "free" ? null : agentRefusal(a.level, this.nameOf(id), what, { by: a.by });
-    return why && refusalSaid(why, by);
+    return why && saidBy(this.layoutCtx(by), why);
   }
   /** Pane `p` is a tile the screen limits for agents (edit only or hands off). */
   private limitedFor(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.agentOf(id).level !== "free"; }
@@ -5643,7 +5641,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(id, actor);
     if (t.note) { const m = await readNote(this.ctx, t.note); if (m) this.applyPlacement(m, { from: base.id, to: id, note: m.id }, actor, "shown"); }
     this.save(); this.redraw();
-    const why = typeof r.answer.why === "string" ? refusalSaid(whyNot(r.answer.why, ...(Array.isArray(r.answer.ways) ? r.answer.ways as Way[] : [])), actor) : undefined;
+    const why = typeof r.answer.why === "string" ? saidBy(this.layoutCtx(actor), { reason: r.answer.why, ways: Array.isArray(r.answer.ways) ? r.answer.ways : [] }) : undefined;
     return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : typeof r.answer.where === "string" ? r.answer.where : typeof where === "string" ? where : "right", ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 

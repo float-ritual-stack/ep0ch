@@ -331,7 +331,7 @@ describe("one owner for each decision about a layout (native W0: the contract bo
  * The files whose refusals name a way out as an act: the layout's rules, and the rules about the person's keys and
  * about what an agent may do to a tile, which the layout's guards word their refusals with.
  */
-const WAY_FILES = ["desk/screen-layout.ts", "desk/landing.ts", "whereabouts.ts", "surface/agent-level.ts"];
+const WAY_FILES = ["desk/screen-layout.ts", "desk/layout-refusal.ts", "desk/landing.ts", "whereabouts.ts", "surface/agent-level.ts"];
 /** A key spelled out: a ^W chord, a modifier with its key, a keycap's glyph. */
 const CHORD = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]/u;
 /** The string literals of a line of code: quoted and template text, as written. */

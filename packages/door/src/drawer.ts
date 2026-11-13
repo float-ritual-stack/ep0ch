@@ -45,7 +45,6 @@ import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, lay
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type Again } from "./surface/actions";
-import { refusalSaid } from "./surface/way-out";
 import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, HOST_TILES, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
@@ -814,7 +813,7 @@ export class AgentDrawer {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     const where = this.host.person?.() ?? NOBODY, who = layoutStanding(actor, where, { host: true });
     return {
-      actor, says: why => refusalSaid(why, actor), standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      actor, says: who.says, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
       person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || where.busy, ...(this.host.person ? { held: who.held } : {}) },
     };
   }

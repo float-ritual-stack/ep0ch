@@ -2,8 +2,8 @@ import { wrapReturn, type ReturnShell } from "./return-place";
 import { besideAttempt, closeHeir, landing, personsTile, readerTakes } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
-import { way, whyNot, withWays, type Way, type Why } from "@ep0ch/outline-core/way-out";
-export type { Way, Why } from "@ep0ch/outline-core/way-out";
+import { ids, nodeOf, refuse, Refused, saidBy, turnsOn, unlockWays, way, whyNot, SCREEN_SELF, type LayoutSelf, type Way, type Why } from "./layout-refusal";
+export { lockChipText, saidBy, SCREEN_SELF, unlockWays, type LayoutSelf, type Way, type Why } from "./layout-refusal";
 import type { AltRule } from "./layout";
 // A screen layout changes only through apply(state, op, ctx): one actor, one operation, the new state or a refusal.
 //
@@ -203,16 +203,6 @@ export interface Ctx<I = number> {
   says?(why: Why): string;
 }
 
-/** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"); a group has none. */
-export interface LayoutSelf {
-  name: string; chip?: string;
-  /** Its chip is drawn, but something lies over it now (PIE-1455): the drawer open over the hint row, or a drawer tile lifted over the screen. */
-  covered?: "drawer" | "lift";
-}
-export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
-/** A locked layout's ▣ chip, padded as a chip is drawn (the hint row's, the drawer frame's): what its refusals tell the person to click. */
-export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? self.name} locked `;
-
 /** A new or moved tile's place, with any containers lost on close. */
 export type At<I = number> = (Place<I>
   | { kind: "in"; key: string; node?: string; index?: number; weight?: number }
@@ -281,31 +271,6 @@ export type Result<I = number> =
   | { ok: true; state: LayoutState<I>; focus: I; changed: boolean; answer: Record<string, unknown>; base: LayoutState<I> }
   /** `refused`: the refusal as the asker's door says it (`Ctx.says`); `why`: its reason and its ways out, each an act. */
   | { ok: false; refused: string; why: Why };
-
-// ── the ways out, each an act: a door words it by its own key or as an act line (surface/way-out.ts) ──
-
-/** How a locked layout is unlocked, the way out of every refusal it causes (the lock is rare, PIE-1346). */
-export const unlockWays = (self: LayoutSelf = SCREEN_SELF): Way[] => {
-  const chip = lockChipText(self).trim();
-  const unlock = (more: Omit<Way, "act" | "does" | "args"> = {}) => way("layout.lock", "unlocks it", { args: { on: false }, ...more });
-  // A refusal names a control the person can see (PIE-1455): one under the drawer or a lifted tile is reached past it.
-  if (self.chip && self.covered === "drawer") return [way("host.toggle", "puts the drawer away", { args: { open: false } }), unlock({ at: `with the keys in ${self.name}`, on: chip, then: true })];
-  if (self.chip && self.covered === "lift") return [way("agent.lift", "drops the lifted tile", { args: { on: false } }), unlock({ at: `with the keys in ${self.name}`, on: chip, then: true })];
-  return [self.chip ? unlock({ on: chip }) : unlock({ at: "in it" })];
-};
-/** A policy's layer as `layout.policy` names it: the screen, or a container by its id. A kind's own default is no node. */
-const nodeOf = (by: string | undefined): { node?: string } => (by !== undefined && (by === "screen" || /^[sgdcf]\d+$/.test(by)) ? { node: by } : {});
-/** The way out of a policy that says no: its flag turned on at the layer that says it (the policy panel's row, for the person with their keys there). */
-const turnsOn = (flag: string, by: string | undefined): Way => way("layout.policy", `turns ${flag} on`, { args: { ...nodeOf(by), [flag]: true }, at: "there" });
-/** The read that names every container: what a refusal about an id nothing has points at. */
-const ids = (does: string): Way => way("layout.get", does);
-
-/** A refusal inside an operation: caught by `apply`, which answers it with nothing changed. */
-class Refused extends Error { constructor(readonly why: Why) { super(why.reason); } }
-/** Refuse with a reason and its ways out (a refusal already made takes more ways after its own); nothing for null. */
-const refuse = (why: string | Why | null | undefined, ...ways: Way[]): void => { if (why) throw new Refused(typeof why === "string" ? whyNot(why, ...ways) : withWays(why, ...ways)); };
-/** A refusal as the asker's door says it: by `ctx.says`, else its reason alone. */
-export const saidBy = <I>(ctx: Pick<Ctx<I>, "says">, why: Why): string => ctx.says?.(why) ?? why.reason;
 
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 

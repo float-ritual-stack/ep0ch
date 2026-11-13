@@ -28,7 +28,7 @@ import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { heldBack, keysIn, MARK_THEM, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { way } from "@ep0ch/outline-core/way-out";
+import { way, type Why } from "@ep0ch/outline-core/way-out";
 import { refusalSaid } from "./way-out";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
@@ -280,12 +280,13 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
  * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
  * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null; says: (why: Why) => string } {
   const standing = standsAsPerson(actor, where, "shape");
   // Whether a step's opens take the person's keys: theirs, or an agent they invited for the shape. Yolo lifts every guard
   // but never this: an agent's open lands beside them and their focus stays (PIE-1444; an agent's tile.focus still moves it).
   const keys = pressedBy(actor, "shape");
-  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
+  // (`says`: how a refusal of the layout's is said to this actor: the door's one sayer, handed to the layout as `Ctx.says`.)
+  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, says: why => refusalSaid(why, actor), held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
