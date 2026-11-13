@@ -148,12 +148,27 @@ fn dock_strip(side: Dir, at: Rect, width: f32, height: f32, k: &Kit) -> El {
         .key(format!("dock/{}", side.word())).role("button").label(actions::label(&line)).help(actions::label(&line)).on_press(act(line))
 }
 
+/// The toolbar's own room at its sides, and the room it leaves after the window's buttons where they sit over it.
+const TOOLBAR_PAD: f32 = 10.0;
+const AFTER_BUTTONS: f32 = 12.0;
+
+/// Where the toolbar's first word starts: its own room, or past the window's own buttons when they are drawn over
+/// the content (`inset`: Rune's `Cx::titlebar_inset`, the trailing edge of macOS's traffic lights in a window whose
+/// content fills it under the title bar; 0 in full screen, in a titled window and on every other platform).
+pub(crate) fn toolbar_lead(inset: f32) -> f32 { if inset > 0.0 { (inset + AFTER_BUTTONS).max(TOOLBAR_PAD) } else { TOOLBAR_PAD } }
+
+/// The frame every window of the run has. Rune's default on macOS: the content fills the window under a clear title
+/// bar, and the toolbar is that bar's row (it starts past the traffic lights: `toolbar_lead`). Elsewhere the native
+/// frame stays whatever this says, so it says so: a headless render then reports the inset this platform's window
+/// has (none), where Rune's default reports a Mac's on every platform.
+pub fn frame() -> rune::Chrome { rune::Chrome { full_size_content: cfg!(target_os = "macos"), ..rune::Chrome::DEFAULT } }
+
 /// The screen's toolbar: who answers, then one button an act line of the screen's own list.
-fn toolbar(s: &App, k: &Kit) -> El {
+fn toolbar(s: &App, lead: f32, k: &Kit) -> El {
     let c = &k.c;
     // A press on the toolbar leaves the words selected in a note selected, and the keys where they are: its button
     // that comments is pressed for those words (a press anywhere else in the window lets a selection go first).
-    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().px(10.0).py(6.0).keeps_text_selection()
+    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().pl(lead).pr(TOOLBAR_PAD).py(6.0).keeps_text_selection()
         .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate())
         .child(Badge::new(s.screen.title.clone()).variant(BadgeVariant::Subtle).build(k).key("screen-name"));
@@ -185,7 +200,7 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
 /// poll: `main.rs` says them once). Agents reach it by its name while it is open. A headless run opens nothing.
 pub fn open(born: App, made: rune::AppSpec<App>) {
     let name = born.window();
-    let window = rune::App::new(made).init(move || born).on_close(crate::control::gone);
+    let window = rune::App::new(made).chrome(frame()).init(move || born).on_close(crate::control::gone);
     crate::control::here(&name, window.handle());
     rune::open_window(rune::WindowSpec::from_app(format!("window/{name}"), window));
 }
@@ -220,7 +235,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         for (path, at) in &base.docks { if let Some(Node::Dock { side, open: false, .. }) = s.layout.tree().at(path) { area = area.child(dock_strip(*side, *at, width, height, &k)) } }
     }
     // (The window's own ground is the theme's page: a light theme's translucent surfaces read as light over it.)
-    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child(toolbar(s, &k));
+    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child(toolbar(s, toolbar_lead(cx.titlebar_inset()), &k));
     if let Some(n) = notice(s, &k) { body = body.child(el().w_full().px(10.0).pb(6.0).child(n)) }
     // What a tile draws over the window (the list that completes what is typed in it, at its caret), while the bar is
     // away. The caret is read only while there is something to hang on it: a view that reads it runs again when it moves.

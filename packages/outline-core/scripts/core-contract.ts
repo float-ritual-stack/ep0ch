@@ -16,6 +16,7 @@
 //              refusal the service sends (findQuoted, quoteRefusal). `quotedNote` is the made-up note most of them
 //              are about, as a page: a stand-in host serves it and answers a comment from these rows, so it refuses
 //              what the service refuses.
+import { staysMs } from "../src/reading-time";
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
@@ -202,7 +203,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), whether a word is a key's one name, as a screen's keys name one (isKeyName), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -215,6 +216,7 @@ export function coreContract(): string {
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
+    stays: [0, 1, 20, 35, 36, 80, 200, 407, 408, 2000].map(columns => ({ columns, ms: staysMs(columns) })),
     ways: WAYS.map(c => ({ ...c, whole: whySaid(c.why, each => c.said[c.why.ways.indexOf(each)] ?? null) })),
     // (A row about `quotedNote` leaves its text out: it is the note's.)
     quoted: QUOTED.map(c => {

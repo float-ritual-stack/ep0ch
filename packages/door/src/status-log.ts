@@ -1,4 +1,5 @@
 import { ActionRefused } from "@ep0ch/outline-core/action-line";
+import { readingMs as readingTime } from "@ep0ch/outline-core/reading-time";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
@@ -11,10 +12,11 @@ import { width } from "./style";
 /**
  * How long a message stays up so a person can read it, at any width (PIE-1729): a moment to look, then about 14
  * characters a second, at most 30 s (the message log keeps it after). `App.showMessage` keeps each message at least
- * this long; a short one keeps its caller's time.
+ * this long; a short one keeps its caller's time. The numbers are outline-core's (reading-time.ts), which the native
+ * window's status line reads too; the columns are this door's cells.
  */
 export function readingMs(text: string): number {
-  return Math.min(30_000, 1500 + width(referenceWords(printable(text, " "))) * 70);
+  return readingTime(width(referenceWords(printable(text, " "))));
 }
 
 /** `tile` is the tile's id, what a return to it (enter in the log) addresses; `tileName` its name, what the log says (PIE-1732: never a raw id). */
