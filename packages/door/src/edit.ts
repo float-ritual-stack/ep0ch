@@ -1544,9 +1544,9 @@ export class Draft {
     if (ask.warning) {
       // Beside its line while that fits (a row of its own moves what's typed below it): the block count gives way first
       // (PIE-1775 lost the side at 61 columns while the count stayed). The answer's side never does (`below ▾`, what a click
-      // on the row shows: PIE-1791's 44-column row named no tile under it): narrower, the words take a row of their own.
+      // on the row shows: PIE-1791's 44-column row named no tile under it): narrower, all of it takes a row of its own.
       const warn = ` · ${ask.warning}`, blocks = ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : "";
-      return width(warn + blocks + where) <= room ? warn + blocks + where : warn + where;
+      return [warn + blocks + where, warn + where].find(t => width(t) <= room) ?? warn + blocks + where;
     }
     const short = ` · ${ask.state}${where}`;
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${where}`;

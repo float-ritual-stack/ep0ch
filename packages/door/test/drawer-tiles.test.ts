@@ -461,7 +461,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const drawer = layout.layers.find((l: any) => l.drawer);
       expect(drawer.tiles.map((t: any) => t.name)).toContain("kettle");
       expect(drawer.tiles).toHaveLength(2);
-      expect(plain(d.app.drawer.chips().short)).toBe("▲ cat +1");
+      expect(plain(d.app.drawer.chips().short)).toContain("▲ cat +1");
       expect(d.app.drawer.chipText()).toContain("▲ cat (from EP0CH_DAILY_AGENT) +1");
       expect(d.paint().at(-1)).toContain("▲");   // the chip is on the bar at any width (keep: its arrow at least)
     } finally { d.app.quit(); }

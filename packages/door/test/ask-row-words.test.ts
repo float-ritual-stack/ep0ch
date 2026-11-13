@@ -51,9 +51,9 @@ describe("an ask's row and the one answer tile", () => {
     // At the room a 61-column edit leaves the row it lost `beside ▸` while the count stayed.
     expect(d.askStatus(ask, 33, 2)).toBe(" · answer in the note · beside ▸");
     // Narrower still, the side never gives way to the warning (PIE-1791: a 44-column edit's row said `· answer in the
-    // note` with its answer tile below it, unnamed): the words go on a row of their own, under the ask.
-    expect(d.askStatus(ask, 22, 2)).toBe(" · answer in the note · beside ▸");
-    const rows = draftView(d).render(36, 8).map(visible);
-    expect(rows.some(r => r.includes("answer in the note · beside ▸") && !r.includes(ask))).toBe(true);
+    // note` with its answer tile below it, unnamed): all of it goes on a row of its own, under the ask.
+    expect(d.askStatus(ask, 22, 2)).toBe(" · answer in the note · 1 block · beside ▸");
+    const rows = draftView(d).render(44, 8).map(visible);
+    expect(rows.some(r => r.includes("answer in the note · 1 block · beside ▸") && !r.includes(ask))).toBe(true);
   });
 });
