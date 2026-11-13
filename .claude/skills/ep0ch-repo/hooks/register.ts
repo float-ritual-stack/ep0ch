@@ -268,7 +268,7 @@ function rulesOf($: EngineInterface): Promise<Rule[]> {
 async function rulesToAttach($: EngineInterface, command: string, agentId: string | undefined): Promise<string[]> {
   const [all, cwd, root] = await Promise.all([rulesOf($), $.session.cwd(), $.session.root()])
   const loop = agentId ?? ''
-  return rulesFor(pathsIn(command, cwd, root), all)
+  return rulesFor(pathsIn(command, cwd, root), all, command)
     .filter(rule => !attached.has(`${loop}|${rule.file}`))
     .map(rule => { attached.add(`${loop}|${rule.file}`); return ruleContext(rule) })
 }
