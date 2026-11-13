@@ -238,11 +238,11 @@ function ageLine(p: ResourceProjection, now: number): { text: string; bad: boole
 
 /**
  * A failed fetch in the words every place says it (the card, its age line, r's toast, PIE-1801): what failed, and who
- * tries again, as the service says (`fetchRetry`): the next poll and r, or only r (the provider has no such item).
+ * tries again besides r, as the service says (`fetchRetry`): the next poll, or an hourly recheck (Jira may not have it).
  */
 export function fetchFailedWords(p: Pick<ResourceProjection, "fetchError" | "fetchRetry">): string {
   const failed = drawnInline((p.fetchError ?? "").replace(/^Resource extension: /, ""));
-  return `couldn't fetch: ${failed} · ${p.fetchRetry === "r" ? `${runAgainKey()} tries again` : `the next poll tries again, ${runAgainKey()} now`}`;
+  return `couldn't fetch: ${failed} · ${p.fetchRetry === "hourly" ? "checked again hourly" : "the next poll tries again"}, ${runAgainKey()} now`;
 }
 
 /**

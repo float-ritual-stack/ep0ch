@@ -21,13 +21,13 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a ticket that never fetched sa
   }, 60_000);
   afterAll(async () => { await doors.stop(); fake?.stop(); });
 
-  test("a ticket Jira doesn't have says so plainly, R tries again, and the poll stops asking", async () => {
+  test("a ticket Jira doesn't have (or won't show) says so plainly, is rechecked hourly, R now, and the poll stops asking", async () => {
     const id = await doors.create("Ghost ticket [jira::PC-9]\nIt was never there.");
     const p = await doors.pane(id, "Ghost ticket", 120, 30);
     try {
       await until(() => card(p.capture()).includes("PC-9"), "the card", 10_000);
-      await until(() => card(p.capture()).includes("Jira has no PC-9"), "said plainly", 8000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
-      expect(card(p.capture())).toContain("R tries again");
+      await until(() => card(p.capture()).includes("Jira has no PC-9, or you can't see it"), "said plainly", 8000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
+      expect(card(p.capture())).toContain("checked again hourly, R now");
       expect(card(p.capture())).not.toContain("next poll");
       const asked = fake.requests.length;
       await Bun.sleep(4000);   // two polls and more
@@ -61,4 +61,20 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a ticket that never fetched sa
       expect(bar).not.toContain("can't fetch");
     } finally { fake.status = null; p.close(); }
   }, 60_000);
+
+  // Codex on #1504: a first fetch that failed (500), then a poll that found the ticket gone (404). Polling stopped, but
+  // with no Resource no reader was told, and the card went on promising "the next poll tries again".
+  test("a failure that changes kind on the poll is said on the card at once", async () => {
+    fake.issues.set("PC-5", { id: "20005", key: "PC-5", summary: "Gate code rotation", status: "To Do", updated: "2026-01-05T09:00:00.000Z" });
+    fake.status = 500;
+    const id = await doors.create("Gate [jira::PC-5]\nNight shift.");
+    const p = await doors.pane(id, "Gate", 120, 30);
+    try {
+      await until(() => card(p.capture()).includes("the next poll tries again"), "the first failure", 10_000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
+      fake.issues.delete("PC-5");
+      fake.status = null;
+      await until(() => card(p.capture()).includes("checked again hourly"), "the poll's 404, said", 10_000).catch(e => { throw new Error(`${e.message}: ${card(p.capture())}`); });
+    } finally { fake.status = null; p.close(); }
+  }, 60_000);
 });
+

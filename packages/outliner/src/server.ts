@@ -493,7 +493,7 @@ export class OutlinerServer {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
       resourceChanged: (resourceId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "resources.extension-sync",
-        sequence: this.store.sequence, resourceId,
+        sequence: this.store.sequence, ...(resourceId ? { resourceId } : {}),
       }),
     });
     const roots = extensionRoots(store.workspaceRoot);

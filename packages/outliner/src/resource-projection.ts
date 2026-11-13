@@ -150,8 +150,8 @@ export interface ResourceProjection {
   readonly fetching?: boolean;
   /** Why the service's last fetch for it failed, in words for the reader. */
   readonly fetchError?: string;
-  /** Who tries a failed fetch again (PIE-1801): the next poll (and r), or only r (the provider has no such item). */
-  readonly fetchRetry?: "poll" | "r";
+  /** Who tries a failed fetch again besides r (PIE-1801): the next poll, or an hourly recheck (the provider may not have it). */
+  readonly fetchRetry?: "poll" | "hourly";
   /** The block that holds the ticket (an extension record), its comments and when it was last written or confirmed. */
   readonly record?: {
     readonly blockId: string;
