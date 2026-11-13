@@ -105,7 +105,7 @@ describe("planning a new note", () => {
     const queued = view("Queued", "type=roadmap-item work-stage=queued", "[create::project=ep0ch-door]");
     const DEP = "0a0b0c0d-1111-4222-8333-444455556666";
     expect(planCreateInView(queued, "Oil the hinges\nThe back door squeaks.")).toEqual({
-      kind: "refused", reason: "Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text",
+      kind: "refused", reason: "add [priority::high|medium|low] [arc::…] [track::…] to the text: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track",
     });
     const ok = planCreateInView(queued, `Oil the hinges [priority::Medium] [arc::home] [track::doors] [track::metal] [room::hall] [depends-on::((${DEP}))]\nThe back door squeaks.`);
     expect(ok.kind === "create" && ok.item).toEqual({ title: "Oil the hinges [room::hall]", body: "The back door squeaks.", priority: "medium", workStage: "queued", project: "ep0ch-door", arc: "home", tracks: ["doors", "metal"], dependsOn: [DEP] });

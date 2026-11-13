@@ -115,7 +115,8 @@ export function policyPanel(d: OverlayHost, tile: number): DeskPicker {
     row: (r, _i, on, w) => {
       wireWidth = w;
       const text = ` ${r.label}${!r.clear && !r.wide ? ` ${r.value}` : ""}`;
-      return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map(line => line + (r.clear ? pickRow(" × ", on, 4) : ""));
+      // A wrapped row's × (clear the wire) is drawn once, on its first line.
+      return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map((line, i) => line + (r.clear ? pickRow(i ? "" : " × ", on, 4) : ""));
     },
     clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
     choose: r => press(r),

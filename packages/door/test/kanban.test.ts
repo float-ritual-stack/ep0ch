@@ -151,7 +151,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     type("Oil the hinges\nThe back door squeaks.");
     ctrl("s");
     await until(() => B().composer?.session.draft.note.startsWith("not created"), "the refusal");
-    expect(B().composer.session.draft.note).toContain("not created: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text");
+    expect(B().composer.session.draft.note).toContain("not created: add [priority::high|medium|low] [arc::…] [track::…] to the text: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track");
     expect(B().composer.session.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
     // Esc, esc puts it aside (never lost), and n in the same lane brings it back to finish (PIE-496).
     press({ kind: "esc" }); press({ kind: "esc" });
@@ -221,7 +221,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     type("Replace the doormat [priority::low] [arc::home] [track::doors]");
     ctrl("s");
     await until(() => B().composer?.session.draft.note.startsWith("not created"), "the refusal");
-    expect(B().composer.session.draft.note).toContain("not created: Doing makes roadmap items through the workboard's allocator, which needs project: add [project::…] to the text");
+    expect(B().composer.session.draft.note).toContain("not created: add [project::…] to the text: Doing makes roadmap items through the workboard's allocator, which needs project");
     expect(B().composer.session.draft.text).toBe("Replace the doormat [priority::low] [arc::home] [track::doors]");   // kept
     type(" [project::pi-outliner]");
     ctrl("s");
