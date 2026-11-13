@@ -77,6 +77,9 @@ export function handleDrop<I>(handles: DockHandle<I>[], area: Rect, x: number, y
 /** The existing move and swap operations own policy and the eventual release. */
 export const dropOp = <I>(tile: I, to: DropPlace<I>): Op<I> => to.kind === "swap" ? { op: "swap", tile, with: to.target } : { op: "move", tile, to };
 
+/** The action a drop runs: what its content receiver says, else the swap or the move its place is (a title drag, a float landing). */
+export const dropAction = <I>(drop: Drop<I>): string => drop.receive?.action ?? (drop.kind === "swap" ? "layout.swap" : "layout.move");
+
 /** A float's grip still moves it freely over bodies; headers, edges and content receivers are landings. */
 export const floatLanding = <I>(drop: Drop<I>, tiles: DropTile<I>[], y: number): boolean => !!drop.receive || drop.kind === "edge" || drop.kind === "tabs" && tiles.some(t => t.id === drop.target && t.rect.row === y);
 

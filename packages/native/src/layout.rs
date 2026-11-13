@@ -15,6 +15,7 @@
 //! and the window's dispatcher words a way by its own key table (`App::says`), or says nothing of an action it
 //! hasn't. The contract holds both doors to the same reason and the same acts.
 pub mod address;
+pub mod drop;
 pub mod memory;
 mod placement;
 mod step;

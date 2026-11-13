@@ -664,3 +664,48 @@ export const ADDRESS_CASES: { address: string; from?: string }[] = [
   // A name is the caller's own to read, after every address.
   { address: "bed" }, { address: "north bed" }, { address: "3" },
 ];
+
+// ── where a dragged tile lands: the drop zones (src/desk/drop.ts) ──
+
+/** A tile as a drag sees it: its frame in cells, a tab set's labels, a content receiver, a float (the door's DropTile). */
+export interface DropTileCase { id: string; rect: Rect; tabs?: { id: string; from: number; to: number }[]; receive?: { label: string; action: string; args?: Record<string, unknown> }; floating?: true }
+/** A place policy refuses, as data: the zone's kind and target (and side), and why. */
+export interface DropRefusal { kind: string; target?: string; dir?: string; why: string }
+/** A layout as a drag sees it, and the tile dragged over it (`src`; one the layout hasn't is a tile arriving from outside). */
+export interface DropCase { name: string; tiles: DropTileCase[]; area: Rect; src: string; many?: boolean; refuse?: DropRefusal[] }
+
+const R = (col: number, row: number, cols: number, rows: number): Rect => ({ col, row, cols, rows });
+/** The beds on the left, the seed list over the log on the right. */
+const BEDS: DropTileCase[] = [{ id: "beds", rect: R(0, 0, 60, 40) }, { id: "seeds", rect: R(60, 0, 60, 20) }, { id: "log", rect: R(60, 20, 60, 20) }];
+/** The same, with the seed list in front of a tab set of two: its labels on its header row. */
+const SHED: DropTileCase[] = [BEDS[0]!, { id: "seeds", rect: R(60, 0, 60, 20), tabs: [{ id: "seeds", from: 62, to: 70 }, { id: "tools", from: 71, to: 80 }] }, BEDS[2]!];
+const PLOT = R(0, 0, 120, 40);
+
+export const DROP_CASES: DropCase[] = [
+  { name: "the log dragged over the beds and the seed list", tiles: BEDS, area: PLOT, src: "log" },
+  { name: "the beds dragged over the two tiles on the right", tiles: BEDS, area: PLOT, src: "beds" },
+  { name: "the log dragged over a tab set: before a tab's label, past the last", tiles: SHED, area: PLOT, src: "log" },
+  { name: "a tab behind dragged over its own set: its sides take it out, its header reorders it", tiles: SHED, area: PLOT, src: "tools" },
+  { name: "the tab in front dragged over its own set", tiles: SHED, area: PLOT, src: "seeds" },
+  { name: "a tile arriving from outside: it joins tabs in a tile's middle, and has no place to trade", tiles: BEDS, area: PLOT, src: "sprout" },
+  { name: "the only tile dragged over itself: nowhere, and the outer strips mean nothing", tiles: [{ id: "almanac", rect: R(0, 0, 80, 24) }], area: R(0, 0, 80, 24), src: "almanac", many: false },
+  { name: "a layout set in from the window's corner", tiles: [{ id: "beds", rect: R(4, 2, 30, 20) }, { id: "bed", rect: R(34, 2, 50, 20) }], area: R(4, 2, 80, 20), src: "beds" },
+  { name: "tiles too small for every band: a spine three cells wide, a tile two rows high", tiles: [{ id: "spine", rect: R(0, 0, 3, 12) }, { id: "strip", rect: R(3, 0, 27, 2) }, { id: "bed", rect: R(3, 2, 27, 10) }], area: R(0, 0, 30, 12), src: "bed" },
+  // (A float is over the tiles: the tile found under a point is the first listed there, so what is on top is listed first.)
+  { name: "a shelf that takes what is dropped on it, and floats over the tiles: one that does, one that takes nothing", tiles: [{ id: "trellis", rect: R(10, 8, 30, 12), floating: true, receive: { label: "drop here: pin it", action: "glass.pin", args: { shelf: "trellis" } } }, { id: "cloche", rect: R(50, 4, 20, 8), floating: true }, { id: "beds", rect: R(0, 0, 40, 30) }, { id: "shelf", rect: R(40, 0, 40, 30), receive: { label: "drop here: shelve it", action: "postit.shelve", args: { shelf: "shelf" } } }], area: R(0, 0, 80, 30), src: "beds" },
+  { name: "policy refuses the seed list's tabs and a split below the beds", tiles: BEDS, area: PLOT, src: "log", refuse: [{ kind: "tabs", target: "seeds", why: "seeds takes no drops (droppable off)" }, { kind: "split", target: "beds", dir: "down", why: "the plot screen is locked: moving log is refused" }, { kind: "edge", dir: "left", why: "the plot screen is locked: moving log is refused" }] },
+];
+
+/** A shut dock's handle as a drag reads it, and a point: the drop there (handleDrop). */
+export interface HandleCase { name: string; handles: { from: number; to: number; row: number; shows: string; edge: "left" | "right" | "up" | "down" }[]; area: Rect; x: number; y: number; src: string; refuse?: DropRefusal[] }
+const HANDLES: HandleCase["handles"] = [{ from: 80, to: 88, row: 30, shows: "tools", edge: "left" }, { from: 0, to: 2, row: 12, shows: "almanac", edge: "right" }];
+const YARD = R(0, 0, 100, 30);
+export const HANDLE_CASES: HandleCase[] = [
+  { name: "on a shut dock's handle: into the tabs of what it shows", handles: HANDLES, area: YARD, x: 82, y: 30, src: "log" },
+  { name: "the row above the handle: no handle", handles: HANDLES, area: YARD, x: 82, y: 29, src: "log" },
+  { name: "past the handle's last cell: no handle", handles: HANDLES, area: YARD, x: 88, y: 30, src: "log" },
+  { name: "the tile the handle shows, dropped on it: nothing", handles: HANDLES, area: YARD, x: 82, y: 30, src: "tools" },
+  { name: "a narrow handle at the left edge: its ghost is as wide as its words and stays in the area", handles: HANDLES, area: YARD, x: 1, y: 12, src: "log" },
+  { name: "a handle near the right edge: its ghost is pulled back inside", handles: [{ from: 96, to: 100, row: 2, shows: "tools", edge: "up" }], area: YARD, x: 97, y: 2, src: "log" },
+  { name: "policy refuses the dock: the drop says why", handles: HANDLES, area: YARD, x: 82, y: 30, src: "log", refuse: [{ kind: "tabs", target: "tools", why: "tools takes no drops (droppable off)" }] },
+];

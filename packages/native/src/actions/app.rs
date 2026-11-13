@@ -178,6 +178,8 @@ pub struct State {
     pub screen_wrote: bool,
     /// The border being dragged (its split and which border): its moves are one change to go back through.
     pub dragging: Option<(String, usize)>,
+    /// The tile held by its title, and where the layout's drop rule says it would land (`actions/carry.rs`).
+    pub moving: Option<super::carry::Moving>,
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
     pub pictured: HashMap<Id, (String, u64)>,
 
@@ -303,6 +305,7 @@ impl App {
                 screens_epoch: 0,
                 screen_wrote: false,
                 dragging: None,
+                moving: None,
                 pictured: HashMap::new(),
                 drafts: Vec::new(),
                 recovered: Vec::new(),
@@ -850,6 +853,7 @@ impl App {
                 Landed::Call { at, call } => super::script::called(self, &at, &call),
                 Landed::Ended { run, reason, message } => super::script::ended(self, &run, &reason, &message),
                 Landed::Asked { at, ask, by } => super::draft::asked(self, &at, &ask, by),
+                Landed::Handed { leaf, shown, from, by } => super::window::arrived(self, &leaf, shown, &from, &by),
                 // (A link to an outline this window isn't on now is another window's to say, or nobody's.)
                 Landed::Lost { at, detail } => if at == self.at {
                     self.st.online = false;

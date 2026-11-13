@@ -421,3 +421,85 @@ fn the_actor_rule_answers_every_row_of_the_door_s_table() {
     // Each actor of the table is asked: the person, an agent, a script uninvited and a script on a press.
     for (kind, invited) in [("user", false), ("agent", false), ("agent", true)] { assert!(cases.iter().any(|c| c["actor"]["kind"] == kind && c["invited"] == invited), "{kind}, invited {invited}") }
 }
+
+// ── where a dragged tile lands ────────────────────────────────────────────────────────────────────────────────
+
+use crate::layout::drop::{self, DockHandle, DropPlace, DropTile, Receive, Tab, Zone};
+
+fn drop_tile(v: &Value) -> DropTile {
+    let receive = v.get("receive").map(|r| Receive { label: text(r, "label").unwrap(), action: text(r, "action").unwrap(), args: r.get("args").and_then(Value::as_object).cloned().unwrap_or_default() });
+    DropTile { id: text(v, "id").unwrap(), rect: Rect::read(&v["rect"]).unwrap(), tabs: v.get("tabs").and_then(Value::as_array).map(|tabs| tabs.iter().map(|t| Tab { id: text(t, "id").unwrap(), from: number(t, "from").unwrap(), to: number(t, "to").unwrap() }).collect()), receive, floating: flag(v, "floating") == Some(true) }
+}
+
+/// The policy a row was asked with, as the callback the drag hands the rule.
+fn refusing(case: &Value) -> impl Fn(&DropPlace) -> Option<String> + '_ {
+    |to: &DropPlace| case.get("refuse")?.as_array()?.iter().find(|rule| {
+        let (kind, side) = match to { DropPlace::Split { dir, .. } => ("split", Some(dir.word())), DropPlace::Tabs { .. } => ("tabs", None), DropPlace::Edge { dir } => ("edge", Some(dir.word())), DropPlace::Swap { .. } => ("swap", None) };
+        rule["kind"] == kind && (kind == "edge" || rule["target"].as_str() == to.target()) && side.is_none_or(|side| rule["dir"] == side)
+    }).and_then(|rule| text(rule, "why"))
+}
+
+/// A drop as the table writes one: its place, the box, the words, the refusal, and what letting go there runs.
+fn zone_row(src: &str, zone: &Zone, landing: Option<bool>) -> Value {
+    let mut out = match &zone.place {
+        DropPlace::Split { target, dir } => json!({ "kind": "split", "target": target, "dir": dir.word() }),
+        DropPlace::Tabs { target, index: Some(index) } => json!({ "kind": "tabs", "target": target, "index": index }),
+        DropPlace::Tabs { target, index: None } => json!({ "kind": "tabs", "target": target }),
+        DropPlace::Edge { dir } => json!({ "kind": "edge", "dir": dir.word() }),
+        DropPlace::Swap { target } => json!({ "kind": "swap", "target": target }),
+    };
+    out["ghost"] = zone.ghost.json();
+    out["label"] = json!(zone.label);
+    if let Some(why) = &zone.refused { out["refused"] = json!(why) }
+    if zone.handle { out["handle"] = json!(true) }
+    if let Some(receive) = &zone.receive { out["receive"] = json!({ "label": receive.label, "action": receive.action, "args": receive.args }) }
+    out["act"] = json!({ "action": drop::drop_action(zone), "args": drop::drop_args(zone, &|id| id.to_string()).into_iter().collect::<Map<String, Value>>() });
+    if let Some(landing) = landing { out["landing"] = json!(landing) }
+    // (The operation is held beside: it is compared as an `Op`, read by the reader every layout row is.)
+    let _ = src;
+    out
+}
+
+/// Every cell of every layout in the drop table, every zone and every handle: the port answers what the door's
+/// `drop.ts` answered. A cell that lands elsewhere is a second decider of drop places.
+#[test]
+fn every_cell_of_the_drop_contract_is_the_place_the_door_s_drag_lands_in() {
+    let table = table("drop-contract");
+    assert_eq!((table["edgeCols"].as_f64(), table["centre"].as_f64()), (Some(drop::EDGE_COLS), Some(drop::CENTRE)));
+    let marks: Vec<char> = table["marks"].as_str().unwrap().chars().collect();
+    let strip = |row: &Value| { let mut row = row.clone(); if let Some(o) = row.as_object_mut() { o.remove("op"); } row };
+    let (mut cells, mut zones) = (0, 0);
+    for case in table["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let tiles: Vec<DropTile> = case["tiles"].as_array().unwrap().iter().map(drop_tile).collect();
+        let (area, src, many) = (Rect::read(&case["area"]).unwrap(), case["src"].as_str().unwrap(), case["many"].as_bool().unwrap());
+        let refuse = refusing(case);
+        let held = case.get("refuse").map(|_| &refuse as drop::Refuse);
+        let drops = case["drops"].as_array().unwrap();
+        for (j, line) in case["cells"].as_array().unwrap().iter().enumerate() {
+            for (i, mark) in line.as_str().unwrap().chars().enumerate() {
+                let (x, y) = (area.col - 1.0 + i as f64, area.row - 1.0 + j as f64);
+                let want = &drops[marks.iter().position(|m| *m == mark).unwrap()];
+                let got = drop::drop_at(&tiles, area, x, y, src, many, held);
+                let said = got.as_ref().map_or(Value::Null, |zone| zone_row(src, zone, Some(drop::float_landing(zone, &tiles, y))));
+                assert_eq!(said, strip(want), "{name}: the cell {x},{y}");
+                // What letting go there is, as an operation: the layout's own move or swap.
+                if let (Some(zone), Some(op)) = (&got, want.get("op")) { assert_eq!(drop::drop_op(src, &zone.place), op_of(op, &|_| "tile".into()), "{name}: the cell {x},{y}") }
+                cells += 1;
+            }
+        }
+        for tile in &tiles {
+            let got: Vec<Value> = drop::zones_of(tile, drop::on_layout(&tiles, src), held).iter().map(|zone| zone_row(src, zone, None)).collect();
+            let want: Vec<Value> = case["zones"][&tile.id].as_array().unwrap().iter().map(strip).collect();
+            assert_eq!(got, want, "{name}: the zones {} shows", tile.id);
+            zones += got.len();
+        }
+    }
+    assert!(cells > 40_000 && zones > 100, "{cells} cells and {zones} zones were asked");
+    for case in table["handles"].as_array().unwrap() {
+        let handles: Vec<DockHandle> = case["handles"].as_array().unwrap().iter().map(|h| DockHandle { from: number(h, "from").unwrap(), to: number(h, "to").unwrap(), row: number(h, "row").unwrap(), shows: text(h, "shows").unwrap(), edge: Dir::read(h["edge"].as_str().unwrap()).unwrap() }).collect();
+        let refuse = refusing(case);
+        let got = drop::handle_drop(&handles, Rect::read(&case["area"]).unwrap(), number(case, "x").unwrap(), number(case, "y").unwrap(), case["src"].as_str().unwrap(), case.get("refuse").map(|_| &refuse as drop::Refuse));
+        assert_eq!(got.as_ref().map_or(Value::Null, |zone| zone_row("", zone, None)), strip(&case["drop"]), "{}", case["name"]);
+    }
+}

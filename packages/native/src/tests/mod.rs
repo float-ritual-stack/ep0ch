@@ -34,6 +34,7 @@
 //!   its lit row is and how many there are.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
+mod arrange;
 mod contract;
 mod control;
 mod drafts;

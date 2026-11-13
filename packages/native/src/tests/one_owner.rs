@@ -86,8 +86,9 @@ fn state_changes_only_under_actions_and_the_store() {
     // Everywhere else, a handler that gets the App does one thing with it: runs an act line.
     for (path, text) in texts.iter().filter(|(path, _)| !path.starts_with("actions/") && !["store.rs", "keys.rs", "control.rs", "main.rs"].contains(&path.as_str())) {
         for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
-            // (`act_in` is an act line run from the tile it was pressed in: the dispatcher's own, as `act` is.)
-            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            // (`act_in` is an act line run from the tile it was pressed in, and `pressed_in` the same for a press, which
+            // gives its tile the keys first: the dispatcher's own, as `act` is.)
+            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains(".pressed_in(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
             assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
         }
     }
@@ -709,6 +710,39 @@ fn a_terminal_s_deciders_each_have_one_place() {
     // the rest. And it holds the programs where every window of a run finds them: in the store's hub.
     let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
     assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
+}
+
+/// Wave H2: where a tile held by its title lands has one decider, the layout's drop rule (`layout/drop.rs`, the
+/// door's `desk/drop.ts` cell for cell by `drop-contract.json`). It is asked by the hold's own actions and nobody
+/// else; the shell draws what the model holds of a hold and says only where the pointer is and that it let go.
+#[test]
+fn where_a_held_tile_lands_is_the_layout_s_drop_rule_and_the_shell_draws_what_it_answers() {
+    none("the drop rule asked outside the hold's own actions (actions/carry.rs)", ["drop_at(", "zones_of(", "handle_drop(", "float_landing(", "drop_op(", "drop_args(", "drop_action(", "on_layout("].iter().flat_map(|call| calls(call.trim_end_matches('('), |path| path == "actions/carry.rs" || path == "layout/drop.rs")).filter(|found| !found.contains(".on_layout(")).collect());
+    // The spike's own geometry (a centre third, else the nearest edge) is gone, and so is its act.
+    for gone in ["fn drop_side(", "fn dropped(", "1.0 / 3.0", "\"tile.move", "tile.move "] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    // A place's words are the rule's own: nothing else writes one, so what is drawn in a zone is what the rule answered.
+    none("a place's words written outside the drop rule", ["drop here", "split >", "< split", "full-height column", "full-width row", "reorder tab", "docked here"].iter().flat_map(|words| strays(words, |path| path == "layout/drop.rs")).collect());
+    // The act a drop runs is the place's own (`drop_action`, `drop_args`), run by `layout.drop`: the shell writes
+    // neither a move nor a swap nor a tear, and no side of a tile.
+    none("an act of a drop written by the shell: it says where the pointer is (layout.carry) and that it let go (layout.drop)", ["layout.move", "layout.swap", "float.place", "tile.tear t", "where=", "index="].iter().flat_map(|act| strays(act, |path| path != "shell.rs")).collect());
+    let texts = sources();
+    let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
+    assert!(text("shell.rs").contains("\"layout.carry col={} row={}{} tile={}\"") && text("shell.rs").contains("\"layout.drop cancel=true\"") && text("shell.rs").contains("\"layout.drop\""), "the shell's two lines for a held title");
+    // What is held is the model's (`State.moving`), written by the hold's own actions alone, and free of the renderer.
+    none("what is held written outside the hold's own file", strays("st.moving", |path| path == "actions/carry.rs"));
+    for word in ["rune::", "rune_kit", "&mut Tx"] { assert!(!text("actions/carry.rs").contains(word) && !text("layout/drop.rs").contains(word), "{word} in the model of a hold") }
+    // A shut dock's strip and a tab's label sit where the model says, in cells: one answer for what is drawn and
+    // for the drag, so a tile let go on one lands where it was seen.
+    assert!(text("shell.rs").contains("s.dock_strips()") && text("shell.rs").contains("s.tab_cells("), "the shell draws the model's strips and tab labels");
+    none("a strip's or a label's place decided by the shell", ["DOCK_STRIP", "fn dock_strip(side"].iter().flat_map(|own| strays(own, |_| false)).collect());
+    // The key that lets go of a held tile is the key table's row, on the layer `App::person` says a hold is.
+    assert!(text("keys.rs").contains("self.moving.is_some()") && text("actions/carry.rs").contains("KeyRow::with(\"escape\", Some(\"moving\")"));
+    // A tile goes between windows as it is: what it shows is handed over whole (the window's own record of it), so
+    // its fields are written out only where the arrangement is kept; and the saved tile is read by the layout's
+    // own reader, torn out and put back alike, so what the layout keeps of a tile is never taken for a field of it.
+    none("what a tile shows written out as fields outside where the arrangement is kept", strays("\"narrowed\": ui.narrowed", |path| path == "actions/layout.rs"));
+    none("a saved tile's fields read outside the layout's own reader", ["leaf[\"", "leaf.get(\""].iter().flat_map(|read| strays(read, |path| path == "layout.rs" || path.starts_with("layout/"))).collect());
+    assert!(text("store.rs").contains("Handed { leaf: Value, shown: TileUi,") && text("actions/window.rs").contains("Layout::read(&json!({ \"root\": leaf }))"), "a tile handed to a window: what it shows as it is, the tile by the layout's reader");
 }
 
 /// H1, typing: a level in or out is one rule's (outline-core's `indentText`, ported once), a paste enters a draft by
