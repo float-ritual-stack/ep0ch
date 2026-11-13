@@ -61,7 +61,8 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
 | See what changed | Last callers: the notes people and agents edited, newest first; a row opens its note beside |
-| Arrange the window | `tile.split` (a second reader on the same note, or `kind=`), a tile's title dragged onto another tile (`tile.move to= side=`: a side of it, or its middle for a tab), a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`; `layout.undo` takes each back |
+| Arrange the window by mouse | Hold a tile by its title (or a tab by its label) and carry it: every tile shows the places it would take it in, as boxes with their words (a side to split it, its middle for a tab above and a swap below, its title for a place among its tabs, the window's left, right and bottom strips for a whole column or row, a shut dock's strip), the one under the pointer is lit, the held tile is dimmed, and the foot of the tiles says what is held, where it would land and that Escape lets go. Let go and it lands there (`layout.move to= where= index=`, `layout.swap to=`, the door's acts by the door's arguments); over no place, or with Escape, nothing moves and the window says so. A place the layout refuses is marked (✕) while the tile is held, and says why in its own box once the pointer is over it. A tab carried to a side of its own set leaves the set; let go outside the window, a tile is torn into a window of its own, and a torn window's tile dragged out of its window (or the put-back on its title, `tile.return`) goes back into the window it came from. A float follows the hand and lands on a title, an edge or a dock's strip. A press anywhere in a tile gives it the keys |
+| Arrange it by key or act | `tile.split` (a second reader on the same note, or `kind=`), `layout.move`, `layout.swap`, a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`, `tile.collapse` (fold to a spine: `mod+shift+c`, the fold on the title of the tile with the keys; a press on a spine opens it), `tile.zoom` (`mod+shift+enter`), `tile.float` (`mod+shift+o`, the float on a title) and `float.place`, `layout.lock` (`mod+shift+l`, the lock on the toolbar), `layout.policy` (what a container lets its tiles do) and `tile.agent` (what an agent may do to a tile); `layout.undo` takes each back |
 | Keep an arrangement | `screen.save name="Garden work"` writes it as a `[type::screen]` note; `screen.open name=` lays the window out as any screen the outline has; `screen.reset` puts it back as its screen has it. The window opens as it was left |
 | Read what is wrong | A tile whose kind nobody draws, or that names a tile its screen hasn't, says so on the tile, in the service's words, and draws its spec as data |
 | Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and the notes under it as the same list a list tile draws (rows under their groups, a table's columns, lanes; a long one builds only the rows in view), query-backed `::graph-table` as rows that open; figures as the primitives the service lowers them to (tiles, bars, a checklist, a table, a sparkline); a `::box` with its parts inside it. [How each component fares](docs/prim-coverage.md) |
@@ -136,6 +137,9 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
+| `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
+| `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
+| `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
 | `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |
@@ -147,6 +151,8 @@ keycap on a button, the bar's rows and `actions` over the control socket all rea
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
+| `mod+shift+l` | `layout.lock` | everywhere | lock or unlock the arrangement |
+| `escape` | `layout.drop cancel=true` | moving | lets go: the tile stays where it was |
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
 | `enter` | `form.save` | form | save the form |
@@ -177,7 +183,8 @@ for a tile that holds an edit). Only Discard, by name, drops words.
 
 ```text
 src/ (Rust, Rune)                                      the outline host
-  shell.rs, bar.rs  draw any layout; a press, a drag, a drop runs an act line
+  shell.rs, bar.rs  draw any layout; a press, a drag, a drop runs an act line; a held title draws
+                    the places the model holds for it (actions/carry.rs, layout/drop.rs)
   tiles/            a drawer an answer shape: page (a note), list (one list, whatever it is of),
                     view (what an extension's script draws), pty (a program's screen)
   pty.rs, pty/      programs in terminal tiles, with no renderer's type: the grid, the run's registry, and
@@ -226,6 +233,17 @@ src/ (Rust, Rune)                                      the outline host
   `desk/landing.ts`), rule for rule: the door's own answers are written down in `outline-core/fixtures/` and
   `src/tests/contract.rs` asks every row of `layout-contract.json` and `place-contract.json` here. Only an action
   issues an `Op`, and only `open` asks `place`.
+- **Where a held tile lands is the layout's drop rule** (`layout/drop.rs`, no Rune). It is the door's
+  `desk/drop.ts` in cells, ported once: the zones a tile offers (`zones_of`), the place a cell is in (`drop_at`:
+  the outer strips first, then a title's row, then a tile's bands), a shut dock's handle (`handle_drop`), and the
+  act and the operation a drop runs. The door's own answers are `outline-core/fixtures/drop-contract.json`
+  (the drop under every cell of eleven made-up layouts, every zone, seven handles), and `tests/contract.rs` asks
+  each. `actions/carry.rs` tells the rule what is on screen (each tile's frame in cells, a tab set's labels, a
+  shut dock's strip), keeps what it answers for the cell the pointer is over (`State.moving`), and `layout.drop`
+  runs the place's act as a request of its own. The shell says the pointer's cell (`layout.carry`) and that it let
+  go, and draws what the model holds: it knows no zone's shape, words or act. Both actions are the person's; an
+  agent's `layout.move` moves the tile outright and shows no drag. A tab's label sits in the cells the model says
+  (`App::tab_cells`), so a tile let go over one lands before that tab.
 - **A tile is a kind and a drawer** (`tiles/`). A kind's row is the service's (`screens.list`'s `kinds`, an
   extension's `tiles[]`): it names the drawer that draws it and the fields a tile of it starts with. There are four
   drawers, `page`, `list`, `view` (what an extension's script draws for a tile) and `pty` (a program's screen: [the terminal](#the-terminal)); a drawer is handed a `TileCx` (the store to read, its spec, its kind's row, its own
@@ -494,7 +512,7 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
   `proposal.dismiss` are the service's writes, recorded as the agent. `passage.select` and `revision.restore` are
   the person's (a selection, the editor) and say so on their rows. `peek` lists each list's rows with their own
   presses (`cells`, each with its `act`) and what they show (`shows`).
-- **An agent arranges by the layout's rules.** `tile.split`, `tile.move`, `tile.close`, `tile.dock`,
+- **An agent arranges by the layout's rules.** `tile.split`, `layout.move`, `layout.swap`, `tile.close`, `tile.dock`, `tile.collapse`, `tile.zoom`, `tile.float`, `layout.lock`, `layout.policy`,
   `layout.resize` are refused for the door's reasons when they would take the tile with the person's keys, resize
   the tile they type in, or undo a lock of theirs. A tile is addressed by name (`tile=reader2`); `peek` lists
   each with its kind, what it asks and what its drawer says of it. `layout.get` answers the arrangement with every
@@ -545,7 +563,7 @@ and the drawing asked with that row lit), the parts (every primitive type has a 
 a script's act is run and answered, and every component's own example is drawn: the test writes
 [docs/prim-coverage.md](docs/prim-coverage.md)), the drafts (a block typed in, completed and saved by keys; held,
 read and patched under the caret by what the host says; kept as typed and found back by the next window; how the
-kit's editor carries undo, an input method and a long block), and `one_owner.rs`, which scans the source for a second place that
+kit's editor carries undo, an input method and a long block), arranging by mouse (`arrange.rs`: a title pressed, carried and let go through the window: the zones drawn where the rule says, the lit one, the drop as the door's act, Escape and no place, a refused place, a tab among tabs and out of its set, an edge, a shut dock, a float, a tile out of the window and back, the fold, the zoom, the lock, and a press that gives a tile the keys), and `one_owner.rs`, which scans the source for a second place that
 binds a key, writes to the wire, lists rows, labels a button, issues an `Op`, places an open, draws a part, keeps a
 kind or a screen, maps an answer to rows, writes a line's word, chooses the tile an act is about, says which
 reader a list speaks for, makes the person the actor of somebody else's act or names Rune
@@ -645,6 +663,8 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A close the layout refuses: the notice names the way out by this window's own key](docs/ways-dark.png)
 
+![A tile held by its title: every tile shows the places it would take it in, the one under the pointer lit, the held tile dimmed, and the foot says what is held, where it would land and the key that lets go](docs/drag-dark.png)
+
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
 outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
@@ -652,6 +672,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `terminal` (a shell and an agent beside `parts.seed.ts`'s note, their programs a made-up shell: run it with `--programs scenes/terminal.programs.json` after the second `--`, the script a scripted host plays, since a headless render has no pty to wait on),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
+`drag` (the tree held by its title over the second reader's upper middle, by `layout.carry`: the zones every tile offers, the lit one, the held tile dimmed; `layout.drop` would land it),
 `headings` (a note `parts.seed.ts` writes: headings and a rule that name a style and a line that declares one, drawn without the properties that style a line, with its properties listed beside it),
 `ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
@@ -682,27 +703,33 @@ toolbar button is
 ## Not here yet
 
 - Tiles: four drawers (`page`, `list`, `view`, `pty`). The terminal is behind the `pty` feature, and what it
-  leaves out is under [The terminal](#the-terminal). Folding a tile to a spine, zooming and floating one have no action here yet, though a
-  screen that holds them is laid out and drawn.
+  leaves out is under [The terminal](#the-terminal). A tile's own level for agents (`tile.agent`) has no chip on its title,
+  a pinned reader has no action (`reader.pin`: a reader's mode is its own field, and no layout operation sets one),
+  a float is sized by `float.place` and has no corner to drag, and a zoom is not said on the tile (the key again puts it back).
 - Lists are pressed, not walked: no cursor row moved by keys in a list tile, no `/` filter over its rows, no
   preview beside the picked row. Lanes share their tile's width (they don't scroll sideways), a card isn't dragged
   between lanes, and `grid` is drawn as rows. A tree lists at most a thousand rows and says when there are more.
 - The board here is the matches of one question in lanes; the door's own board (a hub's views as lanes) and its
   desk (its named layouts) are still the door's, under the same names.
 - A refusal of the layout's names its way out as an act, and the window says it in its own keys (`Ctrl+E enters
-  it`, `layout.get gives each split's id`). But most ways the layout names are actions this window hasn't yet (a
-  container's policy, a lock, folding, floating, docking by key): those refusals read as their reason alone,
-  since no way is named that is no row here.
-- A dock that slides over the layout is drawn where the layout says, without the door's tab strip along its edge;
-  a drag shows no hint of where a tile will drop.
-- A press inside a tile's body doesn't give it the keys by itself (its title, its tab or `tile.focus` does): Rune's
-  focus isn't reconciled with the layout's yet (PROBES.md §1).
+  it`, `Ctrl+Shift+L in it unlocks it`, `layout.policy closable=true node=screen turns closable on`). The lock, a
+  container's policy, the fold, the float, the move and an agent's level are rows here since wave H2. What is
+  still no row here reads as its reason alone: a flow's wide place (`tile.widen`), a dock's own slide
+  (`tile.slide`), a pinned reader's pin (`reader.pin`), and what belongs to the door's drawer and its lifts.
+- A dock that slides over the layout is drawn where the layout says, without the door's tab strip along its edge.
+- A held tile: the place under the pointer is found by the cell (8 by 18 points), so a title's row is the first
+  18 points of its 26 and the band under it starts inside the title. A group (a screen in a tile) takes no tile
+  dropped into it, and no part of a note is dragged out of a reader (the door's `element.detach`). No tile kind
+  here takes a tile's content (the door's shelves), so the rule's `receive` is ported and never asked.
 - On a Mac: the toolbar starting past the traffic lights was built from Rune's source and run here by telling a
   headless runtime the inset a Mac's window reports; it was not run on a Mac. The toolbar is no drag region of its
   own (AppKit's title bar band moves the window), and a torn-out window has no toolbar to inset.
 - Windows: a torn-out window isn't opened again at the next start (its unsaved text is: the first window brings
-  it back), has no toolbar of its own (the bar is its `mod+k`), and can't be dropped back into the window it came
-  from; a tab dragged out by the pointer doesn't tear (the action and its key do).
+  it back) and has no toolbar of its own (the bar is its `mod+k`). Its tile goes back into the window it came from
+  along that window's right edge, by the layout's rule for a new tile: it is not dropped at a place chosen across
+  the two windows (that needs both windows' frames on the desktop, `Drag::screen_point` and
+  `WindowHandle::placement`, which no headless run has). A held tile's drag outside the window, the put-back, and
+  everything above about a hold were run on Linux in headless windows: none of it was run on a Mac or on a display.
 
 - Writing: a block is its whole source in one field, as typed: nothing is drawn of it until it is saved (no
   preview beside), and a long block (past a thousand lines) types slowly, since the field is laid out whole on each

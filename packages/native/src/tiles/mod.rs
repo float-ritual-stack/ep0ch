@@ -21,7 +21,7 @@ use rune::{El, col, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::{Value, json};
 
-use crate::actions::{Actor, App, TileUi};
+use crate::actions::{App, TileUi};
 use crate::layout::TileSpec;
 use crate::screen::KindRow;
 use crate::store::{Ask, Store};
@@ -43,10 +43,10 @@ impl TileCx<'_> {
     /// An element's key under this tile: `tile/<name>/<part>`.
     pub fn key(&self, part: impl AsRef<str>) -> String { format!("tile/{}/{}", self.name, part.as_ref()) }
     /// A press that runs `line` from this tile, as the person: about this tile when the line's action acts in a
-    /// tile of its sort (`App::act_from`), unless the line names one itself.
+    /// tile of its sort (`App::act_from`), unless the line names one itself. The tile pressed in has the keys from then.
     pub fn act(&self, line: impl AsRef<str>) -> impl Fn(&mut App) + Clone + 'static {
         let (line, from) = (line.as_ref().to_string(), self.name.clone());
-        move |s: &mut App| { s.act_in(&line, &from, Actor::Person); }
+        move |s: &mut App| { s.pressed_in(&line, &from); }
     }
 }
 

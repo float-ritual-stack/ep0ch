@@ -77,7 +77,7 @@ import { saveScreenNote, ScreenConflict, screenNote, trashScreenNote } from "./s
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
-import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
+import { DOCK_DROP, dropAction, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, answerLands, landsBeside, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
@@ -7831,7 +7831,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const g = this.held.floatDrag;
         this.held.now = null;
         if (g.size) resizeEnded();
-        if (g.drop && !g.drop.refused) return void this.run(g.drop.receive?.action ?? "layout.move", g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
+        if (g.drop && !g.drop.refused) return void this.run(dropAction(g.drop), g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
         if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
         this.save(); return this.redraw();
       }
@@ -7850,7 +7850,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (h) this.held.now = null;
       if (d?.drop) {
         const drop = d.drop;
-        this.run(drop.receive?.action ?? (drop.kind === "swap" ? "layout.swap" : "layout.move"), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
+        this.run(dropAction(drop), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
       } else if (d?.into) {
         this.endGroupGhost();
         const into = d.into;

@@ -69,19 +69,43 @@ fn layout_get_names_the_split_a_resize_takes_and_changes_nothing() {
     assert!(row.summary.contains("layout.get") && !row.summary.contains("peek"), "its row names the same read: {}", row.summary);
 }
 
-/// A way out this window has no action for is not said: a locked screen's refusal is its reason, and the screen
-/// is named as this window knows it (its title), never "the screen".
+/// A locked screen's refusal names the way out, now that the lock is an action here: the person reads this
+/// window's key for it, an agent the act line and that it is the person's. The screen is named as this window knows
+/// it (its title), never "the screen". (Until wave H2 no unlock was a row here, and the refusal was its reason alone.)
 #[test]
-fn a_way_this_window_has_no_action_for_is_left_out_and_the_arrangement_is_named_by_its_screen() {
+fn a_locked_screen_s_refusal_names_the_unlock_by_this_window_s_key_and_the_arrangement_by_its_screen() {
     let mut g = three(json!({}));
     g.app.act("tile.focus tile=bed", Actor::Person);
     let mut locked = g.app.layout.save();
     locked["policy"] = json!({ "locked": true });
     let mut g = three(json!({ "layout": locked }));
-    for by in [Actor::Person, agent()] {
-        let closed = g.app.act("tile.close tile=seeds", by.clone());
-        assert_eq!((closed.ok, closed.said.as_str()), (false, "the beds screen is locked: closing seeds is refused"), "as {}: no unlock is a row here, so none is named", by.label());
-    }
+    let key = keys::cap("layout.lock").expect("this window binds a key to the lock");
+    let mine = g.app.act("tile.close tile=seeds", Actor::Person);
+    assert_eq!((mine.ok, mine.said), (false, format!("the beds screen is locked: closing seeds is refused \u{b7} {key} in it unlocks it")));
+    let theirs = g.app.act("tile.close tile=seeds", agent());
+    assert!(!theirs.ok && theirs.said.starts_with("the beds screen is locked: closing seeds is refused \u{b7} ") && theirs.said.contains("layout.lock on=false") && theirs.said.ends_with("unlocks it"), "{}", theirs.said);
+    // The way named is the way out: taken, the close is done.
+    assert!(act(&mut g.app, "layout.lock on=false").ok && act(&mut g.app, "tile.close tile=seeds").ok);
+}
+
+/// The ways the layout names that had no action here until wave H2 are rows now, each said by this window's own
+/// key or its act line: a fold, a float put back, a container's policy, an agent's level, a move.
+#[test]
+fn the_ways_out_that_were_no_row_here_are_said_now() {
+    for id in ["layout.lock", "layout.policy", "layout.move", "tile.collapse", "tile.float", "tile.agent"] { assert!(actions::find(id).is_some(), "{id} is an action here") }
+    // A float has no place in the tree: moving it beside a tile is refused, with the act that puts it back first.
+    let mut g = three(json!({ "layout": { "focus": "bed", "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [leaf("tree", "beds"), leaf("reader", "bed")] }, "floats": [{ "tile": leaf("reader", "seeds"), "rect": { "col": 30, "row": 6, "cols": 50, "rows": 20 } }] } }));
+    let key = keys::cap("tile.float").expect("this window binds a key to the float");
+    let moved = act(&mut g.app, "layout.swap to=bed tile=seeds");
+    assert_eq!((moved.ok, moved.said), (false, format!("seeds is a float: a swap needs a tile in the layout \u{b7} {key} puts it back first")));
+    assert!(act(&mut g.app, "tile.float on=false tile=seeds").ok && act(&mut g.app, "layout.swap to=bed tile=seeds").ok, "put back first, it swaps");
+    // A container that keeps its tiles says the policy that lets them go, as the act line (no key is kept for it).
+    let mut g = three(json!({ "layout": { "focus": "bed", "policy": { "closable": false }, "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [leaf("tree", "beds"), leaf("reader", "bed")] } } }));
+    let kept = act(&mut g.app, "tile.close tile=beds");
+    assert!(!kept.ok && kept.said.contains("layout.policy") && kept.said.contains("closable=true"), "{}", kept.said);
+    assert!(dotted(&kept.said).iter().all(|id| actions::find(id).is_some()), "{}", kept.said);
+    let line = kept.said[kept.said.find("layout.policy").unwrap()..].split(" turns ").next().expect("the way is an act line").to_string();
+    assert!(act(&mut g.app, &line).ok && act(&mut g.app, "tile.close tile=beds").ok, "{line} is the way out");
 }
 
 /// Every refusal the contract table holds, said here: a way is worded only when its action is a row of this
@@ -107,7 +131,8 @@ fn every_refusal_the_door_s_table_holds_is_said_here_with_only_this_window_s_act
         }
         if here.is_empty() { said_none += 1 } else { said_some += 1 }
     }
-    assert!(said_some >= 8 && said_none >= 60, "refusals with a way this window has, and with none: {said_some}, {said_none}");
+    // (Before wave H2 eight of them named a way this window has; the lock, the policy, the fold, the float and the move are rows now.)
+    assert!(said_some >= 50 && said_none <= 70, "refusals with a way this window has, and with none: {said_some}, {said_none}");
 }
 
 /// The keys go to the screen's home when the dock they are in slides shut: the spec's `home` is told to the

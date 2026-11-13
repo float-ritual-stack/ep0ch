@@ -7,7 +7,7 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{Action, Actor, App, Notice, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::{self, Node};
-use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op};
+use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op, Place};
 use crate::tiles;
 use crate::screen::{From, Screen};
 
@@ -38,10 +38,59 @@ static UNDO: ActionRow = ActionRow::new("layout.undo", Touches::Shape, "put the 
     .keys(&[KeyRow::keys("mod+alt+z", "undo the last change to the arrangement")])
     .menu(&[MenuRow::new("Undo arrangement", "Window", Some("mod+alt+z"))]);
 
+static MOVE: ActionRow = ActionRow::new("layout.move", Touches::Shape, "move a tile (tile=, else the one with the keys) beside another (to=<tile> where=left, right, up, down), into its tabs (where=tabs, at index=<n> among them), or along an outer edge of the whole window (where=edge-left, edge-right, edge-up, edge-down: a column the whole height or a row the whole width). A docked tile moved this way is undocked; a tab moved beside its own set leaves it. The person's keys stay where they are")
+    .args(&[
+        ("to", ArgSpec::text("the tile it goes beside or into, as tile= names one (not needed for an edge)").optional().kind("tile")),
+        ("where", ArgSpec::text("left, right, up, down, tabs, or edge-left, edge-right, edge-up, edge-down (default right)").optional().choices(&["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"])),
+        ("index", ArgSpec::number("with where=tabs: its place among the tabs (0 first)").optional()),
+    ])
+    .keys(&[KeyRow::via("a tile's title, or its tab, dragged and let go: the places it can land in are drawn while it is held (layout.carry), and the one under the pointer is lit")])
+    .examples(&[
+        Example { act: "layout.move to=backlinks where=tabs tile=tree", does: "puts the tree in a tab with the backlinks, in their dock", safe: None },
+        Example { act: "layout.move where=edge-down tile=tree", does: "lays the tree along the bottom of the window, the whole width", safe: None },
+    ]);
+
+static SWAP: ActionRow = ActionRow::new("layout.swap", Touches::Shape, "a tile (tile=, else the one with the keys) and the tile to= names trade places")
+    .args(&[("to", ArgSpec::text("the tile it trades places with, as tile= names one").kind("tile"))])
+    .keys(&[KeyRow::via("a tile's title dragged onto the lower middle of another tile, where the drag says swap")])
+    .examples(&[Example { act: "layout.swap to=reader tile=tree", does: "trades the places of the tree and the reader", safe: None }]);
+
+static LOCK: ActionRow = ActionRow::new("layout.lock", Touches::Shape, "lock this window's arrangement (on=true): its shape is fixed (no moves, drops, new tiles, closes, resizes, docks in or out) and what its tiles show stays live (reading, writing, docks sliding, tabs shown, zoom); on=false unlocks; left out, the other way. Kept with the arrangement, and saved with a screen")
+    .args(&[("on", ArgSpec::flag("true locks, false unlocks; left out, the other way").optional())])
+    .keys(&[KeyRow::keys("mod+shift+l", "lock or unlock the arrangement"), KeyRow::via("the lock on the toolbar")])
+    .menu(&[MenuRow::new("Lock the arrangement", "Window", Some("mod+shift+l"))])
+    .examples(&[Example { act: "layout.lock on=true", does: "fixes the window's shape while its tiles stay live", safe: None }, Example { act: "layout.lock on=false", does: "unlocks it, so tiles can be moved and closed again", safe: None }]);
+
+/// The fields of a policy an act sets, by how each is written: a flag, a number of cells (-1 takes it away), a word.
+/// The names are the layout's own (`tree::POLICY_KEYS`, the screen spec's), each by the door's name and type for it.
+const POLICY_FLAGS: &[&str] = &["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked"];
+const POLICY_CELLS: &[&str] = &["min", "max", "fixed", "readable", "min-width", "gap", "inset"];
+const POLICY_WORDS: &[&str] = &["opensInto", "opens", "altOpens", "host", "agents", "spines"];
+
+static POLICY: ActionRow = ActionRow::new("layout.policy", Touches::Shape, "a container's policy, kept with the arrangement: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), closable, accepts=<kind,kind> (only those kinds; any clears), resizable, min, max and fixed (cells along its parent's axis; -1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile>, opens=<rule>, agents=<free, edit, off>; clear=<field,field> takes fields away. With nothing to set, it reads the policy there. On a locked container only locked changes")
+    .args(&[
+        ("node", ArgSpec::text("the container's id, or screen").optional()),
+        ("draggable", ArgSpec::flag("its tiles can be dragged out").optional()), ("droppable", ArgSpec::flag("it takes tiles moved or opened into it").optional()), ("closable", ArgSpec::flag("its tiles close; false: they stay").optional()),
+        ("accepts", ArgSpec::text("the tile kinds it takes, comma-separated; any clears").optional()), ("resizable", ArgSpec::flag("its borders move").optional()),
+        ("min", ArgSpec::number("its least size in cells (-1 clears)").optional()), ("max", ArgSpec::number("its most size in cells (-1 clears)").optional()), ("fixed", ArgSpec::number("its size in cells, kept (-1 clears)").optional()),
+        ("readable", ArgSpec::number("the width in cells a reader opened beside others still gets (-1 clears)").optional()), ("min-width", ArgSpec::number("the least width of an open page (-1 clears)").optional()),
+        ("gap", ArgSpec::number("the room between tiles, in cells (node=screen)").optional()), ("inset", ArgSpec::number("the room inside the window's edge, in cells (node=screen)").optional()),
+        ("collapsible", ArgSpec::flag("its tiles fold to spines, and a dock slides shut").optional()), ("overlay", ArgSpec::flag("a dock slides over the tiles beside it").optional()), ("stays", ArgSpec::flag("an open dock stays when the keys leave it").optional()),
+        ("locked", ArgSpec::flag("its shape is fixed").optional()),
+        ("opensInto", ArgSpec::text("the tile, or the keyed container, its tiles' opens land in").optional()), ("opens", ArgSpec::text("the rule its tiles' opens land by").optional()), ("altOpens", ArgSpec::text("the rule an open beside lands by").optional()),
+        ("host", ArgSpec::text("where a layer over the screen may appear (node=screen)").optional()), ("agents", ArgSpec::text("what agents may do to its tiles: free, edit or off").optional().choices(&["free", "edit", "off"])), ("spines", ArgSpec::text("where its folded tiles gather").optional()),
+        ("clear", ArgSpec::text("fields to take away, comma-separated").optional()),
+    ])
+    .keys(&[KeyRow::via("its row in the command bar, with the field typed (layout.policy locked=false node=s2)")])
+    .examples(&[Example { act: "layout.policy closable=false node=screen", does: "keeps every tile of the window from being closed", safe: None }, Example { act: "layout.policy clear=closable node=screen", does: "takes that away again", safe: None }]);
+
 /// The action a border's drag is a run of.
 pub(super) fn resizes(row: &ActionRow) -> bool { std::ptr::eq(row, &RESIZE) }
 
-pub static ACTIONS: &[Action] = &[Action { row: &DOCK, run: dock, about: About::Nothing }, Action { row: &GET, run: get, about: About::Nothing }, Action { row: &RESIZE, run: resize, about: About::Nothing }, Action { row: &UNDO, run: undo, about: About::Nothing }];
+pub static ACTIONS: &[Action] = &[
+    Action { row: &DOCK, run: dock, about: About::Nothing }, Action { row: &GET, run: get, about: About::Nothing }, Action { row: &RESIZE, run: resize, about: About::Nothing }, Action { row: &UNDO, run: undo, about: About::Nothing },
+    Action { row: &MOVE, run: move_, about: About::Any }, Action { row: &SWAP, run: swap, about: About::Any }, Action { row: &LOCK, run: lock, about: About::Nothing }, Action { row: &POLICY, run: policy, about: About::Nothing },
+];
 
 /// Two arrangements sit alike: the same tiles in the same places, with shares as near as a pointer can say them.
 pub(super) fn same_shape(a: &Layout, b: &Layout) -> bool {
@@ -109,6 +158,10 @@ impl App {
         }
     }
 
+    /// Why the layout would refuse an operation as `by`, asked without changing anything (a held tile's zones each
+    /// say theirs), in this window's words.
+    pub(super) fn refusal(&self, op: &Op, by: &Actor) -> Option<String> { self.asked(by, |ctx| layout::apply(&self.layout, op, ctx)).err().map(|why| super::says(&why, by)) }
+
     /// Another arrangement takes this one's place (a screen opened, a step undone), as `by`: the layout's own rules
     /// say whether, asked of every tile that would go, and where the keys are after. The arrangement before is
     /// answered, for whoever keeps the way back; why not, in the layout's words.
@@ -149,6 +202,7 @@ impl App {
         let focus = self.st.layout.focus.clone();
         if !self.st.layout.is_float(&focus) && let Some(key) = self.st.memory.into_of(&focus).map(str::to_string) { self.st.memory.opened_into(&key).active = Some(focus) }
         self.end_gone(&here);
+        self.held_gone();
         let focus = self.st.layout.focus.clone();
         for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
         // The terminal the person stepped out of is one they step into again once their keys have been elsewhere.
@@ -249,4 +303,37 @@ fn undo(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(screen) = screen { app.st.screen = screen; app.seen() }
     app.keep();
     Outcome::done()
+}
+
+/// The tile an act is about: the one the dispatcher found for it (aimed at, else the one with the keys).
+fn target(app: &App) -> String { app.about().unwrap_or_else(|| app.layout.focus.clone()) }
+
+fn move_(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let tile = target(app);
+    let place = match args.text("where").unwrap_or("right") {
+        edge if edge.starts_with("edge-") => match edge.strip_prefix("edge-").and_then(Dir::read) { Some(dir) => Place::Edge { dir }, None => return Outcome::refused("an edge of the window is edge-left, edge-right, edge-up or edge-down") },
+        side => {
+            let Some(to) = args.text("to") else { return Outcome::refused("layout.move names the tile it goes by (to=), or an edge of the window (where=edge-left, edge-right, edge-up, edge-down)") };
+            let target = match app.tile_named(to, by) { Ok(target) => target, Err(why) => return Outcome::refused(why) };
+            match Dir::read(side) { Some(dir) => Place::Split { target, dir, pair: false, weight: None }, None => Place::Tabs { target, index: args.number("index").map(|index| index.max(0.0) as usize), behind: false } }
+        }
+    };
+    app.reshape(&Op::Move { tile, to: place }, by)
+}
+
+fn swap(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let with = match app.tile_named(args.text("to").unwrap_or(""), by) { Ok(with) => with, Err(why) => return Outcome::refused(why) };
+    app.reshape(&Op::Swap { tile: target(app), with }, by)
+}
+
+fn lock(app: &mut App, args: &Args, by: &Actor) -> Outcome { app.reshape(&Op::Lock { on: args.flag("on") }, by) }
+
+fn policy(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let (mut set, mut clear) = (serde_json::Map::new(), args.text("clear").map(|fields| fields.split(',').map(|field| field.trim().to_string()).filter(|field| !field.is_empty()).collect::<Vec<_>>()).unwrap_or_default());
+    for flag in POLICY_FLAGS { if let Some(on) = args.flag(flag) { set.insert((*flag).into(), json!(on)); } }
+    // A size of -1 takes the field away, as the door's does.
+    for cells in POLICY_CELLS { match args.number(cells) { Some(n) if n < 0.0 => clear.push((*cells).into()), Some(n) => { set.insert((*cells).into(), json!(n)); } None => {} } }
+    for word in POLICY_WORDS { if let Some(said) = args.text(word) { set.insert((*word).into(), json!(said)); } }
+    match args.text("accepts") { Some("any") => clear.push("accepts".into()), Some(kinds) => { set.insert("accepts".into(), json!(kinds.split(',').map(str::trim).filter(|kind| !kind.is_empty()).collect::<Vec<_>>())); } None => {} }
+    app.reshape(&Op::Policy { tile: app.about(), node: args.text("node").map(str::to_string), set, clear }, by)
 }

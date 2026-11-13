@@ -12,6 +12,7 @@
 //! One module a noun; each lists its actions, and `NOUNS` lists the modules.
 mod app;
 mod bar;
+mod carry;
 mod draft;
 mod ext;
 mod layout;
@@ -32,6 +33,7 @@ mod window;
 use serde_json::{Map, Value, json};
 
 pub use app::{App, CELL, Field, FormUi, Notice, Said, TileUi, Tone, Ways, stays};
+pub use carry::{Moving, Strip};
 pub use row::ActionRow;
 
 use crate::actline::{self, Args};
@@ -129,7 +131,7 @@ pub struct Action {
     pub about: About,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, carry::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }
@@ -326,6 +328,15 @@ impl App {
     /// Runs a line pressed in a tile, as `act_from` runs a request: what a drawer's press is.
     pub fn act_in(&mut self, line: &str, from: &str, by: Actor) -> Outcome {
         match actline::parse(line) { Ok(req) => self.act_from(req, from, by), Err(_) => self.act(line, by) }
+    }
+
+    /// Runs a line a press in a tile says (a button, a row, a chip a drawer drew), as the person: the tile pressed
+    /// in has the keys from then, whatever in it was pressed, and then the line runs as `act_in` runs it. Rune's
+    /// focus says most presses already (`keys::follow`); a press on something that takes no focus of Rune's, or
+    /// whose focus names no tile, is said here, by the same act.
+    pub fn pressed_in(&mut self, line: &str, from: &str) -> Outcome {
+        if self.layout.named(from).is_some_and(|tile| tile != self.layout.focus) { self.act_request(actline::Request { action: tile::FOCUS.id.to_string(), tile: Some(from.to_string()), by: None, args: Map::new() }, Actor::Person); }
+        self.act_in(line, from, Actor::Person)
     }
 
     /// The tile an address names in this window, as `by` says it (`^` is from the tile with the person's keys):

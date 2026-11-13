@@ -1,0 +1,9 @@
+# A tile held by its title (wave H2; scenes/parts.seed.ts writes the notes into a scratch outline). The outline's
+# first note is opened and the reader split, so there are tiles to move among; then the tree is held by its title
+# over the upper middle of the second reader. Every tile shows the places it would take the tree in (the four sides
+# that split it, its middle for a tab above and a swap below), the one under the pointer is lit, the tree is dimmed
+# where it stands, and the toolbar says what is held, where it would land and the key that lets go. `layout.drop`
+# would land it there; nothing has moved yet.
+list.pick n=1 tile=tree
+tile.split
+layout.carry col=96 row=13 tile=tree
