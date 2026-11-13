@@ -581,7 +581,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
   const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
   if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && (!ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) || (!route && !fresh && !!ctx.tile(from).handsKeys)) };
   if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
     const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];

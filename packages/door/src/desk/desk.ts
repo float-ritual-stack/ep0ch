@@ -3315,7 +3315,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A reader named is picked before the note is fetched: `expected=` was checked against the layout as it is now, so a
     // `#2` means this layout's second tile, not whatever moved there while the service answered. None on the screen: placement makes one (PIE-1641).
     const place = !t && (o.tile === "detail" || o.tile === "new-detail" || o.tile === "float") && d.hasPlaces() ? d.layout.policy.opensInto! : undefined;
-    const r = !t && !place && o.tile !== undefined ? d.pickReader(o.tile) : undefined;   // naming none, placement alone says where it lands
+    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow() && d.focusedReader() !== null)) ? d.pickReader(o.tile) : undefined;   // naming none, placement says where, but for the reader the keys are on
     const m = r ? await readNote(this.ctx, id) : o.standing === false && !t && !place && !o.fresh ? await readNote(this.ctx, id) : d.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     if (r && (!d.all().includes(r.id) || d.panes.get(r.id) !== r.pane)) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
