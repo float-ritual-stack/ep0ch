@@ -1,5 +1,5 @@
 import { wrapReturn, type ReturnShell } from "./return-place";
-import { besideAttempt, closeHeir, landing, personsTile } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
+import { besideAttempt, closeHeir, landing, personsTile, readerTakes } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
@@ -557,7 +557,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     : openWire ? { across: openWire.to, rule: "beside" as const }
     : landing(s, from, verb, ctx.tile(from), ctx.tile, fresh ? undefined : request.where);
   if (to !== undefined && request.rule && request.rule !== "tile") {
-    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.pinned && !f.editing && !f.holds && !f.follower; }) : undefined;
+    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => takesOpen(s, ctx, id)) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
   route = request.container ? { into: request.container } : request.history ? null : route;
@@ -810,11 +810,8 @@ function spineFits<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | 
   });
 }
 
-/** Tile `id` is a reader that can take an open now: shown, not a list or preview, not pinned, edited or holding work. */
-function takesOpen<I>(s: Pick<LayoutState<I>, "collapsed">, ctx: Ctx<I>, id: I): boolean {
-  const f = ctx.tile(id);
-  return !s.collapsed.has(id) && !!f.notes && !f.follower && !f.lists && !f.pinned && !f.editing && !f.holds && f.available !== false;
-}
+/** Tile `id` takes an open now: landing.ts's readerTakes, the one answer. */
+function takesOpen<I>(s: Pick<LayoutState<I>, "collapsed">, ctx: Ctx<I>, id: I): boolean { return readerTakes(s, ctx.tile(id), id); }
 
 /** The flow tile `id` is a column of (the nearest one over it), and its column there. */
 export function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | null {

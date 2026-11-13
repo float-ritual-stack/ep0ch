@@ -113,6 +113,34 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("one decider per desk question 
       expect(at.tile === first.tile ? "the folded reader" : "where opens land").toBe("where opens land");
     } finally { p.close(); }
   }, 60_000);
+
+  // "A reader that takes an open" was spelled ten ways. The alt rule first-unheld (landing.ts, and placement's request
+  // rule) left out folded and list tiles, where placement's own default (takesOpen) skips them: an alt+⏎ from the tree
+  // wired first-unheld opened the note in the folded reader before the open one.
+  test("alt+⏎ wired to the first reader not held skips a folded reader, as every open does", async () => {
+    await doors.create("Potting shed\nsort the pots");
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 160, 34);
+    try {
+      type T = { tile: string; kind: string; focused: boolean; showing?: { title: string } };
+      const desk = () => (JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: T[] }[]).find(l => !l.drawer)!.tiles;
+      const first = desk().find(t => t.kind === "reader")!;
+      expect(p.act("tile.open", "kind=reader").ok).toBe(true);
+      expect(p.act("tile.open", "kind=tree").ok).toBe(true);
+      await until(() => desk().length === 3, "a second reader and a tree");
+      const tree = desk().find(t => t.kind === "tree")!;
+      const linked = p.act("tile.link", `tile=${tree.tile}`, "verb=alt", "rule=first-unheld");
+      expect([linked.ok, linked.ok ? "" : linked.out]).toEqual([true, ""]);
+      expect(p.act("tile.focus", `tile=${tree.tile}`).ok).toBe(true);
+      await until(() => desk().find(t => t.focused)?.kind === "tree", "his keys on the tree");
+      expect(p.act("tile.collapse", `tile=${first.tile}`, "on=true").ok).toBe(true);
+      const before = JSON.stringify(desk().map(t => t.showing?.title ?? null));
+      p.keys("M-Enter");
+      await until(() => JSON.stringify(desk().map(t => t.showing?.title ?? null)) !== before, "the note opened", 8000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(desk())}\n${p.capture().split("\n").slice(-3).join("\n")}`); });
+      await Bun.sleep(300);
+      const opened = desk().filter(t => t.kind === "reader" && t.tile === first.tile && t.showing?.title !== "Seed tray");
+      expect(opened.length ? "the folded reader" : "a reader shown").toBe("a reader shown");
+    } finally { p.close(); }
+  }, 60_000);
 });
 
 // What a press invites acts fully as the person (surface/invite.ts): a run the person's click started may open the prompt,

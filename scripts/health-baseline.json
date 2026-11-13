@@ -350,7 +350,7 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2896,
     "packages/door/src/desk/desk.ts": 8309,
-    "packages/door/src/desk/screen-layout.ts": 2323,
+    "packages/door/src/desk/screen-layout.ts": 2320,
     "packages/door/src/screens.ts": 2230,
     "packages/door/src/showcase/showcase.ts": 2134,
     "packages/door/src/surface/note.ts": 9027,
