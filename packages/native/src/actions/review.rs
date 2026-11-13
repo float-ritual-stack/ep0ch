@@ -33,6 +33,9 @@ static SELECT: ActionRow = ActionRow::new("passage.select", Touches::Tile, "pick
     .keys(&[KeyRow::via("words selected in a reader, with the mouse")])
     .examples(&[Example { act: "passage.select quote=\"Before the rain.\"", does: "picks those words of the open note for a comment", safe: Some(true) }]);
 
+/// How an agent gets the person's attention in this window: the action a refusal of the dispatcher's names as the way.
+pub(super) static ATTENTION: &ActionRow = &COMMENT;
+
 static COMMENT: ActionRow = ActionRow::new("comment", Touches::Draft, "comment on the note a reader shows: on quote= (words of it, as its text has them; near= the offset to be nearest, among repeats), else on the words selected there, else on the whole note. With body= it is sent at once, recorded as whoever acts; left out, it opens to be written where the note is read, in the editor a block has, and edit.save sends it")
     .args(&[
         ("quote", ArgSpec::text("the exact words to comment on, as the note's text has them").optional()),

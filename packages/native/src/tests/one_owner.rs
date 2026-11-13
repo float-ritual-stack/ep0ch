@@ -487,6 +487,10 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
     none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
     none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // What an agent the dispatcher holds back does instead is an action this window has, named from its row. The
+    // door's own way (`block.mark`) is spelled nowhere but in the layout's sentences, which are the door's by contract
+    // (sweep 3's debt: the layout names a way out in the door's words and keys, where it should name the act as data).
+    none("the door's way to get the person's attention named in this window's own words", strays("block.mark", |path| path.starts_with("layout")));
     // What a close leaves of the closed reader's note is the layout's to say (`close_heir`, beside the rule for where
     // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
     none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());

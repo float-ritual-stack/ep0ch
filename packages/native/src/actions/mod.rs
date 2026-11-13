@@ -151,7 +151,9 @@ pub(crate) fn rule(row: &ActionRow, by: &Actor, standing: bool, person: &Whereab
     let Actor::Agent(_) = by else { return Ok(()) };
     if standing { return Ok(()) }
     if let Some(theirs) = row.person { return Err(theirs.to_string()) }
-    let way = "block.mark gets their attention";
+    // What it does instead, by an action this window has (its row names it): a comment on the note is how an agent
+    // gets the person's attention here.
+    let way = format!("a {} on the note gets their attention ({} body=…)", review::ATTENTION.id, review::ATTENTION.id);
     match row.touches {
         Touches::Nothing | Touches::Shape => Ok(()),
         Touches::Tile => {

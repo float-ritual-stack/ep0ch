@@ -189,3 +189,33 @@ fn a_closed_reader_s_note_stays_on_screen_in_the_reader_its_opens_land_in() {
     assert!(closed.ok && closed.answer.get("heir").is_none(), "{} {}", closed.said, closed.answer);
     assert_eq!(note_in(&g.app, "spare").as_deref(), Some("plot"));
 }
+
+// ── what an agent the actor rule holds back is told to do instead: an action this window has ───────────────────────
+
+/// Every action a refusal of this window's own names (`word.word`, as an act line starts).
+fn actions_named(said: &str) -> Vec<String> {
+    said.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_')).filter(|word| word.contains('.') && !word.starts_with('.') && !word.ends_with('.') && word.chars().all(|c| c.is_ascii_lowercase() || c == '.')).map(str::to_string).collect()
+}
+
+/// An agent refused by the dispatcher is told a way out it can take here: every action its refusal names is one
+/// this window has. (It was told `block.mark`, the door's, and answered "no action named block.mark" when it tried.)
+#[test]
+fn a_refusal_of_the_dispatcher_s_names_only_actions_this_window_has() {
+    let lacking = |said: &str| actions_named(said).into_iter().filter(|id| crate::actions::find(id).is_none()).collect::<Vec<_>>();
+    // What is the person's own says so on its row.
+    for action in crate::actions::all() {
+        if let Some(theirs) = action.row.person { assert_eq!(lacking(theirs), Vec::<String>::new(), "{}'s refusal names an action this window hasn't: {theirs}", action.row.id) }
+    }
+    // The tile they type in, and what they look at while they are at the keys.
+    let mut g = garden(ok());
+    let agent = || Actor::Agent("seedling-agent".into());
+    assert!(act(&mut g.app, "tile.focus tile=reader").ok && act(&mut g.app, "edit").ok);
+    let theirs = g.app.act("back tile=reader", agent());
+    assert!(!theirs.ok && theirs.said.contains("comment body="), "the way out is an action here, by its row's name: {}", theirs.said);
+    assert_eq!(lacking(&theirs.said), Vec::<String>::new(), "{}", theirs.said);
+    let typing = g.app.act("screen.open name=board", agent());
+    assert!(!typing.ok && typing.said.contains("comment body="), "{}", typing.said);
+    assert_eq!(lacking(&typing.said), Vec::<String>::new(), "{}", typing.said);
+    let focus = g.app.act("tile.focus tile=tree", agent());
+    assert!(!focus.ok && lacking(&focus.said).is_empty(), "{}", focus.said);
+}
