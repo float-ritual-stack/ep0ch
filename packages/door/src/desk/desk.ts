@@ -1661,7 +1661,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(p.deliberate ? { deliberate: true } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
       ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
-      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to } : {}),
+      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to, ...(!wires.some(w => w.verb === "select") ? { linkRole: "target" as const } : {}) } : {}),   // a link alone reads back as a preview's (open and select): say it only opens
       ...(wires.some(w => w.verb !== "open") ? { wires: wires.filter(w => w.verb !== "open") } : {}),
     };
   }
