@@ -429,7 +429,13 @@ export class ExtensionSync {
       this.lastPollResult = { at: new Date(started).toISOString(), checked: 0, changed: 0, error: `paused: ${paused}` };
       return { checked: 0, changed: 0 };
     }
-    const registered = this.store.resources.remoteEntityKeys(this.provider);
+    // Only tickets a note still names (PIE-1796, Codex on #1499): one whose line was taken out, or whose note was purged,
+    // stays registered but isn't asked about every poll. Named: a block asks for it (its record, kept in Trash too), or a
+    // live note carries it as a property on any line (a list item's ticket makes no record).
+    const propertyKey = (await this.extension())?.handlers.find((candidate) => candidate.kind === "resource")?.key;
+    const named = (key: string) => !propertyKey || this.store.extensionAskers(this.extensionId, key).length > 0 ||
+      !!this.store.database.query("SELECT 1 FROM block_properties p JOIN blocks b ON b.id = p.block_id WHERE p.key = ? AND p.value = ? AND b.deleted_at IS NULL LIMIT 1").get(propertyKey, key);
+    const registered = this.store.resources.remoteEntityKeys(this.provider).filter((row) => named(row.key));
     // The first poll looks back to the oldest copy's last good read (the service may have been down), at most a week;
     // later ones to the last poll that finished. A failed or cut-off read is no checkpoint (Codex on #1499).
     const weekAgo = started - 7 * 24 * 60 * 60_000;

@@ -688,6 +688,8 @@ test("content that comes back under the same `updated` (A, B, then A again) read
 test("a ticket whose first read failed is read by the next poll, though Jira hasn't changed it", async () => {
   const { fake, store, server, client, create, recordOf } = await setup();
   await recordOf((await create("PC-1 Rollout [jira::PC-1]")).id);
+  // A note names PC-2 on a list item: the poll asks only about tickets a note names (PIE-1796).
+  await create("Printer notes\nSecond shift.\n\n- [jira::PC-2]");
   const receipt = await client.request<{ resource: { id: string } }>({
     action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" },
     mutation: { author: "agent", actorId: "helper-agent" },
@@ -701,4 +703,43 @@ test("a ticket whose first read failed is read by the next poll, though Jira has
   const described = store.resources.describe(receipt.resource.id, false);
   expect(described.remoteStatus?.freshness).toBe("fresh");
   expect(described.remoteEntity?.title).toBe("Label printer drops the last line");
+});
+
+// PIE-1796: a refresh that lost to a version conflict left its row at `refreshing` (one such row on the laptop's
+// float-hub, seen before #1499). The poll reads directly every copy not read well, `refreshing` among them, so the
+// next poll settles it with Jira unchanged; this pins that.
+test("a resource stuck at refreshing is read again by the next poll, and settles", async () => {
+  const { fake, store, server, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  fake.requests.length = 0;
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+  store.database.query("UPDATE remote_entity_resource_state SET freshness = 'refreshing', checked_at = ? WHERE resource_id = ?").run(tenMinutesAgo, resourceId);
+  // Jira hasn't changed it, so no search names it: only its being stuck brings it back.
+  await server.extensionSync.for("jira")!.poll();
+  expect(store.resources.describe(resourceId, false).remoteStatus?.freshness).toBe("fresh");
+  expect(fake.requests.some(r => r.startsWith("GET /rest/api/3/issue/20001?"))).toBe(true);
+});
+
+// PIE-1796 (Codex on #1499): the poll asked about every registered ticket, so one no note names any more (its line
+// taken out, its note trashed) was still searched and read every poll. It asks only about tickets a live note names.
+test("the poll stops asking about a ticket once no note names it, and asks again when one does", async () => {
+  const ctx = await setup();
+  const { fake, server, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date().toISOString();
+  fake.requests.length = 0;
+
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 0, changed: 0 });
+  expect(fake.requests.filter(r => r.includes("PC-1") || r.includes("/issue/20001"))).toEqual([]);
+
+  // Named again on a list item: the next poll asks about it.
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  expect((await server.extensionSync.for("jira")!.poll()).checked).toBe(1);
 });
