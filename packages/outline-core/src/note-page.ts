@@ -150,7 +150,7 @@ export function withActs<P extends PagePrimitive>(prim: P): P {
 }
 
 /** A note in a list, as every list of a page names one: its id, its title as lists show it, and where it sits. */
-export interface NoteRow { id: string; title: string; hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
+export interface NoteRow { id: string; title: string; /** It has notes under it (`isNoteUnder`, derived.ts: a comment on it and an edit proposed beside it are none), so a fold drawn from this opens onto a note. */ hasChildren?: boolean; /** The titles above it, outermost first, as a breadcrumb. */ context?: string }
 
 /** `notes.page`'s answer: everything a client draws of one note, in one read. */
 export interface NotePage {

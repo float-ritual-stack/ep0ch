@@ -33,7 +33,11 @@ import type { ScreensList } from "./screens";
 
 export type { ListsRequest } from "./list-producer";
 
-const NOTE_FIELDS = ["title", "hasChildren"] as const;
+/**
+ * What a row of notes reads of each: its list title, and whether notes are under it (`hasNotes`, the store's answer by
+ * `isNoteUnder`: the reading `level` lists by, so a row that folds always opens onto a note).
+ */
+const NOTE_FIELDS = ["title", "hasNotes"] as const;
 const day = (iso: string | undefined) => iso?.slice(0, 10) ?? "";
 
 /**
@@ -58,8 +62,8 @@ async function tree(own: Own, request: ListsRequest): Promise<Answered> {
     const notes = await level(own, parent);
     for (const note of notes) {
       if (rows.length >= most) { truncated = true; return; }
-      const open = wanted.has(note.id) && !!note.hasChildren;
-      const at = rows.push(row({ id: note.id, label: titled(note.title), depth, ...(note.hasChildren ? { folds: true } : {}), ...(open ? { open: true } : {}), do: opens(note.id) })) - 1;
+      const open = wanted.has(note.id) && !!note.hasNotes;
+      const at = rows.push(row({ id: note.id, label: titled(note.title), depth, ...(note.hasNotes ? { folds: true } : {}), ...(open ? { open: true } : {}), do: opens(note.id) })) - 1;
       if (!open) continue;
       const before = rows.length;
       await walk(note.id, depth + 1);
@@ -84,7 +88,7 @@ async function asked(own: Own, request: ListsRequest, more: { facets: boolean; l
       ...(request.group ? { group: request.group } : {}), ...(request.sort ? { sort: request.sort } : {}),
       ...(more.facets ? { facets: true, facetValues: 8 } : {}),
     },
-    fields: ["title", "hasChildren", "timestamps", "properties"],
+    fields: [...NOTE_FIELDS, "timestamps", "properties"],
   });
 }
 
@@ -121,7 +125,7 @@ async function matches(own: Own, request: ListsRequest, lanes = false): Promise<
     id: note.id, label: titled(note.title), detail: day(note.updatedAt),
     ...(note.properties?.length ? { chips: note.properties.slice(0, 8).map(p => ({ key: p.key, value: p.value })) } : {}),
     ...(columns.length ? { cells: columns.map(column => cell(note, column)) } : {}),
-    ...(note.hasChildren ? { folds: true } : {}),
+    ...(note.hasNotes ? { folds: true } : {}),
     do: opens(note.id),
   }));
   const groups: ListGroup[] | undefined = found.groups?.map(g => ({ name: g.value ?? "", label: g.value ?? `no ${request.group}`, count: g.count, ids: g.ids }));
@@ -163,7 +167,7 @@ async function links(own: Own, request: ListsRequest): Promise<Answered> {
   const of = subject(request);
   const wanted = linkGroupsNamed(names(request.linkGroups));
   if ("bad" in wanted) throw new Refusal("invalid", `${wanted.bad} isn't a group this list has; its groups are ${ALL_LINK_GROUPS.join(", ")} (or all)`);
-  const titles = async (ids: readonly string[]) => new Map(ids.length ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: [...NOTE_FIELDS] })).blocks.map(b => [b.id, b.title ?? ""] as const) : []);
+  const titles = async (ids: readonly string[]) => new Map(ids.length ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title"] })).blocks.map(b => [b.id, b.title ?? ""] as const) : []);
   const host: LiveHost = { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id };
   const read = await readLinks(host, { kind: "links", of: null, filter: "", title: null, groups: wanted, query: null, preview: "none", stages: null }, of);
   if (read.problem) throw new Refusal("invalid", read.problem);
@@ -207,7 +211,7 @@ async function activity(own: Own, request: ListsRequest): Promise<Answered> {
   const pages = await Promise.all(["user", "agent"].map(author => own.request<{ entries: Entry[] }>({ action: "activity.recent", author, limit })));
   const entries = pages.flatMap(page => page.entries).sort((a, b) => b.cursor - a.cursor).slice(0, limit);
   const ids = [...new Set(entries.map(e => e.block.id))];
-  const read = ids.length ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids, fields: [...NOTE_FIELDS] })).blocks : [];
+  const read = ids.length ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids, fields: ["title"] })).blocks : [];
   const title = new Map(read.map(b => [b.id, titled(b.title)] as const));
   // An edit of a note that is gone (purged since) has nothing to open: it isn't listed.
   const rows = entries.filter(e => title.has(e.block.id)).map(e => row({ id: `${e.cursor}`, label: title.get(e.block.id)!, detail: `${e.actorId ?? e.author} · ${e.kind} · ${e.editedAt.slice(0, 16).replace("T", " ")}`, do: opens(e.block.id) }));

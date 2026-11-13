@@ -934,3 +934,90 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
     let _ = std::fs::remove_dir_all(&root);
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
 }
+
+/// The tree against a real outline host: a fold's mark opens onto notes. A bed with only a comment (and a reply in
+/// its thread) under it, one with only a proposed edit, and one with both are drawn with no mark, and a press on one
+/// unfolds nothing; a bed with a real note among a comment and a proposal has the mark, and unfolding it lists that
+/// note and nothing else. The service says which (its `hasNotes`, by outline-core's `isNoteUnder`), the window draws
+/// the row's own word. And the window opens with its reader empty: no note is drawn until one is opened, and what it
+/// says meanwhile is its kind's own description. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over_the_socket() {
+    use crate::client::Socket;
+    use super::support::{press, rest, window};
+    with_host("caret", |path, _| {
+        let mut raw = Socket::connect(path);
+        let mut n = 0;
+        let mut ask = |mut request: Value| { n += 1; request["id"] = json!(format!("r{n}")); request["outline"] = json!("scratch"); asked(&mut raw, request).unwrap_or_else(|refused| panic!("the host refused: {refused}")) };
+        let mut note = |text: &str, parent: Option<&str>| { let made = ask(json!({ "action": "create", "parentId": parent, "text": text, "author": "user" })); (made["id"].as_str().unwrap().to_string(), made["revision"].clone()) };
+        let (beds, _) = note("Beds", None);
+        let (north, north_at) = note("North bed [type::bed]", Some(&beds));
+        let (south, south_at) = note("South bed [type::bed]", Some(&beds));
+        let (east, east_at) = note("East bed [type::bed]", Some(&beds));
+        let (west, west_at) = note("West bed [type::bed]", Some(&beds));
+        let (row, _) = note("First row", Some(&west));
+        let mut comment = |on: &str, at: &Value, body: &str| ask(json!({ "action": "annotations.batch", "requestId": format!("comment-{on}"), "author": "user", "operations": [{ "operationId": "1", "type": "block-comment", "input": { "blockId": on, "expectedRevision": at, "body": body, "source": "user" } }] }))["annotations"][0]["block"]["id"].as_str().unwrap().to_string();
+        let thread = comment(&north, &north_at, "Too early for peas?");
+        comment(&east, &east_at, "Shade from the plum by noon.");
+        comment(&west, &west_at, "Leeks again?");
+        ask(json!({ "action": "annotations.reply", "requestId": "reply-north", "author": "agent", "provenance": { "actorId": "tidy-agent" }, "input": { "annotationId": thread, "body": "The log says the last frost was May 19.", "source": "agent" } }));
+        let mut propose = |on: &str, at: &Value, observed: &str, replacement: &str| assert_eq!(ask(json!({ "action": "draft.patch", "propose": true, "blockId": on, "revision": at, "patches": [{ "observed": observed, "replacement": replacement }], "mutation": { "author": "agent", "actorId": "tidy-agent" } }))["outcome"], "proposed");
+        propose(&south, &south_at, "South bed", "South bed, by the wall");
+        propose(&east, &east_at, "East bed", "East bed, under the plum");
+        propose(&west, &west_at, "West bed", "West bed, by the gate");
+
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        let tree = app.layout.named("tree").expect("the desk has a tree");
+        let reader = app.reader().expect("the desk has a reader");
+        // The window opened on its screen with the reader told no note: it shows none, and the layout reads none.
+        assert_eq!((app.subject(), app.facts(&reader).showing, app.page().is_some()), (None, None, false));
+        let about = app.kind_row(&app.spec(&reader).unwrap().kind).map(|row| row.about.clone()).expect("the reader's kind has a row");
+        let mut rt = window(app);
+        rest(&mut rt);
+        let says = |rt: &rune::Runtime<App>, key: &str| -> Vec<String> { rt.elements().into_iter().filter(|e| e.key.as_deref() == Some(key)).filter_map(|e| e.text).collect() };
+        assert!(!about.is_empty() && says(&rt, "tile/reader/empty/about") == [about.clone()], "the empty reader says its kind's own description: {:?}", says(&rt, "tile/reader/empty/about"));
+        assert!(rt.find("tile/reader/note").is_none(), "and draws no note: not the outline's first");
+        // The beds unfolded, as a press on its row does once it is the open note: the first press opens it and unfolds it.
+        let folds = |rt: &rune::Runtime<App>, id: &str| rt.find(&format!("tile/tree/row/{id}/fold")).is_some();
+        assert!(folds(&rt, &beds), "a note with notes under it has the mark");
+        press(&mut rt, &format!("tile/tree/row/{beds}"));
+        assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()));
+        assert!(rt.state.ui(&tree).unfolded.contains(&beds), "{:?}", rt.state.ui(&tree).unfolded);
+        let under = |rt: &rune::Runtime<App>, parent: &str| -> Vec<(String, usize, bool)> {
+            let rows = rt.state.rows_of(&tree);
+            let at = rows.iter().position(|row| row.id == parent).expect("the parent is listed");
+            rows[at + 1..].iter().take_while(|row| row.depth > rows[at].depth).map(|row| (row.label.clone(), row.depth - rows[at].depth, row.folds)).collect()
+        };
+        assert_eq!(under(&rt, &beds), [("North bed".to_string(), 1, false), ("South bed".to_string(), 1, false), ("East bed".to_string(), 1, false), ("West bed".to_string(), 1, true)], "the service says a fold only of the bed with a note under it");
+        // Drawn: no mark on a bed with only comments, only a proposal, or both; a mark on the one with a note.
+        assert_eq!([&north, &south, &east, &west].map(|id| folds(&rt, id)), [false, false, false, true]);
+        // A press on a bed with only a comment under it opens it, and a second folds nothing: nothing is listed under it.
+        for id in [&north, &south, &east] {
+            press(&mut rt, &format!("tile/tree/row/{id}"));
+            press(&mut rt, &format!("tile/tree/row/{id}"));
+            assert_eq!(rt.state.subject().as_deref(), Some(id.as_str()));
+            assert!(!rt.state.ui(&tree).unfolded.contains(id.as_str()) && under(&rt, id).is_empty());
+        }
+        // What is under the north bed is listed where comments are: its thread, with the reply.
+        press(&mut rt, &format!("tile/tree/row/{north}"));
+        let threads = rt.state.rows_of(&rt.state.layout.named("threads").expect("the desk has the comments")).to_vec();
+        assert_eq!(threads.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(), ["Too early for peas?"]);
+        // The west bed's mark opens onto its one note, and not onto the comment or the proposal beside it.
+        press(&mut rt, &format!("tile/tree/row/{west}"));
+        assert!(rt.state.ui(&tree).unfolded.contains(&west));
+        assert_eq!(under(&rt, &west), [("First row".to_string(), 1, false)]);
+        assert!(rt.find(&format!("tile/tree/row/{row}")).is_some() && !folds(&rt, &row), "its note is on screen under it");
+        // Its page says the same of it: one note under it.
+        let page = rt.state.page().expect("the west bed's page came");
+        let listed: Vec<(String, bool)> = page.under.as_ref().and_then(|list| list["rows"].as_array()).into_iter().flatten().map(|row| (row["label"].as_str().unwrap_or("").to_string(), row["folds"] == true)).collect();
+        assert_eq!(listed, [("First row".to_string(), false)]);
+        // Every mark on screen is on a row that, opened, has a row under it.
+        let rows = rt.state.rows_of(&tree).to_vec();
+        for (at, row) in rows.iter().enumerate().filter(|(_, row)| row.folds && row.open) { assert!(rows.get(at + 1).is_some_and(|next| next.depth == row.depth + 1), "{} is open onto nothing", row.label) }
+    });
+}
+

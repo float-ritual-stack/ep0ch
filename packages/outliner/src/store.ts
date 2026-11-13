@@ -51,6 +51,7 @@ import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type Ba
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms, textHoldsTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
+import { HAS_CHILDREN, notesUnder } from "./notes-under";
 import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
 import {
@@ -4497,12 +4498,10 @@ export class OutlinerStore {
     return this.database.transaction((): BlockReadCollection => {
       const placeholders = requestedIds.map(() => "?").join(", ");
       const rows = this.database.query(`
-        SELECT block.*, EXISTS (
-          SELECT 1 FROM blocks child
-          WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
-        ) AS has_children
+        SELECT block.*, ${HAS_CHILDREN}
         FROM blocks block WHERE block.id IN (${placeholders})
       `).all(...requestedIds) as Array<BlockRow & { has_children: number }>;
+      const noted = projection.includes("hasNotes") ? notesUnder(this.database, rows.map((row) => row.id)) : undefined;
       const rowsById = new Map(rows.map((row) => [row.id, row]));
       const propertiesById = new Map<string, BlockProperty[]>();
       if (projection.includes("properties") && rows.length > 0) {
@@ -4525,7 +4524,7 @@ export class OutlinerStore {
           unavailable.push({ id, status: "trashed", deletedRootId: row.effective_deleted_root_id });
         } else {
           const block = this.hydrate(row, propertiesById.get(id) ?? []);
-          blocks.push(projectBlock(block, row.has_children === 1, projection));
+          blocks.push(projectBlock(block, row.has_children === 1, projection, noted?.has(id)));
         }
       }
       return { blocks, unavailable, fields: projection };
@@ -4537,10 +4536,11 @@ export class OutlinerStore {
     const projection = normalizeBlockReadFields(fields);
     // What the question answers beside its rows (groups, facets, hint) rides along with projected rows too.
     const { blocks, completeness, ...answer } = this.queryBlocks(input);
+    const noted = projection.includes("hasNotes") ? notesUnder(this.database, blocks.map((block) => block.id)) : undefined;
     return {
       ...answer,
       blocks: blocks.map((block) => ({
-        ...projectBlock(block, block.hasChildren, projection),
+        ...projectBlock(block, block.hasChildren, projection, noted?.has(block.id)),
         depth: block.depth,
         ...(block.propertyMatches ? { propertyMatches: block.propertyMatches } : {}),
         // Trash state rides along only on trashed matches (possible with `includeDeleted`),
@@ -4783,10 +4783,7 @@ export class OutlinerStore {
     const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
     const selected = `block.*,
           tree.depth,
-          EXISTS (
-            SELECT 1 FROM blocks child
-            WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
-          ) AS has_children`;
+          ${HAS_CHILDREN}`;
     const sql = `
         WITH RECURSIVE tree(id, depth, sort_path) AS (
           ${rootQuery}

@@ -1,2 +1,3 @@
-# The bar on a query, in the views' grammar.
+# The bar on a query, in the views' grammar. (Over the outline's first note, opened as a press on its row opens it.)
+list.pick n=1 tile=tree
 bar.open scope=query query=type=letter

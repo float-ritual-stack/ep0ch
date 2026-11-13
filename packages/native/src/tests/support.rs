@@ -365,13 +365,18 @@ fn completion(text: &str, cursor: usize) -> Value {
     json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
 }
 
+/// The garden, with the plot opened in the reader the screen's opens land in, as the person would open it first (a
+/// window kept between runs shows what it showed).
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
 
+/// The garden as a window first finds it: its readers told no note.
+pub fn garden_unopened(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_with(saves, true, None, false) }
+
 /// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
-pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None) }
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None, true) }
 
 /// The garden, in a window that keeps its arrangement (and what is being written) in `kept` between runs.
-pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept)) }
+pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept), true) }
 
 /// A stand-in host for one outline: the link to it, and what a test reads and says on it.
 struct Host { link: Standin, asked: Asked, said: Said, screens: Rc<RefCell<Value>>, shipped: Rc<std::cell::Cell<bool>> }
@@ -481,7 +486,7 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
     Host { link: Standin { answers, asked: asked.clone(), said: said.clone() }, asked, said, screens, shipped: installed }
 }
 
-fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>) -> Garden {
+fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>, opened: bool) -> Garden {
     let Host { link, asked, said, screens, shipped } = host(saves, with_screens, "garden");
     let elsewhere: Elsewhere = Default::default();
     let (links, beside) = (elsewhere.clone(), kept.map(std::path::Path::to_path_buf));
@@ -498,6 +503,8 @@ fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_scre
     if let Some(kept) = kept { app = app.arranged_in(kept.to_path_buf()) }
     app.start();
     app.settle();
+    // A reader shows the note it was told and no other: the plot is opened, where a window has a reader and shows none.
+    if opened && app.reader().is_some() && app.subject().is_none() { act(&mut app, "open id=plot"); }
     Garden { app, asked, said, screens, shipped, elsewhere }
 }
 
