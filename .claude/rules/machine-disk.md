@@ -3,7 +3,7 @@ paths:
   - "packages/door/src/setup/install-backups.ts"
   - "packages/door/scripts/backup/**"
 commands:
-  - '\bssh\s+(\S+@)?float-2\b[\s\S]*\b(df|du|rm|mv|rsync|truncate|offload|journalctl|find)\b'
+  - '\bssh\b(\s+-\S+(\s+[^-\s]\S*)?)*\s+(\S+@)?float-2\b[\s\S]*\b(df|du|rm|mv|rsync|truncate|offload|journalctl|find)\b'
 ---
 
 # Disk space on a machine: read the hub before you move or delete anything

@@ -16,7 +16,7 @@ const RULES: Record<string, string> = {
   'outline-core.md': '---\npaths:\n  - "packages/outline-core/**"\n---\n\n# outline-core\n\nNo I/O.\n',
   'claude-mod.md': '---\npaths:\n  - "packages/claude-mod/**"\n---\n\n# The mod\n\nOnly register.ts gets $.\n',
   'outlines-by-name.md': '---\npaths:\n  - "packages/outline-core/src/{outline-location,machine}.ts"\n  - "packages/door/src/{home,pick}.ts"\n---\n\n# Outlines by name\n\nFlag, env, .ep0ch.\n',
-  'machine-disk.md': "---\npaths:\n  - \"packages/door/src/setup/install-backups.ts\"\ncommands:\n  - '\\bssh\\s+(\\S+@)?float-2\\b[\\s\\S]*\\b(df|du|rm|mv|rsync|offload)\\b'\n---\n\n# Disk space\n\nRead the hub first.\n",
+  'machine-disk.md': "---\npaths:\n  - \"packages/door/src/setup/install-backups.ts\"\ncommands:\n  - '\\bssh\\b(\\s+-\\S+(\\s+[^-\\s]\\S*)?)*\\s+(\\S+@)?float-2\\b[\\s\\S]*\\b(df|du|rm|mv|rsync|offload)\\b'\n---\n\n# Disk space\n\nRead the hub first.\n",
 }
 
 /** A session in the repository whose shell is in `cwd()`; every Bash call answers plainly. */
@@ -130,9 +130,17 @@ describe('which rules a command touches', () => {
     const disk = (command: string) => rulesFor(pathsIn(command, ROOT, ROOT), rules, command).map(r => r.file.slice('.claude/rules/'.length))
     expect(disk("ssh float-2 'cd ~/projects/ep0ch && rsync -an ./ /mnt/x/'")).toEqual(['machine-disk.md'])
     expect(disk("ssh evan@float-2 'offload --list'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh -t float-2 'sudo journalctl --vacuum-size=200M && df -h /'")).toEqual(['machine-disk.md'])
+    expect(disk("ssh -o ConnectTimeout=10 -p 22 float-2 'du -sh ~'")).toEqual(['machine-disk.md'])
     expect(disk("ssh laptop 'du -sh ~'")).toEqual([])
     expect(disk("ssh float-2 'ep0ch doctor'")).toEqual([])
     expect(disk('cat packages/door/src/setup/install-backups.ts')).toEqual(['door.md', 'machine-disk.md'])
+  })
+
+  test('a commands: line that is not a regular expression is left out, and its rule still matches by its paths', () => {
+    const rule = ruleOf('r.md', "---\npaths:\n  - \"packages/door/**\"\ncommands:\n  - '(unclosed'\n  - 'ssh float-2'\n---\nBody\n")!
+    expect(rule.commands.map(String)).toEqual(['/ssh float-2/'])
+    expect(rulesFor(['packages/door/x.ts'], [rule])).toHaveLength(1)
   })
 
   test('a rule with no paths: loads anyway, so it is not one of these', () => {

@@ -24,7 +24,8 @@ export function ruleOf(file: string, text: string): Rule | null {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(text.replace(/\r\n/g, '\n'))
   if (!m) return null
   const globs = listOf(m[1]!, 'paths')
-  const commands = listOf(m[1]!, 'commands').map(c => new RegExp(c))
+  // A pattern that isn't a regular expression is left out, so one bad line never costs the other rules.
+  const commands = listOf(m[1]!, 'commands').flatMap(c => { try { return [new RegExp(c)] } catch { return [] } })
   return globs.length ? { file, globs, commands, body: text.replace(/\r\n/g, '\n').slice(m[0].length).trim() } : null
 }
 
