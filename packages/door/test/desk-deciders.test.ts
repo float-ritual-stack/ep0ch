@@ -83,6 +83,36 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("one decider per desk question 
       expect({ focused: focused.tile === first.tile ? "the folded reader" : focused.kind, showing: !!focused.showing }).toEqual({ focused: "reader", showing: true });
     } finally { p.close(); }
   }, 60_000);
+
+  // Which reader the person's open lands in, naming none: placement's rule (a wire, the screen's rule, else the first
+  // reader not pinned, never a folded one), and openBy's own pickReader beside it, which took the first reader not
+  // pinned in any state. From the power bar, with the first reader folded, the note opened in the spine.
+  test("the person's open from the power bar lands where opens land, not in a folded reader", async () => {
+    await doors.create("Potting shed\nsort the pots");
+    const p = await doors.pane(await doors.create("Seed tray\nsow the leeks"), "Seed tray", 160, 34);
+    try {
+      type T = { tile: string; kind: string; focused: boolean; showing?: { title: string } };
+      const desk = () => (JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: T[] }[]).find(l => !l.drawer)!.tiles;
+      const first = desk().find(t => t.kind === "reader")!;
+      expect(p.act("tile.open", "kind=reader").ok).toBe(true);
+      await until(() => desk().length === 2, "a second reader");
+      expect(p.act("tile.open", "kind=tree").ok).toBe(true);
+      await until(() => desk().length === 3, "a tree");
+      const tree = desk().find(t => t.kind === "tree")!;
+      expect(p.act("tile.focus", `tile=${tree.tile}`).ok).toBe(true);
+      await until(() => desk().find(t => t.focused)?.kind === "tree", "his keys on the tree");
+      expect(p.act("tile.collapse", `tile=${first.tile}`, "on=true").ok).toBe(true);
+      p.keys("C-k");
+      await Bun.sleep(400);
+      p.type("Potting shed");
+      await until(() => p.capture().includes("Potting shed"), "the bar's match");
+      await Bun.sleep(600);
+      p.keys("Enter");
+      await until(() => desk().some(t => t.showing?.title === "Potting shed"), "the note opened");
+      const at = desk().find(t => t.showing?.title === "Potting shed")!;
+      expect(at.tile === first.tile ? "the folded reader" : "where opens land").toBe("where opens land");
+    } finally { p.close(); }
+  }, 60_000);
 });
 
 // What a press invites acts fully as the person (surface/invite.ts): a run the person's click started may open the prompt,
