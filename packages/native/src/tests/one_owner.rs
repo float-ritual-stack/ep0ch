@@ -50,6 +50,8 @@ fn where_the_keys_are_is_said_once_and_a_hint_row_reads_it() {
     // A screen's own keys are read off its spec in one place, and bound in keys.rs with the rows'.
     none("a screen's keys read outside the spec's own reader", strays("[\"keys\"]", |path| path == "screen.rs"));
     none("a screen's keys bound outside keys.rs", strays(".keys()", |path| path == "keys.rs").into_iter().filter(|found| found.contains("spec")).collect());
+    // Which kinds a rule of a screen holds on (`only`, `unless`) is read once, for a key and for a new-note rule alike.
+    none("the kinds a screen's rule holds on matched outside the spec's own reader (`screen::holds_on`)", ["\"only\"", "\"unless\""].iter().flat_map(|key| strays(key, |path| path == "screen.rs")).collect());
 }
 
 #[test]

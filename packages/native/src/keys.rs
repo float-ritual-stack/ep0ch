@@ -196,28 +196,24 @@ pub struct ScreenBind {
     /// The chord it is here, or why it is none.
     pub chord: Result<Chord, String>,
     pub request: actline::Request,
-    /// The kinds of tile it holds on, and the ones it doesn't (none said: every kind).
-    only: Option<Vec<String>>,
-    unless: Vec<String>,
+    /// The binding as the screen wrote it: the kinds of tile it holds on and off are the spec's to read (`screen::holds_on`).
+    rule: Value,
 }
 
 impl ScreenBind {
     fn read(bind: &Value) -> Option<ScreenBind> {
         let (spec, action) = (bind["key"].as_str()?, bind["action"].as_str()?);
-        let kinds = |key: &str| bind[key].as_array().map(|kinds| kinds.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>());
         // A screen names a key by its one name: a capital is that letter with Shift, and two keys go by shorter names.
         let mut letters = spec.chars();
         let named = match (letters.next(), letters.next()) { (Some(c), None) if c.is_uppercase() => format!("shift+{}", c.to_lowercase()), _ => spec.replace("pgup", "pageup").replace("pgdn", "pagedown") };
         Some(ScreenBind {
             spec: spec.to_string(), chord: Chord::parse(&named).map_err(|e| format!("{spec} is no key here: {e}")),
             request: actline::Request { action: action.to_string(), tile: bind["tile"].as_str().map(str::to_string), by: None, args: bind["args"].as_object().cloned().unwrap_or_default() },
-            only: kinds("only"), unless: kinds("unless").unwrap_or_default(),
+            rule: bind.clone(),
         })
     }
     /// It holds while a tile of `kind` has the keys.
-    fn holds(&self, kind: Option<&str>) -> bool {
-        self.only.as_ref().is_none_or(|only| kind.is_some_and(|kind| only.iter().any(|k| k == kind))) && !kind.is_some_and(|kind| self.unless.iter().any(|k| k == kind))
-    }
+    fn holds(&self, kind: Option<&str>) -> bool { crate::screen::holds_on(&self.rule, kind) }
 }
 
 /// The open screen's own keys, in the order it lists them.
@@ -228,8 +224,7 @@ pub fn screen_binds(s: &App) -> Vec<ScreenBind> { s.spec_now().map(|spec| spec.k
 pub fn rows(s: &App) -> Value {
     let screen = screen_binds(s).into_iter().map(|bind| {
         let mut row = json!({ "chord": bind.spec, "line": bind.request.line(), "layer": Layer::Tile.name(), "from": "screen" });
-        if let Some(only) = &bind.only { row["only"] = json!(only) }
-        if !bind.unless.is_empty() { row["unless"] = json!(bind.unless) }
+        for (word, kinds) in crate::screen::kinds_said(&bind.rule) { row[word] = kinds.clone() }
         if let Err(why) = &bind.chord { row["problem"] = json!(why) }
         row
     });

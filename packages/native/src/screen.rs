@@ -96,10 +96,7 @@ impl<'a> Spec<'a> {
     /// `newNote` rules that fits, as outline-core's `newNoteRule` picks it (`only` names the kind; `unless` doesn't,
     /// or no tile has the keys). The kinds are the ones tiles carry: the service resolved them as it did the tiles'.
     /// None: it has no rule for it, and a new note floats.
-    pub fn new_note(&self, kind: Option<&str>) -> Option<&'a Value> {
-        let names = |rule: &Value, key: &str| rule.get(key).and_then(Value::as_array).map(|kinds| kind.is_some_and(|kind| kinds.iter().any(|k| k == kind)));
-        self.0.get("newNote")?.as_array()?.iter().find(|rule| names(rule, "only").unwrap_or(true) && !(kind.is_some() && names(rule, "unless").unwrap_or(false)))
-    }
+    pub fn new_note(&self, kind: Option<&str>) -> Option<&'a Value> { self.0.get("newNote")?.as_array()?.iter().find(|rule| holds_on(rule, kind)) }
     /// The spec opened on `words`: the tile its target names carries them in the field it says (outline-core's
     /// `targetFilled`), in its layout or among its floats. No words, no target, or no such tile: the spec as it is.
     pub fn filled(&self, arg: &str, words: &str) -> Value {
@@ -116,6 +113,19 @@ impl<'a> Spec<'a> {
         for float in spec.get_mut("layout").and_then(|layout| layout.get_mut("floats")).and_then(Value::as_array_mut).into_iter().flatten() { if let Some(leaf) = float.get_mut("tile") { fill(leaf, tile, field, words.trim()) } }
         spec
     }
+}
+
+/// Whether a rule of a screen (a new-note rule, one of its keys) holds while a tile of `kind` has the keys (none: no
+/// tile has them): `only` names the kind; `unless` doesn't. The one reading of both words, whatever the rule is.
+pub fn holds_on(rule: &Value, kind: Option<&str>) -> bool {
+    let names = |key: &str| rule.get(key).and_then(Value::as_array).map(|kinds| kind.is_some_and(|kind| kinds.iter().any(|k| k == kind)));
+    names("only").unwrap_or(true) && !names("unless").unwrap_or(false)
+}
+
+/// The kinds a rule says it holds on and off, as it wrote them (`only` whenever it says one, `unless` when it names
+/// any): what `peek` says of a key beside its chord.
+pub fn kinds_said(rule: &Value) -> Vec<(&'static str, &Value)> {
+    ["only", "unless"].into_iter().filter_map(|key| rule.get(key).filter(|kinds| kinds.as_array().is_some_and(|kinds| key == "only" || !kinds.is_empty())).map(|kinds| (key, kinds))).collect()
 }
 
 /// `screens.list`'s answer, as this window reads it: the screens' rows as data, and the kinds extensions serve.
