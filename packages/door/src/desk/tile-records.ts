@@ -2,6 +2,8 @@
 // tile that leaves takes it all with it in one step (`drop`). What travels with a tile when it's carried lives on the
 // pane or in tile-registry.ts; what other owners hold about it (selection, the keys record, a gesture) is each owner's
 // own `forget`. outOfStep checks that no record outlives its tile.
+import type { Rect } from "../canvas";
+import type { PaneView } from "./panes";
 import type { TileSpec } from "./tiles";
 
 export interface TileRecord {
@@ -13,7 +15,14 @@ export interface TileRecord {
   movedIn?: true;
   /** The select source a saved layout gave it that isn't a tile here (a container, a tile still to come). */
   seed?: string;
+  /** An open just landed in it, and who opened it: its frame says so until `remaining` runs out. */
+  arrival?: { by: string; note?: string; remaining: number; at: number };
+  /** What the frame last drew of it, and where: the reader's gutter, its content rectangle, its drawn view. */
+  gutter?: Rect; content?: Rect; view?: { cols: number; rows: number; view: PaneView; ms: number; frame: number; at: number };
+  /** Its title was cut to fit (the header says so); its header drew its own controls this frame. */
+  cutTitle?: true; headCtl?: true;
 }
+type Flag = "movedIn" | "cutTitle" | "headCtl";
 
 /** One field of every record, read and written as a map by tile number (what the desk's code reads). */
 export class RecordField<K extends keyof TileRecord> {
@@ -24,17 +33,19 @@ export class RecordField<K extends keyof TileRecord> {
   delete(id: number): boolean { const r = this.recs.get(id); const had = r?.[this.key] !== undefined; if (r) delete r[this.key]; return had; }
   clear(): void { for (const [id] of this.entries()) this.delete(id); }
   keys(): number[] { return this.entries().map(([id]) => id); }
+  values(): NonNullable<TileRecord[K]>[] { return this.entries().map(([, v]) => v); }
   entries(): [number, NonNullable<TileRecord[K]>][] { return this.recs.all().flatMap(([id, r]) => (r[this.key] !== undefined ? [[id, r[this.key] as NonNullable<TileRecord[K]>]] : [])); }
   [Symbol.iterator](): IterableIterator<[number, NonNullable<TileRecord[K]>]> { return this.entries()[Symbol.iterator](); }
 }
 
-/** A movedIn flag read as a set of tile numbers. */
+/** A flag of every record read as a set of tile numbers. */
 export class RecordFlag {
-  constructor(private readonly recs: TileRecords) {}
-  has(id: number): boolean { return !!this.recs.get(id)?.movedIn; }
-  add(id: number): this { this.recs.of(id).movedIn = true; return this; }
-  delete(id: number): boolean { const r = this.recs.get(id), had = !!r?.movedIn; if (r) delete r.movedIn; return had; }
-  [Symbol.iterator](): IterableIterator<number> { return this.recs.all().filter(([, r]) => r.movedIn).map(([id]) => id)[Symbol.iterator](); }
+  constructor(private readonly recs: TileRecords, private readonly key: Flag) {}
+  has(id: number): boolean { return !!this.recs.get(id)?.[this.key]; }
+  add(id: number): this { this.recs.of(id)[this.key] = true; return this; }
+  delete(id: number): boolean { const r = this.recs.get(id), had = !!r?.[this.key]; if (r) delete r[this.key]; return had; }
+  clear(): void { for (const [, r] of this.recs.all()) delete r[this.key]; }
+  [Symbol.iterator](): IterableIterator<number> { return this.recs.all().filter(([, r]) => r[this.key]).map(([id]) => id)[Symbol.iterator](); }
 }
 
 export class TileRecords {
@@ -45,6 +56,6 @@ export class TileRecords {
   /** Tile `id` left this desk: nothing here is kept about it. */
   drop(id: number): void { this.m.delete(id); }
   all(): [number, TileRecord][] { return [...this.m]; }
-  field<K extends Exclude<keyof TileRecord, "movedIn">>(key: K): RecordField<K> { return new RecordField(this, key); }
-  flag(): RecordFlag { return new RecordFlag(this); }
+  field<K extends Exclude<keyof TileRecord, Flag>>(key: K): RecordField<K> { return new RecordField(this, key); }
+  flag(key: Flag): RecordFlag { return new RecordFlag(this, key); }
 }

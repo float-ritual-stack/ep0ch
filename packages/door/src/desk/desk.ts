@@ -238,7 +238,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What the screen is: its spec's name (`desk`, `welcome`), or the name a blank screen was saved under (PIE-565). */
   get name(): string { return this.madeAs ?? this.spec.name; }
   ctx!: Ctx;
-  private panes = new Map<number, Pane>();
+  private panes = new Map<number, Pane>(); private readonly recs = new TileRecords();   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
   /**
    * The screen's layout (PIE-513): the tree, the floats, the spines, the zoom, the links, the tiles' names, the
    * screen's policy and lock, the revision. One value, changed only by the screen-layout module's `apply` (one
@@ -297,7 +297,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { x: k.x - p.gutter.col - p.gutter.cols, y: k.y - p.row };
     return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row };
   }
-  private gutters = new Map<number, Rect>();
+  private readonly gutters = this.recs.field("gutter");
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   /** The tile on this desk that opened tile `id` (its `Pane.openedFrom`), if it is still here. */
   private openerOf(id: number): number | undefined {
@@ -327,7 +327,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Tiles saved with a kind nobody has registered: a tile that says so stands in, saves write their spec back
    * as it was, and the tile is made again when the kind comes (`kindsChanged`).
    */
-  private readonly recs = new TileRecords(); private readonly unregistered = this.recs.field("unregistered");   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
+  private readonly unregistered = this.recs.field("unregistered");   // what this desk keeps about each tile (tile-records.ts), dropped whole as it leaves
   /** Retired kinds a layout loaded here named (RETIRED_KINDS), each tile left out: said once as the screen shows (retiredSaid). */
   private dropped: string[] = [];
   /** The docks sliding over the layout as last drawn, each with its tiles (for the mouse). */
@@ -375,7 +375,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * in it, and nothing drawn there is the tile's text.
    */
   private looks = new Map<Pane, Look>();
-  private contents = new Map<number, Rect>();
+  private readonly contents = this.recs.field("content");
   private lookSrc: { board: unknown; redraw(): void } | null = null;
   /** Tile `p`'s look at `cols` columns: its kind, this screen and the note it shows. */
   private lookAt(p: Pane, cols: number): Look {
@@ -552,7 +552,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Every control painted on a frame or header this frame, with what a click runs (PIE-1530): mouse, x-ray and hints read it. */
   private presses = new PressMap();
   /** The tiles whose header carries their controls this frame. */
-  private headCtl = new Set<number>();
+  private readonly headCtl = this.recs.flag("headCtl");
   private dividers: Divider<number>[] = [];
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
   private rootArea = this.area;
@@ -2026,7 +2026,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Tiles whose border cut the note's title as drawn last (PIE-815): focusing one says it whole. */
-  private readonly cutTitles = new Set<number>();
+  private readonly cutTitles = this.recs.flag("cutTitle");
   /** A tile `p` can follow (PIE-814): one with a selection (a tree, a links list) or another reader, here. */
   private followable(id: number, p: ReaderPane): boolean {
     const q = this.panes.get(id);
@@ -2603,7 +2603,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Repaint when drawn: shown, or (your drawer's desk put away) a tile of it lifted above the screen (PIE-1359). */
   redraw() { if (this.onScreen || (this.layout.lift && this.ctx?.hostLayer?.isDrawer(this.top()))) this.ctx?.redraw(); }
 
-  private arrivals = new Map<number, { by: string; note?: string; remaining: number; at: number }>();
+  private readonly arrivals = this.recs.field("arrival");
   private arriving(id: number): boolean { return (this.arrivals.get(id)?.remaining ?? 0) > 0; }
   private arrived(id: number, by: Actor, preview = false, why = "") {
     const note = this.showing(this.panes.get(id))?.id;
@@ -3806,7 +3806,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * resize goes on (src/resize.ts), a tile whose size changed keeps showing this one (cut or padded to its box) when
    * the frame has no time left to lay it out again (pickReflows).
    */
-  private views = new Map<number, { cols: number; rows: number; view: PaneView; ms: number; frame: number; at: number }>();
+  private readonly views = this.recs.field("view");
   private frameNo = 0;
   /** The tiles this frame lays out again though a resize is going on; null: every tile, as always. */
   private reflows: Set<number> | null = null;
@@ -6842,7 +6842,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.memory.forget(id);
     this.panes.delete(id); this.recs.drop(id);
   }
-  private readonly movedIn = this.recs.flag();   // TileRecord.movedIn
+  private readonly movedIn = this.recs.flag("movedIn");   // TileRecord.movedIn
 
   /** `pane.split`: tile.open along the longer side (or `dir`): one code path, one rule. `pane` is the new tile's number. */
   async splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): Promise<PaneDone> {
