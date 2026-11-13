@@ -181,8 +181,8 @@ export interface Ctx<I = number> {
   screenHost?: HostMode;
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
-  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close). */
-  empties?: boolean;
+  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close); `goes`: a group's desk, whose last tile may leave whole for the drawer or another group, the group going with it (PIE-1775). */
+  empties?: boolean; goes?: boolean;
   beside?: ReadonlyMap<I, I>;
   /** A mount with no reader: the tile holding it, where an open naming no tile hops out. */ outward?: string;
   /** The drawer's hand-off (PIE-1522): the screen shown's tile taking what the drawer doesn't keep; null when it has none (refused). */ screen?: string | null;
@@ -1372,7 +1372,7 @@ class Step<I> {
     const e = this.policyAt(id), f = this.facts(id);
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-    if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
+    if (!heir && !this.ctx.empties && !this.ctx.goes && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "take it away"));
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);

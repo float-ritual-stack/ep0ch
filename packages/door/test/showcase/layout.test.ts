@@ -1137,6 +1137,55 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   }, 40_000);
 
 
+  test("a group left with nothing goes, giving its room back, and one undo brings it back whole (PIE-1775)", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" });
+    screen();
+    const d = S().stages.get(S().sel).top;
+    const names = () => d.layoutGet().tiles.map((t: any) => t.name as string);
+    expect(names()).toContain("a");
+    const source = d.pane("a").inner.pane("source"), agent = { kind: "agent" as const, id: "test-agent" };
+    // Group A's one tile to the drawer, by the person and then by an agent: the group goes with it, its room to the tiles
+    // beside; one undo (^W B, or the agent's own) brings group A back with that same tile.
+    for (const by of [{ kind: "user" as const }, agent]) {
+      await d.dispatch.act({ action: "tile.drawer", tile: "a/source", args: {} }, by);
+      await until(() => !names().includes("a"), "group A gone");
+      expect(app.drawer.desk!.pane("source")).toBe(source);
+      await d.dispatch.act({ action: "layout.undo", args: { anywhere: true } }, by);
+      await until(() => names().includes("a"), "group A back");
+      expect(d.pane("a").inner.pane("source")).toBe(source);
+      expect(app.drawer.desk!.pane("source")).toBeUndefined();
+    }
+    // On a locked screen the group stays: its shape is the lock's (CodeRabbit on #1475). Unlocked, its tile goes back in.
+    await d.dispatch.act({ action: "layout.lock", tile: "board", args: { on: true } }, { kind: "user" });
+    try {
+      await d.dispatch.act({ action: "tile.drawer", tile: "a/source", args: {} }, { kind: "user" });
+      await Bun.sleep(50);
+      expect(names()).toContain("a");
+    } finally { await d.dispatch.act({ action: "layout.lock", tile: "board", args: { on: false } }, { kind: "user" }); }
+    await app.dispatch.act({ action: "tile.drawer", tile: "source", args: { on: false } }, { kind: "user" });
+    await d.dispatch.act({ action: "layout.move", tile: "source", args: { into: "a" } }, { kind: "user" });
+    await until(() => !!(d.pane("a") as any)?.inner?.pane("source"), "source back in group A");
+    // Its last tile closed: the group goes too, and the undo brings both back.
+    await d.dispatch.act({ action: "tile.close", tile: "a/source", args: {} }, { kind: "user" });
+    await until(() => !names().includes("a"), "group A gone with its tile");
+    await d.dispatch.act({ action: "layout.undo", args: { anywhere: true } }, { kind: "user" });
+    await until(() => names().includes("a"), "group A back again");
+    expect(d.pane("a").inner.layoutGet().tiles.map((t: any) => t.name)).toEqual(["source"]);
+    // A group in the drawer: its last tile out of it (^W a there: into the drawer's own tabs), the group goes from the drawer.
+    await d.dispatch.act({ action: "tile.drawer", tile: "a", args: {} }, { kind: "user" });
+    await until(() => !!app.drawer.desk!.pane("a"), "group A in the drawer");
+    const drawn = () => app.drawer.desk!.layoutGet().tiles.map((t: any) => t.name as string);
+    await (app.drawer.desk!.pane("a") as any).inner.dispatch.act({ action: "tile.drawer", tile: "source", args: {} }, { kind: "user" });
+    await until(() => drawn().includes("source") && !drawn().includes("a"), "source in the drawer, group A gone from it").catch(e => { throw new Error(`${e.message}: ${names()} | ${drawn()}`); });
+    await d.dispatch.act({ action: "layout.undo", args: { anywhere: true } }, { kind: "user" });
+    await until(() => drawn().includes("a"), "group A back in the drawer");
+    const again = await d.dispatch.act({ action: "layout.undo", args: { anywhere: true } }, { kind: "user" }).catch((e: Error) => e.message);
+    await until(() => names().includes("a"), "group A back on the screen where it was").catch(e => { throw new Error(`${e.message}: ${JSON.stringify(again)} | ${names()} | ${drawn()}`); });
+    await app.dispatch.press("host.toggle", { open: false });
+  }, 40_000);
+
   test("groups (PIE-1073): act and a click choose the same cross-group wire, including a tile outside and in the drawer", async () => {
     (app as any).lastInput = 0;
     await sc.dispatch.press("section.leave");

@@ -68,14 +68,15 @@ import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, headerShown, isTileHeader, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TileHeader, type TrailStop } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
-import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
+import { centred, linePrompt, ListPicker, pickRows } from "../surface/picker";
+import { choicePicker, dropAsPicker, layoutPicker, policyPanel, screenPicker, screenSaver, screensToOpen, type PanelRow } from "./desk-overlays";
 import { outlineState, readState, writeState } from "../state";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperBindings, hyperLabel, hyperOn } from "../hyper";
 import { scriptBindings } from "../extensions";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
-import { saveScreenNote, ScreenConflict, screenNote, screenNotes, trashScreenNote } from "./screen-notes";
+import { saveScreenNote, ScreenConflict, screenNote, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
@@ -114,7 +115,7 @@ import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { kept } from "./kept-desk";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { GROUP_GROW_PART, holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WKey, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -239,8 +240,6 @@ type Gesture =
   | { kind: "reader"; frame?: Rect; gutter?: Rect; pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean; at?: { x: number; y: number }; element?: ElementDrag }
   | { kind: "tile"; id: number; r: Rect; out?: { inner: Desk; name: string; target: { to?: string; where: Where; label: string; refused?: string } | null } }
   | { kind: "edit"; pane: ReaderPane; fresh: boolean; float: boolean };
-/** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
-interface PanelRow { label: string; value: string; clear?: () => void; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | WireVerb }
 /** One of a tile's links as its panel and header say it (PIE-855): plain words, and what changes or cuts it (an action each). */
 export interface Wire { says: string; short?: string; /** The tile on this desk it follows (or opens into), when there is one: what a drawing decision reads (PIE-886). */ source?: number; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
 
@@ -713,10 +712,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private tileLeaves(id: number, how: "end" | "carry" | "rebuilt", by: Actor = USER) {
     const p = this.panes.get(id);
-    if (how === "end") return this.dropTile(id, by);
+    if (how === "end") { this.dropTile(id, by); this.leftNames.delete(id); return this.emptied(); }
     if (!p) return;
     if (how === "rebuilt") { p.dispose?.(); tileRegistry.release(p); }
     this.forgetTile(id, p); if (how === "carry" && p instanceof ReaderPane) for (const a of this.panes.values()) if (a instanceof AnswerTile) a.readerLeft(this);   // once it's gone, each sees whether its own went: a tab behind it isn't drawn to (PIE-1757)
+    this.leftNames.delete(id);
+    this.emptied();
+  }
+  /**
+   * A group left with no tile goes (PIE-1775): its last tile closed, carried to the drawer or another group, or its
+   * answer tile closing after its reader went. Once the leave is done (a carry still uses this desk after its take), the
+   * desk holding it closes the group, giving its room to its neighbours, in the step that emptied it: one undo brings
+   * the group back with its tiles. A group being put back, spilled or ending is no emptied one.
+   */
+  private emptied() {
+    const h = this.holder, g = h?.tile;
+    if (this.all().length || this.disposed || this.steps.puttingBack || !(g instanceof ScreenTile) || !g.group) return;
+    queueMicrotask(() => { if (!this.all().length && !this.disposed && g.inner === this) h!.desk()?.pruneGroup(g, this.holderBefore); });
+  }
+  /** Group `g`, emptied (`emptied`), closes here as a step of the one that emptied it, by its actor, from this desk's shape before it (`step.shape`). */
+  private pruneGroup(g: ScreenTile, step: Desk["holderBefore"]) {
+    const id = this.idOf(g);
+    if (id === undefined) return;
+    // This desk took part in that step already (the drawer a group's tile went to): the close is part of its entry, whose shape before has the group.
+    const txn = step?.txn, open = !!txn && this.history.isOpen(txn), joined = !!txn && !!this.history.newest() && this.history.forTxn(txn) === this.history.newest();
+    // Asked as any close of it by that actor (CodeRabbit on #1475): a locked screen, a policy or an agent's level keeps the group, said where it is.
+    const r = this.ask({ op: "close", tile: id }, step?.by ?? USER);
+    if (!r.ok) { this.ctx?.flash(`${this.nameOf(id)} stays, with nothing in it: ${r.refused}`); return this.redraw(); }
+    if (joined) this.asked.set(r, { ...this.asked.get(r)!, left: true }); else if (step?.shape) this.settled = step.shape;
+    TXN.run({ ...TXN.getStore(), ...(txn ? { txn } : {}) }, () => { this.commit(r); this.tileLeaves(id, "end"); }); if (txn && !open) this.history.close(txn);
+    this.save(); this.redraw();
   }
   /**
    * What's out of step between the instances, the records kept by tile id and the LayoutState (PIE-1559): a tile the
@@ -752,7 +777,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.specTiles.get(name);
     return id !== undefined && this.panes.has(id) ? id : this.idNamed(name);
   }
-  private nameOf(id: number) { return this.names.get(id) ?? String(id); }
+  private nameOf(id: number) { return this.names.get(id) ?? this.leftNames.get(id) ?? String(id); }
   /** Every tile: the tree's, a tab set's hidden ones included, then the floats. */
   private all(): number[] { return allTiles(this.layout); }
   private isFloat(id: number) { return this.floats.some(f => f.id === id); }
@@ -876,7 +901,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
     const facts = new Map<number, TileFacts>();
     return {
-      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
+      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : this.inGroup() ? { goes: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
       actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
@@ -901,8 +926,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // swapped a pane in can't leave us nothing to rebuild from): a change of shape is an entry, a focus move is none.
     const by = this.asked.get(r), prior = this.settled ?? this.snapshotShape();
     if (by?.op === "close") for (const wire of this.layout.wires) {
-      if (!r.state.names.has(wire.to) && r.state.names.has(wire.from)) this.ctx?.flash(`${this.nameOf(wire.from)}: ${wire.verb} wire dropped; ${this.nameOf(wire.to)} (${this.tileId(wire.to)}) closed`);
+      if (!r.state.names.has(wire.to) && r.state.names.has(wire.from)) this.ctx?.flash(`${this.nameOf(wire.from)}: ${wire.verb} wire dropped; ${this.nameOf(wire.to)} closed`);
     }
+    // A tile this step takes out keeps its name until it has left (`tileLeaves`): what's said of it names it, never its number.
+    for (const [id, name] of this.layout.names) if (!r.state.names.has(id)) this.leftNames.set(id, name);
+    // A group's desk: the desk holding it keeps its shape from before this step (or before the transaction it's part of),
+    // the shape an emptied group's close goes back to (PIE-1775), and takes the group's new shape after it.
+    const up = this.holder?.desk(), txn = TXN.getStore()?.txn;
+    if (up && !by?.left && (!txn || txn !== this.holderBefore?.txn)) this.holderBefore = { txn, by: by?.actor ?? USER, shape: up.snapshotShape() };   // a tile closing after its owner left (an answer's) is that step's
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
@@ -912,7 +943,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       else if (verdict === "step") this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     }
     this.settled = now;
-    this.focus = r.focus;
+    this.focus = r.focus; up?.resettle();
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
     const arrival = this.arrivals.get(r.focus);
     if (by?.actor.kind === "user" && (by.op === "focus" || by.op === "tab") && arrival) arrival.remaining = 0;
@@ -944,6 +975,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The shape as of the last commit or build: what the next change is recorded against. */
   private settled: { shape: string; before: LayoutSpec } | null = null;
+  /**
+   * A group's tiles changed (PIE-1775): the shape this desk records its next change against has the group as it is now, so
+   * an undo of a spill or a close puts the group back as it last stood, never as it was gathered. Up through each holder.
+   */
+  private resettle() { this.settled = this.snapshotShape() ?? this.settled; this.holder?.desk()?.resettle(); }
+  /** A group's desk: its holder's shape from before this desk's newest step or transaction, by that transaction. */
+  private holderBefore: { txn: string | undefined; by: Actor; shape: { shape: string; before: LayoutSpec } | null } | null = null;
+  /** The names of the tiles the newest step took out, until each has left. */
+  private readonly leftNames = new Map<number, string>();
 
   /** The screen's shape now, as text and as a spec to rebuild from; null when a pane the layout names is already gone (mid-operation). */
   private snapshotShape(): { shape: string; before: LayoutSpec } | null {
@@ -2711,8 +2751,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Fresh: a new detail in the screen's container (the board's readers row), else beside the tile, as alt+⏎ on a link opens one.
     const key = this.hasPlaces() ? this.layout.policy.opensInto! : undefined;
     if (fresh) return key ? { from, note, container: key, at: { kind: "in", key } } : { from, note, fresh: true };
-    const target = this.spec.lands === undefined ? undefined : this.specTile(this.spec.lands);
-    return { from, note, to: target, ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) };
+    // The spec's tile, else its container; when neither is here now (the detail screen's `detail` closed, gathered into a
+    // group or put in the drawer, PIE-1775), the screen's default: the reader its opens land in, as for any screen.
+    const lands = this.spec.lands, target = lands === undefined ? undefined : this.specTile(lands);
+    return { from, note, to: target, ...(target === undefined && lands && node(this.root, lands) ? { container: lands } : { default: true }) };
   }
   private landBlock(m: Msg, by: Actor) {
     const landed = this.placeNote(m, this.landingRequest(this.focus, m.id), by);
@@ -4517,7 +4559,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private spotAt(k: Key): { key?: Key; tile?: number; run?: () => void } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
 
   /** Every ^W key with its label and summary, joined from the actions it runs (wkeys.ts): what the keys box and the power bar's ^W list show. */
-  wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name)); }
+  wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name), e => this.sizesGroup(e)); }
+  /** ^W key `e` (its `>` when left out) acts on the group holding this desk (wkeys.ts `holdingDesk`): the panel, the popup and the hint row say so (PIE-1773). */
+  private sizesGroup(e: WKey | undefined = wKey(">")): boolean { return e?.holder === "group" && !!holdingDesk(e, this.holder); }
 
   /**
    * Type `keys` after ^W, as the person's keys would (the power bar's ^W list picks one this way): `o s` is ^W o, then s.
@@ -4774,7 +4818,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || !!rd.surface.draft?.views.raw.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
+        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.sizesGroup() ? [GROUP_GROW_PART] : []), KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
@@ -4783,7 +4827,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ` + partsHint(tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, action: "tile.open", args: this.openKindArgs(x.key, this.prefix === "addtab")! }))))
-        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.inGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART, ...(this.sizesGroup() ? [GROUP_GROW_PART] : [])])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -6873,7 +6917,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (p) for (const d of this.relatives()) for (const [from, wires] of d.ext) for (const w of [...wires]) {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);
-        d.ctx?.flash(`${d.nameOf(from)}: ${w.verb} wire dropped; ${this.nameOf(id)} (${this.tileId(id)}) closed`);
+        d.ctx?.flash(`${d.nameOf(from)}: ${w.verb} wire dropped; ${this.nameOf(id)} closed`);
         d.save();
       }
     }
@@ -7496,17 +7540,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** ^W G in a split: the person chooses this tile or the whole split (a list picker, the tile menu's own kind). */
   askGather(sel: string | undefined, offer: { node: string; names: string[] }): TileDone {
     const t = this.tile(sel);
-    const rows: { label: string; args: Record<string, unknown> }[] = [
-      { label: `this tile · ${t.name}`, args: {} },
-      { label: `the whole split · ${offer.names.join(", ")}`, args: { node: offer.node } },
+    // In a group (gone in), its whole desk gathered again would be the group: the question offers to spill it instead (PIE-1775).
+    const h = this.holder, whole = this.inGroup() && leaves(this.root).length === offer.names.length, up = h?.desk();
+    const rows: { label: string; run: () => unknown }[] = [
+      { label: `this tile · ${t.name}`, run: () => this.run("tile.group", {}, t.name) },
+      whole && up ? { label: `spill the group · ${offer.names.join(", ")} back onto the screen`, run: () => { h!.tile instanceof ScreenTile && h!.tile.goIn(false); return up.run("tile.group", { on: false }, up.nameOfPane(h!.tile)); } } : { label: `the whole split · ${offer.names.join(", ")}`, run: () => this.run("tile.group", { node: offer.node }, t.name) },
     ];
-    this.overlay(new ListPicker<{ label: string; args: Record<string, unknown> }, Desk>({
+    this.overlay(new ListPicker<{ label: string; run: () => unknown }, Desk>({
       name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
       row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-      choose: (it, _i, d) => void d.run("tile.group", it.args, t.name),
+      choose: it => void it.run(),
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
     }));
-    return { ...this.tileAnswer(t.id), asked: true };
+    return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }
 
   /** This screen is a group's: its tiles can go back out. */
@@ -8195,128 +8241,6 @@ export interface ExtLink { pane?: Pane; path?: string; verb: WireVerb; rule?: Al
 /** Where a new tile beside another goes, as its opener prefers (PIE-1559): the layout's `Beside` without the tile. */
 type Lands = Omit<Beside<number>, "kind" | "target">;
 const placeOf = (where: Where, at: number): At<number> => (where === "next" ? { kind: "next", from: at } : where === "tabs" ? { kind: "tabs", target: at } : where.startsWith("edge-") ? { kind: "edge", dir: where.slice(5) as Dir } : { kind: "split", target: at, dir: where as Dir });
-
-// ── the desk's overlays (the layout picker, the policy panel, the search): pickers on its mode stack ─────────
-
-type DeskPicker = ListPicker<any, Desk>;
-
-/** ^W r: the layouts to lay this screen out as: the built-ins, and the screens people made (screen notes). */
-function layoutPicker(items: { name: string; title: string; saved: boolean; builtin: boolean }[]): DeskPicker {
-  return new ListPicker({
-    name: "layouts", items: () => items,
-    row: (it, _i, on, w) => [...pickRows(` ${it.title}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
-    choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as" }),
-  });
-}
-
-/** ^W w: the name to save this screen as (its own, typed over): a screen note in the outline. */
-function screenSaver(name: string): DeskPicker {
-  return linePrompt<Desk>({
-    name: "layouts", title: "save this screen as", text: name, w: 100,
-    doing: t => (screenNotes().some(n => n.name === screenSlug(t)) ? `save it over the screen ${t.trim()} (a note in the outline)` : `save it as ${t.trim()}, a screen note in the outline`),
-    // The reason shows as it's typed, and ⏎ on a name that can't be saved leaves the prompt open with what was typed.
-    hint: t => { const why = screenTitleProblem(t); return why ? { text: why, warn: true } : { text: `saves as ${screenSlug(t)}`, ...{} }; },
-    done: (t, d) => void d.saveFromPrompt(t),
-  });
-}
-
-/**
- * The screens to open: the ones people made, then the built-ins that open on nothing in particular. ⏎ or a double click
- * is screen.open; x on one a person made is screen.delete (twice: it asks first).
- */
-function screensToOpen(): { name: string; title: string; made: boolean }[] {
-  const made = screenNotes().map(n => ({ name: n.name, title: n.title, made: true }));
-  return [...made, ...screenNames().filter(n => !made.some(m => m.name === n) && !screenTargetArg(n) && n !== "home").map(name => ({ name, title: name, made: false }))];
-}
-function screenPicker(): DeskPicker {
-  const items = screensToOpen;
-  const p: DeskPicker = new ListPicker<{ name: string; title: string; made: boolean }, Desk>({
-    name: "screens", items,
-    row: (it, _i, on, w) => [...pickRows(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
-    // screen.open is the App's (the shell's), as the menu's letters run it.
-    choose: (it, _i, d) => void d.ctx.press?.("screen.open", { name: it.name }),
-    bindings: [{ key: "x", action: "screen.delete", label: "delete made screen" }],
-    dispatch: (_, d) => { const it = items()[p.sel]; if (it?.made) d.run("screen.delete", { name: it.name }); },
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen" }),
-  });
-  return p;
-}
-
-/** A part dropped on a note (PIE-1247): embed it there (a reference, live), or copy its own lines (a figure with its query). */
-function dropAsPicker(title: string, then: (as: "reference" | "copy") => void): DeskPicker {
-  const items = [
-    { as: "reference" as const, label: "embed it: a reference that stays live (its anchor written if it has none)" },
-    { as: "copy" as const, label: "copy it: its own lines, a figure with its query, answering for this note" },
-  ];
-  return new ListPicker({
-    name: "drop-as", items: () => items,
-    row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-    choose: it => then(it.as),
-    frame: (a, n) => ({ rect: centred(a, Math.min(84, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: `into ${title}` }),
-  });
-}
-
-/** A kind's choices for a new tile (a query tile's view): one picked runs `then`. */
-function choicePicker(title: string, items: { label: string; spec: Partial<TileSpec> }[], then: (it: { label: string; spec: Partial<TileSpec> }) => void): DeskPicker {
-  return new ListPicker({
-    name: "choices", items: () => items,
-    row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
-    choose: it => then(it),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title }),
-  });
-}
-
-/**
- * ^W P: the containers over a tile (the screen first, then each one down to it) and one's policy, a row per field.
- * ⏎, space or a click changes a row through the same action an agent calls; h l (or a click on a name) pick the
- * container; + - change a size; esc, q or a click outside closes it.
- */
-function policyPanel(d: Desk, tile: number): DeskPicker {
-  let wireWidth = 0;
-  let node = Number.MAX_SAFE_INTEGER, crumbs: { from: number; to: number; y: number; i: number }[] = [];
-  const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
-  const rows = () => [...d.wireRows(tile), ...d.policyRows(tile, nodes()[node]!.node)];
-  const first = () => d.wireRows(tile).length;
-  const p: DeskPicker = new ListPicker<PanelRow, Desk>({
-    name: "policy", items: rows, closers: "q", stays: true,
-    closed: () => { d.run("tile.link", { ask: false }); },
-    row: (r, _i, on, w) => {
-      wireWidth = w;
-      const text = ` ${r.label}${!r.clear && !r.wide ? ` ${r.value}` : ""}`;
-      return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map(line => line + (r.clear ? pickRow(" × ", on, 4) : ""));
-    },
-    clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
-    choose: r => r.run?.(),
-    bindings: [
-      ...["left", "h", "right", "l"].map(key => ({ key, action: "policy.container", label: "container", args: { by: ["left", "h"].includes(key) ? -1 : 1 } })),
-      { key: "space", action: "policy.change", label: "change" },
-      { key: "x", action: "policy.clear", label: "clear wire" },
-      ...["+", "-"].map(key => ({ key, action: "policy.size", label: "size", args: { by: key === "+" ? 1 : -1 } })),
-    ],
-    dispatch: binding => {
-      switch (binding.action) {
-        case "policy.container": node = Math.max(0, Math.min(nodes().length - 1, node + (binding.args!.by as number))); p.sel = first(); break;
-        case "policy.change": rows()[p.sel]?.run?.(); break;
-        case "policy.clear": rows()[p.sel]?.clear?.(); break;
-        case "policy.size": rows()[p.sel]?.adjust?.(binding.args!.by as number); break;
-      }
-    },
-    clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = first(); } return !!n; },
-    frame: (a, n) => {
-      const rect = centred(a, Math.min(96, a.cols - 4), Math.min(a.rows - 4, n + 4));
-      let x = rect.col + 2, line = " ";
-      crumbs = [];
-      nodes().forEach((c, i) => {
-        if (i) { line += fg(C.dark) + " › " + RESET; x += 3; }
-        crumbs.push({ from: x, to: x + c.label.length, y: rect.row + 1, i });
-        line += (i === node ? selected() : fg(C.grey)) + c.label + RESET; x += c.label.length;
-      });
-      return { rect, title: "policy", head: [line, ""] };
-    },
-  });
-  return p;
-}
 
 interface DeskOn { d: Desk; reader?: string; standing: boolean }
 
