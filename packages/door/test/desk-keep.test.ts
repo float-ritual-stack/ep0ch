@@ -3,7 +3,7 @@
 // by his keys, or an agent's act on the same door. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { TallyDoors, type Pane } from "./tally-pane";
+import { beanDesk, TallyDoors, type Pane } from "./tally-pane";
 
 type Tile = { tile: string; name: string; kind: string; focused: boolean; wires: { verb: string; to: string }[]; showing?: { title: string } };
 const layers = (p: Pane) => JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; screen: string; tiles: Tile[] }[];
@@ -38,4 +38,21 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the desk keeps what Evan made 
       expect(wires(deskOf(again))).toEqual(wires(before!));
     } finally { again.close(); }
   }, 90_000);
+
+  // An agent's tile.group naming the answer tile and a reader answered "grouped answer, detail3", and the group held only
+  // detail3: the answer was gone from the screen. Evan's own gather of the edit and its answer keeps it.
+  test("an agent's group of the answer tile and a reader holds both", async () => {
+    const p = await beanDesk(doors);
+    try {
+      p.keys("Escape");
+      await until(() => !p.capture().includes("editing"), "out of the edit");
+      const grouped = p.act("tile.group", "tile=answer", "with=detail3");
+      expect(grouped.ok).toBe(true);
+      await Bun.sleep(500);
+      const ls = layers(p), group = ls.find(l => l.screen === "group");
+      console.log(JSON.stringify(ls.map(l => [l.screen, l.tiles.map(t => t.name)])));
+      expect(group?.tiles.map(t => t.name).sort()).toEqual(["answer", "detail3"]);
+    } finally { p.close(); }
+  }, 90_000);
 });
+
