@@ -30,8 +30,8 @@
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, Span, TextEdit, Tx};
-use rune_kit::{TextArea, TextInput};
+use rune::{Chord, ChordKey, El, Key, KeyEvent, Mods, Span, TextEdit, TextStyle, Tx, col, text_input};
+use rune_kit::{Kit, TextInput};
 use serde_json::{Value, json};
 
 use crate::actions::row::KeyRow;
@@ -450,12 +450,34 @@ pub fn input(text: &Text, field: Field) -> TextInput {
     TextInput::new(&text.0).on_edit(move |s: &mut App| &mut s.field(&edits).0).on_change(move |s: &mut App, _| s.typed(&typed)).on_key(table_first(field, false))
 }
 
-/// A field of lines over `field`'s text: the kit's text area, its keys through the table. `lit`: the ranges of its
-/// words (bytes) to draw on `ground`: what somebody else just wrote there.
-pub fn area(text: &Text, field: Field, lit: &[std::ops::Range<usize>], ground: rune::Color) -> TextArea {
-    let (edits, typed) = (field.clone(), field.clone());
-    let area = TextArea::new(&text.0).on_edit(move |s: &mut App| &mut s.field(&edits).0).on_change(move |s: &mut App, _| s.typed(&typed)).on_key(table_first(field, true));
-    if lit.is_empty() { area } else { area.spans(lit.iter().map(|range| Span { bg: Some(ground), ..Span::new(range.start, range.end) }).collect::<Vec<_>>()) }
+/// A field of lines over a draft's text, on `tile`: the block's source, a comment, a reply. Its keys go through the
+/// table, and a paste into it is the window's to take (`App::pasted`), before the editor: the words go in with
+/// their line ends made plain, as one step. That is why it is Rune's own text field in the kit's text area's frame
+/// (its fill, its ring, its line height, built from the kit's tokens) and not the kit's `TextArea`: the kit hands a
+/// field's keys and changes over, and no paste. `named`: what it is called and what it says while empty; `rows`:
+/// how tall it is with nothing in it. `lit`: the ranges of its words (bytes) to draw on `ground`: what somebody
+/// else just wrote there.
+pub fn area(text: &Text, tile: &str, named: (&str, &str), rows: usize, lit: &[std::ops::Range<usize>], ground: rune::Color, k: &Kit) -> El {
+    let c = &k.c;
+    let field = Field::Draft(tile.to_string());
+    let (edits, typed, pasted) = (field.clone(), field.clone(), tile.to_string());
+    let style = TextStyle { line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0, ..k.ty.ui };
+    let mut input = text_input(&text.0, style)
+        .key("input")
+        .w_full()
+        .color(c.text_base)
+        .placeholder(named.1, c.text_faint)
+        .caret(c.text_base, k.selection())
+        .label(named.0)
+        .on_edit(move |s: &mut App| &mut s.field(&edits).0)
+        .on_input_change(move |s: &mut App, _| s.typed(&typed))
+        .on_input_key(table_first(field, true))
+        // A paste, however it was asked for (the platform's chord, the field's own menu): the window's, never the editor's.
+        .on_input_paste(move |s: &mut App, content: &rune::ClipboardContent, _| { s.pasted(&pasted, content.text()); true });
+    if !lit.is_empty() { input = input.spans(lit.iter().map(|range| Span { bg: Some(ground), ..Span::new(range.start, range.end) }).collect::<Vec<_>>()) }
+    let frame = col().role("textbox").padding(8.0).w_full().min_h((rows.max(1) as f32 * style.line_px() + 16.0).max(80.0)).child(input).radius(k.radius.md).fill(c.bg_base).token_motion(k.motion.control);
+    if text.0.focused { return frame.outline(1.0, -1.0, c.border_focus) }
+    k.shadow_layers(k.elevation.input()).fold(frame, El::box_shadow).hover(c.hover)
 }
 
 /// A field's text as its editor holds it (the kit's `TextEdit`: the words, the caret, the selection, the way back),
@@ -497,11 +519,11 @@ impl Text {
 }
 
 /// What an act asked of the next frame, done: an element brought into view, the window closed, the clipboard read
-/// for a paste into a program. True when something moved.
+/// for a paste into a program or into a block being written. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if s.closing { tx.close_window() }
     // A paste asked for with no words of its own is the clipboard's: read here, where the window's hands are, and
-    // handed to the program the person was in when they asked.
+    // handed to the tile the person was in when they asked (its program, or the block being written there).
     if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| s.pasted(&tile, content.text())) }
     match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }

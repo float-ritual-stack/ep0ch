@@ -206,10 +206,14 @@ impl App {
     /// The tile a paste was asked into with no words of its own, once: the clipboard is read for it (`keys::effects`).
     pub fn pasting(&mut self) -> Option<Id> { self.st.pasting.take() }
 
-    /// The clipboard's words, for the tile that asked: pasted into its program.
+    /// Words handed over as a paste, for a tile: the clipboard's, read for the tile that asked (`terminal.paste`,
+    /// `draft.paste`), or a paste the field of a block being written took. Into the block being written there
+    /// (`App::paste_in`), else into the tile's program.
     pub fn pasted(&mut self, tile: &str, text: &str) {
+        if text.is_empty() { return }
+        if self.draft_on(tile).is_some() { return self.paste_in(tile, text) }
         let Some(program) = self.ui(tile).program.clone() else { return };
-        if !text.is_empty() { self.store.program_do(&program, |term| term.paste(text)); }
+        self.store.program_do(&program, |term| term.paste(text));
     }
 
     /// A tile's program ends as its tile closes, wherever it runs: on a plain pty with its handle, and where a
