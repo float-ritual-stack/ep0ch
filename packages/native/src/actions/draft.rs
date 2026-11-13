@@ -124,7 +124,20 @@ impl App {
         draft.hold = Hold::Asked;
         let request = json!({ "blockId": note, "clientId": self.store.client(), "revision": draft.revision, "leaseMs": draft::LEASE.as_millis() as u64 });
         let at = self.at.clone();
+        self.store.holding(&at, note);
         self.store.request(&at, "drafts.hold", request, &Actor::Person, held, json!({ "note": note }));
+    }
+
+    /// Every draft's hold is let go and its words kept: the window leaves their outline, and nobody is in front of
+    /// them now. Held again when it comes back (`hold_all`).
+    pub(super) fn unhold_all(&mut self) {
+        let at = self.at.clone();
+        for index in 0..self.drafts.len() {
+            let note = self.drafts[index].note.clone();
+            if let Some(id) = self.drafts[index].hold_id().map(str::to_string) { self.store.request(&at, "drafts.release", json!({ "holdId": id }), &Actor::Person, unheard, Value::Null) }
+            self.store.let_go(&at, &note);
+            self.st.drafts[index].hold = Hold::None;
+        }
     }
 
     /// Every draft is held again: the link was made, or made again, and the holds ended with the old one.
@@ -206,6 +219,8 @@ impl App {
             self.seat(DraftSession::new(tile, kept.note, kept.revision, kept.base, buf), &Actor::Person);
             back += 1;
         }
+        // What another window's file held is in this one's hands now: that file is done with.
+        if self.recovered.is_empty() { for stray in std::mem::take(&mut self.strays) { let _ = std::fs::remove_file(stray); } }
         if back > 0 {
             let save = keys::cap("edit.save").map_or(String::new(), |cap| format!(" {cap} saves it."));
             self.st.notice = Some(Notice::info(format!("{} is back in its block: the window closed before it was saved.{save}", if back == 1 { "What you were writing".to_string() } else { format!("What you were writing in {back} notes") })));
@@ -217,10 +232,9 @@ impl App {
     fn end(&mut self, tile: &str) {
         let Some(index) = self.drafts.iter().position(|draft| draft.tile == tile) else { return };
         let draft = self.st.drafts.remove(index);
-        if let Some(id) = draft.hold_id() {
-            let at = self.at.clone();
-            self.store.request(&at, "drafts.release", json!({ "holdId": id }), &Actor::Person, unheard, Value::Null);
-        }
+        let at = self.at.clone();
+        if let Some(id) = draft.hold_id() { self.store.request(&at, "drafts.release", json!({ "holdId": id }), &Actor::Person, unheard, Value::Null) }
+        self.store.let_go(&at, &draft.note);
         self.remember();
     }
 
@@ -309,6 +323,8 @@ fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     if let Some(draft) = app.draft_of(&page.id) {
         return Outcome::refused(if draft.tile == tile { "the note is already open for editing".to_string() } else { format!("the note is being written in {}: tile.focus goes there", app.layout.name(&draft.tile)) });
     }
+    // A block is written in one window at a time: the service's hold is one a run, and its asks go to one holder.
+    if let Some(window) = app.store.held_elsewhere(&app.at, &page.id) { return Outcome::refused(format!("the note is being written in another window ({window}): save or close it there first")) }
     let (note, revision, text) = (page.id.clone(), page.revision, page.text.clone());
     app.begin(tile, note, revision, text, by);
     Outcome::done()

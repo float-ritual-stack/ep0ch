@@ -22,7 +22,8 @@ down for native to be tested against, are [below](#the-contract-tables).
 
 Three more things turned up, two of them bugs in the spike. They are reported and not fixed
 ([Found on the way](#found-on-the-way)). W5 added one more answer, from building on it: how Rune's text editing
-carried a block editor ([12](#12-the-block-editor-w5)).
+carried a block editor ([12](#12-the-block-editor-w5)). W7 answered the one about several windows the same way
+([13](#13-several-windows-w7)).
 
 ## How to run
 
@@ -468,6 +469,48 @@ What could not be done:
 window's own beside the arrangement's, written as typed, not `edit-recovery.*` (that is the service's record of a
 merge after a conflict, which this window doesn't start yet).
 
+## 13. Several windows (W7)
+
+**A tile torn out is a second Rune window with a state of its own, over a store both windows share.** W0 left
+"several windows" unanswered: one window, one `AppHandle`. Built on and run where it could be: `src/tests/ext.rs`
+(two windows as two headless runtimes on one store), `docs/window-dark.png` (the second window drawn headless).
+What a real second window on a display does was not run here: there is no display in this container.
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Can a window be opened while the app runs? | **Yes: `rune::open_window(WindowSpec)`** from the UI thread; it starts at the end of the turn. Read, and built on; not run on a display. | Rune `window/spec.rs`; `shell::open` |
+| Do two windows share one state? | **No. Each window owns its state** (`WindowSpec::state`), its retained tree, focus and clocks. Rune's own words: share handles or services between states. So "one Store" can't be one struct two views borrow. | Rune's README, "Multiple windows" |
+| What is shared, then? | **A hub behind one cell**, on the UI thread: the links, the slots, the watch keys, what is out. Each window's `Store` is a face on it and keeps the answers as it last took them, so a view reads plain references and never the cell. | `store.rs`; `a_tile_torn_out_is_a_second_window…` |
+| How does a window hear what another's turn landed? | **Every link's line wakes every window** (one waker a window, called together), and each window's `poll` takes what is in its own inbox. | `Hub::waker`, `Store::take` |
+| Whose is an event with no asker? | **The hub is told by the action that knows:** a script's act goes to the window that pressed, a draft's ask to the window that holds the block; a run's end goes to every window, and the ones that never knew the run pass it by. | `Store::pressing`, `Store::holding` |
+| One `AppHandle` a window? | **Yes: `WindowSpec::from_app(key, app)` keeps the app's own handle,** so the control socket reaches each window by a name. | `control::Windows`; `the_control_socket_names_which_window_an_act_is_for` |
+| Can a headless run draw the second window? | **Not through Rune: a headless run opens no window**, and Rune's `--window` picks among windows made before the run. The window's state is the act's to make, so `--act <file> --torn <name>` hands Rune that state as the one window it draws. | `main.rs`; `docs/window-dark.png` |
+
+What had to be worked around:
+
+- **A state is moved into its window once.** `rune::App::init` takes a closure that runs once, so the act makes the
+  whole `App` for the new window and the shell hands it over (`App::born`): nothing of the first window's state is
+  borrowed by the second.
+- **A scene runs after `init`, an `--act` file inside it.** A torn window exists only once the act has run, so
+  `--torn` works with `--act`, not with `--scene`.
+- **A link is registered once, however many windows use it** (`events.subscribe` names the run, not a window): the
+  service aims a script's act and a draft's ask at the run, and the hub says which window.
+- **A lost link is every window's news and one window's to make again.** Each window on that outline hears it;
+  the first to reconnect makes the link, and the next finds it there (`Store::linked`).
+
+What could not be done, or was not run:
+
+- **A real window on a display**, a drag of a tab out of its strip by the pointer (`TabStrip::on_tear_out`), the
+  window dropped back in, focus moving between two native windows: none run. The tile is torn by its action.
+- **Two windows writing one block.** Not offered: the service's hold is one a run and its asks go to one holder,
+  so a block is written in one window at a time. `edit` on a note another window is writing is refused, naming
+  the window (`Store::held_elsewhere`).
+- **A torn window across a restart.** It keeps what is written in it, in a file of its own that the next run's
+  first window reads; it is not opened again.
+
+**DESIGN.md §7 "Typed handlers, windows":** "windows share one Store and budget, each with its own layout" stands,
+with the store as a hub and a face a window.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
@@ -531,5 +574,6 @@ What the tables do not hold:
 - **GPU cost:** every render time here is lavapipe's.
 - **Covered and minimised windows:** Xvfb has no window manager, so only `hide` was run.
 - **A real pty:** the stream is canned. No program, no parser, no input latency.
-- **Several windows:** one window, one `AppHandle`. A torn-out tab's second window was not opened.
+- **Several windows:** answered in W7 by building on it ([13](#13-several-windows-w7)); a second window on a real
+  display, and a tab torn by the pointer, were still not run.
 - **macOS:** everything ran on Linux under X11.

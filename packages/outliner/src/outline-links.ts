@@ -20,6 +20,19 @@ const SILENT_FOR_MS = 30_000;
 const PROBE_MS = 5_000;
 const FAIR_CHANCE_MS = 1_000;
 
+/** `outlines.known`: which outlines there are to open from here. Asked of an outline's service, answered by its host. */
+export interface KnownOutlinesRequest { id: string; action: "outlines.known" }
+
+/**
+ * `outlines.known`'s answer: this machine's outlines (`here`: the one that was asked), then the ones on each machine
+ * this one holds a forward to, by that machine's ssh name. `away` names a machine that didn't answer: its outlines are
+ * the copies kept here, as of when.
+ */
+export interface KnownOutlines {
+  outlines: { name: string; machine?: string; here?: true }[];
+  away?: AwayMachine[];
+}
+
 /** The host supplies stores; the per-outline server never opens another outline itself. */
 export class OutlineLinks {
   constructor(private names: () => string[], private open: (name: string) => Promise<OutlinerStore>, private folder: string) {}
@@ -103,7 +116,19 @@ export class OutlineLinks {
     return answers.flat();
   }
 
+  /** Every outline there is to open from `from`: the ones here, then each forwarded machine's own list (a silent one's copies). It opens none. */
+  private async known(from: string): Promise<KnownOutlines> {
+    const away = new Map<string, AwayMachine>();
+    const there = await this.forwarded(async remote => ({ name: remote.outline, machine: remote.machine }), away, Date.now() + 1500);
+    const by = <T extends { name: string; machine?: string }>(a: T, b: T) => (a.machine ?? "").localeCompare(b.machine ?? "") || a.name.localeCompare(b.name);
+    return {
+      outlines: [...this.names().sort().map(name => ({ name, ...(name === from ? { here: true as const } : {}) })), ...there.sort(by)],
+      ...(away.size ? { away: [...away.values()] } : {}),
+    };
+  }
+
   async read(from: string, request: OutlinerRequest): Promise<{ result: unknown } | undefined> {
+    if (request.action === "outlines.known") return { result: await this.known(from) };
     if (!["references.resolve", "pages.resolve", "pages.complete", "references.backlinks", "transclusions.read", "blocks.authored-links"].includes(request.action)) return;
     const local = await this.open(from);
     const away = new Map<string, AwayMachine>();

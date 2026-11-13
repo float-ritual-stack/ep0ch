@@ -31,8 +31,9 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 test("each list main kept is now one column of the table", () => {
-  // screens.list and screens.save are answered by their own module, which asks the service for what it reads and writes.
-  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read"]));
+  // screens.list and screens.save are answered by their own module, which asks the service for what it reads and writes;
+  // so are lists.read, tiles.view (a rendered tile's view) and outlines.known (the host's listing, else the module's).
+  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read", "tiles.view", "outlines.known"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
   expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", "properties.patch", ...MARKS.writes]));
   expect(sorted(DECLARED.events)).toEqual(sorted([...MAIN.events, ...MARKS.writes]));
@@ -41,12 +42,14 @@ test("each list main kept is now one column of the table", () => {
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
   // outlines.backup: the host's copy of an outline, so nothing else opens its file (PIE-1750).
   expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "screens.list", "lists.read", ...MARKS.reads]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "screens.list", "lists.read", "tiles.view", "outlines.known", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "properties.patch", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",
     // PIE-1711: yo reads a find's words into a query, as the facets tile's query line does.
-    "query.suggest", "screens.list", "lists.read"]));
+    "query.suggest", "screens.list", "lists.read",
+    // Plain reads as those two are: what a script renders for a tile, and the names of the outlines there are.
+    "tiles.view", "outlines.known"]));
 });
 
 test("a read a module answers and keeps watched says so on its row, and is listed with the rest", () => {

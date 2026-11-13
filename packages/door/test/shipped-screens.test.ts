@@ -22,7 +22,7 @@ test("the screens that are data alone are the screens extension's, read from its
   expect(SHIPPED_EXTENSION).toBe("screens");
   holdShippedScreens();
   const theirs = screenNames().filter(name => extensionScreen(name) === SHIPPED_EXTENSION);
-  expect(theirs.sort()).toEqual(["lastcall", "navigator", "who"]);
+  expect(theirs.sort()).toEqual(["kitchen", "lastcall", "navigator", "who"]);
   for (const name of theirs) expect(screenSpec(name), name).toEqual(readSpec(MANIFEST.screens.find(s => s.name === name)));
   // Opened on a target, the tile its spec says carries it: the navigator's query is data, not a function here.
   expect(screenTargetArg("navigator")).toBe("query");
@@ -48,8 +48,8 @@ test("a kind's description is its row's, and its served name is the door's own k
   for (const row of MANIFEST.tiles) {
     const own = row.replaces[0]!;
     const kind = tileKind(own);
-    // A kind the door has no drawer for (the properties list) isn't one of its kinds: a tile of it says so.
-    if (!kind) { expect(own).toBe("props"); continue; }
+    // A kind the door has no drawer for (the properties list, the extensions and the outlines as lists) isn't one of its kinds: a tile of it says so.
+    if (!kind) { expect(["props", "extensions", "outlines"]).toContain(own); continue; }
     expect(kind.about, own).toBe(row.description);
     expect(shippedAbout(own)).toBe(row.description);
     expect(resolveKind(`${MANIFEST.id}.${row.kind}`), row.kind).toBe(own);
@@ -91,7 +91,7 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
 
   test("installed, the door opens its screens as the host serves them; removed by the bar's row and by act, the service lists none, and it comes back the same two ways", async () => {
     // On from the start: the service lists its screens and kinds, and the door's three are the served ones.
-    expect(await theirs()).toEqual({ screens: ["board", "desk", "lastcall", "navigator", "who"], kinds: 9 });
+    expect(await theirs()).toEqual({ screens: ["board", "desk", "kitchen", "lastcall", "navigator", "who"], kinds: 11 });
     for (const name of ["navigator", "lastcall", "who"]) expect(extensionScreen(name), name).toBe("screens");
     expect(app.describe().messages.filter(m => /screens/.test(m.message) && /isn't registered/.test(m.message))).toEqual([]);
     // Used once: last callers opens from its name, its tiles the door's own kinds under the names the rows serve.
@@ -111,8 +111,8 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
 
     // Back by act, as an agent installs it.
     await app.act({ action: "extensions.install", args: { id: "screens" }, as: "test-agent" });
-    await serves(9);
-    expect((await theirs()).screens).toEqual(["board", "desk", "lastcall", "navigator", "who"]);
+    await serves(11);
+    expect((await theirs()).screens).toEqual(["board", "desk", "kitchen", "lastcall", "navigator", "who"]);
 
     // And the other way round: removed by act, installed by the bar's row.
     await app.loadExtensions(true);
@@ -120,7 +120,7 @@ describe.skipIf(!outliner)("the screens extension, against a scratch outline", (
     await serves(0);
     await app.loadExtensions(true);
     await pick("install:screens");
-    await serves(9);
+    await serves(11);
     await app.loadExtensions(true);
     for (const name of ["navigator", "lastcall", "who"]) expect(extensionScreen(name), name).toBe("screens");
   }, 120_000);

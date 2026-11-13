@@ -52,6 +52,10 @@ fn a_block_is_typed_in_completed_from_the_service_s_list_and_saved() {
     let found = rt.state.completing("reader").expect("the list is open").clone();
     assert_eq!(found.rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(), ["Seed list", "Shed", "Sowing calendar"]);
     assert_eq!(rt.state.person().layer, Layer::Complete);
+    // The hint row under the block's field says the keys of the layer they are in: the list's, while it is open.
+    assert!(rt.find("tile/reader/editor-keys").is_some());
+    let hints: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
+    assert!(["put the list away", "write the lit row"].iter().all(|does| hints.iter().any(|said| said == does)) && !hints.iter().any(|said| said == "leave the editor, when everything is saved"), "the list's keys, not the draft's: {hints:?}");
     for n in 1..=3 { assert!(rt.find(&format!("tile/reader/complete-option-{n}")).is_some(), "row {n} of the list is drawn") }
     // One more letter narrows it: asked again for what is there now.
     typed(&mut rt, "h");
@@ -450,6 +454,8 @@ fn a_list_with_nothing_to_choose_from_keeps_only_escape() {
     assert_eq!(rt.state.person().layer, Layer::Said);
     chord(&mut rt, Key::Escape, Mods::default());
     assert_eq!((rt.state.person().layer, rt.state.completing("reader").is_none(), draft(&rt.state).is_some()), (Layer::Draft, true, true), "Escape puts the list away and leaves the block");
+    assert_eq!(crate::keys::hints(Layer::Said).first().map(|(_, does)| *does), Some("put the list away"), "a list with only a word to say: Escape is its own");
+    assert_eq!(crate::keys::hints(Layer::Said)[1..], crate::keys::hints(Layer::Draft)[1..], "and every other key is the draft's still");
     typed(&mut rt, "z");
     assert_eq!(rt.state.person().layer, Layer::Said, "typed on, it says so again");
     let (steps, end) = (rt.state.steps.len(), words(&rt.state).len());

@@ -4,6 +4,10 @@
 //!
 //! - `{cmd: "act", action, args?, tile?, as?}` runs one action as the agent `as` names, through the same
 //!   dispatcher as a key or a press. It takes no pointer, no focus and no selection.
+//! - **A request is for one window.** A run may have several (a tile torn out is a window of its own), and each
+//!   is named: `window` says which (in the request, or as `window=<name>` among an act's own words, which is how
+//!   the door's client carries it); left out, it is the run's first. `peek` answers the window's name and every
+//!   window there is; a name none has is refused with the ones there are.
 //! - `{cmd: "peek"}` answers the window's state: `{screen: {screen, focus, whereabouts, watches, tiles, …}, text}`.
 //! - `{cmd: "actions"}` lists every action as its row.
 //!
@@ -14,6 +18,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -27,13 +32,42 @@ use crate::{bar, keys, tiles};
 /// Work for the UI thread.
 pub type Job = Box<dyn FnOnce(&mut App, &mut Tx) + Send>;
 
-/// The way onto the UI thread: the window's handle, or a test's own loop.
+/// The way onto a window's UI thread: the run's windows by name, or a test's own loop. `window`: the one a
+/// request names (none: the run's first). Refused, with the windows there are, when none has that name.
 pub trait Ui: Clone + Send + 'static {
-    fn run(&self, job: Job);
+    fn run(&self, window: Option<&str>, job: Job) -> Result<(), String>;
 }
 
-impl Ui for rune::AppHandle<App> {
-    fn run(&self, job: Job) { self.update(move |s, tx| job(s, tx)) }
+/// The windows of this run an agent can reach, in the order they opened: each its name and the way onto its UI
+/// thread. The shell adds one as it opens it (`here`) and a window takes itself out as it closes (`gone`).
+static WINDOWS: Mutex<Vec<(String, rune::AppHandle<App>)>> = Mutex::new(Vec::new());
+
+/// A window is open: agents reach it by `name`.
+pub fn here(name: &str, handle: rune::AppHandle<App>) {
+    let mut windows = WINDOWS.lock().unwrap();
+    windows.retain(|(theirs, _)| theirs != name);
+    windows.push((name.to_string(), handle));
+}
+
+/// A window is closing (its `on_close`): nothing reaches it by its name any more.
+pub fn gone(s: &mut App, _: &mut Tx) {
+    let name = s.window();
+    WINDOWS.lock().unwrap().retain(|(theirs, _)| *theirs != name);
+}
+
+/// The run's windows, as the control socket reaches them.
+#[derive(Clone)]
+pub struct Windows;
+
+impl Ui for Windows {
+    fn run(&self, window: Option<&str>, job: Job) -> Result<(), String> {
+        let windows = WINDOWS.lock().unwrap();
+        let found = match window { Some(name) => windows.iter().find(|(theirs, _)| theirs == name), None => windows.first() };
+        match found {
+            Some((_, handle)) => { handle.update(move |s, tx| job(s, tx)); Ok(()) }
+            None => Err(format!("no window named {}: the windows are {}", window.unwrap_or("(none)"), windows.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))),
+        }
+    }
 }
 
 /// A served control socket: gone from the folder when this is dropped.
@@ -76,15 +110,29 @@ fn connection(stream: UnixStream, ui: impl Ui) {
     for line in BufReader::new(stream).lines().map_while(Result::ok) {
         if line.trim().is_empty() { continue }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(request) => {
+            Ok(mut request) => {
                 let (send, answered) = channel::<Value>();
-                ui.run(Box::new(move |s, tx| { let _ = send.send(answer(s, tx, &request)); }));
-                answered.recv_timeout(PATIENCE).unwrap_or_else(|_| json!({ "ok": false, "error": "the window didn't answer: its UI thread is busy or gone", "kind": "busy" }))
+                let window = window_of(&mut request);
+                match ui.run(window.as_deref(), Box::new(move |s, tx| { let _ = send.send(answer(s, tx, &request)); })) {
+                    Ok(()) => answered.recv_timeout(PATIENCE).unwrap_or_else(|_| json!({ "ok": false, "error": "the window didn't answer: its UI thread is busy or gone", "kind": "busy" })),
+                    Err(why) => json!({ "ok": false, "error": why, "kind": "invalid" }),
+                }
             }
             Err(_) => json!({ "ok": false, "error": "bad json" }),
         };
         if writeln!(out, "{reply}").is_err() { return }
     }
+}
+
+/// The word a request names its window by.
+const WINDOW: &str = "window";
+
+/// The window a request is for, taken out of it: its own `window`, else `window=` among an act's words (the door's
+/// client sends every `key=value` after the action as an argument). None: the run's first.
+fn window_of(request: &mut Value) -> Option<String> {
+    let named = request.get(WINDOW).and_then(Value::as_str).map(str::to_string);
+    let among = request.get_mut("args").and_then(Value::as_object_mut).and_then(|args| args.remove(WINDOW)).and_then(|word| word.as_str().map(str::to_string));
+    named.or(among).map(|name| name.trim().to_string()).filter(|name| !name.is_empty())
 }
 
 /// One request, answered on the UI thread.
@@ -139,6 +187,11 @@ pub fn peek(s: &App) -> Value {
     json!({
         "screen": {
             "screen": s.screen.name, "outline": s.at.outline, "machine": s.machine, "online": s.online,
+            // Which window this is, and every window of the run: an act names one with window=.
+            "window": s.window(), "windows": s.store().windows(),
+            // The outlines this window left, each kept as it was, and the form open over it.
+            "parked": s.parked.keys().map(|at| json!({ "outline": at.outline, "machine": at.machine })).collect::<Vec<_>>(),
+            "form": s.form.as_ref().map(|form| json!({ "extension": form.extension, "said": form.said, "fields": form.fields.iter().map(|field| json!({ "name": field.name, "text": field.edit.words(), "was": field.was })).collect::<Vec<_>>() })),
             "focus": person.focus, "whereabouts": person.json(), "watches": s.store().peek(), "tiles": tiles,
             // The arrangement as it would be saved, with each container's id, and how far `layout.undo` goes back.
             "layout": s.layout.save(), "revision": s.layout.rev, "undo": s.journal.len(),
@@ -159,5 +212,7 @@ fn listed(s: &App) -> Value {
         row["name"] = json!(action.row.id);
         row
     }).collect();
-    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(), "catalogue": tiles::described(s) })
+    json!({ "screen": s.screen.name, "note": s.subject(), "tiles": s.layout.names.0.iter().map(|(_, name)| name.clone()).collect::<Vec<_>>(), "actions": rows, "keys": keys::rows(s), "catalogue": tiles::described(s),
+        // What each installed extension adds, a row a thing, as the service lists them.
+        "extensions": s.extensions().map(|listed| listed.parts().iter().map(crate::ext::Part::json).collect::<Vec<_>>()) })
 }

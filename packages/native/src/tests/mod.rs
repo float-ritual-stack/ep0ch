@@ -17,11 +17,15 @@
 //! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
 //! - `drafts.rs`: a block written in place, as a person works: typed in, completed from the service's list, saved;
 //!   held on the service, read and patched under the caret; kept as typed and found back after the window ended.
+//! - `ext.rs`: extensions and outlines: one installed from the bar's row, used, configured by its form and removed;
+//!   a switch of outline and back to a block as it was being written; a tile torn into a second window over the
+//!   same store, a link an outline, and the control socket naming the window an act is for.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod contract;
 mod control;
 mod drafts;
+mod ext;
 mod garden;
 mod lists;
 mod live;

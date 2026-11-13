@@ -376,6 +376,10 @@ export const ACTIONS = {
   // One list, whatever it is of (list-producers.ts): a tree, a query's matches, a search, a note's links, lanes, facets,
   // the screens. Watched as `notes.page` is.
   "lists.read": { read: true, async: true, watch: "later" },
+  // What a tile an extension's script renders shows, as one view primitive (tile-view.ts). Watched as `notes.page` is.
+  "tiles.view": { read: true, async: true, watch: "later" },
+  // The outlines there are to open from here: this machine's and its forwards' (outline-links.ts). It opens none.
+  "outlines.known": { read: true, async: true },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
   "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },

@@ -112,6 +112,30 @@
       "replaces": [
         "who"
       ]
+    },
+    {
+      "kind": "extensions",
+      "name": "Extensions",
+      "description": "the outline's extensions: the ones installed (a row opens its page), each one's settings, and the ones the repo has that aren't installed (a row installs one); with words typed in its question, removing one too",
+      "drawer": "list",
+      "fields": {
+        "from": "extensions"
+      },
+      "replaces": [
+        "extensions"
+      ]
+    },
+    {
+      "kind": "outlines",
+      "name": "Outlines",
+      "description": "the outlines there are to open: this machine's and the ones on the machines it holds a forward to; a row switches the window to one",
+      "drawer": "list",
+      "fields": {
+        "from": "outlines"
+      },
+      "replaces": [
+        "outlines"
+      ]
     }
   ],
   "screens": [
@@ -130,6 +154,8 @@
         "bar.open",
         "bar.open scope=query",
         "bar.open scope=screens",
+        "bar.open scope=extensions",
+        "bar.open scope=outlines",
         "note.new",
         "tile.split",
         "screen.save",
@@ -361,6 +387,81 @@
           "t": "leaf",
           "kind": "who",
           "name": "who"
+        }
+      }
+    },
+    {
+      "name": "kitchen",
+      "title": "Kitchen",
+      "lands": "reader",
+      "toolbar": [
+        "bar.open",
+        "bar.open scope=screens",
+        "bar.open scope=extensions",
+        "bar.open scope=outlines",
+        "tile.tear",
+        "screen.reset"
+      ],
+      "layout": {
+        "focus": "reader",
+        "root": {
+          "t": "split",
+          "dir": "row",
+          "weights": [
+            0.3,
+            0.7
+          ],
+          "kids": [
+            {
+              "t": "split",
+              "dir": "col",
+              "weights": [
+                0.6,
+                0.4
+              ],
+              "kids": [
+                {
+                  "t": "leaf",
+                  "kind": "extensions",
+                  "name": "extensions"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "outlines",
+                  "name": "outlines"
+                }
+              ]
+            },
+            {
+              "t": "tabs",
+              "active": 0,
+              "tabs": [
+                {
+                  "t": "leaf",
+                  "kind": "reader",
+                  "name": "reader"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "props",
+                  "name": "props",
+                  "source": "tile:reader",
+                  "subject": "follows"
+                },
+                {
+                  "t": "leaf",
+                  "kind": "activity",
+                  "name": "activity",
+                  "wires": [
+                    {
+                      "verb": "select",
+                      "to": "reader"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       }
     }

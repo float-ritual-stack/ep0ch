@@ -25,6 +25,7 @@ import { clauseText } from "@ep0ch/outline-core/query-clauses";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { readLinks, type LiveHost } from "./publish-live";
+import { EXTENSION_PRODUCERS } from "./list-extensions";
 import type { ScreensList } from "./screens";
 
 /** What a client asks a list of. Declared here, beside the producers: types.ts names it once in the request union. */
@@ -53,16 +54,18 @@ export interface ListsRequest {
   kinds?: string[]; drawers?: string[];
 }
 
-type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
+export type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
 type Listed = { id: string; title?: string; hasChildren?: boolean; parentId?: string | null; updatedAt?: string; createdAt?: string; properties?: { key: string; value: string }[] };
-type Answered = Omit<ListAnswer, "from" | "anyChange">;
-interface Producer { row: ListSource; read(own: Own, request: ListsRequest): Promise<Answered> }
+export type Answered = Omit<ListAnswer, "from" | "anyChange">;
+export interface Producer { row: ListSource; read(own: Own, request: ListsRequest): Promise<Answered> }
 
 const NOTE_FIELDS = ["title", "hasChildren"] as const;
 const titled = (title: string | undefined) => title?.trim() ? title : "untitled";
 const row = (r: Omit<ListRow, "act">): ListRow => { const act = actOf(r.do); return act ? { ...r, act } : r; };
 const opens = (id: string): Activation => ({ open: id });
 const runs = (action: string, args: Record<string, string>): Activation => ({ run: { action, args } });
+/** The row helpers, for a module that adds sources of its own (list-extensions.ts). */
+export { row as listed, opens, runs };
 const names = (v: string[] | string | undefined): string[] => (typeof v === "string" ? v.split(/[\s,]+/) : v ?? []).map(s => s.trim()).filter(Boolean);
 const day = (iso: string | undefined) => iso?.slice(0, 10) ?? "";
 const capped = (limit: number | undefined) => Math.max(1, Math.min(typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : LIST_MAX_ROWS, LIST_MAX_ROWS));
@@ -283,9 +286,12 @@ const PRODUCERS: readonly Producer[] = [
   { row: { from: "screens", about: "Screens", placeholder: "A screen's name", params: [{ name: "query", about: "words of its name" }, { name: "kinds", about: "the tile kinds the asker draws" }, { name: "drawers", about: "the drawers the asker has" }], bar: {} }, read: screens },
 ];
 
+/** Every producer: the ones here, then the ones a module of its own adds (read when asked: the modules import each other). */
+const producers = (): readonly Producer[] => [...PRODUCERS, ...EXTENSION_PRODUCERS];
+
 /** The producers themselves, a row each: what a client may ask a list of, and which a command bar lists. */
 function sources(): Answered {
-  const rows = PRODUCERS.map(({ row: s }) => row({
+  const rows = producers().map(({ row: s }) => row({
     id: s.from, label: s.about, ...(s.placeholder ? { detail: s.placeholder } : {}), cells: [s.from, s.params.map(p => `${p.name}${p.required ? "" : "?"}`).join(" ")],
     // What it reads, a chip a parameter: a client hands a list its tile's fields by these names, and keeps no list of them.
     chips: s.params.map(p => ({ key: p.name, value: p.about })),
@@ -295,13 +301,13 @@ function sources(): Answered {
 }
 
 /** Every list source as it says of itself. */
-export const listSources = (): ListSource[] => PRODUCERS.map(p => p.row);
+export const listSources = (): ListSource[] => producers().map(p => p.row);
 
 /** `lists.read`: the list `from` names, by its producer; a name none has is refused with the ones there are. */
 export async function readList(own: Own, request: ListsRequest): Promise<ListAnswer> {
   const from = typeof request.from === "string" ? request.from : "";
   if (from === "sources") return { from, ...sources(), anyChange: true };
-  const producer = PRODUCERS.find(p => p.row.from === from);
-  if (!producer) throw new Refusal("invalid", `lists.read lists ${PRODUCERS.map(p => p.row.from).join(", ")} (from=sources says what each reads), not ${JSON.stringify(from)}`);
+  const producer = producers().find(p => p.row.from === from);
+  if (!producer) throw new Refusal("invalid", `lists.read lists ${producers().map(p => p.row.from).join(", ")} (from=sources says what each reads), not ${JSON.stringify(from)}`);
   return { from, ...await producer.read(own, request), anyChange: true };
 }

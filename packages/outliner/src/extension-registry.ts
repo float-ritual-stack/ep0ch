@@ -517,6 +517,12 @@ export class ExtensionRegistry {
     return slot && (slot.state === "active" || slot.state === "failed") ? slot.serving : undefined;
   }
 
+  /** The extension that ships a script's file (its manifest's `scripts[]`), as loaded: whose settings that script reads. */
+  shipperOf(script: { file?: string }): LoadedExtension | undefined {
+    const slot = script.file ? this.slots.find((candidate) => candidate.partOf && (candidate.script ?? candidate.serving?.script)?.file === script.file) : undefined;
+    return slot?.partOf ? this.loaded(slot.partOf) : undefined;
+  }
+
   /** The copy an extension's folder last loaded, whatever its state (a disabled one's too); none when shadowed or never loaded. */
   loaded(id: string): LoadedExtension | undefined {
     return this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed")?.serving;
