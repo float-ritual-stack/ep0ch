@@ -321,8 +321,23 @@ export class OutlineHost {
   private compactSweep: ReturnType<typeof setInterval> | undefined;
   private compact(outline: HostedOutline): void {
     if (this.options.readOnly) return;
-    try { if (outline.store.log.compact()) this.log(`Outline "${outline.name}": its change log compacted (a new genesis; the entries before the last one deleted)`); }
-    catch (error) { this.log(`Outline "${outline.name}": compacting its change log failed: ${error instanceof Error ? error.message : String(error)}`); }
+    // Each part on a tick of its own, after the requests waiting (PIE-1786): whether one is due (an estimate that scans
+    // the outline), the genesis (one transaction), then what it replaced given back a bounded step at a time.
+    const open = () => this.opened.get(outline.name) === outline;
+    const failed = (what: string, error: unknown) => this.log(`Outline "${outline.name}": ${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    const step = () => {
+      try { if (open() && outline.store.log.trim()) setTimeout(step, 0); }
+      catch (error) { failed("giving back its change log's space", error); }
+    };
+    let due = false;
+    try { due = outline.store.log.due(); } catch (error) { failed("compacting its change log", error); }
+    setTimeout(() => {
+      if (due && open()) {
+        try { outline.store.log.genesis(); this.log(`Outline "${outline.name}": its change log compacted (a new genesis; what it replaces goes, a step at a time)`); }
+        catch (error) { failed("compacting its change log", error); return; }
+      }
+      step();
+    }, 0);
   }
 
   private warmRecent(): void {

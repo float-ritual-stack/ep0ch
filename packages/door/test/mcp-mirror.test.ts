@@ -181,15 +181,14 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     await attic.request("mcp.access.configure", { level: "none" });
   }, 30_000);
 
-  /** A copy one schema behind this build (before the change log, 0012), at `path`: what the backup job's restic copy left there. */
+  /** A follower's copy one schema behind this build (before incremental vacuum, 0013), at `path`: one a deploy here left behind. */
   const asSchemaBehind = (name: string, path: string) => {
     rmSync(path, { force: true });
     const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [path]); } finally { source.close(); }
     const db = new Database(path);
     try {
-      for (const { name: trigger } of db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'log\\_%' ESCAPE '\\'").all() as { name: string }[]) db.exec(`DROP TRIGGER "${trigger}"`);
-      db.exec("DROP TABLE change_log; DROP TABLE log_state;");
+      db.exec("UPDATE log_state SET role = 'follower'");
       db.run(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
     } finally { db.close(); }
   };

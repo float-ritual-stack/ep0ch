@@ -58,9 +58,16 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 - **Compaction keeps the file in proportion:** an edit logs about 12 rows and 3 KB (measured: 600 writes on a scratch
   outline, 0.79 ms a write without the log and 0.94 ms with it; on 11,000 notes a genesis of 76,000 rows took 0.3 s and
   a rebuild from it 13 pages, 33 MB, 0.8 s). When what was logged since the newest genesis outgrows
-  4 times that genesis, the host writes a new genesis and deletes the entries before the previous one (on open and
-  hourly), so the file holds one generation back. A follower or an archive further behind than that rebuilds from the
-  newest genesis; the archive keeps the history.
+  a quarter of that genesis (PIE-1786; it was 4 times), the host writes a new genesis and deletes the old genesis and
+  everything before it, keeping the edits made since the old one (on open and hourly). A reader behind by less than a
+  generation reads on into the new genesis; one further behind rebuilds from it, and the archive keeps the history.
+  The freed pages go back to the disk at once: a file is `auto_vacuum = INCREMENTAL` (schema 13, made so by
+  `0013-incremental-vacuum.ts`) and the compaction runs `PRAGMA incremental_vacuum`. A compaction whose filesystem
+  can't hold a new genesis is refused, said in the host's log, and tried again the next hour.
+  - **What a file holds at its fullest:** the outline, one genesis and half a genesis of edits. The genesis is the
+    outline again as JSON, 0.8 to 1.4 times its packed size, so the file is about 2 to 2.7 times the outline (pie-sized,
+    after 0013: 509 MB for an outline of 211 MB). Serving a genesis from the tables instead of storing it is what would
+    take the file near 1x.
 
 ### 3. A range, and how a follower applies it
 

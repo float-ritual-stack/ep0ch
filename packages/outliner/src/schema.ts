@@ -26,7 +26,7 @@ import { CHANGE_LOG_SQL, initLogState, installLogTriggers, writeGenesis } from "
  * including those one subsystem uses alone (agent mentions, marks), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -931,6 +931,8 @@ export function openSchema(database: Database, label = "This database", path?: s
   if (version === SCHEMA_VERSION) return "current";
   const { objects } = database.query("SELECT COUNT(*) AS objects FROM sqlite_master").get() as { objects: number };
   if (version === 0 && objects === 0) {
+    // Before any table: freed pages go back to the disk at each compaction (`PRAGMA incremental_vacuum`, PIE-1786).
+    database.exec("PRAGMA auto_vacuum = INCREMENTAL");
     database.transaction(() => {
       database.exec(SCHEMA_SQL);
       insertOutlineInstanceId(database);

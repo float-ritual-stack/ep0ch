@@ -2,10 +2,10 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyRange, canonicalDump, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
+import { applyRange, canonicalDump, COMPACT_FACTOR, compactionRoom, compactLog, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, writeGenesis, type LogRange } from "../src/change-log";
 import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
@@ -14,6 +14,13 @@ import { importOutline } from "../src/outline-import";
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
 const root = () => { const r = realpathSync(mkdtempSync(join(tmpdir(), "outliner-change-log-"))); roots.push(r); return r; };
+
+/** A compaction run to its end, as the host runs it: the genesis, then each step that gives back what it replaced. */
+function compactAll(home: OutlinerStore, factor?: number): boolean {
+  const compacted = home.log.compact(factor);
+  while (home.log.trim()) { /* the next step */ }
+  return compacted;
+}
 
 /** A home with a mix of the writes a day brings: notes, an edit with properties, a move, Trash, a mark, the access setting. */
 function busyHome(dir: string) {
@@ -250,7 +257,7 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   const farAt = (far.db.query("SELECT MAX(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
   // A busy day: the log outgrows the outline, so the next compaction writes a genesis.
   const crate = home.create("Crate of apples", shelf.id);
-  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+  for (let i = 0; i < 600 && !compactAll(home, 1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of apples [count::${i}]\nCounted again.`, now.revision, { author: "user" });
     if (i % 50 === 0) near.catchUp();
@@ -258,7 +265,7 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   near.catchUp();
   expect(canonicalDump(near.db)).toBe(dumpOf(join(dir, "home.sqlite")));
   // Another generation: what followed the far copy's cursor is gone from the home's log.
-  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+  for (let i = 0; i < 600 && !compactAll(home, 1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of apples [count::again-${i}]\nCounted again.`, now.revision, { author: "user" });
     if (i % 50 === 0) near.catchUp();
@@ -275,6 +282,121 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   expect(oldest).toBeGreaterThan(farAt);
   home.close();
 });
+
+test("weeks of edits keep the file within about 2x the outline, and each compaction gives the space back (PIE-1786)", () => {
+  // float-2, Nov 12: pie.sqlite went from 384 MB to 1.07 GB in 2.5 h; compaction waited for 4x its genesis and kept one
+  // generation back, and deleting entries never shrank the file.
+  const dir = root();
+  const path = join(dir, "home.sqlite");
+  const home = new OutlinerStore(path);
+  // Shaped like pie (Nov 12: 28,500 notes; ten properties and ten reference candidates a note, 1.6 KB of text).
+  const body = (i: number, n: number) => `${"Sow after the frost; water at dusk. ".repeat(12)}${Array.from({ length: 8 }, (_, k) => `[field-${k}::${(i * 7 + k + n) % 13}]`).join(" ")} [[Seed packet ${(i + 1) % 400}]] [[Seed packet ${(i + 2) % 400}]] ((${i}))`;
+  const notes = Array.from({ length: 400 }, (_, i) => home.create(`Seed packet ${i} [crop::beans] [bed::${i % 9}]\n${body(i, 0)}`));
+  // The outline's own size: its rows and indexes with no log, as a VACUUM packs them.
+  const own = () => {
+    const copy = join(dir, `own-${Math.random().toString(36).slice(2)}.sqlite`);
+    home.database.exec(`VACUUM INTO '${copy}'`);
+    const db = new Database(copy);
+    db.exec("DELETE FROM change_log"); db.exec("VACUUM");
+    db.close();
+    const n = statSync(copy).size; rmSync(copy, { force: true });
+    return n;
+  };
+  const onDisk = () => {
+    home.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    return statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  };
+  // Right after a compaction the file is the outline and one genesis (its floor); between two it grows by at most a
+  // quarter genesis of edits. The floor never creeps: every compaction gives the pages it freed back to the disk.
+  const ratios: { day: number; ratio: number; compacted: boolean }[] = [];
+  for (let day = 0; day < 40; day++) {
+    for (let i = 0; i < 150; i++) {
+      const note = notes[(day * 150 + i) % notes.length]!, now = home.get(note.id)!;
+      home.update(note.id, `${now.text.split("\n")[0].replace(/ \[day::\d+\]$/, "")} [day::${day}]\n${body(i, day)}`, now.revision, { author: "agent", actorId: "garden-bot" });
+    }
+    const compacted = compactAll(home);
+    ratios.push({ day, ratio: onDisk() / own(), compacted });
+  }
+  const floors = ratios.filter(r => r.compacted).map(r => r.ratio);
+  expect(floors.length).toBeGreaterThan(5);
+  // No creep: the last floor is within 10% of the first.
+  expect(floors.at(-1)! / floors[0]!).toBeLessThan(1.1);
+  // Between compactions the file grows by well under the outline's own size again.
+  expect(Math.max(...ratios.map(r => r.ratio)) - Math.max(...floors)).toBeLessThan(0.6);
+  home.close();
+}, 120_000);
+
+/** A pie-shaped outline whose log has grown past its compaction point, and its size on disk (file and WAL). */
+function grownHome(dir: string, notes = 600, days = 3, words = "Sow after the frost; water at dusk. ") {
+  const path = join(dir, "home.sqlite");
+  const home = new OutlinerStore(path);
+  const body = (i: number, n: number) => `${words.repeat(12)}${Array.from({ length: 8 }, (_, k) => `[field-${k}::${(i * 7 + k + n) % 13}]`).join(" ")} [[Seed packet ${(i + 1) % notes}]]`;
+  const made = Array.from({ length: notes }, (_, i) => home.create(`Seed packet ${i}\n${body(i, 0)}`));
+  for (let day = 1; day <= days; day++) for (const [i, note] of made.entries()) {
+    const now = home.get(note.id)!;
+    home.update(note.id, `Seed packet ${i} [day::${day}]\n${body(i, day)}`, now.revision, { author: "agent", actorId: "garden-bot" });
+  }
+  const onDisk = () => statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  return { home, path, onDisk };
+}
+
+test("a compaction's room is its physical peak: the file and its WAL as the new genesis lands (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root());
+  home.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  const needs = compactionRoom(home.database);
+  expect(() => compactLog(home.database, SCHEMA_VERSION, COMPACT_FACTOR, needs - 1)).toThrow(/not compacted: a new genesis needs/);
+  const before = onDisk();
+  // What a compaction writes first, before it frees anything: its peak.
+  writeGenesis(home.database, SCHEMA_VERSION);
+  expect(onDisk() - before).toBeLessThanOrEqual(needs);
+  home.close();
+}, 30_000);
+
+/** The bytes on disk a new genesis adds, as a compaction writes it first: its peak. */
+function genesisPeak(home: OutlinerStore, onDisk: () => number) {
+  home.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  const before = onDisk();
+  writeGenesis(home.database, SCHEMA_VERSION);
+  return onDisk() - before;
+}
+
+test("the room counts UTF-8 bytes, so notes in another script are budgeted as they land (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root(), 1000, 0, "種は霜の後に蒔き🌱🌧🌾🌻🍅🥕🌽🥬🫘🌿🍃🌸 ");
+  const needs = compactionRoom(home.database);
+  expect(genesisPeak(home, onDisk)).toBeLessThanOrEqual(needs);
+  home.close();
+}, 30_000);
+
+test("the room is the outline as it is now, not its rewrites: a log of many rewrites still compacts (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root(), 150, 8);
+  const needs = compactionRoom(home.database);
+  const peak = genesisPeak(home, onDisk);
+  expect(peak).toBeLessThanOrEqual(needs);
+  // Sized to the new genesis, not to the twenty rewrites behind it.
+  expect(needs).toBeLessThan(peak * 4);
+  home.close();
+}, 30_000);
+
+test("a compaction gives its space back in bounded steps between requests, each well inside a client's wait (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root(), 900, 4);
+  expect(home.log.compact()).toBe(true);
+  const before = onDisk();
+  let steps = 0, longest = 0;
+  for (;;) {
+    const started = performance.now();
+    const more = home.log.trim();
+    longest = Math.max(longest, performance.now() - started);
+    steps++;
+    if (!more) break;
+  }
+  expect(steps).toBeGreaterThan(1);
+  expect(longest).toBeLessThan(250);
+  expect((home.database.query("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count).toBe(0);
+  expect(onDisk()).toBeLessThan(before);
+  // Nothing before the new genesis's predecessor's edits is left, and the log still answers from its genesis.
+  expect(home.log.range(0, 5).entries[0]!.op).toBe("g");
+  home.close();
+}, 60_000);
 
 test("a BLOB column (a PDF's bytes) travels as itself", () => {
   const dir = root();
@@ -310,7 +432,7 @@ test("an archive keeps what follows its newest genesis here, and still replays t
   };
   run();
   const crate = home.create("Crate of pears", shelf.id);
-  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+  for (let i = 0; i < 600 && !compactAll(home, 1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of pears [count::${i}]`, now.revision, { author: "user" });
     if (i % 40 === 0) run();
@@ -337,7 +459,7 @@ test("an archive refuses ranges that skip entries between them, and a relay from
   writeSegment(archive, "home", [first]);
   // The sender went on, compacted, and kept only what follows its newest genesis: this archive meets none of it.
   const crate = home.create("Crate of plums", shelf.id);
-  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+  for (let i = 0; i < 600 && !compactAll(home, 1); i++) {
     const now = home.get(crate.id)!;
     home.update(crate.id, `Crate of plums [count::${i}]`, now.revision, { author: "user" });
   }
@@ -360,7 +482,7 @@ test("a genesis carries AUTOINCREMENT's high-water marks: an id given out once i
   const before = top(home.database);
   // The newest activity rows go (a purge takes them), then a genesis is written without them.
   home.database.query("DELETE FROM block_edit_activity WHERE block_id = ?").run(jar.id);
-  home.log.compact(0);
+  compactAll(home, 0);
   const archive = join(dir, "archive");
   const ranges: LogRange[] = [];
   for (let at = 0; ;) { const r = home.log.range(at, 500); ranges.push(r); at = r.entries.at(-1)?.lsn ?? at; if (r.complete) break; }
