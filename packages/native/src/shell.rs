@@ -109,14 +109,15 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
             .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &tab_name, frame) { s.act(&line, Actor::Person); }));
     }
     let floats = s.layout.is_float(id);
-    let mut bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 })
-        .child(title)
-        // What kind of tile it is, in the kind's own word for itself (its row's name), else as its spec names it.
-        .child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k));
+    let mut bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 }).child(title);
+    // A set whose tabs take the whole title has no room for more than its close: the model says where the labels end.
+    let roomy = tabs.len() == 1 || s.title_has_room(&tabs, r);
+    // What kind of tile it is, in the kind's own word for itself (its row's name), else as its spec names it.
+    if roomy { bar = bar.child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k)) }
     // The tile with the keys says what can be done with it where it is: fold it, pop it out. A float says the way back.
     let control = |glyph: &'static rune::Icon, line: String, part: &str| IconButton::new(glyph).variant(IconButtonVariant::GhostMuted).label(actions::label(&line)).on_press(act(line)).build(k).key(format!("tile/{name}/{part}"));
-    if focused && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, format!("tile.collapse tile={}", word(&name)), "fold")) }
-    if focused || floats { bar = bar.child(control(&glyphs::COPY, format!("tile.float tile={}", word(&name)), "float")) }
+    if focused && roomy && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, format!("tile.collapse tile={}", word(&name)), "fold")) }
+    if (focused && roomy) || floats { bar = bar.child(control(&glyphs::COPY, format!("tile.float tile={}", word(&name)), "float")) }
     let bar = bar.child(control(&glyphs::CLOSE, format!("tile.close tile={}", word(&name)), "close"));
     let dragged = name.clone();
     let bar = bar.on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &dragged, frame) { s.act(&line, Actor::Person); });
@@ -145,9 +146,11 @@ fn zone(place: &Zone, lit: bool, key: String, k: &Kit) -> El {
     let c = &k.c;
     let p = points(place.ghost);
     let colors = match (&place.refused, lit) { (Some(_), true) => &c.danger, (None, true) => &c.warning, _ => &c.info };
-    let (ink, edge, ground) = if lit { (colors.fg, colors.fg, colors.bg) } else { (c.text_muted, c.border_base, c.layer_01.alpha(0.82)) };
+    let (ink, edge, ground) = if lit { (colors.fg, colors.fg, colors.bg) } else { (c.text_base, c.border_base, c.layer_01.alpha(0.7)) };
     let said = match (&place.refused, lit) { (Some(why), true) => format!("\u{2715} {why}"), _ => place.label.clone() };
-    el().key(key).role("option").label(said.clone()).absolute(p[0], p[1]).w(p[2]).h(p[3]).radius(k.radius.sm).fill(ground).border(if lit { 2.0 } else { 1.0 }, edge).opacity(if lit { 1.0 } else { 0.7 }).center().px(4.0)
+    // (The lit place's words stand at its top where it has the room: the held tile's name is at the pointer.)
+    let boxed = if lit && place.ghost.rows >= 4.0 { col().center_y().py(8.0) } else { el().center() };
+    boxed.key(key).role("option").label(said.clone()).absolute(p[0], p[1]).w(p[2]).h(p[3]).radius(k.radius.sm).fill(ground).border(if lit { 2.0 } else { 1.0 }, edge).opacity(if lit { 1.0 } else { 0.8 }).px(4.0)
         .child(text(said).font(if lit { k.ty.small_medium } else { k.ty.small }).color(ink).align(Align::Center).wrap())
 }
 
@@ -163,8 +166,15 @@ fn holding(s: &App, held: &Moving, mut area: El, k: &Kit) -> El {
         let over = if place.handle || place.place.target().is_none() { place.clone() } else { Zone { ghost: Rect { rows: 1.0, ..place.ghost }, ..place.clone() } };
         area = area.child(zone(&over, true, "drop/here".into(), k));
     }
-    let Some((col, row)) = held.at.filter(|_| !held.out) else { return area };
+    // What is held, where letting go puts it (the place's own words, or that it leaves the window) and the key that
+    // lets go with nothing moved, as the key table has it: along the foot of the tiles, over everything.
     let name = s.layout.name(&held.tile);
+    let place = if held.out { Some(actions::label("tile.tear")) } else { held.drop.as_ref().map(|place| place.refused.clone().unwrap_or_else(|| place.label.clone())) };
+    let said: Vec<String> = std::iter::once(name.clone()).chain(place).chain(keys::hints(s.person().layer).into_iter().map(|(cap, does)| format!("{cap} {does}"))).collect();
+    let (width, height) = (s.area.cols as f32 * CELL.0, s.area.rows as f32 * CELL.1);
+    area = area.child(el().key("drop/foot").absolute(0.0, height - 40.0).w(width).h(28.0).center()
+        .child(row().px(12.0).py(5.0).radius(k.radius.md).fill(k.c.bg_inverse).child(text(said.join(" \u{b7} ")).key("holding").font(k.ty.small_medium).color(k.c.text_inverse).truncate())));
+    let Some((col, row)) = held.at.filter(|_| !held.out) else { return area };
     area.child(row_chip(&name, [(col as f32 + 2.0) * CELL.0, (row as f32 + 1.0) * CELL.1], k))
 }
 
@@ -227,15 +237,6 @@ fn toolbar(s: &App, k: &Kit) -> El {
     }
     // What an agent last did here, said where the person sees it.
     if let Some(said) = &s.agent_said { bar = bar.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate()) }
-    // A tile is held: what it is, where letting go puts it (the place's own words, or that it leaves the window),
-    // and the key that lets go with nothing moved, as the key table has it.
-    if let Some(held) = &s.moving {
-        let place = if held.out { Some(actions::label("tile.tear")) } else { held.drop.as_ref().map(|place| place.refused.clone().unwrap_or_else(|| place.label.clone())) };
-        let mut said = vec![s.layout.name(&held.tile)];
-        said.extend(place);
-        said.extend(keys::hints(s.person().layer).into_iter().map(|(cap, does)| format!("{cap} {does}")));
-        bar = bar.child(text(said.join(" \u{b7} ")).key("holding").font(k.ty.small).color(c.warning.fg).truncate());
-    }
     bar = bar.child(el().grow(1.0));
     // The screen's own toolbar, as the service lists it now: a screen note changed since the window opened is followed.
     for line in s.spec_now().map(|spec| spec.toolbar()).unwrap_or_default() { bar = bar.child(button(&line, ButtonVariant::Ghost).build(k).key(format!("tool/{line}"))) }

@@ -68,13 +68,13 @@ fn a_tile_held_by_its_title_shows_where_it_will_land_and_lands_there() {
     let (origin, zone) = (rect_of(&rt, "tiles").unwrap(), held.zones.iter().find(|(id, _)| rt.state.layout.name(id) == "bed").unwrap().1.iter().find(|zone| zone.label == "< split left").unwrap().ghost);
     assert_eq!(rect_of(&rt, "drop/bed/split/left"), Some([origin[0] + zone.col as f32 * CELL.0, origin[1] + zone.row as f32 * CELL.1, zone.cols as f32 * CELL.0, zone.rows as f32 * CELL.1]));
     // The one under the pointer is lit, and the others are dim; the held tile is dimmed where it stands.
-    let lit: Vec<String> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("drop/") && key != "drop/held") && e.opacity > 0.99).filter_map(|e| e.key).collect();
+    let lit: Vec<String> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("drop/") && key != "drop/held" && key != "drop/foot") && e.opacity > 0.99).filter_map(|e| e.key).collect();
     assert_eq!(lit, ["drop/bed/split/left"], "one place is lit: the one the pointer is over");
     assert!(element(&rt, "tile/beds").unwrap().opacity < 0.5 && element(&rt, "tile/bed").unwrap().opacity > 0.99);
-    // Its name is at the pointer, and the toolbar says what is held, where it would land and the key that lets go.
+    // Its name is at the pointer, and the foot of the tiles says what is held, where it would land and the key that lets go.
     assert!(words_in(&rt, "drop/held").contains("beds"));
     let esc = keys::hints(rt.state.person().layer).into_iter().next().expect("the layer a held tile is has its key");
-    let said = element(&rt, "holding").and_then(|e| e.text).expect("the toolbar says what is held");
+    let said = element(&rt, "holding").and_then(|e| e.text).expect("the foot says what is held");
     assert!(said.starts_with("beds") && said.contains("< split left") && said.contains(&esc.0) && said.contains(esc.1), "{said}");
     assert_eq!(rt.state.person().layer.name(), "moving");
     // Carried on to the lower middle of the seed list: that place is lit instead.
@@ -334,7 +334,7 @@ fn a_tile_let_go_outside_the_window_goes_into_a_window_of_its_own() {
     hold(&mut rt, "seeds", (-24.0, 300.0));
     assert!(rt.state.moving.as_ref().is_some_and(|held| held.out && held.drop.is_none()));
     let said = element(&rt, "holding").and_then(|e| e.text).unwrap();
-    assert!(said.contains(&crate::actions::label("tile.tear")), "the toolbar says where letting go puts it: {said}");
+    assert!(said.contains(&crate::actions::label("tile.tear")), "the foot says where letting go puts it: {said}");
     let_go(&mut rt, (-24.0, 300.0));
     assert!(lines(&rt, from).contains(&"tile.tear tile=seeds".to_string()), "{:?}", lines(&rt, from));
     assert_eq!(shown(&rt), before.into_iter().filter(|name| name != "seeds").collect::<Vec<_>>());

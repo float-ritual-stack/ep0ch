@@ -64,8 +64,10 @@ static DROP: ActionRow = ActionRow::new("layout.drop", Touches::Shape, "let go o
 
 pub static ACTIONS: &[Action] = &[Action { row: &CARRY, run: carry, about: About::Any }, Action { row: &DROP, run: let_go, about: About::Nothing }];
 
-/// The cells a tile's title keeps clear on its right for what stands beside its tabs (its kind, its controls).
+/// The cells a tile's title keeps clear on its right for what stands beside its tabs (its kind, its controls), and
+/// for its close alone.
 const TITLE_REST: f64 = 16.0;
+const TITLE_CLOSE: f64 = 4.0;
 
 /// The tile in front of a container: a tab set's shown one, a dock's or a split's first.
 fn front(node: &Node) -> Option<Id> {
@@ -74,18 +76,24 @@ fn front(node: &Node) -> Option<Id> {
 
 impl App {
     /// The cells each tab's label takes on the title of the tile in front of its set (`rect`: that tile's frame).
-    /// One answer for the title drawn and for the drag: a tile let go over a label lands before that tab.
+    /// One answer for the title drawn and for the drag: a tile let go over a label lands before that tab. Each
+    /// label is as wide as its name where the title has the room beside what else it holds; where it hasn't, the
+    /// labels share the title but for its close.
     pub fn tab_cells(&self, shown: &str, rect: Rect) -> Vec<Tab> {
         let set: Vec<Id> = match tree::tabs_of(self.layout.tree(), shown).and_then(|path| self.layout.tree().at(&path)) { Some(Node::Tabs { kids, .. }) => kids.iter().map(|spec| spec.id.clone()).collect(), _ => vec![shown.to_string()] };
-        let most = ((rect.cols - 2.0 - TITLE_REST) / set.len() as f64).floor().max(4.0);
+        let wide = |id: &Id| self.layout.name(id).chars().count() as f64 + 3.0;
+        let most = if set.iter().map(wide).sum::<f64>() <= rect.cols - 2.0 - TITLE_REST { f64::MAX } else { ((rect.cols - 2.0 - TITLE_CLOSE) / set.len() as f64).floor().max(4.0) };
         let mut from = rect.col + 1.0;
         set.into_iter().map(|id| {
-            let wide = (self.layout.name(&id).chars().count() as f64 + 2.0).min(most);
-            let tab = Tab { id, from, to: from + wide };
-            from += wide;
+            let to = from + wide(&id).min(most);
+            let tab = Tab { id, from, to };
+            from = to;
             tab
         }).collect()
     }
+
+    /// A title has the room for what stands beside its tabs (its kind, its controls): the labels end short of it.
+    pub fn title_has_room(&self, tabs: &[Tab], rect: Rect) -> bool { tabs.last().is_none_or(|last| last.to <= rect.col + rect.cols - TITLE_REST) }
 
     /// The shut docks' strips, each at its edge of the tiles' area.
     pub fn dock_strips(&self) -> Vec<Strip> {
