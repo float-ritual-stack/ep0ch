@@ -143,6 +143,25 @@ test("actions: the asker's own rows as the ways to press them, a table whose lin
   await expect(list("actions")).rejects.toThrow("hand them over as actions=");
 });
 
+test("actions: the keys of the screen the asker has open come first, as its spec has them and its kinds are served", async () => {
+  const { client, list } = await setup();
+  const spec = { name: "seed-list", title: "Seed list", layout: { focus: "seeds", root: { t: "leaf", kind: "query", name: "seeds", query: "type=seed" } },
+    keys: [{ key: "ctrl+l", action: "bed.sow", args: { crop: "beans" }, says: "sow the beans" }, { key: "D", action: "bed.dig", tile: "seeds", only: ["query"] }] };
+  await client.request({ action: "screens.save", spec, mutation: { author: "user" } } as never);
+  const keys = await list("actions", { actions: ROWS, screen: "seed-list" });
+  expect(keys.list.groups?.map(g => [g.name, g.count])).toEqual([["this screen", 2], ["everywhere", 1], ["bed", 2], ["no key", 1]]);
+  // The key as the screen names it, the line it runs (its tile named), where it holds, and what it does: the
+  // screen's words, else the action's own.
+  expect(keys.list.rows.slice(0, 2).map(r => r.cells)).toEqual([
+    ["ctrl+l", 'bed.sow crop="beans"', "this screen", "sow the beans"],
+    ["D", 'bed.dig tile="seeds"', "this screen · on query", "dig the bed over"],
+  ]);
+  expect(keys.list.rows.slice(0, 2).map(r => r.act)).toEqual(['bed.sow crop="beans"', 'bed.dig tile="seeds"']);
+  expect(keys.list.title).toBe("Keys · 5 bound");
+  // A screen that has none, or a name nobody has, adds nothing.
+  expect((await list("actions", { actions: ROWS, screen: "compost" })).list.rows).toHaveLength(4);
+});
+
 test("components: every component under its group, a row that folds; an open one carries its example as written and as drawn", async () => {
   const { list } = await setup();
   const all = await list("components");
@@ -164,5 +183,5 @@ test("components: every component under its group, a row that folds; an open one
 
 test("each says what it reads, so a tile is handed its parameters by name", () => {
   const by = Object.fromEntries(listSources().map(s => [s.from, s.params.map(p => `${p.name}${p.required ? "" : "?"}`)]));
-  expect(by).toMatchObject({ threads: ["of"], proposals: ["of"], revisions: ["of", "open?"], actions: ["actions", "query?"], components: ["query?", "open?", "of?"] });
+  expect(by).toMatchObject({ threads: ["of"], proposals: ["of"], revisions: ["of", "open?"], actions: ["actions", "screen?", "query?"], components: ["query?", "open?", "of?"] });
 });

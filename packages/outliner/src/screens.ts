@@ -138,6 +138,8 @@ function kindsResolved(spec: ScreenSpec, replaced: ReadonlyMap<string, string>, 
   // the rule (outline-core's `newNoteRule`) with the kind a tile carries and maps no name.
   const resolved = (names: string[] | undefined) => names?.map(name => { const kind = canonKind(name); return replaced.get(kind) ?? kind; });
   if (served.newNote) served.newNote = served.newNote.map(rule => ({ ...rule, ...(rule.only ? { only: resolved(rule.only)! } : {}), ...(rule.unless ? { unless: resolved(rule.unless)! } : {}) }));
+  // A key of the screen's that holds only over some kinds of tile names them the same way.
+  if (served.keys) served.keys = served.keys.map(key => ({ ...key, ...(key.only ? { only: resolved(key.only)! } : {}), ...(key.unless ? { unless: resolved(key.unless)! } : {}) }));
   return served;
 }
 

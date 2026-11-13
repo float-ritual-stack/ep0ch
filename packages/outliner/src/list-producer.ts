@@ -36,6 +36,8 @@ export interface ListsRequest {
   kinds?: string[]; drawers?: string[];
   /** The asker's own actions, each as its row (outline-core's `ActionRow`): what `from: actions` lists. */
   actions?: ActionRow[];
+  /** The screen the asker has open, by name: `from: actions` lists that screen's own keys first. */
+  screen?: string;
 }
 
 export type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };

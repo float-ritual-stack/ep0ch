@@ -10,8 +10,10 @@
 //   terms      a question, the values picked  → the question they narrow it to                (selectionQuery)
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
+//   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
+import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, LINK_GROUPS, linkGroupsNamed } from "../src/link-blocks";
 import { listSections, type ListGroup, type ListRow } from "../src/list-row";
@@ -113,6 +115,12 @@ const CURSOR: { name: string; spans: PlacedSpan[] }[] = [
 ];
 const OFFSETS = [0, 2, 3, 4, 5, 8, 10, 12, 13, 20, 21, 26, 30, 31, 40, 41, 42, 44, 60];
 
+/**
+ * Words a screen's key map might name a key by: every name a key has (the values of `NAMED_KEYS`), a character each
+ * way (a letter, a capital, punctuation), each modifier with a character, and words that are no key's name.
+ */
+const KEY_NAMES: string[] = [...new Set([...Object.values(NAMED_KEYS).filter(name => !MOUSE_KEYS.has(name) && name !== "hover"), "l", "L", ",", "?", "/", "+", "1", "alt+c", "alt+L", "alt+,", "ctrl+l", "ctrl+,", "ctrl+L", "super+k", "hyper+h", "mod+l", "escape", "pageup", "ctrl+w q", "click", ""])];
+
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */
 function table(head: Record<string, unknown>, lists: Record<string, readonly unknown[]>): string {
   const lines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
@@ -122,7 +130,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), and where an offset of a draft is once a patch's placed spans are replaced (mapCursor). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), and whether a word is a key's one name, as a screen's keys name one (isKeyName). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
   }, {
@@ -133,6 +141,7 @@ export function coreContract(): string {
     terms: TERMS.map(c => ({ ...c, query: selectionQuery(c.picks.map(([key, value]) => pick(key, value)), c.raw) })),
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
+    keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
   });
 }
 

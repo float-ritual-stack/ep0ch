@@ -466,7 +466,7 @@
       "kind": "screens.tree",
       "extension": "screens",
       "name": "Outline",
-      "about": "the outline tree; ⏎ opens a note where its opens land",
+      "about": "the outline as a tree; a pick opens a note where the tile's opens land",
       "drawer": "list",
       "fields": {
         "from": "children"
@@ -482,7 +482,7 @@
       "kind": "screens.reader",
       "extension": "screens",
       "name": "Reader",
-      "about": "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+      "about": "a reader of notes: it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
       "drawer": "page",
       "replaces": [
         "reader"
@@ -495,7 +495,7 @@
       "kind": "screens.query",
       "extension": "screens",
       "name": "Query",
-      "about": "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"type=bed\", source=tile:<its home reader>: a tag opened in a reader, PIE-800); a board lane is one",
+      "about": "the notes a saved view lists (view=<the virtual branch's block id>), or the matches of a question in the views' grammar (query=\"type=bed\"; source=tile:<its home reader> when it was opened from a reader); a board's lane is one",
       "drawer": "list",
       "fields": {
         "from": "query"
@@ -511,7 +511,7 @@
       "kind": "screens.backlinks",
       "extension": "screens",
       "name": "Links",
-      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+      "about": "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until it is aimed again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values a door that groups them by stage uses, in that order (others are said as other, never hidden)",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -544,7 +544,7 @@
       "kind": "screens.facets",
       "extension": "screens",
       "name": "Facets",
-      "about": "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>; ^W o # opens it on the tags facet (args.open=[tag], no calendar)",
+      "about": "the properties the notes have, each opening to its values with how often and how lately each is used; a value picked narrows the question (values of one property are ORed, properties ANDed), and the selection reads as a query in the views' grammar; query=<a starting query>",
       "drawer": "list",
       "fields": {
         "from": "facets"
@@ -560,7 +560,7 @@
       "kind": "screens.matches",
       "extension": "screens",
       "name": "Matches",
-      "about": "a facets tile's Matches (PIE-1443: the notes its selection leaves, grouped Pinned, Today, Yesterday, Previous 7 days, then months) in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and ⏎ opens. Opened by facets.place place=tile (ctrl+o), closed when Matches goes back",
+      "about": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first, in a tile of its own beside it; its select and open wires say where a pick is shown and where it opens",
       "drawer": "list",
       "fields": {
         "from": "query",
@@ -881,6 +881,10 @@
           "name": "actions",
           "about": "the asker's own actions, each as its row",
           "required": true
+        },
+        {
+          "name": "screen",
+          "about": "the screen the asker has open, by name: its own keys are listed first"
         },
         {
           "name": "query",

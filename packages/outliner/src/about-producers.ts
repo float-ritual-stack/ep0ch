@@ -6,7 +6,8 @@
  * - `revisions`: the texts the note had (`block.revisions`), a row a revision; an open one carries its change
  *   against the note as it is now.
  * - `actions`: the asker's own actions (it hands over their rows, outline-core's `ActionRow`), a row a way to press
- *   one: the keys screen of any door, read from the rows that bind the keys.
+ *   one: the keys screen of any door, read from the rows that bind the keys, with the keys of the screen it has open
+ *   (`screen`: that screen's own `keys`, as `screens.list` serves them) first.
  * - `components`: every component there is to write (`components.schemas`), a row a component; an open one carries
  *   its own example, drawn as a page draws it.
  *
@@ -28,6 +29,7 @@ import { prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { parseProposal, proposalChanges, type DraftProposalsBeside } from "./draft-patch";
 import { press, row, subject, titled, type Answered, type ListsRequest, type Own, type Producer } from "./list-producer";
 import { drawnParts } from "./note-page";
+import type { ScreensList } from "./screens";
 import { diffsJoined, textDiff } from "./text-diff";
 import type { AnnotationRecord, AnnotationThread, Block } from "./types";
 
@@ -144,6 +146,8 @@ async function revisions(own: Own, request: ListsRequest): Promise<Answered> {
 const EVERYWHERE = "everywhere";
 /** The group of the actions no key runs. */
 const NO_KEY = "no key";
+/** The group, and the place, of the keys that are the open screen's own. */
+const SCREEN = "this screen";
 
 /**
  * The asker's actions (`actions`: each as its row, outline-core's `ActionRow`), a row a way to press one: its keys as
@@ -151,7 +155,7 @@ const NO_KEY = "no key";
  * where they hold and what they do. An action with no key at all is listed after, under what else runs it. A table,
  * so a keys screen is these rows and nothing a client keeps beside them; a pick runs the line.
  */
-async function actions(_own: Own, request: ListsRequest): Promise<Answered> {
+async function actions(own: Own, request: ListsRequest): Promise<Answered> {
   if (!Array.isArray(request.actions)) throw new Refusal("invalid", "lists.read from=actions lists the asker's own actions: hand them over as actions=[<each action's row>]");
   const words = prepareSearchQuery(request.query ?? "");
   const rows: ListRow[] = [], order: string[] = [];
@@ -160,6 +164,16 @@ async function actions(_own: Own, request: ListsRequest): Promise<Answered> {
     if (!order.includes(group)) order.push(group);
     rows.push(row({ ...r, group }));
   };
+  // The keys of the screen the asker has open come first, as they are tried first: each as its screen wrote it (the
+  // key by the name screens give keys, the action and what it runs with), and what it does in the screen's words, else
+  // the action's own.
+  const screen = typeof request.screen === "string" && request.screen ? (await own.request<ScreensList>({ action: "screens.list" })).screens.find(s => s.name === request.screen) : undefined;
+  for (const [n, key] of (screen?.spec?.keys ?? []).entries()) {
+    const args = { ...key.args, ...(key.tile ? { tile: key.tile } : {}) };
+    const does = key.says ?? key.label ?? request.actions.find(action => action?.id === key.action)?.summary ?? "";
+    const where = [SCREEN, ...(key.only ? [`on ${key.only.join(", ")}`] : []), ...(key.unless ? [`not on ${key.unless.join(", ")}`] : [])].join(" · ");
+    add(SCREEN, { id: `${SCREEN}#${n}`, label: key.key, detail: does, mark: key.action, cells: [key.key, actionLine({ action: key.action, args }), where, does], do: { run: { action: key.action, args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)])) } } });
+  }
   for (const action of request.actions) {
     if (!action || typeof action.id !== "string") continue;
     // Its arguments it can't run without: a line that leaves one out is shown, and runs nothing when picked.
@@ -220,6 +234,6 @@ export const ABOUT_PRODUCERS: readonly Producer[] = [
   { row: { from: "threads", about: "Comments", params: [OF] }, read: threads },
   { row: { from: "proposals", about: "Proposals", params: [OF] }, read: proposals },
   { row: { from: "revisions", about: "Revisions", params: [OF, OPEN] }, read: revisions },
-  { row: { from: "actions", about: "Keys", placeholder: "A key, an action or what it does", params: [{ name: "actions", about: "the asker's own actions, each as its row", required: true }, WORDS] }, read: actions },
+  { row: { from: "actions", about: "Keys", placeholder: "A key, an action or what it does", params: [{ name: "actions", about: "the asker's own actions, each as its row", required: true }, { name: "screen", about: "the screen the asker has open, by name: its own keys are listed first" }, WORDS] }, read: actions },
   { row: { from: "components", about: "Components", placeholder: "A component's name", params: [WORDS, OPEN, { name: "of", about: "the note an example asks about as `this` (left out: the outline's first)" }] }, read: components },
 ];
