@@ -41,7 +41,8 @@ export interface ListsRequest {
 }
 
 export type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
-export type Listed = { id: string; title?: string; hasChildren?: boolean; parentId?: string | null; updatedAt?: string; createdAt?: string; properties?: { key: string; value: string }[] };
+/** A note as a producer reads one (`blocks.read`): `hasNotes` is whether notes are under it, what a row of notes folds by. */
+export type Listed = { id: string; title?: string; hasNotes?: boolean; parentId?: string | null; updatedAt?: string; createdAt?: string; properties?: { key: string; value: string }[] };
 export type Answered = Omit<ListAnswer, "from" | "anyChange">;
 export interface Producer { row: ListSource; read(own: Own, request: ListsRequest): Promise<Answered> }
 

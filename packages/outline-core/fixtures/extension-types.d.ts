@@ -241,7 +241,7 @@ declare module "@ep0ch/outline-core/list-row" {
       act?: string;
       /** In a tree (`arrange: "tree"`): how deep it sits under the list's top (0), */
       depth?: number;
-      /** whether anything is under it, whether what is under it is listed after it, and how many notes that is (said once they are). */
+      /** whether it opens onto something (a row of notes: a note under it, never only a comment on it or an edit proposed beside it), whether what is under it is listed after it, and how many notes that is (said once they are). */
       folds?: boolean;
       open?: boolean;
       kids?: number;

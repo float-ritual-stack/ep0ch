@@ -25,7 +25,7 @@ import type { BacklinkCollection } from "./types";
 interface PageAddress { outline?: string | undefined; machine?: string }
 
 type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
-type Listed = { id: string; title?: string; hasChildren?: boolean; properties?: { key: string; value: string }[] };
+type Listed = { id: string; title?: string; hasNotes?: boolean; properties?: { key: string; value: string }[] };
 
 /**
  * `notes.page` as the service answers it: everything a client draws of the note `blockId` names, read by the service
@@ -47,7 +47,9 @@ export async function servedPage(
     own.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: block.id, limit: 50 } }),
   ]);
   const record = records[0]!;
-  const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasChildren ? { hasChildren: true } : {}) });
+  // Whether a row has anything under it is whether it has notes under it (`hasNotes`, the store's answer by `isNoteUnder`):
+  // the page lists notes, so a row that folds opens onto one.
+  const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasNotes ? { hasChildren: true } : {}) });
   const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children, ["properties"])]);
   const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
   // A comment on the note and an edit proposed beside it are blocks under it and no notes of it (outline-core's
@@ -68,7 +70,7 @@ export async function servedPage(
 /** The service asking itself, as the walk asks: for a reader who sees every note, with one reading of every title (the lists'). */
 function reader(own: Own): { host: LiveHost; listed(ids: readonly string[], more?: readonly string[]): Promise<Listed[]> } {
   const listed = async (ids: readonly string[], more: readonly string[] = []): Promise<Listed[]> => ids.length
-    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren", ...more] })).blocks : [];
+    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasNotes", ...more] })).blocks : [];
   const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
   return { host: { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id }, listed };
 }

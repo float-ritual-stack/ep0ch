@@ -33,6 +33,7 @@ import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 import { gate } from "./write-gate";
 import { getProperty } from "./properties";
+import { isNoteUnder } from "@ep0ch/outline-core/derived";
 
 /** A command or URL as a run note says it: what ran, how it ended, how much, and its first lines. */
 function reachLine(step: HostStep): string {
@@ -239,8 +240,11 @@ export class ScriptRuns {
           if (request.action === "children") return select(this.store.children(request.parentId)) as T;
           if (request.action === "blocks.read") {
             const read = this.store.readBlocks(request.ids, request.fields);
-            for (const block of read.blocks) if (block.hasChildren !== undefined) {
-              block.hasChildren = select(this.store.children(block.id)).length > 0;
+            // What is under a block is what this reader may see under it: any block, and (asked by name) a note of it.
+            for (const block of read.blocks) if (block.hasChildren !== undefined || block.hasNotes !== undefined) {
+              const seen = select(this.store.children(block.id));
+              if (block.hasChildren !== undefined) block.hasChildren = seen.length > 0;
+              if (block.hasNotes !== undefined) block.hasNotes = seen.some(child => isNoteUnder(getProperty(child.properties, "type")));
             }
             return read as T;
           }

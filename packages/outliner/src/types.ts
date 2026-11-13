@@ -4,6 +4,8 @@ export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/pro
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineBackup, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+import type { BlockReadField, ProjectedBlock } from "./block-read-fields";
+export { BLOCK_READ_FIELDS, DEFAULT_BLOCK_READ_FIELDS, type BlockReadField, type ProjectedBlock } from "./block-read-fields";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -1332,51 +1334,7 @@ export interface VisibleBlockCollection extends QuestionAnswerFields {
   machineryLeftOut?: import("@ep0ch/outline-core/machinery").MachineryLeftOut;
 }
 
-/** Fields a projected block read can return; `id` is always included. */
-export const BLOCK_READ_FIELDS = [
-  "id",
-  "parent",
-  "title",
-  "properties",
-  "revision",
-  "timestamps",
-  "author",
-  "hasChildren",
-  "text",
-  "excerpt",
-] as const;
-export type BlockReadField = (typeof BLOCK_READ_FIELDS)[number];
-/** Omitted `fields` return everything except full text. */
-export const DEFAULT_BLOCK_READ_FIELDS: readonly BlockReadField[] = BLOCK_READ_FIELDS.filter(
-  (field) => field !== "text" && field !== "excerpt",
-);
-
-/** A block reduced to the requested fields. Absent keys were not requested. */
-export interface ProjectedBlock {
-  id: string;
-  /** `parent` */
-  parentId?: string | null;
-  position?: number;
-  /** `title`: first content line without property tokens, as Tree and CLI label it. */
-  title?: string;
-  /** `properties`: block-scoped properties. */
-  properties?: BlockProperty[];
-  revision?: number;
-  /** `timestamps` */
-  createdAt?: string;
-  updatedAt?: string;
-  /** `author`, with any recorded actor/session/task provenance. */
-  author?: BlockAuthor;
-  actorId?: string;
-  sessionId?: string;
-  taskId?: string;
-  /** `hasChildren`: at least one child outside Trash. */
-  hasChildren?: boolean;
-  text?: string;
-  /** `excerpt`: the words after the title as one line (outline-core `noteExcerpt`), what a list row previews. */
-  excerpt?: string;
-}
-
+// What a projected read may name and answer (`BLOCK_READ_FIELDS`, `ProjectedBlock`) is block-read-fields.ts.
 export interface ProjectedVisibleBlock extends ProjectedBlock {
   depth: number;
   /** Query metadata like `depth`: which property records matched, when the query scope attaches them. */
