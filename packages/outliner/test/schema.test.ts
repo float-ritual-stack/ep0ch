@@ -7,7 +7,8 @@ import { importOutline } from "../src/outline-import";
 import { insertOutlineInstanceId, openSchema, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
-import { migrateChangeLog } from "../scripts/migrations/0012-change-log";
+import { migrateIncrementalVacuum } from "../scripts/migrations/0013-incremental-vacuum";
+import { initLogState, installLogTriggers, writeGenesis } from "../src/change-log";
 
 const directories: string[] = [];
 function directory(): string {
@@ -72,58 +73,74 @@ test("any other schema version is refused", () => {
 /** Every table, index and trigger, as sqlite_master has them. */
 const shape = (database: Database) => database.query("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
 
-test("schema 11 takes 0012: the change log and its genesis, the notes stay, a served file and a file at 12 are left as they were (PIE-1751)", async () => {
-  const path = join(directory(), "allotment.sqlite");
+/** A schema-12 file as the machines have them: no incremental vacuum, its log grown past its genesis. */
+function schema12(path: string, notes: number) {
   const old = new Database(path);
   old.exec(SCHEMA_SQL);
-  // Schema 11 had no change log.
-  old.exec("DROP TABLE change_log; DROP TABLE log_state;");
   insertOutlineInstanceId(old);
-  const note = "22222222-2222-4222-8222-222222222222", child = "33333333-3333-4333-8333-333333333333";
-  old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, 'Seed trays', 'user', '2026-11-01', '2026-11-01')").run(note);
-  old.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, ?, 0, 'Water the seed trays', 'user', '2026-11-01', '2026-11-01')").run(child, note);
-  old.exec("PRAGMA user_version = 11");
+  initLogState(old);
+  installLogTriggers(old);
+  writeGenesis(old, 12);
+  old.exec("PRAGMA user_version = 12; PRAGMA journal_mode = WAL;");
+  const ids: string[] = [];
+  const add = old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, ?, ?, 'user', '2026-11-01', '2026-11-01')");
+  for (let i = 0; i < notes; i++) { const id = crypto.randomUUID(); ids.push(id); add.run(id, i, `Seed tray ${i}\n${"Water from below. ".repeat(40)}`); }
+  // A day of the rewrite PIE-1786 found: every note written back unchanged, each logged whole.
+  for (let round = 0; round < 6; round++) old.exec("UPDATE blocks SET effective_deleted_root_id = NULL");
   old.close();
-  const at11 = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(/schema version 11.*only schema version 12.*0012-change-log\.ts/s);
-  expect(readFileSync(path).equals(at11)).toBe(true);
+  return ids;
+}
+
+test("schema 12 takes 0013: the file made again, incremental, its log one genesis; a served, full or current file is left as it was (PIE-1786)", async () => {
+  const path = join(directory(), "allotment.sqlite");
+  const ids = schema12(path, 300);
+  const size = () => statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  const at12 = readFileSync(path), before = size();
+  expect(() => new OutlinerStore(path)).toThrow(/schema version 12.*only schema version 13.*0013-incremental-vacuum\.ts/s);
 
   const migrate = async () => {
-    const run = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0012-change-log.ts"), path], { stdout: "pipe", stderr: "pipe" });
-    return { code: await run.exited, err: await new Response(run.stderr).text() };
+    const run = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0013-incremental-vacuum.ts"), path], { stdout: "pipe", stderr: "pipe" });
+    return { code: await run.exited, out: await new Response(run.stdout).text(), err: await new Response(run.stderr).text() };
   };
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
   try { expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("already owned") }); }
   finally { held.close(); }
-  expect(readFileSync(path).equals(at11)).toBe(true);
+  expect(readFileSync(path).equals(at12)).toBe(true);
+  // No room on its filesystem: refused before anything is written.
+  expect(() => migrateIncrementalVacuum(path, { free: () => 1024 })).toThrow(/needs about \d+ MB .* has 0 MB free/);
+  expect(readFileSync(path).equals(at12)).toBe(true);
+  expect(existsSync(`${path}.schema-13.tmp`)).toBe(false);
 
-  expect(await migrate()).toMatchObject({ code: 0 });
-  expect(userVersion(path)).toBe(12);
+  const ran = await migrate();
+  expect(ran).toMatchObject({ code: 0, out: expect.stringContaining("auto_vacuum incremental") });
+  expect(userVersion(path)).toBe(13);
+  expect(size()).toBeLessThan(before / 2);
   const fresh = new Database(":memory:");
   openSchema(fresh);
   const migrated = new Database(path, { readonly: true });
   try {
     expect(shape(migrated)).toEqual(shape(fresh));
-    // The genesis holds every row there was: a follower built from it alone has the two notes.
-    const genesis = migrated.query("SELECT op, tbl FROM change_log ORDER BY lsn").all() as { op: string; tbl: string }[];
-    expect(genesis[0]).toEqual({ op: "g", tbl: "" });
-    expect(genesis.filter(e => e.tbl === "blocks").length).toBe(2);
+    expect((migrated.query("PRAGMA auto_vacuum").get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
+    expect((migrated.query("SELECT COUNT(*) AS n FROM blocks").get() as { n: number }).n).toBe(300);
+    // The log begun again: one genesis, each note in it once.
+    const log = migrated.query("SELECT op, tbl FROM change_log ORDER BY lsn").all() as { op: string; tbl: string }[];
+    expect(log[0]).toEqual({ op: "g", tbl: "" });
+    expect(log.filter(e => e.tbl === "blocks").length).toBe(300);
+    expect(readOutlineInstanceId(migrated, path)).toBeTruthy();
   } finally { migrated.close(); fresh.close(); }
   const store = new OutlinerStore(path);
   try {
-    expect(store.require(child)).toMatchObject({ text: "Water the seed trays", parentId: note });
-    // What the store writes from now on is logged.
+    expect(store.require(ids[7]!).text).toStartWith("Seed tray 7");
     const head = store.log.cursor().lsn;
-    store.create("Label the trays", note);
+    store.create("Label the trays");
     expect(store.log.range(head).entries.some(e => e.tbl === "blocks" && e.op === "i" && e.row?.includes("Label the trays"))).toBe(true);
   } finally { store.close(); }
 
-  const at12 = readFileSync(path);
-  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 11, found 12") });
-  expect(readFileSync(path).equals(at12)).toBe(true);
-  expect(() => migrateChangeLog(path)).toThrow("Expected schema 11, found 12");
-});
+  const at13 = readFileSync(path);
+  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 12, found 13") });
+  expect(readFileSync(path).equals(at13)).toBe(true);
+}, 60_000);
 
 test("a current database missing its instance id is refused with the import route, and the import opens", () => {
   const folder = directory();
@@ -359,7 +376,7 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
     ].join("\n"));
   });
 
-  // Two steps behind never has a script, whether or not this build ships one for the last step (0012 names its own).
+  // Two steps behind never has a script, whether or not this build ships one for the last step (0013 names its own).
   test("the store's refusal is that message: with no script for the step, the import route; a path that needs quoting is quoted", () => {
     const folder = join(directory(), "my outlines");
     mkdirSync(folder);

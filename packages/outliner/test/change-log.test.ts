@@ -2,7 +2,7 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
@@ -275,6 +275,49 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   expect(oldest).toBeGreaterThan(farAt);
   home.close();
 });
+
+test("weeks of edits keep the file within about 2x the outline, and each compaction gives the space back (PIE-1786)", () => {
+  // float-2, Nov 12: pie.sqlite went from 384 MB to 1.07 GB in 2.5 h; compaction waited for 4x its genesis and kept one
+  // generation back, and deleting entries never shrank the file.
+  const dir = root();
+  const path = join(dir, "home.sqlite");
+  const home = new OutlinerStore(path);
+  // Shaped like pie (Nov 12: 28,500 notes; ten properties and ten reference candidates a note, 1.6 KB of text).
+  const body = (i: number, n: number) => `${"Sow after the frost; water at dusk. ".repeat(12)}${Array.from({ length: 8 }, (_, k) => `[field-${k}::${(i * 7 + k + n) % 13}]`).join(" ")} [[Seed packet ${(i + 1) % 400}]] [[Seed packet ${(i + 2) % 400}]] ((${i}))`;
+  const notes = Array.from({ length: 400 }, (_, i) => home.create(`Seed packet ${i} [crop::beans] [bed::${i % 9}]\n${body(i, 0)}`));
+  // The outline's own size: its rows and indexes with no log, as a VACUUM packs them.
+  const own = () => {
+    const copy = join(dir, `own-${Math.random().toString(36).slice(2)}.sqlite`);
+    home.database.exec(`VACUUM INTO '${copy}'`);
+    const db = new Database(copy);
+    db.exec("DELETE FROM change_log"); db.exec("VACUUM");
+    db.close();
+    const n = statSync(copy).size; rmSync(copy, { force: true });
+    return n;
+  };
+  const onDisk = () => {
+    home.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    return statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  };
+  // Right after a compaction the file is the outline and one genesis (its floor); between two it grows by at most a
+  // quarter genesis of edits. The floor never creeps: every compaction gives the pages it freed back to the disk.
+  const ratios: { day: number; ratio: number; compacted: boolean }[] = [];
+  for (let day = 0; day < 40; day++) {
+    for (let i = 0; i < 150; i++) {
+      const note = notes[(day * 150 + i) % notes.length]!, now = home.get(note.id)!;
+      home.update(note.id, `${now.text.split("\n")[0].replace(/ \[day::\d+\]$/, "")} [day::${day}]\n${body(i, day)}`, now.revision, { author: "agent", actorId: "garden-bot" });
+    }
+    const compacted = home.log.compact();
+    ratios.push({ day, ratio: onDisk() / own(), compacted });
+  }
+  const floors = ratios.filter(r => r.compacted).map(r => r.ratio);
+  expect(floors.length).toBeGreaterThan(5);
+  // No creep: the last floor is within 10% of the first.
+  expect(floors.at(-1)! / floors[0]!).toBeLessThan(1.1);
+  // Between compactions the file grows by well under the outline's own size again.
+  expect(Math.max(...ratios.map(r => r.ratio)) - Math.max(...floors)).toBeLessThan(0.6);
+  home.close();
+}, 120_000);
 
 test("a BLOB column (a PDF's bytes) travels as itself", () => {
   const dir = root();

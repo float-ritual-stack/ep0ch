@@ -14,6 +14,8 @@
 // `change_log` as they were, so a follower's log is the home's and can be read onward (`readRange`) or archived.
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
+import { statfsSync } from "node:fs";
+import { dirname } from "node:path";
 
 /** How each table takes part in the log. Every table the schema makes is named here (a test holds it to that). */
 export const LOG_TABLES: Readonly<Record<string, "replicated" | "local">> = {
@@ -206,20 +208,41 @@ export function writeGenesis(database: Database, schema: number): number {
 const GENESIS_CHUNK = 2_000;
 
 /**
- * Keeps the log's size in proportion (ADR 0009): when what was logged since the newest genesis outgrows `factor` times
- * that genesis, a new genesis is written and the entries before the previous one are deleted, so the file holds one
- * generation back for a follower or an archive that is behind. The archive keeps the history. Returns whether it ran.
+ * When the log since its newest genesis outgrows this share of that genesis, a new one is written (PIE-1786): the file
+ * then holds the outline, one genesis and at most half a genesis of edits (a quarter since it, a quarter kept from before
+ * it). For pie (its genesis about 0.8x the outline on disk) that is about 2.2x the outline at its fullest.
  */
-export function compactLog(database: Database, schema: number, factor = 4): boolean {
+export const COMPACT_FACTOR = 0.25;
+/** What a compaction may add to the file before it frees anything: a new genesis, its pages and its WAL frames. */
+const GENESIS_ROOM = 1.5;
+
+/**
+ * Keeps the log's size in proportion (ADR 0009, PIE-1786): when what was logged since the newest genesis outgrows
+ * `factor` times that genesis, a new genesis is written, the old one and everything before it are deleted (the
+ * archive keeps the history; the edits since the old genesis stay, so a reader behind by less than a generation reads
+ * on), and the freed pages go back to the disk
+ * (`PRAGMA incremental_vacuum`: a file made at schema 13 or after is `auto_vacuum = INCREMENTAL`). `free`, the bytes
+ * free on the file's own filesystem: one that can't hold a new genesis is refused before anything is written. Returns
+ * whether it ran.
+ */
+export function compactLog(database: Database, schema: number, factor = COMPACT_FACTOR, free?: number): boolean {
   if (logState(database).role !== "home") return false;
   const genesis = latestGenesis(database);
   if (!genesis) return false;
   // The genesis's rows are the outline's size; what came after them is the log's growth since.
   const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(genesis) as { row: string }).row) as { rows?: number }).rows ?? 0;
   const size = (where: string) => (database.query(`SELECT COALESCE(SUM(LENGTH(row)), 0) AS n FROM change_log WHERE ${where}`).get(genesis, genesis + rows) as { n: number }).n;
-  if (size("lsn > ?2") <= factor * Math.max(size("lsn >= ?1 AND lsn <= ?2"), 64 * 1024)) return false;
+  const genesisBytes = size("lsn >= ?1 AND lsn <= ?2");
+  if (size("lsn > ?2") <= factor * Math.max(genesisBytes, 64 * 1024)) return false;
+  const needed = Math.ceil(genesisBytes * GENESIS_ROOM);
+  if (free !== undefined && free < needed) throw new Error(`not compacted: a new genesis needs about ${Math.round(needed / 1048576)} MB and its filesystem has ${Math.round(free / 1048576)} MB free; the log keeps growing until there is room`);
   writeGenesis(database, schema);
-  database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn < ?").run(genesis); }).immediate();
+  // The old genesis goes, and everything before it; the edits since it stay, so an archive or a follower behind by
+  // less than a generation still reads on to the new genesis (ADR 0009 §2).
+  database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn <= ?").run(genesis + rows); }).immediate();
+  database.exec("PRAGMA incremental_vacuum");
+  // The freed pages leave the file at a checkpoint; one a reader holds back comes at the next.
+  try { database.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch { /* busy: the next checkpoint */ }
   return true;
 }
 
@@ -447,6 +470,11 @@ export class OutlineLog {
     if (range.entries.some(e => e.op === "g")) throw new RangeRefused("the home wrote a new genesis (a compaction or a schema step); the copy is made again from it", true);
     try { return applyRange(this.db(), range, this.schema); } finally { this.applied(); }
   }
-  /** Keeps the log in proportion (`compactLog`); the host asks on open and every hour. */
-  compact(factor?: number): boolean { return compactLog(this.db(), this.schema, factor); }
+  /** Keeps the log in proportion (`compactLog`), with what the file's filesystem has free; the host asks on open and every hour. */
+  compact(factor?: number): boolean {
+    const db = this.db(), file = db.filename;
+    let free: number | undefined;
+    try { if (file && file !== ":memory:") { const fs = statfsSync(dirname(file)); free = fs.bavail * fs.bsize; } } catch { free = undefined; }
+    return compactLog(db, this.schema, factor, free);
+  }
 }
