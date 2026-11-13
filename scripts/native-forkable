@@ -29,6 +29,7 @@ const ALLOWED: { file: string; word: string; why: string }[] = [
   { file: "tiles/prim.rs", word: "query", why: "a part's own field: the question its component asks (`PagePart.query`), and the element that shows it" },
   { file: "layout.rs", word: "backlinks", why: "the door's saved form before wires (`link` with no `linkRole`), read as the door reads it" },
   { file: "layout/placement.rs", word: "keys", why: "a policy's own field (whether an agent's act may take the keys of a tile there), read and saved as the door's layout has it" },
+  { file: "screen.rs", word: "keys", why: "a screen spec's own field (`ScreenSpec.keys`: the keys a screen binds), read by the one reader of a spec" },
   { file: "layout/step.rs", word: "keys", why: "a step's own answer: where the keys went when a tile closed or folded" },
   { file: "layout/tree.rs", word: "reader", why: "an open rule's name (`opens: reader`), the door's word for where an open lands, and what the retired `detail` and `pinned` read as" },
 ];
