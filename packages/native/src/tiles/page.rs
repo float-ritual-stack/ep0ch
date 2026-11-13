@@ -112,7 +112,10 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     let (parts, spans) = (format!("/{}", cx.key("part/")), page.map(|page| page.parts.iter().map(parts::span_of).collect::<Vec<_>>()).unwrap_or_default());
     // A page with something attached to its words has a margin beside its measure for what that is.
     let margin = page.is_some_and(|page| page.parts.iter().any(|part| !parts::marks_under(part).is_empty()));
-    let mut body = col().key(cx.key("note")).w_full().max_w(if margin { MEASURE + GUTTER + MARGIN + 2.0 * PAD } else { MEASURE + 2.0 * PAD }).padding(PAD).gap(14.0)
+    // Whether the tile has room for it: read off the tile's own width as it was last laid out, and drawn again only
+    // when that crosses the line (a resize that doesn't, draws nothing again).
+    let roomy = margin && rune::memo::layout_with(&cx.key("scroll"), |at| at[2] >= MEASURE_LEAST + GUTTER + MARGIN_LEAST + 2.0 * PAD).unwrap_or(false);
+    let mut body = col().key(cx.key("note")).w_full().max_w(if roomy { MEASURE + GUTTER + MARGIN + 2.0 * PAD } else { MEASURE + 2.0 * PAD }).padding(PAD).gap(14.0)
         .on_selection_change(move |s: &mut App, change: &rune::SelectionChange, _| if !change.dragging() { s.act_in(&selected(change, &parts, &spans), &from, Actor::Person); });
     let (mut head, mut foot) = (Vec::new(), Vec::new());
     if let Some(page) = page { (head, foot) = parts::around(page) }
@@ -129,7 +132,7 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     match (own, page) {
         (Some(draft), _) => body = body.child(held(editor(cx, draft, k))),
         (None, Some(page)) => for (i, part) in page.parts.iter().enumerate() {
-            body = body.child(beside(cx, part, prim::build(part, &at.at(format!("part/{i}")), k), margin, k));
+            body = body.child(beside(cx, part, prim::build(part, &at.at(format!("part/{i}")), k), margin, roomy, k));
             if let Some(aside) = aside.filter(|_| under == Some(i)) { body = body.child(held(editor(cx, aside, k))) }
             if picked == Some(i) { body = body.children(offered(cx, k).map(&held)) }
         },
@@ -146,20 +149,26 @@ const MEASURE: f32 = 772.0;
 const PAD: f32 = 24.0;
 const GUTTER: f32 = 16.0;
 const MARGIN: f32 = 300.0;
-/// The narrowest a part is drawn beside its margin, and the narrowest the margin is: narrower, the margin's cards go under the part.
-const MEASURE_LEAST: f32 = 420.0;
+/// The narrowest a part is drawn beside its margin, and the narrowest the margin is: in a tile with less room than
+/// both, the margin's cards go under their parts.
+const MEASURE_LEAST: f32 = 440.0;
 const MARGIN_LEAST: f32 = 220.0;
 
 /// A part of the page with what is attached to its words beside it: on a page with a margin, the part at its
-/// measure and its cards in the margin when the tile is wide enough for both, else under the part (the row wraps).
-/// A page with nothing attached is drawn as it always was.
-fn beside(cx: &TileCx, part: &Value, built: El, margin: bool, k: &Kit) -> El {
+/// measure and its cards in the margin when the tile is wide enough for both (`roomy`), else under the part, which
+/// keeps the tile's whole width. A page with nothing attached is drawn as it always was.
+fn beside(cx: &TileCx, part: &Value, built: El, margin: bool, roomy: bool, k: &Kit) -> El {
     if !margin { return built }
     let cards: Vec<El> = parts::marks_under(part).iter().filter_map(|mark| card(cx, mark, k)).collect();
-    if cards.is_empty() { return el().w_full().max_w(MEASURE).child(built) }
-    row().w_full().gap(GUTTER).items_start().flex_wrap()
-        .child(el().grow(4.0).min_w(MEASURE_LEAST).max_w(MEASURE).child(built))
-        .child(cards.into_iter().fold(col().grow(1.0).min_w(MARGIN_LEAST).max_w(MARGIN).gap(8.0), El::child))
+    let held = el().w_full().max_w(MEASURE).child(built);
+    if cards.is_empty() { return held }
+    if roomy {
+        row().w_full().gap(GUTTER).items_start()
+            .child(el().grow(4.0).min_w(0.0).max_w(MEASURE).child(held))
+            .child(cards.into_iter().fold(col().grow(1.0).min_w(MARGIN_LEAST).max_w(MARGIN).gap(8.0), El::child))
+    } else {
+        cards.into_iter().fold(col().w_full().max_w(MEASURE).gap(8.0).child(held), El::child)
+    }
 }
 
 /// What is attached to words, beside them: the row of the list the mark names (a thread's), drawn by the list

@@ -741,6 +741,8 @@ declare module "@ep0ch/outline-core/part-anchor" {
       id: string;
       /** What a press on it runs. */
       act?: string;
+      /** The list whose row by this `id` is the thing itself (`lists.read from=`, of this note): what a client shows beside the words is that row. */
+      from?: string;
   }
 }
 

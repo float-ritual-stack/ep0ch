@@ -178,7 +178,7 @@ test("a passage that starts or ends inside a word is found as the whole words", 
   expect(await find("ction Define")).toMatchObject({ exact: "ction Define", quote: "ction Define", widened: false });
   // What isn't there is said in the comment's own words, before a comment is written.
   await expect(find("Action Refine", "words")).rejects.toMatchObject({ kind: "not-found" });
-  await expect(c.request({ action: "passages.find", blockId: bed.id, passage: { quote: "Action" }, whole: "lines" })).rejects.toThrow("whole= is words");
+  await expect(c.request({ action: "passages.find", blockId: bed.id, passage: { quote: "Action" }, whole: "lines" } as never)).rejects.toThrow("whole= is words");
 }));
 
 // The words a thread is on are marked where a page draws them: each part its passage reaches into carries a mark,
@@ -215,7 +215,7 @@ test("a note's page marks the words its open threads are on, in each part's own 
   expect(box.view.children![0]!.marks!.map(m => [m.id, box.view.children![0]!.view.text!.slice(m.start, m.end)])).toEqual([[boxed, "against pigeons"]]);
   expect(stat.marks).toEqual([{ kind: "thread", id: figure, act: `thread.toggle thread="${figure}"`, from: "threads" }]);
   // Resolved, a thread leaves the margin and its mark goes; the note's words gone, so does the other's.
-  await c.request({ action: "annotations.lifecycle", input: { annotationId: linked, lifecycle: "resolved" } });
+  await c.request({ action: "annotations.lifecycle", input: { annotationId: linked, lifecycle: "resolved" }, mutation: { author: "user" } });
   const now = await c.request<Block>({ action: "get", blockId: bed.id });
   await c.request({ action: "update", blockId: bed.id, expectedRevision: now.revision, text: now.text.replace("Net them against pigeons.", "Net them."), mutation: { author: "user" } });
   const after = (await c.request<{ parts: Part[] }>({ action: "notes.page", blockId: bed.id })).parts;

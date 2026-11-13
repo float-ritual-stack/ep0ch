@@ -6,6 +6,8 @@
 //   agent proposed beside it. What the comments, proposals and revisions tiles list of it is the service's.
 // - "Sowing plan": a note whose words cross a link, a reference and bold text, with a comment made on words of it as
 //   a reader draws them (said as drawn): the service anchored it to the source they were drawn from (the `quote` scene).
+// - "Compost heap": a note with two comment threads on words of it, one across two list items with an answer: the
+//   page marks both passages and the threads stand beside them (the `margin` scene).
 // - "Seed list": a screen saved as a note, with keys of its own and the list of the keys beside its reader.
 // - "Two beds": a screen saved as a note, two readers with the first's opens wired to the second (the `heir` scene).
 // - "The plot in June" (with a folder): a header image, two pictures (one nobody took), an svg fence and a mermaid
@@ -40,6 +42,19 @@ await ask({ action: "draft.patch", propose: true, blockId: beans.id, revision: b
 const sowing = await create(["Sowing plan [type::plan] [season::spring]", `Sow the [early peas](https://seeds.example/peas) in March, **before** the last frost, in the ((${beans.id}|bean rows)) of last year.`, "", "Water the beds at dusk, and never at *noon*."].join("\n"));
 await ask({ action: "annotations.batch", requestId: "about-seed-drawn", author: "user", operations: [
   { operationId: "1", type: "block-comment", input: { blockId: sowing.id, expectedRevision: sowing.revision, body: "Under glass first, then out.", source: "user", passage: { quote: "the early peas in March, before the last frost", drawn: true } } },
+] });
+
+// A note read with a pen (the `margin` scene): a thread on words that run across two list items, with an agent's
+// answer, and an agent's own on words of a paragraph. The page marks both passages; the threads stand beside them.
+const heap = await create(["Compost heap [type::bed] [turned::monthly]", "Three bays by the north fence: one filling, one cooking, one ready.", "",
+  "- Greens go in thin layers, never a whole barrow of grass at once.", "- Browns between them: straw, leaves, torn card.", "- Turn the cooking bay when it stops steaming.", "",
+  "The ready bay is sieved in March, before the beds are dressed. What will not pass the sieve goes back in the first bay."].join("\n"));
+const thin = await ask<{ annotations: { block: { id: string } }[] }>({ action: "annotations.batch", requestId: "about-seed-heap", author: "user", operations: [
+  { operationId: "1", type: "block-comment", input: { blockId: heap.id, expectedRevision: heap.revision, body: "How thin? The last heap went slimy.", source: "user", passage: { quote: "Greens go in thin layers, never a whole barrow of grass at once.\n- Browns between them", drawn: true } } },
+] });
+await ask({ action: "annotations.reply", requestId: "about-seed-heap-reply", author: "agent", provenance: { actorId: TIDY.actorId }, input: { annotationId: thin.annotations[0]!.block.id, body: "A hand's depth. The log has the slimy heap at three barrows of mowings in one go.", source: "agent" } });
+await ask({ action: "annotations.batch", requestId: "about-seed-heap-march", author: "agent", provenance: { actorId: TIDY.actorId }, operations: [
+  { operationId: "1", type: "block-comment", input: { blockId: heap.id, expectedRevision: heap.revision, body: "The frost was late last year: April may be safer.", source: "agent", passage: { quote: "sieved in March" } } },
 ] });
 
 if (pictures) {

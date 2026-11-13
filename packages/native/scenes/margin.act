@@ -1,0 +1,7 @@
+# A comment in place (scenes/about.seed.ts writes the note into a scratch outline): the compost heap in the reader,
+# the words its two comment threads are on marked where they are drawn, and each thread beside its words. The
+# first is opened whole (its comment, the answer, its own Reply and Resolve); the second is folded to its first
+# words. Draw it wide (`--size 1560x860`) and the threads are in the margin; narrower, they are under their parts.
+bar.open scope=search query="Compost heap"
+bar.pick n=1
+thread.toggle

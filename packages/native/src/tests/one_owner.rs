@@ -713,3 +713,42 @@ fn a_terminal_s_deciders_each_have_one_place() {
     let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
     assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
 }
+
+/// H4, a comment in place: each of its questions has one answerer. Where picked words are, and that a passage is
+/// whole words, is the service's (`passages.find`, asked by the one action that hears words picked): the window
+/// widens no selection and reads no text for a word's end. What is attached to a note's words is the service's
+/// marks, read by the model's one reader (`parts::marks`), tinted by the one builder of prose and shown beside the
+/// words as the row of the list each mark names, drawn by the list drawer. Where what is written stands is asked of
+/// what is written and of the page's parts. And the note's comments come forward by one action, run for the person.
+#[test]
+fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
+    let texts = sources();
+    let code = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| panic!("{path} is there"));
+    let count = |needle: &str| texts.iter().map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains(needle)).count()).sum::<usize>();
+    // Asked in one place, of the service; its answer taken in one.
+    assert_eq!((count("\"passages.find\""), code("actions/review.rs").matches("\"passages.find\"").count()), (1, 1), "where picked words are is asked once, by the action that hears them");
+    assert_eq!(count(".found("), 1, "the service's passage is taken where its answer lands, and nowhere else");
+    // Nothing here widens a selection or looks for a word's end in what was picked or drawn.
+    for path in ["actions/review.rs", "tiles/page.rs", "tiles/prim.rs", "parts.rs"] {
+        for reading in ["is_alphanumeric", "is_alphabetic", "unicode_words", "split_word", "char_indices"] { assert!(!code(path).contains(reading), "{path} reads words itself (`{reading}`): a passage as whole words is the service's") }
+    }
+    assert!(!code("draft.rs").contains("is_alphanumeric"), "what shortens a quote for one line cuts at blanks: it reads no word");
+    // The marks: read by one reader, off the part; a range of them painted by one builder; nothing else names one.
+    none("a part's marks read outside the model's one reader (`parts::marks`)", strays("\"marks\")", |path| path == "parts.rs"));
+    none("a mark painted outside the one builder of prose", strays("Highlight::", |path| path == "tiles/prim.rs"));
+    none("a mark's range cut into lines outside the model", calls("lines_of", |path| path == "parts.rs" || path == "tiles/prim.rs"));
+    // What stands beside the words is the row of the list the mark names, asked in one place and drawn by the list
+    // drawer: the page builds no row of its own, and names no list.
+    none("the list a mark's thing is a row of asked outside the App's one ask", calls("beside_ask", |path| path == "actions/app.rs"));
+    assert_eq!(code("tiles/page.rs").matches("super::list::card(").count(), 1, "a card is the list drawer's row, built once");
+    for built in ["ListRow {", ".cells", "\"threads\"", "from=threads"] { assert!(!code("tiles/page.rs").contains(built) && !code("tiles/prim.rs").contains(built), "a drawer builds or names a thread's row itself (`{built}`)") }
+    // Where what is written stands: asked of what is written (`Writes::ends_at`, `Writes::answers`) and of the page's
+    // parts, by the drawer that shows it.
+    none("where a comment's field stands decided outside the page drawer", calls("part_holding", |path| path == "parts.rs" || path == "tiles/page.rs").into_iter().chain(calls("part_marked", |path| path == "parts.rs" || path == "tiles/page.rs")).collect());
+    // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
+    none("a tab brought forward outside the one action that shows a note's comments", strays("Op::Tab", |path| path == "actions/review.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
+    assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
+    // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
+    none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs"));
+    assert!(code("keys.rs").contains("if self.ui(&self.layout.focus).passage.is_some() { Layer::Selection }"), "the layer of picked words is said by `App::person`");
+}

@@ -104,8 +104,8 @@ static SHOW: ActionRow = ActionRow::new("threads", Touches::Shape, "show the com
     .menu(&[MenuRow::new("Comments", "Note", None)])
     .examples(&[Example { act: "threads", does: "brings the open note's comments to the front of their tabs", safe: Some(true) }]);
 
-static TOGGLE: ActionRow = ActionRow::new("thread.toggle", Touches::Nothing, "open a comment's card beside the words it is on in the note a reader shows (the comment whole, its replies, and its own Reply and Resolve), or fold it back to its first words: thread= its id, as the page's mark and the list of threads give it; expand=true or false sets it. How a note is read, not what it says: anybody may, and it moves no keys")
-    .args(&[("thread", ArgSpec::text("the thread's id")), ("expand", ArgSpec::flag("open it (true) or fold it (false); left out, the other way").optional())])
+static TOGGLE: ActionRow = ActionRow::new("thread.toggle", Touches::Nothing, "open a comment's card beside the words it is on in the note a reader shows (the comment whole, its replies, and its own Reply and Resolve), or fold it back to its first words: thread= its id, as the page's mark and the list of threads give it (left out: the first one marked on the page); expand=true or false sets it. How a note is read, not what it says: anybody may, and it moves no keys")
+    .args(&[("thread", ArgSpec::text("the thread's id; left out, the first one marked on the page").optional()), ("expand", ArgSpec::flag("open it (true) or fold it (false); left out, the other way").optional())])
     .keys(&[KeyRow::via("a press on the words a comment is on, or on its card beside them")])
     .examples(&[Example { act: "thread.toggle thread=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens that comment beside its words, or folds it", safe: Some(true) }]);
 
@@ -244,7 +244,9 @@ fn show(app: &mut App, _: &Args, by: &Actor) -> Outcome {
 /// A comment's card beside its words, opened whole or folded: the reader's own reading state, kept with the tile.
 fn toggle(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let Some(tile) = app.about() else { return Outcome::refused("there is no reader here to open a comment in") };
-    let thread = args.text("thread").unwrap_or("").to_string();
+    // The one named, else the first thing the page marks on its words.
+    let first = || app.page_of(&tile).and_then(|page| page.parts.iter().flat_map(crate::parts::marks_under).next()).map(|mark| mark.id);
+    let Some(thread) = args.text("thread").map(str::to_string).or_else(first) else { return Outcome::refused("nothing is marked on this note's words: name a thread with thread=") };
     let open = args.flag("expand").unwrap_or_else(|| !app.ui(&tile).unfolded.contains(&thread));
     let shown = &mut app.ui_mut(&tile).unfolded;
     if open { shown.insert(thread.clone()); } else { shown.remove(&thread); }
