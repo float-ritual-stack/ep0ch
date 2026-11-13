@@ -80,7 +80,7 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
-  agentLevel, allTiles, answerLands, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, answerLands, landsBeside, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
@@ -5250,7 +5250,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (mode === "add" || mode === "addtab") {
       // The kind under that key, from the registry (an extension's kind with a key is here too).
       const args = this.openKindArgs(c, mode === "addtab");
-      return args ? this.run("tile.open", args, me) : this.redraw();
+      return args ? this.run("tile.open", args) : this.redraw();   // beside the keys' tile, named by none (PIE-1790: it may land beside a lane's preview)
     }
     const dir = MOVE[c], n = dir ? neighbour(this.rectsNow(), this.focus, dir) : null;
     if (mode === "move" || mode === "tab") {
@@ -5548,7 +5548,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `tile.open`: a new tile beside (or in the tabs of) tile `at`. `link`: the tile whose opens land in it, linked in the
    * same layout step (tile.preview); `keys: false` leaves the person's keys where they are.
    */
-  async openTile(given: NewTile, at: string | undefined, where: Where | Lands, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; unnamed?: boolean } = {}): Promise<TileDone> {
+  async openTile(given: NewTile, at: string | undefined, where: Where | Lands, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; unnamed?: boolean; named?: true } = {}): Promise<TileDone> {
     if (this.dispatch.standing(actor)) this.prefix = "";
     const t = canonSpec(given);
     if (t.outline) await outlineBoards(this.ctx).on({ outline: t.outline, machine: t.machine });
@@ -5583,12 +5583,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = canonSpec({ ...spec, ...(!empty ? { openedFrom: this.tileId(base.id), ...k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) } : {}) });
     const source = spec.selectFrom ? this.selectSource(spec.selectFrom) : undefined;
-    const { unnamed, ...given0 } = also, asked = shows(actor) && this.keys().typingIn ? { ...given0, keys: false as const } : given0; // a press that shows something leaves the keys where the person writes (PIE-1711)
+    const { unnamed, named: _named, ...given0 } = also, asked = shows(actor) && this.keys().typingIn ? { ...given0, keys: false as const } : given0; // a press that shows something leaves the keys where the person writes (PIE-1711)
     // Beside a tile, the layout's one rule says where (PIE-1559): a side asked for is that side (`there`), and none named
     // is beside it or below it, else a float (`beside`), for the person and an agent alike.
     const lands: Lands | null = typeof where !== "string" ? where : isDir(where) ? { prefers: unnamed ? "beside" : "there", dir: where } : null;
     const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: empty ? { kind: "edge", dir: "right" } : lands ? { kind: "beside", target: base.id, ...lands } : placeOf(where as Where, base.id), selectFrom: source?.ids, ...asked }, actor);
+    const r = landsBeside(beside => this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: empty ? { kind: "edge", dir: "right" } : lands ? { kind: "beside", target: beside, ...lands } : placeOf(where as Where, base.id), selectFrom: source?.ids, ...asked }, actor), base.id, empty || also.named ? undefined : wireTarget(this.layout, base.id, "select"), n => this.nameOf(n));
     if (!r.ok) throw new ActionRefused(r.refused);
     this.join(id, makeTile(spec), r, { start: false });
     if (source) this.wireSource(id, source);

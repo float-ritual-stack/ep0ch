@@ -13,6 +13,7 @@ import { draftPreviewDoc } from "../surface/note";
 import { prop } from "../props";
 import { bg, C, drawEllipsized, fg, pad, RESET, visible } from "../style";
 import { type Key } from "../term";
+import { rowLines } from "../text";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, type DraftCommand, type LeaveResult } from "../draft-session";
@@ -464,6 +465,11 @@ export class CardComposer {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + title, "");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
+    // What the draft said (a refusal names what to type) wraps to four rows rather than being cut at the box's edge
+    // (PIE-1790), in what's left once the text keeps three rows to type in: the frame's title and rule, the rows above it,
+    // the twin's row.
+    const above = C0.kind === "card" && !C0.planning ? 2 + (C0.needs.length ? 1 : 0) : 1;
+    const said = (s: string, color: number) => rowLines(s, w, Math.max(1, Math.min(4, r.rows - 2 - 2 - above - (C0.kind === "card" && C0.twin ? 1 : 0) - 3))).map(l => line(l, color));
     const status = C0.kind === "card" && C0.planning ? [
       line(`asking the outline what a card in ${C0.lane.name} is born with…`, C.dark),
       line(d.note || "the first line is the title; [key::value] tokens are properties", C.dark),
@@ -473,10 +479,10 @@ export class CardComposer {
       C0.parent
         ? line(`under ${C0.parent.title} · ${C0.parent.why}`, C.cyan)
         : line(`roadmap item · type ${roadmapHint(C0) || "its title"} · the allocator issues its work-id and files it in its project's work queue`, C.cyan),
-      line(d.note || "the first line is the title; [key::value] tokens are properties", d.note.startsWith("not created") ? C.lred : C.dark),
+      ...said(d.note || "the first line is the title; [key::value] tokens are properties", d.note.startsWith("not created") ? C.lred : C.dark),
     ] : [
       line(`a child note of ${drawEllipsized(titleOf(C0.parent), 60)}`, C.cyan),
-      line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
+      ...said(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
     const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, ...(C0.kind === "card" && C0.twin ? { twin: C0.twin.said } : {}), by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.b.host.ctx.board, redraw: () => this.b.host.redraw() }, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
