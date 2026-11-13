@@ -175,13 +175,13 @@ async function updateCheckout(root: string, name: string, say: (s: string) => vo
     // Checked again right before moving: still nothing changed in tracked files, still nothing origin lacks; and
     // `reset --keep` refuses to overwrite a file git doesn't track where the older commit has one (Codex on #1502).
     const changed = (await run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { env })).out;
-    if (changed) throw new StepFailed(`the checkout has local changes; not moved`, `commit or move them aside (git -C ${root} status), then rerun ep0ch install --apply --sha ${sha} --back`);
-    if ((await run(["git", "-C", root, "merge-base", "--is-ancestor", "HEAD", "origin/main"], { env })).code !== 0) throw new StepFailed(`the checkout's HEAD isn't on origin/main; not moved`, `push or move its own commits aside (git -C ${root} log origin/main..HEAD), then rerun`);
+    if (changed) throw new StepFailed(`the checkout has local changes, so it stays where it was`, `commit or move them aside (git -C ${root} status), then rerun ep0ch install --apply --sha ${sha} --back`);
+    if ((await run(["git", "-C", root, "merge-base", "--is-ancestor", "HEAD", "origin/main"], { env })).code !== 0) throw new StepFailed(`the checkout's HEAD isn't on origin/main, so it stays where it was`, `push or move its own commits aside (git -C ${root} log origin/main..HEAD), then rerun`);
     // A file git doesn't track (an ignored one too) where the older commit has one: `reset --keep` would take it.
     const theirs = new Set((await run(["git", "-C", root, "ls-tree", "-r", "--name-only", sha], { env })).out.split("\n").filter(Boolean));
     const untracked = [...(await run(["git", "-C", root, "ls-files", "--others", "--exclude-standard"], { env })).out.split("\n"), ...(await run(["git", "-C", root, "ls-files", "--others", "--ignored", "--exclude-standard"], { env })).out.split("\n")].filter(Boolean);
     const taken = [...new Set(untracked.filter(p => theirs.has(p)))];
-    if (taken.length) throw new StepFailed(`${sha.slice(0, 8)} has ${taken.length === 1 ? "a file" : "files"} where the checkout holds ${taken.length === 1 ? "one" : "some"} git doesn't track: ${taken.slice(0, 8).join(", ")}${taken.length > 8 ? ` and ${taken.length - 8} more` : ""}; not moved`, `move ${taken.length === 1 ? "it" : "them"} aside (they're yours), then rerun ep0ch install --apply --sha ${sha} --back`);
+    if (taken.length) throw new StepFailed(`${sha.slice(0, 8)} has ${taken.length === 1 ? "a file" : "files"} where the checkout holds ${taken.length === 1 ? "one" : "some"} git doesn't track: ${taken.slice(0, 8).join(", ")}${taken.length > 8 ? ` and ${taken.length - 8} more` : ""}, so the checkout stays where it was`, `move ${taken.length === 1 ? "it" : "them"} aside (they're yours), then rerun ep0ch install --apply --sha ${sha} --back`);
     const r = await run(["git", "-C", root, "reset", "--keep", sha], { env, onLine: child });
     if (r.code !== 0) {
       // Part way (Codex on #1502): what state it's in, and the two commands, one to finish and one to undo.
