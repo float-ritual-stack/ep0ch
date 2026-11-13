@@ -360,7 +360,7 @@
     "packages/outliner/src/detail-pi-preview.ts": 2408,
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
-    "packages/outliner/src/resource-catalog.ts": 4286,
+    "packages/outliner/src/resource-catalog.ts": 4281,
     "packages/outliner/src/server.ts": 4260,
     "packages/outliner/src/store.ts": 6113,
     "packages/outliner/src/tree-controller.ts": 3180,

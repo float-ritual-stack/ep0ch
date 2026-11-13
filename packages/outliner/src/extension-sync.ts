@@ -24,7 +24,8 @@ import type { OutlinerStore } from "./store";
  *   refresh (this one, Detail's `r`, the poll) writes the record blocks, because
  *   the catalog reports every observation (`onRemoteEntityObserved`).
  * - **Poll.** While the service runs, one provider search every few minutes
- *   asks which of the outline's tickets changed since the last poll; only those
+ *   asks which of the tickets registered here changed since the last poll
+ *   (with a record block or not: a list item's ticket counts too); only those
  *   are read again. A poll that finds nothing writes nothing.
  * - **Back off.** A provider that refuses the credentials (401, 403, none on
  *   this machine) or rate-limits (429) pauses the automatic fetches (saves,
@@ -413,11 +414,13 @@ export class ExtensionSync {
   }
 
   /**
-   * One provider search per Source for the tickets the outline shows, changed
-   * since the last poll (with a minute of overlap); only those are read again.
-   * A provider that can't search has its stale copies refreshed instead. A
-   * search that fails keeps its window for the next poll; a paused sync skips
-   * the poll.
+   * One provider search per Source for every ticket registered here (a record
+   * block, a list item, a link a reader opened: PIE-1776), changed since the
+   * last poll (with a minute of overlap); only those are read again. The first
+   * poll after a start looks back to when each copy was last read (at most a
+   * week); a copy never read, or read before that week, is read directly. A
+   * provider that can't search has its stale copies refreshed instead. A search
+   * that fails keeps its window for the next poll; a paused sync skips the poll.
    */
   async poll(): Promise<{ checked: number; changed: number }> {
     const started = this.now;
@@ -426,20 +429,23 @@ export class ExtensionSync {
       this.lastPollResult = { at: new Date(started).toISOString(), checked: 0, changed: 0, error: `paused: ${paused}` };
       return { checked: 0, changed: 0 };
     }
-    // The first poll looks back to the oldest record's last write (the service may have been down),
-    // at most a week; later ones to the last poll that finished.
-    const oldest = Math.min(...this.store.extensionRecords({ extensionId: this.extensionId, role: "record" }).map((row) => Date.parse(row.syncedAt)).filter(Number.isFinite));
-    const from = Math.max(started - 7 * 24 * 60 * 60_000,
-      this.lastPoll ?? (Number.isFinite(oldest) ? oldest : started - this.pollEveryMs));
+    const registered = this.store.resources.remoteEntityKeys(this.provider);
+    // The first poll looks back to the oldest copy's last read (the service may have been down), at most a week;
+    // later ones to the last poll that finished.
+    const weekAgo = started - 7 * 24 * 60 * 60_000;
+    const read = (row: { checkedAt: string | null }) => row.checkedAt === null ? NaN : Date.parse(row.checkedAt);
+    const oldest = Math.min(...registered.map(read).filter(Number.isFinite));
+    const from = Math.max(weekAgo, this.lastPoll ?? (Number.isFinite(oldest) ? oldest : started - this.pollEveryMs));
     const sinceMinutes = Math.ceil((started - from) / 60_000) + 1;
     const bySource = new Map<string, Map<string, string>>();
-    for (const row of this.store.extensionRecords({ extensionId: this.extensionId, role: "record" })) {
-      if (!row.resourceId) continue;
-      const resource = this.store.resources.get(row.resourceId);
-      if (!resource || resource.provider !== this.provider || !("key" in resource.address)) continue;
-      const keys = bySource.get(resource.sourceId) ?? new Map<string, string>();
-      if (keys.size < MAX_POLL_KEYS) keys.set(resource.address.key, resource.id);
-      bySource.set(resource.sourceId, keys);
+    // Copies no search window reaches: never read, or read before the week the first poll looks back.
+    const unread = new Map<string, string[]>();
+    for (const row of registered) {
+      const keys = bySource.get(row.sourceId) ?? new Map<string, string>();
+      if (keys.size >= MAX_POLL_KEYS) continue;
+      keys.set(row.key, row.resourceId);
+      bySource.set(row.sourceId, keys);
+      if (!(read(row) >= weekAgo)) unread.set(row.sourceId, [...unread.get(row.sourceId) ?? [], row.resourceId]);
     }
     let checked = 0;
     let changed = 0;
@@ -450,9 +456,9 @@ export class ExtensionSync {
       checked += keys.size;
       try {
         const found = await this.store.resources.remoteEntityChanges(sourceId, [...keys.keys()], sinceMinutes);
-        const due = found === null
+        const due = [...unread.get(sourceId) ?? [], ...found === null
           ? [...keys.values()].filter((id) => this.store.resources.describe(id, false).remoteStatus?.freshness === "stale")
-          : found.flatMap((item) => keys.get(item.locator) ?? []);
+          : found.flatMap((item) => keys.get(item.locator) ?? [])];
         for (const resourceId of new Set(due)) {
           if (this.paused()) break;
           changed += 1;

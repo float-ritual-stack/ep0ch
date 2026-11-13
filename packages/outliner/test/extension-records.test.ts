@@ -17,6 +17,7 @@ import type { ResourceProjectionReadResult } from "../src/resource-projection";
 import type { BacklinkCollection, Block, ChangeFeedPage, PageAddressResolution } from "../src/types";
 import { FAKE_TOKEN, installJira, startFakeJira, type FakeIssue } from "./fake-jira";
 import { useJiraProvider } from "./resource-providers";
+import { ExtensionSync } from "../src/extension-sync";
 
 // Jira's `jira::` lines, as a service with the Jira extension reads them.
 useJiraProvider();
@@ -610,3 +611,50 @@ test("a ticket deleted at Jira doesn't stop the poll: the refused key search is 
   // A missing ticket is not a refusal: nothing pauses.
   expect(server.extensionSync.for("jira")!.paused()).toBeUndefined();
 }, 30_000);
+
+/** A page whose ticket was read once from its header and that now names it only on a list item: no record asks for it. */
+async function bulletedTicket(ctx: Awaited<ReturnType<typeof setup>>) {
+  const { store, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const read = await ctx.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: page.id });
+  expect(read.projections).toEqual([]);
+  return { page, resourceId, checkedAt: () => store.resources.describe(resourceId, false).remoteStatus?.checkedAt };
+}
+
+test("a ticket a note names only on a list item (no record) is still re-read by the poll when Jira changes it", async () => {
+  const ctx = await setup();
+  const { fake, store, server } = ctx;
+  const { resourceId, checkedAt } = await bulletedTicket(ctx);
+  const before = checkedAt();
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Done";
+  issue.description = "The switch is done.";
+  issue.updated = new Date().toISOString();
+
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 1, changed: 1 });
+  expect(checkedAt()).not.toBe(before);
+  const described = store.resources.describe(resourceId, false);
+  expect(described.remoteEntity?.metadata.status).toBe("Done");
+  expect(described.remoteEntity?.markdown).toContain("The switch is done.");
+});
+
+test("the first poll after a restart looks back to when each copy was read, not one poll interval", async () => {
+  const ctx = await setup();
+  const { fake, store, server } = ctx;
+  const { resourceId } = await bulletedTicket(ctx);
+  // Read two hours ago; edited in Jira an hour ago, while the service was down.
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  store.database.query("UPDATE remote_entity_resource_state SET checked_at = ? WHERE resource_id = ?").run(twoHoursAgo, resourceId);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  server.extensionSync.for("jira")!.stop();
+  const restarted = new ExtensionSync(store, "jira", { pollMs: 0 });
+  expect(await restarted.poll()).toEqual({ checked: 1, changed: 1 });
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+});
