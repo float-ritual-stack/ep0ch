@@ -327,10 +327,10 @@ test("weeks of edits keep the file within about 2x the outline, and each compact
 }, 120_000);
 
 /** A pie-shaped outline whose log has grown past its compaction point, and its size on disk (file and WAL). */
-function grownHome(dir: string, notes = 600, days = 3) {
+function grownHome(dir: string, notes = 600, days = 3, words = "Sow after the frost; water at dusk. ") {
   const path = join(dir, "home.sqlite");
   const home = new OutlinerStore(path);
-  const body = (i: number, n: number) => `${"Sow after the frost; water at dusk. ".repeat(12)}${Array.from({ length: 8 }, (_, k) => `[field-${k}::${(i * 7 + k + n) % 13}]`).join(" ")} [[Seed packet ${(i + 1) % notes}]]`;
+  const body = (i: number, n: number) => `${words.repeat(12)}${Array.from({ length: 8 }, (_, k) => `[field-${k}::${(i * 7 + k + n) % 13}]`).join(" ")} [[Seed packet ${(i + 1) % notes}]]`;
   const made = Array.from({ length: notes }, (_, i) => home.create(`Seed packet ${i}\n${body(i, 0)}`));
   for (let day = 1; day <= days; day++) for (const [i, note] of made.entries()) {
     const now = home.get(note.id)!;
@@ -349,6 +349,31 @@ test("a compaction's room is its physical peak: the file and its WAL as the new 
   // What a compaction writes first, before it frees anything: its peak.
   writeGenesis(home.database, SCHEMA_VERSION);
   expect(onDisk() - before).toBeLessThanOrEqual(needs);
+  home.close();
+});
+
+/** The bytes on disk a new genesis adds, as a compaction writes it first: its peak. */
+function genesisPeak(home: OutlinerStore, onDisk: () => number) {
+  home.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  const before = onDisk();
+  writeGenesis(home.database, SCHEMA_VERSION);
+  return onDisk() - before;
+}
+
+test("the room counts UTF-8 bytes, so notes in another script are budgeted as they land (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root(), 1000, 0, "種は霜の後に蒔き🌱🌧🌾🌻🍅🥕🌽🥬🫘🌿🍃🌸 ");
+  const needs = compactionRoom(home.database);
+  expect(genesisPeak(home, onDisk)).toBeLessThanOrEqual(needs);
+  home.close();
+});
+
+test("the room is the outline as it is now, not its rewrites: a log of many rewrites still compacts (Codex on #1500)", () => {
+  const { home, onDisk } = grownHome(root(), 500, 20);
+  const needs = compactionRoom(home.database);
+  const peak = genesisPeak(home, onDisk);
+  expect(peak).toBeLessThanOrEqual(needs);
+  // Sized to the new genesis, not to the twenty rewrites behind it.
+  expect(needs).toBeLessThan(peak * 4);
   home.close();
 });
 

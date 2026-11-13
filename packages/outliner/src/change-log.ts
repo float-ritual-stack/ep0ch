@@ -224,21 +224,25 @@ function genesisOf(database: Database): { lsn: number; rows: number; bytes: numb
   const lsn = latestGenesis(database);
   if (!lsn) return null;
   const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(lsn) as { row: string }).row) as { rows?: number }).rows ?? 0;
-  const bytes = (database.query("SELECT COALESCE(SUM(LENGTH(row)) + SUM(COALESCE(LENGTH(key), 0)), 0) AS n FROM change_log WHERE lsn BETWEEN ? AND ?").get(lsn, lsn + rows) as { n: number }).n;
+  const bytes = (database.query("SELECT COALESCE(SUM(LENGTH(CAST(row AS BLOB))) + SUM(COALESCE(LENGTH(CAST(key AS BLOB)), 0)), 0) AS n FROM change_log WHERE lsn BETWEEN ? AND ?").get(lsn, lsn + rows) as { n: number }).n;
   return { lsn, rows, bytes };
 }
 
-/** What was logged after the newest genesis's rows, in bytes. */
+/** What was logged after the newest genesis's rows, in UTF-8 bytes. */
 const growthAfter = (database: Database, g: { lsn: number; rows: number }) =>
-  (database.query("SELECT COALESCE(SUM(LENGTH(row)) + SUM(COALESCE(LENGTH(key), 0)), 0) AS n FROM change_log WHERE lsn > ?").get(g.lsn + g.rows) as { n: number }).n;
+  (database.query("SELECT COALESCE(SUM(LENGTH(CAST(row AS BLOB))) + SUM(COALESCE(LENGTH(CAST(key AS BLOB)), 0)), 0) AS n FROM change_log WHERE lsn > ?").get(g.lsn + g.rows) as { n: number }).n;
 
 /**
- * The bytes a compaction needs free on its file's filesystem: the new genesis (at most the last one and everything
- * logged since) in the file and again in the WAL.
+ * The bytes a compaction needs free on its file's filesystem (Codex on #1500): the new genesis (the replicated rows as
+ * they are now, as their JSON in UTF-8, never the rewrites the log holds of them) in the file and again in the WAL.
  */
 export function compactionRoom(database: Database): number {
-  const g = genesisOf(database);
-  return g ? Math.ceil(2 * PAGE_OVERHEAD * (g.bytes + growthAfter(database, g))) : 0;
+  let bytes = 0;
+  for (const t of replicatedTables(database)) {
+    const where = t.name === "metadata" ? ` WHERE "key" NOT IN (${LOCAL_METADATA_KEYS.map(lit).join(", ")})` : "";
+    bytes += (database.query(`SELECT COALESCE(SUM(LENGTH(CAST(${rowJson(t, "")} AS BLOB)) + LENGTH(CAST(${keyJson(t, "")} AS BLOB))), 0) AS n FROM ${q(t.name)}${where}`).get() as { n: number }).n;
+  }
+  return Math.ceil(2 * PAGE_OVERHEAD * bytes);
 }
 
 /**
