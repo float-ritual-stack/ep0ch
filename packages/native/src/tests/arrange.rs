@@ -204,7 +204,9 @@ fn a_place_the_layout_refuses_says_why_where_it_is_held_and_takes_nothing() {
     let why = format!("the beds screen is locked: moving beds is refused \u{b7} {key} in it unlocks it");
     assert_eq!(rt.state.moving.as_ref().and_then(|held| held.drop.as_ref()).and_then(|zone| zone.refused.clone()), Some(why.clone()));
     assert_eq!(words_in(&rt, "drop/bed/tabs"), format!("\u{2715} {why}"), "the band under the pointer says why");
-    assert_eq!(words_in(&rt, "drop/bed/swap"), "drop here: swap", "a band the pointer is not over keeps its words");
+    // A band the pointer is not over keeps its words, marked as refused: no place is offered that takes nothing.
+    assert_eq!(words_in(&rt, "drop/bed/swap"), "\u{2715} drop here: swap");
+    assert!(rt.elements().iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("drop/") && key.matches('/').count() >= 2)).all(|e| e.label.as_deref() == Some(format!("\u{2715} {why}").as_str())), "every refused place says why to whoever reads the window");
     let_go(&mut rt, over);
     assert_eq!(shape(&rt), before);
     assert_eq!(rt.state.notice.as_ref().map(|notice| (notice.tone, notice.said.clone())), Some((Tone::Problem, format!("beds is not moved: {why}"))));

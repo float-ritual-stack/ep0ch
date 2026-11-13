@@ -148,11 +148,14 @@ fn zone(place: &Zone, lit: bool, key: String, k: &Kit) -> El {
     let c = &k.c;
     let p = points(place.ghost);
     let colors = match (&place.refused, lit) { (Some(_), true) => &c.danger, (None, true) => &c.warning, _ => &c.info };
-    let (ink, edge, ground) = if lit { (colors.fg, colors.fg, colors.bg) } else { (c.text_base, c.border_base, c.layer_01.alpha(0.7)) };
-    let said = match (&place.refused, lit) { (Some(why), true) => format!("\u{2715} {why}"), _ => place.label.clone() };
+    let (ink, edge, ground) = if lit { (colors.fg, colors.fg, colors.bg) } else { (if place.refused.is_some() { c.text_muted } else { c.text_base }, c.border_base, c.layer_01.alpha(0.7)) };
+    // A refused place says why where the pointer has the tile over it, and elsewhere is marked as refused in its own
+    // words (every tile shows its places at once: the reason in each would cover the window); read, it says why.
+    let why = place.refused.as_ref().map(|why| format!("\u{2715} {why}"));
+    let said = match (&why, lit) { (Some(why), true) => why.clone(), (Some(_), false) => format!("\u{2715} {}", place.label), (None, _) => place.label.clone() };
     // (The lit place's words stand at its top where it has the room: the held tile's name is at the pointer.)
     let boxed = if lit && place.ghost.rows >= 4.0 { col().center_y().py(8.0) } else { el().center() };
-    boxed.key(key).role("option").label(said.clone()).absolute(p[0], p[1]).w(p[2]).h(p[3]).radius(k.radius.sm).fill(ground).border(if lit { 2.0 } else { 1.0 }, edge).opacity(if lit { 1.0 } else { 0.8 }).px(4.0)
+    boxed.key(key).role("option").label(why.unwrap_or_else(|| said.clone())).absolute(p[0], p[1]).w(p[2]).h(p[3]).radius(k.radius.sm).fill(ground).border(if lit { 2.0 } else { 1.0 }, edge).opacity(if lit { 1.0 } else { 0.8 }).px(4.0)
         .child(text(said).font(if lit { k.ty.small_medium } else { k.ty.small }).color(ink).align(Align::Center).wrap())
 }
 
