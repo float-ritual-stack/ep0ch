@@ -1,3 +1,4 @@
+import { pairOf } from "./desk/answer-tile";
 import { drawerFootEsc } from "./esc-door";
 import { DoorKeys, keysThrough, wayOut, type KeysLayer, type WayOut } from "./desk/keys-fact";
 import { StepRecord } from "./desk/step-record";
@@ -1549,7 +1550,8 @@ export class AgentDrawer {
       const zone = inDrawer && !onChip && this.d && r!.rows >= 4 ? this.d.foreignAt(k.x, k.y, { name: dragged, kind }) : null;
       if (!zone) this.d?.cancelDrag();
       // What the release will do is what `tile.drawer` will do: the screen keeping its last tile, the drawer's layout refusing the place, the zone's own refusal.
-      const why = over ? this.putRefusal(screen!, dragged, USER, zone?.to, zone?.where ?? undefined) ?? zone?.refused ?? null : null;
+      const pair = over ? pairOf(screen!, dragged) : null;   // half of a pair: both go, as tile.drawer moves them (PIE-1798)
+      const why = over ? this.putRefusal(screen!, dragged, USER, zone?.to, zone?.where ?? undefined, pair ? [pair.reader, pair.answer] : undefined) ?? zone?.refused ?? null : null;
       const says = why ? `✕ ${why}` : zone ? `into your drawer: ${zone.label}` : DRAWER_DROP;
       const hover = over ? dragged : null;
       if (hover !== this.dropHover || says !== this.dropSays) { this.dropHover = hover; this.dropSays = says; screen!.drawerHover(hover ? `⤓ ${says}` : null); this.host.redraw(); }
