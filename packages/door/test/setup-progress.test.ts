@@ -11,6 +11,7 @@ import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SP
 import { visible, width } from "../src/style";
 import { fakeServiceManager } from "./fake-service-manager";
 import { scratchDir, stopUnder } from "./scratch";
+import { takeLock } from "../src/backup/jobs";
 
 // Short whatever TMPDIR is (agent-env's is too long for a forward's socket path, PIE-1654).
 const scratch = scratchDir("ep0ch-progress-");
@@ -292,6 +293,35 @@ describe("the whole command, in a scratch home", () => {
     const step = JSON.parse(out.at(-1)!).steps.find((s: { id: string }) => s.id === "backup") as { done: string[] };
     expect(step.done.join("\n")).toMatch(/copying instead: (archiving the logs failed \(.+\)|the archive doesn't hold every outline as uploaded: field-notes \(not archived\), seed-library \(not archived\))/);
     expect(step.done.join("\n")).toContain("field-notes: ");
+  }, 60_000);
+
+  test("install waits for a backup already running before its rollback point, saying so, and copies only once it outlasts the wait (PIE-1800)", async () => {
+    // An install whose rollback point stands in, while the scheduled run holds the job's lock for `holdMs`.
+    const install = async (name: string, holdMs: number, wait: number) => {
+      const f = home(name);
+      // This home's ep0ch is the real one, so its `backup snapshot` meets the lock.
+      writeFileSync(join(f.repoRoot, "packages/door/src/main.ts"), `import ${JSON.stringify(join(import.meta.dir, "../src/main.ts"))};\n`);
+      const env = { ...f.env, EP0CH_STATE: join(f.h, "state"), EP0CH_BACKUP_MACHINE: "garden-shed", EP0CH_BACKUP_REPO: `${f.h}/repos/{machine}`, EP0CH_INSTALL_BACKUP_WAIT: String(wait) };
+      mkdirSync(join(f.h, "state/backup"), { recursive: true });
+      const served = (outline: string) => ({ outline, logId: null, restoreMs: 900, replayMs: 300, serveMs: 400, blocks: 1 });
+      writeFileSync(join(f.h, "state/backup/state.json"), JSON.stringify({ outlines: {}, drill: { at: new Date().toISOString(), ok: true, detail: "restored, replayed and served 2", repo: `${f.h}/repos/garden-shed`, machine: "garden-shed", served: [served("field-notes"), served("seed-library")] } }));
+      const release = takeLock({ state: join(f.h, "state/backup") });
+      if (typeof release === "string") throw new Error(release);
+      const timer = setTimeout(release, holdMs);
+      const out: string[] = [];
+      try { await setupCommand(["install", "--apply", "--json"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot: f.repoRoot, cwd: f.repoRoot }); } finally { clearTimeout(timer); release(); }
+      return (JSON.parse(out.at(-1)!).steps.find((s: { id: string }) => s.id === "backup") as { done: string[] }).done.join("\n");
+    };
+    const waiting = (s: number) => `waiting for another backup command (pid ${process.pid}) to finish, up to ${s} s`;
+    // Released within the wait (held long enough that install reaches its backup step first): the snapshot goes on past the lock (here it then has no repository, so it copies for that).
+    const waited = await install("rollback-waited", 6_000, 60);
+    expect(waited).toContain(waiting(60));
+    expect(waited).not.toContain("still running");
+    // Held past the wait: copies, saying the backup was still running.
+    const outlasted = await install("rollback-busy", 60_000, 2);
+    expect(outlasted).toContain(waiting(2));
+    expect(outlasted).toMatch(/copying instead: archiving the logs failed \(ep0ch backup: another backup command \(pid \d+\) was still running after 2 s; this one stops\)/);
+    expect(outlasted).toContain("field-notes: ");
   }, 60_000);
 
   test("install refuses a backup without enough space before copying any database", async () => {

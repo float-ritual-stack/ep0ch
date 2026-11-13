@@ -228,6 +228,9 @@ export function skillsStep(f: Facts): Step {
   return linksStep("skills", `Link the agent skills (${s?.into.join(", ") ?? "~/.claude/skills"})`, s?.links ?? [], s?.stale ?? [], s?.roots ?? [], s?.record);
 }
 
+/** How long install's rollback point waits for a backup already running (PIE-1800); EP0CH_INSTALL_BACKUP_WAIT overrides. */
+export const INSTALL_BACKUP_WAIT_S = 600;
+
 export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Step {
   const title = "Back up every outline";
   if (!f.databases.length) return { id: "backup", title, status: "skip", why: `no outlines in ${f.host.folder}`, commands: [] };
@@ -238,7 +241,7 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
   const stands = f.restic ? drillStandsIn(f.restic.state, o.now.getTime(), { repo: f.restic.repo, machine: f.restic.config.machine, outlines: f.databases.map(d => ({ name: d.name, logId: f.restic!.state?.outlines[d.name]?.logId ?? null })) })
     : { ok: false as const, why: "the backup job isn't set up here" };
   if (stands.ok) return { id: "backup", title: "Mark every outline's rollback point", status: "do", archive: true, backups,
-    why: `the backups stand in for copies (a served restore drill passed ${f.restic!.state!.drill!.at}): every outline's log archived now, and the point to restore to said`, commands: ["ep0ch backup snapshot"] };
+    why: `the backups stand in for copies (a served restore drill passed ${f.restic!.state!.drill!.at}): every outline's log archived now (after a backup already running, up to ${INSTALL_BACKUP_WAIT_S / 60} min), and the point to restore to said`, commands: [`ep0ch backup snapshot --wait ${INSTALL_BACKUP_WAIT_S}`] };
   // A served outline is copied by its host (PIE-1750); a stopped one, with no host answering, from its file.
   return { id: "backup", title, status: "do", why: `copying, because ${stands.why}: before anything changes, a consistent copy (VACUUM INTO${f.host.running ? ", by the host" : ""}) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
     commands: backups.map(b => f.host.running ? `ep0ch backup copy ${b.name} ${b.dest}` : `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };

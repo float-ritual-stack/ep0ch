@@ -250,6 +250,22 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(out.filter(l => /log entry \d/.test(l)).length).toBeGreaterThanOrEqual(2);
   }, 120_000);
 
+  test("a snapshot asked to wait waits for a backup already running, says so, and stops only when it outlasts the wait (PIE-1800)", async () => {
+    const out: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => out.push(l) };
+    // The scheduled run holds the job's lock (as the timer's would while install deploys).
+    let release = takeLock(laptop) as () => void;
+    expect(typeof release).toBe("function");
+    setTimeout(() => release(), 700);
+    expect(await backupCommand(["backup", "snapshot", "--wait", "10"], io, laptop.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/waiting for another backup command \(pid \d+\) to finish, up to 10 s/);
+    // One that outlasts the wait: stopped, saying it was still running.
+    out.length = 0;
+    release = takeLock(laptop) as () => void;
+    try { expect(await backupCommand(["backup", "snapshot", "--wait", "1"], io, laptop.env)).toBe(1); } finally { release(); }
+    expect(out.join("\n")).toMatch(/another backup command \(pid \d+\) was still running after 1 s/);
+  }, 120_000);
+
   test("a rollback point restores to exactly its entry, however much was archived after it (Codex on #1502)", async () => {
     const s = readBackupState(laptop.state);
     await write(laptop, "garden", ["Sow the radishes"]);

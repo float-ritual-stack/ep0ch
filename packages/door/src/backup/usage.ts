@@ -3,8 +3,9 @@ export const BACKUP_USAGE = `  ep0ch backup run [--drill] [--verbose]   the back
                                    since its archive is written as a new segment, the archive uploaded to this machine's
                                    restic repository, and what's stale put on the door's status bar and announced once
                                    (scripts/backup/README.md, ADR 0009)
-  ep0ch backup snapshot [--force] [--verbose] | drill
-                                   one part of it: archive and upload (--force: unchanged outlines too), the restore drill.
+  ep0ch backup snapshot [--force] [--verbose] [--wait <seconds>] | drill
+                                   one part of it: archive and upload (--force: unchanged outlines too; --wait: that long for a backup
+                                   already running, as install does, instead of stopping), the restore drill.
                                    When the repository doesn't answer (the work VPN), the log goes through EP0CH_MCP_HUB
                                    and the drill runs there; with the hub out of reach too, the drill waits, said
   ep0ch backup follow [--once]     follows the outlines EP0CH_MCP_MIRRORS names (<outline>@<machine>) into

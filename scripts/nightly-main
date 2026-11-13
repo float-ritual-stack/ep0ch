@@ -2,6 +2,7 @@
 # The nightly whole-suite run on main that CONTRIBUTING.md ("Verification") and AGENTS.md ("One test gate") describe:
 # origin/main's head through scripts/box-test on float-box, every package, each door file alone too. Run by the
 # float-box user timer ep0ch-nightly.timer (04:00, after the 03:00 syncs and the 03:30 backup); by hand it is the same.
+# Its first step sweeps the test folders older than a day (scripts/scratch-clean --old), so nothing clears them by hand.
 # With --alone: it waits for the box-test runs ahead and later ones wait for it (focused runs and builders still go beside
 # it). Its limits are wall-clock time, and on Nov 6 a merge batch beside it slowed every file by 1.3 to 2.1 times (PIE-1600).
 #
@@ -25,6 +26,9 @@ git -C "$repo" fetch -q origin main || { echo "nightly-main: git fetch failed" >
 sha=$(git -C "$repo" rev-parse origin/main)
 day=$(date +%F)
 log=$dir/$day-${sha:0:9}.log
+# First, what test runs left more than a day ago (PIE-1799: /tmp reached 514,517 entries, and a parity scenario spent its
+# 60 s on processes listing it). Said in the timer's journal; a sweep that fails never stops the night.
+"$repo/scripts/scratch-clean" --old || echo "nightly-main: scratch-clean --old failed (exit $?); the run goes on" >&2
 start=$(date +%s)
 EP0CH_PROGRAM_STATUS=0 "$repo/scripts/box-test" --on float-box --alone --ref "$sha" --each all >"$log" 2>&1
 code=$?

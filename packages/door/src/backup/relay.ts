@@ -17,7 +17,7 @@ import type { LogRange } from "@ep0ch/outliner/change-log";
 import { appendToArchive, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { lastJson, ssh } from "../mcp-netmail";
 import { type BackupConfig, MACHINE_NAME } from "./config";
-import { archiveRoot, ensureRepo, takeLock } from "./jobs";
+import { archiveRoot, ensureRepo, waitForLock } from "./jobs";
 import { backupFolder, forget, OUTLINE_NAME } from "./restic";
 
 /** The hub's answer to a relayed log. */
@@ -75,16 +75,6 @@ export async function drillVia(c: BackupConfig, hub: string, timeoutMs = 900_000
 /** The hub's incoming folder for a machine's copies: private, in the job's state. */
 export const incomingDir = (c: BackupConfig, machine: string) => join(c.state, "incoming", machine);
 
-/** Waits for the backup job's lock (a relay arrives while the hub's own run may hold it). */
-async function lockFor(c: BackupConfig, waitMs: number): Promise<(() => void) | string> {
-  const until = Date.now() + waitMs;
-  for (;;) {
-    const got = takeLock(c);
-    if (typeof got !== "string" || Date.now() >= until) return got;
-    await Bun.sleep(Math.min(2_000, Math.max(50, waitMs / 10)));
-  }
-}
-
 /**
  * The receiving side: ranges at `part` (already written under `incomingDir`), claimed to be `outline`'s log on
  * `machine`. Checked, added to this machine's archive of it, uploaded to `machine`'s repository.
@@ -100,7 +90,7 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
   catch { return { ok: false, error: "the log that arrived isn't one range a line" }; }
   if (!ranges.length) return { ok: false, error: "no log arrived" };
   if (ranges.some(r => r.logId !== ranges[0]!.logId || !Array.isArray(r.entries))) return { ok: false, error: "the ranges that arrived aren't of one log" };
-  const release = await lockFor(c, o.lockWaitMs ?? 90_000);
+  const release = await waitForLock(c, o.lockWaitMs ?? 90_000);
   if (typeof release === "string") return { ok: false, error: `${release}; the next run sends it again` };
   try {
     const root = archiveRoot(c, o.machine);

@@ -22,15 +22,16 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { colourOnlyToATerminal } from "../src/plain-stderr";
+import { scratchFallback } from "../../../scripts/scratch-dir";
 
 // ssh writes plain text into a pipe; so does this, whatever FORCE_COLOR says.
 colourOnlyToATerminal();
 
 const argv = process.argv.slice(2);
 // Never the person's machine: "the other machine" is a scratch HOME and outlines folder under the temp dir, or nothing.
-// The temp folder, or /tmp/ep0ch-<uid>, where the door's tests put their scratch folders when the temp folder is too long for
-// a socket's path (scratchRoot in packages/door/test/scratch.ts: under agent-env, TMPDIR is /tmp/ep0ch-agent-<uid>/<name>).
-const scratchRoots = [resolve(tmpdir()), `/tmp/ep0ch-${process.getuid?.() ?? 0}`];
+// The temp folder, or scratchFallback() (/var/tmp/ep0ch-<uid>), where the tests put their scratch folders when the temp
+// folder can't hold them (scripts/scratch-dir.ts's scratchRoot: too long for a socket's path, or in /tmp).
+const scratchRoots = [resolve(tmpdir()), scratchFallback()];
 const scratch = (p: string | undefined) => !!p && scratchRoots.some(root => resolve(p).startsWith(root + "/"));
 if (argv[0] !== "--serve" && !argv.includes("-O") && !(scratch(process.env.FAKE_SSH_HOME) && scratch(process.env.FAKE_SSH_OUTLINES))) {
   console.error("fake ssh: FAKE_SSH_HOME and FAKE_SSH_OUTLINES must be scratch folders under the temp dir");

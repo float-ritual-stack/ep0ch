@@ -474,20 +474,47 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
  * One backup command at a time on a machine: `run.lock` made exclusively (O_EXCL), holding its pid. A lock whose
  * process is gone is taken over. Returns the release, or why it can't run now.
  */
-export function takeLock(c: Pick<BackupConfig, "state">, name = "run.lock", who = "another backup command"): (() => void) | string {
+/**
+ * The job's lock (`run.lock` in its state folder): a release, or the pid of the live backup command that holds it, or why
+ * it couldn't be taken. A lock whose process is gone is taken over.
+ */
+export function lockOrHolder(c: Pick<BackupConfig, "state">, name = "run.lock"): { release: () => void } | { holder: number } | { error: string } {
   mkdirSync(c.state, { recursive: true, mode: 0o700 });
   const lock = join(c.state, name);
   for (let tries = 0; tries < 2; tries++) {
     try {
       const fd = openSync(lock, "wx", 0o600);
       writeSync(fd, String(process.pid)); closeSync(fd);
-      return () => { try { if (readFileSync(lock, "utf8") === String(process.pid)) rmSync(lock); } catch { /* gone */ } };
+      return { release: () => { try { if (readFileSync(lock, "utf8") === String(process.pid)) rmSync(lock); } catch { /* gone */ } } };
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return `can't make ${lock}: ${(e as Error).message}`;
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return { error: `can't make ${lock}: ${(e as Error).message}` };
       const pid = Number(readFileSync(lock, "utf8").trim() || 0);
-      if (pid && alive(pid)) return `${who} (pid ${pid}) is running; this one stops`;
+      if (pid && alive(pid)) return { holder: pid };
       rmSync(lock, { force: true });   // its process is gone
     }
   }
-  return `couldn't take ${lock}`;
+  return { error: `couldn't take ${lock}` };
+}
+
+export function takeLock(c: Pick<BackupConfig, "state">, name = "run.lock", who = "another backup command"): (() => void) | string {
+  const got = lockOrHolder(c, name);
+  return "release" in got ? got.release : "holder" in got ? `${who} (pid ${got.holder}) is running; this one stops` : got.error;
+}
+
+/**
+ * The job's lock, waited for while another backup command holds it (a relay arriving during the hub's run; install's
+ * rollback point during the scheduled run, PIE-1800), up to `waitMs`. `waiting` is told once, with the holder's pid,
+ * when it has to wait; past the wait, the refusal says the holder was still running.
+ */
+export async function waitForLock(c: Pick<BackupConfig, "state">, waitMs: number, waiting?: (pid: number) => void): Promise<(() => void) | string> {
+  const until = Date.now() + waitMs;
+  let told = false;
+  for (;;) {
+    const got = lockOrHolder(c);
+    if ("release" in got) return got.release;
+    if ("error" in got) return got.error;
+    if (Date.now() >= until) return `another backup command (pid ${got.holder}) was still running after ${Math.round(waitMs / 1000)} s; this one stops`;
+    if (!told) { told = true; waiting?.(got.holder); }
+    await Bun.sleep(Math.min(2_000, Math.max(50, waitMs / 10)));
+  }
 }
