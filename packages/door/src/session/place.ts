@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { DOOR_BUILDS, DOORS } from "../cli-words";
 import { hostSocketOf, resolveTarget } from "../discover";
 import { listening } from "../jsonl";
 import { readMissing } from "../outlines";
@@ -152,13 +153,34 @@ export async function pickSession(args: readonly string[], verb: string, env: En
 }
 
 /**
+ * What starts a door that is a program of its own (`--door native`): its command, with the words that name the outline
+ * after `--` (the window reads them there). Nothing installs that command, so where the PATH has none the hint says
+ * what builds it first (`DOOR_BUILDS`): nobody is sent to a command that isn't found.
+ */
+function startsDoor(door: string, flags: string, env: Env): string {
+  const command = `ep0ch-${door}`, starts = `\`${command} -- ${flags}\` starts one`;
+  const build = DOOR_BUILDS[door];
+  return !build || Bun.which(command, { PATH: env.PATH ?? "" }) ? starts : `${starts}, once this machine has built it: ${build}`;
+}
+
+/**
  * The control socket `ep0ch peek|act|snap|open|actions|subscribe` reaches when EP0CH_CONTROL names none: the door on the
  * outline the arguments or folder name (--ws, EP0CH_WS, the .ep0ch), else the only door serving on this state dir (a session's or one
  * opened with --no-daemon). Several and none named: which to name, as commands.
  */
-export async function controlFor(env: Env = process.env, cwd = process.cwd(), args: readonly string[] = []): Promise<string | { error: string }> {
+export async function controlFor(env: Env = process.env, cwd = process.cwd(), args: readonly string[] = [], door = "terminal"): Promise<string | { error: string }> {
   const named = placeFor(args, env, cwd);
   if (named && "error" in named) return named;
+  // `--door native`: the native window's socket, beside the terminal door's in the same folder (cli-words.ts, DOORS).
+  if (door !== "terminal") {
+    const sock = DOORS[door];
+    if (!sock) return { error: `--door is ${Object.keys(DOORS).join(" or ")}, not ${door}` };
+    const dirs = named ? [named.dir] : placeDirs();
+    const live = (await Promise.all(dirs.map(async d => ((await listening(join(d, sock))) ? d : null)))).filter((d): d is string => d !== null);
+    if (live.length === 1) return join(live[0]!, sock);
+    if (named) return { error: `no ${door} door runs on ${placeLabel(named)} · ${startsDoor(door, sessionFlags({ place: named }), env)}` };
+    return { error: live.length ? `${live.length} ${door} doors run and this folder names no outline · name one with --ws` : `no ${door} door runs on ${stateDir()} · ${startsDoor(door, "--ws <outline>", env)}` };
+  }
   if (named) {
     if (await listening(join(named.dir, "door.sock"))) return join(named.dir, "door.sock");
     if (args[0] === "peek") {

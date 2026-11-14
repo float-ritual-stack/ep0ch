@@ -1,3 +1,4 @@
+import { shippedAbout } from "./shipped";
 import { pressedByPerson } from "./rename-in-edit";
 import { lineEscCloses } from "../surface/completer";
 import { escVia } from "../esc-rule";
@@ -1321,7 +1322,7 @@ for (const info of COMPLETION_ACTIONS.list()) {
 }
 export const FACETS_KIND: TileKind = {
   kind: "facets", noun: "a facets tile",
-  about: "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>; ^W o # opens it on the tags facet (args.open=[tag], no calendar)",
+  about: shippedAbout("facets"),
   // The tags tile was this one opened on the tags facet (PIE-881): a layout saved with one opens it so (canonSpec), and saves it so.
   replaces: ["tags"],
   keys: [{ key: "f", label: "facets" }, { key: "#", label: "tags", spec: () => ({ args: { open: ["tag"], calendar: false } }) }],

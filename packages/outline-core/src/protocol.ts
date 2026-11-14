@@ -17,7 +17,7 @@ import type { RefusalKind } from "./refusal";
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 325;
+export const PROTOCOL = 326;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 49;
 
@@ -220,7 +220,7 @@ export interface QuestionAnswerFields {
 
 /**
  * A watched read (ADR 0004): `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks`,
- * `query.matches` and `site.answer` take
+ * `query.matches`, `site.answer` and the rest of `WATCHABLE_ACTIONS` take
  * `watch: <key>` (kept on this connection; its answer is generation 0) and `generation` (answered from the newest
  * answer kept, never evaluated again). After changes the service evaluates every watch at most every 250 ms and at
  * least once a second under steady writes, and tells the connection which answers changed (a hash of the whole
@@ -238,6 +238,10 @@ export const WATCHABLE_ACTIONS = [
   "waiting.list", "callouts.types", "headings.styles", "styles.list",
   // What soft links are drawn with, asked on the first frame after every change (PIE-1606).
   "references.soft-scope",
+  // A list of notes by id or under a note (`under`): what a tree's open folder shows.
+  "blocks.read",
+  // What a module answers over a turn and keeps watched itself: a note's page, the outline's screens, a list.
+  "notes.page", "screens.list", "lists.read", "tiles.view",
 ] as const;
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the
@@ -781,6 +785,18 @@ export interface CompletionRowsRequest {
   semantic?: boolean;
 }
 
+/**
+ * `completion.rows` from a client that reads no Blockdown (the native window): in place of a detected `target`, the
+ * text being written and the cursor in it (a UTF-16 offset). The service finds the token itself
+ * (`completionTargetAtCursor`) and answers it with its rows merged and ready to draw (`CompletionRowsResult.token`, `.rows`).
+ */
+export interface CompletionAtRequest extends Omit<CompletionRowsRequest, "target"> {
+  text: string;
+  cursor: number;
+  /** The row (from 0) whose drawn form is wanted, `CompletionAtRow.view`: the one lit. Left out: the first, lit as a list opens. */
+  lit?: number;
+}
+
 /** One source's answer to `completion.rows`, with what its list says when it's empty or cut. */
 export interface CompletionSourceAnswer extends SourceAnswer {
   queryWords?: boolean;
@@ -814,6 +830,44 @@ export interface CompletionRowsResult {
   answers: CompletionSourceAnswer[];
   /** This trigger's picks (`pickKey`), indexed by `pickId`: how often and how lately each insert was chosen. */
   picks: Record<string, PickRecord>;
+  /**
+   * Asked with `text` and `cursor`: the token the cursor is in (null: none), where a choice replaces it (UTF-16
+   * offsets of the text), and every source's rows merged as each client merges them (`mergeSourceAnswers`), each
+   * ready to draw and to write. `heading` and `message` are the list's own words (`completionSaid`); `pickKey` is
+   * what `completion.picked` counts a choice under.
+   */
+  token?: { kind: string; start: number; end: number; query: string } | null;
+  rows?: CompletionAtRow[];
+  heading?: string;
+  message?: string;
+  pickKey?: string;
+}
+
+/** One merged row for a client that only draws and writes: its words, what choosing it writes, and what to select once it's in. */
+export interface CompletionAtRow {
+  id: string;
+  label: string;
+  kind?: string;
+  detail?: string;
+  group?: string;
+  /** The source it came from, as `completion.picked` names it. */
+  from: string;
+  /** The text a choice writes in place of the token. */
+  insert: string;
+  /** The span of `insert` (UTF-16) selected once it's in: a snippet's first slot. */
+  select?: { start: number; end: number };
+  /** What `completion.picked` counts this choice as (`pickId` of its insert). */
+  pick: string;
+  /** Until a deliberate choice, Enter belongs to the field; Tab still inserts. */
+  enter?: "new line" | "applies";
+  /** What the row says of itself, as its source wrote it (`SourceRow.docs`, Blockdown): drawn beside the list while it is lit. */
+  docs?: string;
+  /**
+   * What choosing it makes, on the row the request says is lit (`lit`) when its source gave an example
+   * (`SourceRow.example`): the example as written and as a page would draw it, a primitive each. No client draws a
+   * component, a value or a callout's look itself to show it here.
+   */
+  view?: import("./note-page").PagePrimitive;
 }
 
 /** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */

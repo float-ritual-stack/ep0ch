@@ -1,5 +1,6 @@
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { parseFragmentCompletionQuery } from "@ep0ch/outline-core/completion-triggers";
+import { enterKeeps as rowEnterKeeps } from "@ep0ch/outline-core/completion-source";
 import type { CompletionItem, CompletionState } from "./completer";
 import { Canvas } from "../canvas";
 import { ListPicker, pickRow } from "./picker";
@@ -155,10 +156,8 @@ function rowWidth(it: CompletionItem): number {
  * click, Tab or ctrl+space) makes ⏎ insert. A lone new page is never taken by ⏎ unless chosen (PIE-592).
  */
 export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
-  const item = s.items[s.index];
-  if (s.picked || !item) return null;
-  const unchanged = s.at.line.slice(0, s.target.start) + item.insertion + s.at.line.slice(s.target.end) === s.at.line;
-  return item.enter || item.newPage || item.querySuggestion || unchanged ? (s.line ? "applies" : item.enter ?? "new line") : null;
+  // The rule is outline-core's, one for every completer; this says what the door's popup holds.
+  return rowEnterKeeps(s.items[s.index], { chosen: !!s.picked, line: s.at.line, start: s.target.start, end: s.target.end, applies: !!s.line });
 }
 
 /** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down scroll it (PgUp/PgDn page the list). */

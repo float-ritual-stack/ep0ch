@@ -243,6 +243,7 @@ export interface WireAnswers {
   "notes.address": NoteAddress;
   "notes.create": { placement: NotePlacement; } | NewNoteReceipt;
   "notes.render": RenderedNote;
+  "notes.page": import("@ep0ch/outline-core/note-page").NotePage;
   "notes.route": NoteRouteRun;
   "outlines.archive": HostedOutlineArchival;
   "outlines.attach": HostedOutlineAttachment;
@@ -324,6 +325,12 @@ export interface WireAnswers {
   "shares.snapshot.take": { path: string; shareId: string; bytes: number; } | null;
   "shares.start": { said?: string | undefined; share: ShareSession; };
   "shares.tunnel": { share: ShareSession | null; };
+  "lists.read": import("@ep0ch/outline-core/list-row").ListAnswer;
+  "tiles.view": import("./tile-view").TileView;
+  "outlines.known": import("./outline-links").KnownOutlines;
+  "passages.find": import("./passage-find").PassageFound;
+  "screens.list": import("./screens").ScreensList;
+  "screens.save": import("./screens").ScreenSaved;
   "site.answer": SiteAnswer;
   "site.sources": SourcesAnswer;
   "styles.list": { complete: boolean; sheets: StyleSheet[]; problems: string[]; };

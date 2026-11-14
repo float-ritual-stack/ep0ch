@@ -27,6 +27,7 @@
 //   matrix    down: <property>, across: <property> → a count per pair (value: <property> sums it instead)
 //   flow      from: <property>, to: <property> → a flow per pair, counted
 
+import { BESIDE_TYPES } from "./derived";
 import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import { dateWords } from "./dates";
 import type { QuestionGroup } from "./protocol";
@@ -265,9 +266,10 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
 
 /**
  * A note's child bullets as a question: its children, with the comments on it and the proposals beside it left out
- * (the one copy: a figure block's rows, a `::links` Children group and the publisher's rows ask it).
+ * (the one copy: a figure block's rows, a `::links` Children group and the publisher's rows ask it). Made from the
+ * types `isNoteUnder` (derived.ts) reads, so a list that filters blocks it already holds leaves out the same ones.
  */
-export const CHILDREN_QUERY = "parent:this NOT type=annotation NOT type=annotation-reply NOT type=draft-proposal";
+export const CHILDREN_QUERY = ["parent:this", ...BESIDE_TYPES.map(type => `NOT type=${type}`)].join(" ");
 
 /**
  * A figure's answer cut to the results `kept` (a page shows only some notes): the groups lose the ones it can't

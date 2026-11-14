@@ -25,6 +25,7 @@ const ws: CliFlag = ["--ws <name>", "Use this outline"];
 const machine: CliFlag = ["--machine <ssh-name>", "Reach the outline on that machine (an ssh config name)"];
 const json: CliFlag = ["--json", "Print JSON"];
 const actor: CliFlag = ["--as <id>", "Record the action as this agent"];
+const whichDoor: CliFlag = ["--door <terminal|native>", "Which door on the outline answers: the terminal one, or the native window"];
 const target = [ws, machine];
 const sessionWs: CliFlag = ["--ws <name>", "Choose this outline's session on this machine"];
 const allSessions: CliFlag = ["--all", "Act on every session on this machine"];
@@ -226,13 +227,13 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     note: "With no subcommand, mcp is the local stdio MCP server for this outline, gated by its access grant.",
     examples: ["ep0ch mcp --ws garden", "ep0ch mcp access --ws garden --json"] },
   { name: "peek", group: "Agents", summary: "Read what the running door shows",
-    synopsis: "peek [<section>] [--json] [--remote <machine> [--ws <name>]]", flags: [json, ["--xray", "Include the screen's structure"], ["--full", "Include each tile's whole description"], ["--remote <machine>", "The door running on that machine, through its link (act, open, snap and actions take it too)"], actor],
+    synopsis: "peek [<section>] [--json] [--remote <machine> [--ws <name>]]", flags: [json, ["--xray", "Include the screen's structure"], ["--full", "Include each tile's whole description"], ["--remote <machine>", "The door running on that machine, through its link (act, open, snap and actions take it too)"], actor, whichDoor],
     examples: ["ep0ch peek layout --json", "ep0ch peek --remote box-a --ws garden"] },
   { name: "act", group: "Agents", summary: "Run an action in the door",
-    synopsis: "act <action> [key=value …]", flags: [actor, json],
+    synopsis: "act <action> [key=value …]", flags: [actor, json, whichDoor],
     examples: ["ep0ch act screen.list", "ep0ch act layout.get --as gardener"], reference: "scripts" },
   { name: "actions", group: "Agents", summary: "List the door's actions and arguments",
-    synopsis: "actions", flags: [], examples: ["ep0ch actions", "ep0ch --ws garden actions"] },
+    synopsis: "actions", flags: [whichDoor], examples: ["ep0ch actions", "ep0ch --ws garden actions"] },
   { name: "open", group: "Agents", summary: "Show a note or file in the running door",
     synopsis: "open <id|ep0ch://outline@machine/b/id|file:/path> [diff=true]", flags: [actor, json],
     examples: ["ep0ch open file:./README.md", "ep0ch open file:./README.md diff=true"], reference: "actions" },

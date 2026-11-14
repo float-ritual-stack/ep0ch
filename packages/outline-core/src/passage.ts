@@ -13,6 +13,9 @@
 //   rungs of the re-anchoring ladder are for showing annotations, never for a write.
 // - **cite**: the quote with a reference to where it is, the way copy with a citation writes it.
 //
+// Words a reader drew (a link's label, bold without its marks) are not source text: where the source they were drawn
+// from is, is drawn-passage.ts's to say, which reads the source as drawn and asks `findPassage` here of that reading.
+//
 // Offsets are UTF-16, as JavaScript strings index them and the annotation store keeps them. Pure: no I/O.
 
 import { fragmentAnchorMatch } from "./link-syntax";
@@ -91,7 +94,8 @@ export function quotePlaces(text: string, quote: string, o: FindOptions = {}): n
 
 /**
  * Where `quote` is in `text`, as one span: found once (or the nearest to `near` among several), else why not. The
- * words must be exact source text: a selection of how a reader draws a link or a bold word won't be found.
+ * words must be exact text: a selection of how a reader draws a link or a bold word isn't in the source as written
+ * (drawn-passage.ts finds that one, by asking this of the source as drawn).
  */
 export function findPassage(text: string, quote: string, o: FindOptions = {}): { start: number; end: number } | PassageMiss {
   if (!quote.trim()) return { why: "the quote is empty", count: 0 };

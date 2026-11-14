@@ -350,7 +350,7 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2896,
     "packages/door/src/desk/desk.ts": 8260,
-    "packages/door/src/desk/screen-layout.ts": 2320,
+    "packages/door/src/desk/screen-layout.ts": 2305,
     "packages/door/src/screens.ts": 2230,
     "packages/door/src/showcase/showcase.ts": 2134,
     "packages/door/src/surface/note.ts": 9027,
@@ -361,9 +361,9 @@
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4285,
-    "packages/outliner/src/server.ts": 4260,
-    "packages/outliner/src/store.ts": 6113,
+    "packages/outliner/src/server.ts": 4258,
+    "packages/outliner/src/store.ts": 6110,
     "packages/outliner/src/tree-controller.ts": 3180,
-    "packages/outliner/src/types.ts": 2712
+    "packages/outliner/src/types.ts": 2655
   }
 }

@@ -1394,7 +1394,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const said = await refusal();
       expect(said).toContain("the screen is locked");
       expect(said).not.toContain("a click on ▣ screen locked (or ^W P)");
-      expect(said).toContain("alt+a puts your drawer away");
+      expect(said).toContain("alt+a puts the drawer away, then a click on ▣ screen locked (or ^W P with the keys in the screen) unlocks it");
       // As it says: alt+a (esc would go to the program in the drawer's tab), and the chip is there to click.
       d.key({ kind: "alt", ch: "a" });
       const shown = d.paint();
@@ -1407,7 +1407,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.paint();
       const lifted = await refusal();
       expect(lifted).not.toContain("a click on ▣ screen locked (or ^W P)");
-      expect(lifted).toContain("✦a (agent.lift) drops the lifted tile, then a click on ▣ screen locked unlocks it");
+      expect(lifted).toContain("✦a drops the lifted tile, then a click on ▣ screen locked (or ^W P with the keys in the screen) unlocks it");
       // As it says: agent.lift again drops it (✦a is its key), and the screen's chip is drawn again.
       await d.app.dispatch.press("agent.lift", {});
       await until(() => !d.app.drawer.made?.liftedDesk, "the lift dropped by agent.lift");
@@ -1525,7 +1525,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect((d.A.bar.describe().rows as { label: string }[])[0]?.label).toBe(`lock group ${g}`);
       await d.app.dispatch.press("bar.pick", {});
       d.paint();
-      expect(d.A.message).toContain(`locked group ${g} · ^W P in it, or the power bar's "unlock group ${g}", unlocks it`);
+      expect(d.A.message).toContain(`locked group ${g} · ^W P in it unlocks it`);
       expect(d.app.drawer.desk!.layoutGet().locked).toBeFalsy();
       expect(d.desk.layoutGet().locked).toBeFalsy();
       const inner = (d.app.drawer.desk!.pane(g) as any).inner as Desk;

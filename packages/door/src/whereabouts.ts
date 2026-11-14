@@ -10,6 +10,7 @@
 // when another place decides it.
 
 import type { KeysLayer, WayOut } from "./desk/keys-fact";
+import { way, whyNot, type Way, type Why } from "@ep0ch/outline-core/way-out";
 
 /** Where the person's keys are on one screen, as that screen says it (Screen.keys). Tiles by the name `tile=` uses. */
 export interface ScreenKeys {
@@ -170,20 +171,23 @@ export function screenKeys(s: { title: string; keys?(): ScreenKeys; holdsKeys?()
  */
 export const holdsEdit = (label: string, what = "an edit or a comment"): string => `${label} holds ${what}; it stays on its note until that's saved or closed`;
 
-/** What an agent does instead of interrupting the person: the tail most typing refusals end with. */
-export const MARK_THEM = "block.mark gets their attention";
 /**
- * Why an agent is held back by what the person is doing (`why`: "the person is typing in r1", or the screen's own
- * whereabouts sentence): `<why>; an agent doesn't <what> · <way>`. The one shape every typing refusal is said in
- * (PIE-1294: the layout's guards, the actor rule, the draft rule); the guard test (test/one-owner.test.ts) fails when
- * a file words one itself.
+ * What an agent does instead of interrupting the person: the way out most typing refusals end with. An act, never a
+ * sentence: the door's one sayer (surface/way-out.ts) words it for whoever reads the refusal.
  */
-export const heldBack = (why: string, what: string, way: string | null = MARK_THEM): string => `${why}; an agent doesn't ${what}${way ? ` · ${way}` : ""}`;
+export const MARK_THEM: Way = way("block.mark", "gets their attention");
+/**
+ * Why an agent is held back by what the person is doing (`reason`: "the person is typing in r1", or the screen's own
+ * whereabouts sentence): `<reason>; an agent doesn't <what>`, with the ways out as acts. The one shape every typing
+ * refusal has (PIE-1294: the layout's guards, the actor rule, the draft rule); the guard test (test/one-owner.test.ts)
+ * fails when a file words one itself.
+ */
+export const heldBack = (reason: string, what: string, ways: readonly Way[] = [MARK_THEM]): Why => whyNot(`${reason}; an agent doesn't ${what}`, ...ways);
 /** `heldBack` for the tile, draft or passage the person is typing in (`label`: its name, or "this draft"). */
-export const typingIn = (label: string, what: string, way: string | null = MARK_THEM): string => heldBack(`the person is typing in ${label}`, what, way);
+export const typingIn = (label: string, what: string, ways: readonly Way[] = [MARK_THEM]): Why => heldBack(`the person is typing in ${label}`, what, ways);
 /**
  * `heldBack` for the tile that has the person's keys (`typing`: they type in it, said as `typingIn` says it; else it's
  * only focused). Every layout guard about the person's tile words it here (PIE-1428).
  */
-export const keysIn = (label: string, what: string, typing = false, way: string | null = MARK_THEM): string =>
-  typing ? typingIn(label, what, way) : heldBack(`${label} has the person's keys`, what, way);
+export const keysIn = (label: string, what: string, typing = false, ways: readonly Way[] = [MARK_THEM]): Why =>
+  typing ? typingIn(label, what, ways) : heldBack(`${label} has the person's keys`, what, ways);

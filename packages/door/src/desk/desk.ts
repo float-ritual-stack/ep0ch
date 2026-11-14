@@ -60,7 +60,7 @@ import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
-import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
+import { layoutStanding, saidToPerson, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, headerShown, isTileHeader, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TileHeader, type TrailStop } from "../surface/note";
@@ -77,12 +77,12 @@ import { saveScreenNote, ScreenConflict, screenNote, trashScreenNote } from "./s
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
-import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
+import { DOCK_DROP, dropAction, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, answerLands, landsBeside, keptShare, pairSide, sideOf, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, landedSaid, lockChipText, saidBy, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, heirTakes, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { PlacementMemory } from "./placement-memory";
@@ -873,7 +873,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : this.inGroup() ? { goes: true } : {}), self: this.layoutSelf(),
       beside: this.memory.beside, opened: this.memory.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
-      actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
+      actor, says: who.says, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -2201,7 +2201,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") {
-      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(dest.reason);
+      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(saidBy(this.layoutCtx(by), { reason: dest.reason, ways: dest.ways ?? [] }));
       return null;
     }
     if (dest.kind === "across") {
@@ -2284,8 +2284,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.memory.goBeside(plan.besideOf, dest.tile);
     this.save(); this.redraw();
-    if (plan.why) this.ctx.flash(plan.why);
-    return { desk: this, id: landed, ...(plan.why ? { why: plan.why } : {}) };
+    const why = landedSaid(this.layoutCtx(by), plan, said => this.ctx.flash(saidToPerson(said)));   // why it landed elsewhere, with what undoes that: answered as the door says it to whoever opened, flashed as it says it to the person
+    return { desk: this, id: landed, ...(why ? { why } : {}) };
   }
 
   /**
@@ -2880,7 +2880,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ],
       tiles: () => d.tiles(),
       resolveTile: (sel: string, o?: ResolveOpts) => d.resolveTile(sel, o),
-      revision: (expected: unknown) => revisionRefusal(d.layout, expected),
+      revision: (expected: unknown, actor: Actor) => { const why = revisionRefusal(d.layout, expected); return why && saidBy(d.layoutCtx(actor), why); },
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
         return p instanceof ReaderPane ? { board: d.ctx ? p.context(d).board : undefined, blockId: p.msg?.id ?? null, session: p.surface.draftSession() } : null;
@@ -5459,16 +5459,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What an agent may do to tile `sel` (PIE-639), for its menu row. */
   agentNow(sel: string | undefined): { level: AgentLevel; by: string } { return this.agentOf(this.tile(sel).id); }
   /** Why an agent may not do `what` to tile `id` (PIE-639), in the layout's words, or null. */
-  private agentNo(id: number, what: string): string | null {
-    const a = this.agentOf(id);
-    return a.level === "free" ? null : agentRefusal(a.level, this.nameOf(id), what, { by: a.by });
+  private agentNo(id: number, what: string, by: Actor): string | null {
+    const a = this.agentOf(id), why = a.level === "free" ? null : agentRefusal(a.level, this.nameOf(id), what, { by: a.by });
+    return why && saidBy(this.layoutCtx(by), why);
   }
   /** Pane `p` is a tile the screen limits for agents (edit only or hands off). */
   private limitedFor(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.agentOf(id).level !== "free"; }
   /** Tile `p` is kept from `by`'s opens: `by` is an agent and the screen limits it there (PIE-639). Where an open may land asks this. */
   private keptFrom(p: Pane, by: Actor): boolean { return this.limitedFor(p) && !this.dispatch.standing(by); }   // the cheap question first: where the person is costs a pass over the screen
   /** An open by `by` into tile `p` that doesn't go through `openIntoPane` (a screen's own landing tile): the same guard, refused with why. */
-  private mayOpen(p: Pane, by: Actor) { if (this.keptFrom(p, by)) throw new ActionRefused(this.agentNo(this.idOf(p)!, "opening a note in it")!); }
+  private mayOpen(p: Pane, by: Actor) { if (this.keptFrom(p, by)) throw new ActionRefused(this.agentNo(this.idOf(p)!, "opening a note in it", by)!); }
   /** What an agent may do to tile `id` (PIE-639), and which layer said so ("tile", "screen" or a container's id). */
   agentOf(id: number): { level: AgentLevel; by: string } { return agentLevel(this.layout, id, this.kindFacts(id)); }
   private policyAt(id: number): Effective { return policyOver(this.layout, id, this.kindFacts(id)); }
@@ -5596,7 +5596,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.arrived(id, actor);
     if (t.note) { const m = await readNote(this.ctx, t.note); if (m) this.applyPlacement(m, { from: base.id, to: id, note: m.id }, actor, "shown"); }
     this.save(); this.redraw();
-    const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
+    const why = typeof r.answer.why === "string" ? saidBy(this.layoutCtx(actor), { reason: r.answer.why, ways: Array.isArray(r.answer.ways) ? r.answer.ways : [] }) : undefined;
     return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : typeof r.answer.where === "string" ? r.answer.where : typeof where === "string" ? where : "right", ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 
@@ -7831,7 +7831,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const g = this.held.floatDrag;
         this.held.now = null;
         if (g.size) resizeEnded();
-        if (g.drop && !g.drop.refused) return void this.run(g.drop.receive?.action ?? "layout.move", g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
+        if (g.drop && !g.drop.refused) return void this.run(dropAction(g.drop), g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
         if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
         this.save(); return this.redraw();
       }
@@ -7850,7 +7850,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (h) this.held.now = null;
       if (d?.drop) {
         const drop = d.drop;
-        this.run(drop.receive?.action ?? (drop.kind === "swap" ? "layout.swap" : "layout.move"), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
+        this.run(dropAction(drop), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
       } else if (d?.into) {
         this.endGroupGhost();
         const into = d.into;

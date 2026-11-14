@@ -1,0 +1,33 @@
+{
+  "contract": 2,
+  "id": "terminal",
+  "version": 1,
+  "name": "Terminal",
+  "description": "A shell and an agent in a tile beside your notes. Each is a row that says what runs: fork it to change the agent, or add a row for another program.",
+  "defaultOn": true,
+  "tiles": [
+    {
+      "kind": "shell",
+      "name": "Shell",
+      "description": "your login shell in a terminal beside your notes: every key goes to it until the key that leaves (the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty",
+      "holds": {
+        "keys": true,
+        "edit": "a shell being typed in"
+      }
+    },
+    {
+      "kind": "agent",
+      "name": "Agent",
+      "description": "an agent in a terminal beside your notes: your shell, with the agent's command typed into it (the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty",
+      "fields": {
+        "command": "claude"
+      },
+      "holds": {
+        "keys": true,
+        "edit": "an agent being typed to"
+      }
+    }
+  ]
+}

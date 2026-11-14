@@ -1,0 +1,11 @@
+# About the note, on the kitchen screen (scenes/about.seed.ts writes the note into a scratch outline): the note in
+# the reader, and beside it the tiles that follow it. Its comments, a thread with what it is on and its reply; the
+# edit an agent proposed, as the lines the service found; its revisions, an earlier one opened to what changed
+# since. Then a comment begun on words of the note: the same editor a block has, over the note it is about.
+bar.open scope=screens query=kitchen
+bar.pick n=1
+bar.open scope=search query="Bean rows"
+bar.pick n=1
+list.pick n=2 tile=revisions
+comment quote="Water at dusk"
+draft.paste text="Dawn is kinder to the leaves."

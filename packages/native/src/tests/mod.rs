@@ -1,0 +1,67 @@
+//! The window's tests. `garden` is the made-up outline they share and the stand-in link that answers for its
+//! host; each file under here is one kind of test:
+//!
+//! - `garden.rs`: what the window asks and what it does with the answers, asserting the wire.
+//! - `window.rs`: the window drawn, pressed and typed in.
+//! - `parity.rs`: every action by its chord, by its bar row pressed and by its act line, leaving one step record.
+//! - `store.rs`: one slot an ask, the watch budget, what the service dropped.
+//! - `contract.rs`: every row of the door's layout and place tables, asked of `layout::apply` and `layout::place`.
+//! - `shell.rs`: tiles and screens: one test a container kind, where opens land, a screen saved, broken and reset.
+//! - `lists.rs`: one list, whatever it is of: lanes, a table, facets as chips, the shipped screens opened from the bar.
+//! - `actline.rs`: the act-line grammar and the action rows against outline-core's fixtures.
+//! - `parts.rs`: a page's parts through the primitive registry: every type has a builder, a button runs here or is
+//!   the service's, a script's act is run and answered, and every component's own example is drawn (the coverage table).
+//! - `control.rs`: an agent over the control socket.
+//! - `one_owner.rs`: the source itself, scanned for a second place that decides.
+//! - `owners.rs`: the same, by what the window does: each test is a failure a second decider caused.
+//! - `sweep2.rs`: the second sweep's, the same way: one test a decider folded.
+//! - `sweep3.rs`: the third sweep's: who a script's act runs as, which reader a list speaks for, what a close leaves
+//!   of its note, what a refusal says the way out is.
+//! - `drafts.rs`: a block written in place, as a person works: typed in, completed from the service's list, saved;
+//!   held on the service, read and patched under the caret; kept as typed and found back after the window ended.
+//! - `ext.rs`: extensions and outlines: one installed from the bar's row, used, configured by its form and removed;
+//!   a switch of outline and back to a block as it was being written; a tile torn into a second window over the
+//!   same store, a link an outline, and the control socket naming the window an act is for.
+//! - `review.rs`: about the note: the tiles that follow the reader, a comment on a selection, a reply and a thread
+//!   resolved, a proposal applied and dismissed, a revision opened and put back, the keys and library screens.
+//! - `margin.rs`: a comment in place: picked words found as whole words by the service, the comment's field under
+//!   the part its words are in, the words a thread is on marked and its card beside them, the person's send bringing
+//!   the comments forward, and the keys of picked words.
+//! - `terminal.rs`: programs in terminal tiles, over a scripted host: rows cut at wide cells, keys in and rows out,
+//!   the key that leaves, a size, the scrollback, a paste; detached, attached and found by the next launch; the
+//!   list handed over equal to what runs; an agent's act while the person types; a window built without one.
+//! - `pty_live.rs` (the `pty` feature): the terminal's crates themselves: a real pseudo-terminal running a made-up
+//!   script, and herdr-core's protocol spoken to a stand-in core in a scratch folder.
+//! - `small.rs`: wave H3's: the status line and a refusal's notice let go, the toolbar past the window's buttons, a
+//!   table's header over its rows, a decoded picture kept, an empty reader's words.
+//! - `typing.rs`: writing a block as in the door (H1): Tab and Shift+Tab move a line or a selection a level as one
+//!   step each, a paste is taken by the window and keeps its lines, and the list that completes a word says what
+//!   its lit row is and how many there are.
+//! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
+mod actline;
+mod arrange;
+mod contract;
+mod control;
+mod drafts;
+mod ext;
+mod garden;
+mod lists;
+mod live;
+mod margin;
+mod one_owner;
+mod owners;
+#[cfg(feature = "pty")]
+mod pty_live;
+mod parity;
+mod parts;
+mod review;
+mod shell;
+mod small;
+mod store;
+mod support;
+mod sweep2;
+mod sweep3;
+mod terminal;
+mod typing;
+mod ways;
+mod window;

@@ -1,0 +1,1105 @@
+{
+  "screens": [
+    {
+      "name": "board",
+      "title": "board",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "board",
+        "title": "board",
+        "layout": {
+          "focus": "lanes",
+          "root": {
+            "t": "split",
+            "dir": "col",
+            "weights": [
+              0.58,
+              0.42
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.query",
+                "name": "lanes",
+                "query": "work-stage",
+                "group": "work-stage",
+                "sort": "updated desc",
+                "arrange": "lanes",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  }
+                ],
+                "role": "query"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader",
+                "role": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "note.new",
+          "screen.reset"
+        ],
+        "lands": "reader"
+      },
+      "problems": []
+    },
+    {
+      "name": "desk",
+      "title": "Desk",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "desk",
+        "title": "Desk",
+        "layout": {
+          "focus": "reader",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.22,
+              0.78
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.tree",
+                "name": "tree",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  }
+                ],
+                "role": "tree"
+              },
+              {
+                "t": "split",
+                "dir": "row",
+                "weights": [
+                  0.72,
+                  0.28
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.reader",
+                    "name": "reader",
+                    "role": "reader"
+                  },
+                  {
+                    "t": "dock",
+                    "edge": "right",
+                    "open": true,
+                    "policy": {
+                      "overlay": false
+                    },
+                    "kid": {
+                      "t": "split",
+                      "dir": "col",
+                      "weights": [
+                        0.3,
+                        0.3,
+                        0.4
+                      ],
+                      "kids": [
+                        {
+                          "t": "leaf",
+                          "kind": "screens.props",
+                          "name": "props",
+                          "source": "tile:reader",
+                          "subject": "follows",
+                          "role": "props"
+                        },
+                        {
+                          "t": "leaf",
+                          "kind": "screens.backlinks",
+                          "name": "backlinks",
+                          "source": "tile:reader",
+                          "subject": "follows",
+                          "role": "backlinks"
+                        },
+                        {
+                          "t": "tabs",
+                          "active": 0,
+                          "tabs": [
+                            {
+                              "t": "leaf",
+                              "kind": "screens.threads",
+                              "name": "threads",
+                              "source": "tile:reader",
+                              "role": "threads"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.proposals",
+                              "name": "proposals",
+                              "source": "tile:reader",
+                              "role": "proposals"
+                            },
+                            {
+                              "t": "leaf",
+                              "kind": "screens.revisions",
+                              "name": "revisions",
+                              "source": "tile:reader",
+                              "role": "revisions"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "newNote": [
+          {
+            "opens": "lands"
+          }
+        ],
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=query",
+          "bar.open scope=screens",
+          "bar.open scope=extensions",
+          "bar.open scope=outlines",
+          "note.new",
+          "tile.split",
+          "screen.save",
+          "screen.reset",
+          "dock.toggle side=right"
+        ],
+        "lands": "reader",
+        "start": true
+      },
+      "problems": []
+    },
+    {
+      "name": "keys",
+      "title": "keys",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "keys",
+        "title": "keys",
+        "layout": {
+          "focus": "keys",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.keymap",
+            "name": "keys",
+            "role": "keymap"
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "kitchen",
+      "title": "Kitchen",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "kitchen",
+        "title": "Kitchen",
+        "layout": {
+          "focus": "reader",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.22,
+              0.4,
+              0.38
+            ],
+            "kids": [
+              {
+                "t": "split",
+                "dir": "col",
+                "weights": [
+                  0.34,
+                  0.24,
+                  0.2,
+                  0.22
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.tree",
+                    "name": "tree",
+                    "wires": [
+                      {
+                        "verb": "select",
+                        "to": "reader"
+                      }
+                    ],
+                    "role": "tree"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.extensions",
+                    "name": "extensions",
+                    "role": "extensions"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.outlines",
+                    "name": "outlines",
+                    "role": "outlines"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.programs",
+                    "name": "programs",
+                    "role": "programs"
+                  }
+                ]
+              },
+              {
+                "t": "tabs",
+                "active": 0,
+                "tabs": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.reader",
+                    "name": "reader",
+                    "role": "reader"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.props",
+                    "name": "props",
+                    "source": "tile:reader",
+                    "subject": "follows",
+                    "role": "props"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.activity",
+                    "name": "activity",
+                    "wires": [
+                      {
+                        "verb": "select",
+                        "to": "reader"
+                      }
+                    ],
+                    "role": "activity"
+                  }
+                ]
+              },
+              {
+                "t": "split",
+                "dir": "col",
+                "weights": [
+                  0.34,
+                  0.33,
+                  0.33
+                ],
+                "kids": [
+                  {
+                    "t": "leaf",
+                    "kind": "screens.threads",
+                    "name": "threads",
+                    "source": "tile:reader",
+                    "role": "threads"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.proposals",
+                    "name": "proposals",
+                    "source": "tile:reader",
+                    "role": "proposals"
+                  },
+                  {
+                    "t": "leaf",
+                    "kind": "screens.revisions",
+                    "name": "revisions",
+                    "source": "tile:reader",
+                    "role": "revisions"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "bar.open scope=extensions",
+          "bar.open scope=outlines",
+          "edit",
+          "comment",
+          "tile.tear",
+          "terminal.open",
+          "terminal.open agent=true",
+          "bar.open scope=programs",
+          "screen.reset"
+        ],
+        "lands": "reader"
+      },
+      "problems": []
+    },
+    {
+      "name": "lastcall",
+      "title": "last callers",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "lastcall",
+        "title": "last callers",
+        "layout": {
+          "focus": "activity",
+          "root": {
+            "t": "split",
+            "dir": "row",
+            "weights": [
+              0.5,
+              0.5
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.activity",
+                "name": "activity",
+                "role": "activity"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader",
+                "role": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "library",
+      "title": "library",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "library",
+        "title": "library",
+        "layout": {
+          "focus": "components",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.components",
+            "name": "components",
+            "role": "components"
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ]
+      },
+      "problems": []
+    },
+    {
+      "name": "navigator",
+      "title": "navigator",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "navigator",
+        "title": "navigator",
+        "layout": {
+          "focus": "facets",
+          "root": {
+            "t": "flow",
+            "key": "navigator",
+            "anchor": 1,
+            "held": [
+              0,
+              1,
+              2
+            ],
+            "kids": [
+              {
+                "t": "leaf",
+                "kind": "screens.facets",
+                "name": "facets",
+                "args": {
+                  "place": "tile",
+                  "open": [
+                    "views"
+                  ]
+                },
+                "role": "facets"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.matches",
+                "name": "matches",
+                "source": "tile:facets",
+                "wires": [
+                  {
+                    "verb": "select",
+                    "to": "reader"
+                  },
+                  {
+                    "verb": "open",
+                    "to": "reader"
+                  }
+                ],
+                "role": "matches"
+              },
+              {
+                "t": "leaf",
+                "kind": "screens.reader",
+                "name": "reader",
+                "role": "reader"
+              }
+            ]
+          }
+        },
+        "toolbar": [
+          "back",
+          "bar.open",
+          "bar.open scope=screens",
+          "screen.reset"
+        ],
+        "lands": "reader",
+        "target": {
+          "arg": "query",
+          "fills": "facets.query"
+        }
+      },
+      "problems": []
+    },
+    {
+      "name": "who",
+      "title": "who's online",
+      "from": "extension",
+      "extension": "screens",
+      "spec": {
+        "name": "who",
+        "title": "who's online",
+        "layout": {
+          "focus": "who",
+          "root": {
+            "t": "leaf",
+            "kind": "screens.who",
+            "name": "who",
+            "role": "who"
+          }
+        },
+        "toolbar": [
+          "bar.open",
+          "bar.open scope=screens"
+        ]
+      },
+      "problems": []
+    }
+  ],
+  "kinds": [
+    {
+      "kind": "screens.tree",
+      "extension": "screens",
+      "name": "Outline",
+      "about": "the outline as a tree; a pick opens a note where the tile's opens land",
+      "drawer": "list",
+      "fields": {
+        "from": "children"
+      },
+      "replaces": [
+        "tree"
+      ],
+      "serves": [
+        "tree"
+      ]
+    },
+    {
+      "kind": "screens.reader",
+      "extension": "screens",
+      "name": "Reader",
+      "about": "a note, read and written where it stands: one picked in a list, followed by a link or found in the bar opens here and stays",
+      "drawer": "page",
+      "replaces": [
+        "reader"
+      ],
+      "serves": [
+        "reader"
+      ]
+    },
+    {
+      "kind": "screens.query",
+      "extension": "screens",
+      "name": "Query",
+      "about": "the notes a saved view lists (view=<its block id>) or a question matches (query=\"type=bed\"); a board's lane is one",
+      "drawer": "list",
+      "fields": {
+        "from": "query"
+      },
+      "replaces": [
+        "query"
+      ],
+      "serves": [
+        "query"
+      ]
+    },
+    {
+      "kind": "screens.backlinks",
+      "extension": "screens",
+      "name": "Links",
+      "about": "the links of the note its reader shows: outlinks, resources, backlinks and children",
+      "drawer": "list",
+      "fields": {
+        "from": "links"
+      },
+      "replaces": [
+        "backlinks"
+      ],
+      "serves": [
+        "backlinks"
+      ]
+    },
+    {
+      "kind": "screens.props",
+      "extension": "screens",
+      "name": "Properties",
+      "about": "the properties and the record of the note its reader shows; a pick opens the question for that value",
+      "drawer": "list",
+      "fields": {
+        "from": "properties",
+        "subject": "follows"
+      },
+      "replaces": [
+        "props"
+      ],
+      "serves": [
+        "props"
+      ]
+    },
+    {
+      "kind": "screens.facets",
+      "extension": "screens",
+      "name": "Facets",
+      "about": "the properties the notes have, each opening to its values; a value picked narrows the question",
+      "drawer": "list",
+      "fields": {
+        "from": "facets"
+      },
+      "replaces": [
+        "facets"
+      ],
+      "serves": [
+        "facets"
+      ]
+    },
+    {
+      "kind": "screens.matches",
+      "extension": "screens",
+      "name": "Matches",
+      "about": "the notes a facets tile's selection leaves (source=tile:<the facets tile>), newest first",
+      "drawer": "list",
+      "fields": {
+        "from": "query",
+        "sort": "updated desc"
+      },
+      "replaces": [
+        "matches"
+      ],
+      "serves": [
+        "matches"
+      ]
+    },
+    {
+      "kind": "screens.activity",
+      "extension": "screens",
+      "name": "Activity",
+      "about": "recent edits by people and agents",
+      "drawer": "list",
+      "fields": {
+        "from": "activity"
+      },
+      "replaces": [
+        "activity"
+      ],
+      "serves": [
+        "activity"
+      ]
+    },
+    {
+      "kind": "screens.who",
+      "extension": "screens",
+      "name": "Who",
+      "about": "who's attached to the outline",
+      "drawer": "list",
+      "fields": {
+        "from": "clients"
+      },
+      "replaces": [
+        "who"
+      ],
+      "serves": [
+        "who"
+      ]
+    },
+    {
+      "kind": "screens.threads",
+      "extension": "screens",
+      "name": "Comments",
+      "about": "the comment threads on the note its reader shows: the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "threads",
+        "subject": "follows"
+      },
+      "replaces": [
+        "threads"
+      ],
+      "serves": [
+        "threads"
+      ]
+    },
+    {
+      "kind": "screens.proposals",
+      "extension": "screens",
+      "name": "Proposals",
+      "about": "the edits waiting beside the note its reader shows: who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
+      "drawer": "list",
+      "fields": {
+        "from": "proposals",
+        "subject": "follows"
+      },
+      "replaces": [
+        "proposals"
+      ],
+      "serves": [
+        "proposals"
+      ]
+    },
+    {
+      "kind": "screens.revisions",
+      "extension": "screens",
+      "name": "Revisions",
+      "about": "the texts the note its reader shows had, newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
+      "drawer": "list",
+      "fields": {
+        "from": "revisions",
+        "subject": "follows"
+      },
+      "replaces": [
+        "revisions"
+      ],
+      "serves": [
+        "revisions"
+      ]
+    },
+    {
+      "kind": "screens.keymap",
+      "extension": "screens",
+      "name": "Keys",
+      "about": "every way to press an action in this door: its keys, the act line they run, where they hold and what they do, read from the actions' own rows; a pick runs the line",
+      "drawer": "list",
+      "fields": {
+        "from": "actions"
+      },
+      "replaces": [
+        "keymap"
+      ],
+      "serves": [
+        "keymap"
+      ]
+    },
+    {
+      "kind": "screens.components",
+      "extension": "screens",
+      "name": "Components",
+      "about": "every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn",
+      "drawer": "list",
+      "fields": {
+        "from": "components"
+      },
+      "replaces": [
+        "components"
+      ],
+      "serves": [
+        "components"
+      ]
+    },
+    {
+      "kind": "screens.extensions",
+      "extension": "screens",
+      "name": "Extensions",
+      "about": "the outline's extensions: a row opens an installed one's page or settings, or installs one the repo has",
+      "drawer": "list",
+      "fields": {
+        "from": "extensions"
+      },
+      "replaces": [
+        "extensions"
+      ],
+      "serves": [
+        "extensions"
+      ]
+    },
+    {
+      "kind": "screens.outlines",
+      "extension": "screens",
+      "name": "Outlines",
+      "about": "the outlines there are to open: this machine's and the ones on the machines it holds a forward to; a row switches the window to one",
+      "drawer": "list",
+      "fields": {
+        "from": "outlines"
+      },
+      "replaces": [
+        "outlines"
+      ],
+      "serves": [
+        "outlines"
+      ]
+    },
+    {
+      "kind": "screens.programs",
+      "extension": "screens",
+      "name": "Programs",
+      "about": "the programs this door runs in its terminal tiles, each with what it reports of itself; a row takes the keys to its program",
+      "drawer": "list",
+      "fields": {
+        "from": "programs"
+      },
+      "replaces": [
+        "programs"
+      ],
+      "serves": [
+        "programs"
+      ]
+    },
+    {
+      "kind": "terminal.shell",
+      "extension": "terminal",
+      "name": "Shell",
+      "about": "your login shell in a terminal beside your notes: every key goes to it until the key that leaves (the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty"
+    },
+    {
+      "kind": "terminal.agent",
+      "extension": "terminal",
+      "name": "Agent",
+      "about": "an agent in a terminal beside your notes: your shell, with the agent's command typed into it (the native window draws it when it is built with its terminal: cargo build --features pty)",
+      "drawer": "pty",
+      "fields": {
+        "command": "claude"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "from": "children",
+      "about": "The outline",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note at its top (left out: the outline's top level)"
+        },
+        {
+          "name": "open",
+          "about": "the folders whose notes are listed under them"
+        },
+        {
+          "name": "limit",
+          "about": "the most rows"
+        }
+      ]
+    },
+    {
+      "from": "search",
+      "about": "Notes",
+      "placeholder": "Words in a title or a note",
+      "params": [
+        {
+          "name": "query",
+          "about": "words in a title or a note",
+          "required": true
+        },
+        {
+          "name": "limit",
+          "about": "the most rows"
+        }
+      ],
+      "bar": {
+        "main": true
+      }
+    },
+    {
+      "from": "query",
+      "about": "Query",
+      "placeholder": "type=letter mail=waiting · any property, as views read it",
+      "params": [
+        {
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        },
+        {
+          "name": "sort",
+          "about": "a property name, or created, updated, title; then asc or desc"
+        },
+        {
+          "name": "group",
+          "about": "a property name: its values are the list's sections"
+        },
+        {
+          "name": "columns",
+          "about": "the property names a table shows"
+        },
+        {
+          "name": "arrange",
+          "about": "rows, table, lanes, grid"
+        },
+        {
+          "name": "limit",
+          "about": "the most rows"
+        }
+      ],
+      "bar": {
+        "facets": true
+      }
+    },
+    {
+      "from": "lanes",
+      "about": "Lanes",
+      "params": [
+        {
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        },
+        {
+          "name": "group",
+          "about": "the property name whose values are the lanes",
+          "required": true
+        },
+        {
+          "name": "sort",
+          "about": "the order in each lane"
+        },
+        {
+          "name": "limit",
+          "about": "the most rows"
+        }
+      ]
+    },
+    {
+      "from": "facets",
+      "about": "Facets",
+      "params": [
+        {
+          "name": "query",
+          "about": "a question in the views' grammar (type=bed NOT stage=done): any property"
+        }
+      ]
+    },
+    {
+      "from": "links",
+      "about": "Links",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        },
+        {
+          "name": "linkGroups",
+          "about": "which relations: outlinks, resources, backlinks, children or all (left out: all)"
+        }
+      ]
+    },
+    {
+      "from": "properties",
+      "about": "Properties",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "activity",
+      "about": "Last callers",
+      "params": [
+        {
+          "name": "limit",
+          "about": "the most rows"
+        }
+      ]
+    },
+    {
+      "from": "clients",
+      "about": "Who's here",
+      "params": []
+    },
+    {
+      "from": "threads",
+      "about": "Comments",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "proposals",
+      "about": "Proposals",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "from": "revisions",
+      "about": "Revisions",
+      "params": [
+        {
+          "name": "of",
+          "about": "the note",
+          "required": true
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        }
+      ]
+    },
+    {
+      "from": "actions",
+      "about": "Keys",
+      "placeholder": "A key, an action or what it does",
+      "params": [
+        {
+          "name": "actions",
+          "about": "the asker's own actions, each as its row",
+          "required": true
+        },
+        {
+          "name": "screen",
+          "about": "the screen the asker has open, by name: its own keys are listed first"
+        },
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        }
+      ]
+    },
+    {
+      "from": "components",
+      "about": "Components",
+      "placeholder": "A component's name",
+      "params": [
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        },
+        {
+          "name": "open",
+          "about": "the rows shown whole, by id: each carries what it shows under itself"
+        },
+        {
+          "name": "of",
+          "about": "the note an example asks about as `this` (left out: the outline's first)"
+        }
+      ]
+    },
+    {
+      "from": "screens",
+      "about": "Screens",
+      "placeholder": "A screen's name",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name"
+        },
+        {
+          "name": "kinds",
+          "about": "the tile kinds the asker draws"
+        },
+        {
+          "name": "drawers",
+          "about": "the drawers the asker has"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "extensions",
+      "about": "Extensions",
+      "placeholder": "An extension's name · typed, it can be removed too",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or of what it does"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "outlines",
+      "about": "Outlines",
+      "placeholder": "An outline's name, or a machine's",
+      "params": [
+        {
+          "name": "query",
+          "about": "words of its name or its machine's"
+        }
+      ],
+      "bar": {}
+    },
+    {
+      "from": "programs",
+      "about": "Programs",
+      "placeholder": "A program's name, or what it runs",
+      "params": [
+        {
+          "name": "programs",
+          "about": "the programs the asker runs, each as it says of itself",
+          "required": true
+        },
+        {
+          "name": "query",
+          "about": "words that narrow the rows"
+        }
+      ],
+      "bar": {}
+    }
+  ]
+}

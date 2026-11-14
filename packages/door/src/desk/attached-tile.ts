@@ -2,6 +2,7 @@
 // attachment stays owned by the tile it belongs to, so moving it into a tile never creates a second session, inspector
 // or list. One owner path (PIE-1448): every owner answers `AttachedOwner`, and this tile only lends it its room, its
 // side chips and its keys. It never asks what kind of tile its owner is (test/attached-owner.test.ts holds it to that).
+import { shippedAbout } from "./shipped";
 import { fg, C, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
@@ -154,7 +155,7 @@ export const LIST_PREVIEW_TILE: TileKind = {
 
 export const MATCHES_TILE: TileKind = {
   kind: "matches", noun: "a Matches tile", previews: true,
-  about: "a facets tile's Matches (PIE-1443: the notes its selection leaves, grouped Pinned, Today, Yesterday, Previous 7 days, then months) in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and ⏎ opens. Opened by facets.place place=tile (ctrl+o), closed when Matches goes back",
+  about: shippedAbout("matches"),
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "facets", "matches"),
   openArgs: ["source"],
   check: s => (s.source && !/^tile:./.test(s.source) ? "a Matches tile's source is tile:<name>, the facets tile it belongs to" : null),

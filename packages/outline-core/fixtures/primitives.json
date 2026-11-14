@@ -1,0 +1,179 @@
+{
+  "about": "Every view primitive type and the fields it takes (outline-core's primitive.ts), and the types a page's parts add (note-page.ts). Made from the source; never edited by hand.",
+  "by": "packages/outline-core/scripts/extension-types.ts",
+  "types": [
+    "text",
+    "blockdown",
+    "badge",
+    "stat",
+    "bar",
+    "table",
+    "checklist",
+    "sparkline",
+    "card",
+    "box",
+    "stack",
+    "row",
+    "band",
+    "track",
+    "image",
+    "button",
+    "list"
+  ],
+  "fields": {
+    "text": [
+      "text",
+      "tone",
+      "strong",
+      "act",
+      "link",
+      "revision"
+    ],
+    "blockdown": [
+      "text"
+    ],
+    "badge": [
+      "label",
+      "tone",
+      "act"
+    ],
+    "button": [
+      "label",
+      "act",
+      "tone"
+    ],
+    "stat": [
+      "label",
+      "value",
+      "unit",
+      "tone"
+    ],
+    "bar": [
+      "label",
+      "value",
+      "max",
+      "tone"
+    ],
+    "table": [
+      "columns",
+      "rows",
+      "links",
+      "acts"
+    ],
+    "checklist": [
+      "items"
+    ],
+    "sparkline": [
+      "label",
+      "values"
+    ],
+    "card": [
+      "title",
+      "subtitle",
+      "badge",
+      "link",
+      "act",
+      "children"
+    ],
+    "box": [
+      "title",
+      "children"
+    ],
+    "stack": [
+      "children"
+    ],
+    "row": [
+      "children",
+      "minWidth"
+    ],
+    "band": [
+      "text",
+      "level",
+      "style",
+      "pattern",
+      "align",
+      "row",
+      "tone"
+    ],
+    "track": [
+      "style",
+      "pattern",
+      "tone"
+    ],
+    "image": [
+      "src",
+      "svg",
+      "alt",
+      "size",
+      "fit",
+      "height",
+      "caption"
+    ],
+    "list": [
+      "rows",
+      "groups",
+      "preview",
+      "filter",
+      "enter",
+      "empty",
+      "arrange",
+      "size",
+      "columns",
+      "headers",
+      "page",
+      "title"
+    ]
+  },
+  "tones": [
+    "default",
+    "good",
+    "warn",
+    "bad",
+    "dim",
+    "accent"
+  ],
+  "page": {
+    "markdown": [
+      "text"
+    ],
+    "picture": [
+      "path",
+      "svg",
+      "alt",
+      "width",
+      "height",
+      "align",
+      "fit",
+      "focus",
+      "dim",
+      "problems"
+    ],
+    "source": [
+      "text"
+    ],
+    "diff": [
+      "from",
+      "to",
+      "lines",
+      "added",
+      "removed"
+    ],
+    "part": [
+      "kind",
+      "block",
+      "span",
+      "line",
+      "name",
+      "figure",
+      "title",
+      "query",
+      "status",
+      "error",
+      "truncated",
+      "sequence",
+      "needs",
+      "marks",
+      "view"
+    ]
+  }
+}

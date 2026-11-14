@@ -27,8 +27,9 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { PtyPane, type PtySpec } from "./pty";
 import type { TileSpec } from "./tiles";
 
-/** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). */
-export type TileKindName = string;
+/** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). A saved tile names it (outline-core's TileSpec). */
+export type { TileKindName } from "@ep0ch/outline-core/screen-spec";
+import type { TileKindName } from "@ep0ch/outline-core/screen-spec";
 
 /** What a kind's actions run on: the tile (its pane and its name) and the desk it's on. */
 export interface KindHost { pane: any; desk: DeskApi; tile: string; standing: boolean }
@@ -283,6 +284,12 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
   for (const [old, to] of [...aliases]) if (to === kind) aliases.delete(old);
   return had;
 }
+/**
+ * A served name one of the door's own kinds answers to (the screens extension's `screens.reader` is the door's
+ * `reader`): `screens.list` serves a tile's kind as the kind that serves it, and the door draws that kind itself.
+ * Nothing when the door has no kind by that name, or already has one by the served name.
+ */
+export function aliasTileKind(served: TileKindName, own: TileKindName): void { if (registry.has(own) && !registry.has(served)) aliases.set(served, own); }
 /**
  * A kind's name as the registry has it now: itself, or, for a retired name an extension's kind `replaces`, that kind.
  * Every lookup by name goes through it (tileKind, isTileKind, a spec's canon), so a saved tile of a replaced kind opens

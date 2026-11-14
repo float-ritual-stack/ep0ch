@@ -5,6 +5,8 @@
 // `over`, `keys` and `program`, PIE-1438). This test reads the door's source and
 // fails when a file decides one of these itself: a new copy is folded into its owner, or, when it truly is another
 // question, it gets a row here with its stance. A count that went down is lowered here too, so the table stays true.
+// The layout's own decisions (whether it changes, where an open lands, which tile an address means, what a screen's
+// spec is) have their table below, LAYOUT_FAMILIES: where they are decided today, pinned as native starts answering them too.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -54,6 +56,25 @@ const FAMILIES: Family[] = [
     pattern: /is where the person is typing|draft is the person's|; not moved|`the person is typing in \$\{[^`]*`;|an agent doesn't \$\{what\}/g,
     allowed: {
       "whereabouts.ts": { n: 1, why: "the owner: heldBack and typingIn, the one shape" },
+    },
+  },
+  {
+    question: "how a refusal's way out is said: the key from the door's own tables for the person, the act line for an agent",
+    // The layout's rules and the rules about the person's keys name a way out as an act (outline-core's way-out.ts);
+    // one module words it, and nothing else reads a key for a refusal or joins ways into a sentence.
+    pattern: /\bwhySaid\(|\bwaysSaid\(|\bwayKey\(|\bwChordOf\(/g,
+    allowed: {
+      "surface/way-out.ts": { n: 5, why: "the owner: refusalSaid and waysOutSaid, wayKey (its definition and its one use), and the ^W table asked for the chord" },
+      "desk/wkeys.ts": { n: 1, why: "the ^W table answering which of its keys runs an act whole (wChordOf's definition)" },
+    },
+  },
+  {
+    question: "what the notes under a note are (a comment on it and an edit proposed beside it are none)",
+    // outline-core's isNoteUnder is the one answer, the service's lists and pages ask it too (its tree, a page's own
+    // list, CHILDREN_QUERY). A list of a note's children filtered by another reading lists a block the others leave out.
+    pattern: /\bisNoteUnder\(|\.filter\(\w+ => !is(?:AnnotationBlock|MarkType)\(/g,
+    allowed: {
+      "links.ts": { n: 1, why: "readChildren: the links tile's Children, by the one answer" },
     },
   },
   {
@@ -196,6 +217,147 @@ const FAMILIES: Family[] = [
     },
   },
 ];
+
+/**
+ * The layout's decisions, as they stand today (native W0): whether a layout changes, where an open lands, which tile an
+ * address means and what a screen's spec is. Native's Rust `apply` and `place` answer the same questions beside these, by
+ * language; both are held to the contract tables (packages/outline-core/fixtures, test/layout-contract.test.ts), and this
+ * table says where the door asks each one, so a new place that decides is seen here first.
+ */
+const LAYOUT_FAMILIES: Family[] = [
+  {
+    question: "whether a layout changes: one operation applied for one actor, the new state or a refusal (screen-layout's apply)",
+    // Every change to a screen's layout is asked of apply(): the desk's (Desk.ask, taken by commit), the host layer's
+    // (Drawer.do) and a carry's two halves. Nothing else holds a tree it changes.
+    pattern: /(?<![.\w])apply(?:Op|Layout)?\(/g,
+    allowed: {
+      "desk/desk.ts": { n: 2, why: "the desk's one ask of the layout module (Desk.ask), and Desk.apply, which is ask then commit" },
+      "drawer.ts": { n: 1, why: "the host layer's one ask (Drawer.do): the drawer's own layout, the same operations" },
+      "desk/carry.ts": { n: 2, why: "one carry between two layouts: a take asked of the one a tile leaves, an open of the one it lands in; the desks only apply the answers" },
+    },
+  },
+  {
+    question: "whether an operation would be refused, asked without applying it (screen-layout's refusal)",
+    pattern: /(?<![.\w])refusal\((?:this\.layout|s),/g,
+    allowed: {
+      "desk/desk.ts": { n: 15, why: "what a tile's frame, a menu row or a drag's ghost says before the press: the operation itself is asked, never a copy of its rule" },
+    },
+  },
+  {
+    question: "how a layout's state is made (screen-layout's init): from a tree as given, never built by hand",
+    pattern: /(?<![.\w])init\(\{|\bhostLayer\(\{/g,
+    allowed: {
+      "desk/desk.ts": { n: 3, why: "a desk's first state, its state as a session comes back, and Desk.build: a spec, a saved layout or an undo laid out" },
+      "desk/screen-layout.ts": { n: 1, why: "hostLayer: the drawer's layout, made by the module itself" },
+      "drawer.ts": { n: 1, why: "the host layer asks for its layout (hostLayer)" },
+    },
+  },
+  {
+    question: "which route an open takes before it is placed: its wire, its container's opens-into, its home, the open rule; and which side a tile beside another goes",
+    // landing() and besideAttempt()/besideOrder() (desk/landing.ts) are asked by the layout module alone: placement() for a
+    // note, apply()'s open for a tile beside another. The desk asks placement(), never these.
+    pattern: /(?<![.\w])landing\(s,|\bbesideAttempt\(s,|\bbesideOrder\(b,/g,
+    allowed: {
+      "desk/landing.ts": { n: 3, why: "the owner: an alt-open reads the open's own route; besideAttempt weighs besideOrder's places; closeHeir asks where the closed reader's opens land" },
+      "desk/screen-layout.ts": { n: 3, why: "placement() asks the route (and whether a fresh open has one); apply()'s open beside a tile asks besideAttempt" },
+    },
+  },
+  {
+    question: "which tile an address means (`tile=`: an id, a role, a slot, ^): outline-core's one grammar and resolver",
+    pattern: /\b(?:parseTileAddress|resolveAddress|resolveRelative)\(/g,
+    allowed: {
+      "desk/desk.ts": { n: 5, why: "the desk lists the tiles it has and asks which one an address means (tileBy, a slot it keeps, the acting tile's opener)" },
+      "drawer.ts": { n: 4, why: "the same question over every desk on show: the drawer's, the screen's, a mount's" },
+      "surface/dispatch.ts": { n: 1, why: "the dispatcher reads a request's tile= once, to know whether it names a tile elsewhere" },
+      "surface/note.ts": { n: 1, why: "a reader's press names its own tile by id: it asks whether a tile= is one" },
+    },
+  },
+  {
+    question: "what a screen's spec is: read back through the one validator (outline-core's readSpec)",
+    pattern: /\breadSpec(?:Data)?\(/g,
+    allowed: {
+      "desk/screen-spec.ts": { n: 2, why: "the door's readSpec: outline-core's, told which tile kinds this door has" },
+      "desk/screen-notes.ts": { n: 1, why: "a registered spec as each open copies it (a screen note's text is the service's to read: screens.list)" },
+      "extensions.ts": { n: 2, why: "an extension's screens[], checked as a note's is" },
+      "desk/shipped-screens.ts": { n: 2, why: "the screens extension's screens[], held from its manifest until a host serves them: checked as any extension's" },
+    },
+  },
+  {
+    question: "the shapes a screen is made of are outline-core's (screen-spec.ts, action-row.ts): the door declares none again",
+    pattern: /^export (?:interface|type) (?:ScreenSpec|TileSpec|LayoutSpec|SavedFloat|SavedTree|Policy|KeyBinding|NewNoteRule|ArgSpec|Touches|KeyRow|Keys|TileAddress|AddressCandidate|AgentLevel|WireVerb|OpenRule|AltRule|BinaryForm|NaryForm|ActionRow|ActionDescription)\b/g,
+    allowed: {},
+  },
+];
+
+/** The functions of desk/layout.ts that return or change a tree (and the names screen-layout re-exports them by). */
+const TREE_CHANGERS = new Set(["activate", "beside", "besideSlot", "chooseDock", "clone", "copyTree", "cycle", "dockToEdge", "edge", "even", "forgetIds", "grow", "insert", "keptInDock", "move", "normalise", "remove", "removeLeaf", "reorder", "replaceNode", "resize", "revive", "reviveTree", "split", "swapLeaf", "tabInto", "unwrapDock", "wrapDock", "wrapNodeDock"]);
+/** What a file imports by name from the layout modules (the name as exported, whatever it is called there). */
+function layoutImports(text: string): string[] {
+  return [...text.matchAll(/(?:import|export)\s*\{([^}]*)\}\s*from\s*"[^"]*\/(?:layout|screen-layout)"/g)]
+    .flatMap(m => m[1]!.split(",").map(x => x.trim()).filter(x => x && !x.startsWith("type ")).map(x => x.split(/\s+as\s+/)[0]!));
+}
+
+describe("one owner for each decision about a layout (native W0: the contract both doors are held to)", () => {
+  const texts = sources().map(p => ({ file: relative(SRC, p), text: readFileSync(p, "utf8") }));
+  const files = texts.map(({ file, text }) => ({ file, code: codeOf(text) }));
+  for (const f of LAYOUT_FAMILIES) {
+    test(`${f.question}: decided only where the table says`, () => {
+      const found: Record<string, number> = {};
+      for (const { file, code } of files) {
+        const n = code.reduce((sum, line) => sum + (line.match(f.pattern)?.length ?? 0), 0);
+        if (n) found[file] = n;
+      }
+      expect(found).toEqual(Object.fromEntries(Object.entries(f.allowed).map(([file, a]) => [file, a.n])));
+    });
+  }
+
+  test("a tree is changed inside the layout module: who else holds one of its changers, and the three ways in", () => {
+    const holds = (names: ReadonlySet<string> | readonly string[]) => Object.fromEntries(texts.map(({ file, text }) => [file, layoutImports(text).filter(n => (names instanceof Set ? names.has(n) : (names as readonly string[]).includes(n))).sort()] as const).filter(([file, ns]) => ns.length && file !== "desk/screen-layout.ts" && file !== "desk/layout.ts"));
+    // A changer outside the module works on a tree before it is a layout (Desk.build, then init) or inside a step the
+    // module runs (return-place's shells, which apply() asks for); a new holder here changes a layout behind apply().
+    expect(holds(TREE_CHANGERS)).toEqual({
+      "desk/desk.ts": ["keptInDock", "removeLeaf", "reviveTree"],   // Desk.build: a saved tree revived, a retired kind's tile left out, work kept in one dock; then init
+      "desk/return-place.ts": ["replaceNode"],                     // the shells a closed tile's place comes back in, called from the module's own open
+    });
+    expect(holds(["apply", "refusal", "init", "placement", "hostLayer"])).toEqual({
+      "desk/desk.ts": ["apply", "init", "placement", "refusal"],
+      "desk/carry.ts": ["apply"],
+      "drawer.ts": ["apply", "hostLayer"],
+    });
+  });
+});
+
+/**
+ * The files whose refusals name a way out as an act: the layout's rules, and the rules about the person's keys and
+ * about what an agent may do to a tile, which the layout's guards word their refusals with.
+ */
+const WAY_FILES = ["desk/screen-layout.ts", "desk/layout-refusal.ts", "desk/landing.ts", "whereabouts.ts", "surface/agent-level.ts"];
+/** A key spelled out: a ^W chord, a modifier with its key, a keycap's glyph. */
+// (A key of one letter, the door's `p`, `q`, `e`, is spelled where a way would start: a clause that begins with a word
+// of one character after the reason's separator or a way before it, "· p in bed unpins it".)
+const CHORD = /\^[A-Z]\b|\b(?:ctrl|alt|shift|super|hyper|cmd|mod)\+\S|[⏎⌫✦⌘⌥⌃⇧]|(?: · |, or |, then |\(or )(?:(?![aAI])[A-Za-z]|[?!]) /u;
+/** The string literals of a line of code: quoted and template text, as written. */
+const literals = (line: string) => [...line.matchAll(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g)].map(m => m[0].slice(1, -1));
+
+describe("a way out is an act: the layout spells no key and no action in a sentence", () => {
+  // Every action the door has, by its dotted name (a one-word name, `open`, is a word like any other and isn't scanned).
+  const actions = (JSON.parse(readFileSync(join(import.meta.dir, "../../outline-core/fixtures/action-rows.json"), "utf8")) as { rows: { id: string }[] }).rows.map(r => r.id).filter(id => id.includes("."));
+  const named = new RegExp(`(?<![\\w.-])(?:${[...new Set(actions)].sort((a, b) => b.length - a.length).map(id => id.replace(/[.\-]/g, "\\$&")).join("|")})(?![\\w.-])`);
+  /** A sentence (a literal with a space in it) that names a key or an action: what a refusal's reason must not hold. */
+  const spelled = (file: string) => codeOf(readFileSync(join(SRC, file), "utf8")).flatMap(line => literals(line).filter(text => /\s/.test(text) && (CHORD.test(text) || named.test(text))).map(text => `${file}: ${text.slice(0, 90)}`));
+
+  test("no sentence in the layout's files names a key or spells an action: a way out is `way(<action>, <what it does>)`, said by surface/way-out.ts", () => {
+    // A key is the door's own, read from its key tables when the refusal is said, so a rebound key is the key named; an
+    // action is named as the way's act (a literal of its own, the id alone), so a door without it says nothing.
+    expect(WAY_FILES.flatMap(spelled)).toEqual([]);
+  });
+
+  test("the scan finds what it is for", () => {
+    const hits = (text: string) => /\s/.test(text) && (CHORD.test(text) || named.test(text));
+    for (const sentence of ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "alt+a puts your drawer away", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"]) expect(hits(sentence), sentence).toBe(true);
+    for (const fine of ["layout.policy", "reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"]) expect(hits(fine), fine).toBe(false);
+  });
+});
 
 describe("one owner for each decision about the person (PIE-1294)", () => {
   const files = sources().map(p => ({ file: relative(SRC, p), code: codeOf(readFileSync(p, "utf8")) }));

@@ -48,11 +48,11 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     expect(pv.effective).toMatchObject({ draggable: false, closable: false, droppable: false });
     const lane: any = await act("layout.policy", {}, "To-do");
     expect(lane.effective).toMatchObject({ draggable: false, accepts: ["query"] });
-    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .* · \^W P there turns closable on/);
+    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .* · .*layout\.policy node=g\d+ closable=true turns closable on/);
     await expect(act("tile.close", {}, "preview")).rejects.toThrow(/turns closable on/);
     // A lane is its view's: it closes when the view goes (the desk's rule for a tile a source supplies).
     await expect(act("tile.close", {}, "To-do")).rejects.toThrow(/To-do stays: hub:\S+ supplies it, .* to drop it, take its view out of the hub/);
-    await expect(act("layout.move", { where: "edge-left" }, "preview")).rejects.toThrow(/preview stays where it is: .* · \^W P there turns draggable on/);
+    await expect(act("layout.move", { where: "edge-left" }, "preview")).rejects.toThrow(/preview stays where it is: .* · layout\.policy node=\S+ draggable=true turns draggable on/);
     await expect(act("layout.move", { where: "edge-left" }, "tree")).rejects.toThrow(/turns draggable on/);
     // The person's x on the preview runs the same close, and the screen says why it stays.
     await act("tile.focus", {}, "preview", null);

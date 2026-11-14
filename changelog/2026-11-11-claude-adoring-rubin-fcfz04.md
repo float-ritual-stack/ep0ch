@@ -1,0 +1,9 @@
+### ep0ch in a native window, and a note as parts any client can draw (`notes.page`)
+
+- **New: `ep0ch-native`,** the outline in a native GPU window drawn with Rune (`packages/native`): the tree, the open note with its links, live figures and query-backed components, the details the service has on it, find (⌘K), query with facets (⌘L), and writing at the revision that was read (⌘E, ⌘S). `cargo run --release -- -- --ws <outline>` in `packages/native`.
+- **New: `notes.page`** answers everything a client draws of one note in one read: its title, chips and properties, the body as parts (prose as Markdown; each component with the service's answer in it: a figure's props and its results as Markdown, a view's list, a links block's groups), and the notes above, under and linking to it. A client that can't run outline-core draws any note and parses no Blockdown. The published page and `notes.page` read figures and links through the same readers.
+- **`notes.page` is a watched read:** asked with `watch`, the service says when the page's answer moves (`queries.changed`), whatever changed it. A watch's answer may now be awaited (`QueryWatches.askLater`).
+- **`blocks.read` lists the notes under a note** (`under: <id>`, or `null` for the top level) in order, and can be watched: what a tree's open folder shows.
+- **The native window speaks the socket itself.** No bridge process: the door's rule names the outline once at launch, then the window asks, watches and writes directly. Saving never closes its editor, and nothing but Discard drops unsaved text.
+- **Pictures in a page:** `notes.page` names a note's pictures (a media line's file, an svg fence's own text) with the layout the note asks for, and its header image as `hero`. The native window draws them: the header as a band above the title, PNG, JPEG and SVG where they stand, mermaid fences as diagrams.
+- **Run:** `ep0ch install --apply` (PROTOCOL 325: host and clients together).

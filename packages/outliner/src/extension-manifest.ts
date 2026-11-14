@@ -225,7 +225,7 @@ const Tile = Type.Object(
   {
     kind: ID,
     name: Type.String({ minLength: 1, maxLength: 60 }),
-    description: Type.Optional(Type.String({ maxLength: 300 })),
+    description: Type.Optional(Type.String({ maxLength: 600 })),
     /**
      * What fills the tile: exactly one of `run` (a terminal program, from the extension's folder; `bun` means the
      * service's own Bun), `render` (the name of a render script the extension ships in `scripts[]`: the service draws
@@ -235,6 +235,17 @@ const Tile = Type.Object(
     run: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 20 })),
     render: Type.Optional(ID),
     view: Type.Optional(Type.String({ minLength: 1, maxLength: 2000 })),
+    /**
+     * A kind a door draws itself: the drawer it draws with, by name (`list`: one list over `lists.read`; `page`: a
+     * note's page). The fourth way to fill a tile, beside `run`, `render` and `view`: a door that has the drawer draws
+     * the kind from this row, and one that hasn't says so on the tile.
+     */
+    drawer: Type.Optional(ID),
+    /**
+     * What a tile of this kind starts with: fields its drawer reads when the tile's own spec doesn't say (a list's
+     * `from`, a property name to `group` or `sort` by, `subject: "follows"`). A tile's own fields win.
+     */
+    fields: Type.Optional(Type.Record(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,39}$" }), Type.Union([Type.String({ maxLength: 2000 }), Type.Number(), Type.Boolean()]), { maxProperties: 16 })),
     /** Action ids (from `actions[]`) the tile offers; the door binds them like its own. */
     actions: Type.Optional(Type.Array(ID, { maxItems: 16 })),
     /** The container policy a tile of this kind starts with (the layout design's per-node settings). */
@@ -462,13 +473,13 @@ const ManifestV2 = Type.Object(
       about: Type.String({ minLength: 1 }),
     }, { additionalProperties: false }))),
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
-    tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
+    tiles: Type.Optional(Type.Array(Tile, { maxItems: 24 })),
     /**
      * Whole screens for the door (PIE-1525): each a screen spec as data, as a screen note holds one (`name`, `title`,
      * `layout`, and `menu: { key, label }` for a row on the main menu). Opaque here: the door's `readSpec` checks it and
      * says a problem where extension problems are said. Registered while the extension is served, gone when it stops.
      */
-    screens: Type.Optional(Type.Array(Type.Object({ name: Type.String({ pattern: SCREEN_NAME_PATTERN }) }, { additionalProperties: true }), { maxItems: 8 })),
+    screens: Type.Optional(Type.Array(Type.Object({ name: Type.String({ pattern: SCREEN_NAME_PATTERN }) }, { additionalProperties: true }), { maxItems: 24 })),
     /**
      * Surfaces it attaches beside a note (the door's attachment layer): each a kind named `<id>.<kind>` in the record
      * (`extensions.list`), with the noun its float and tile are titled with and the render script it ships in `scripts[]`
@@ -762,8 +773,9 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   for (const [index, tile] of (manifest.tiles ?? []).entries()) {
     if (tileKinds.has(tile.kind)) throw new ExtensionLoadError(`extension.json: tiles/${index}/kind ${tile.kind} is declared twice`);
     tileKinds.add(tile.kind);
-    const fills = [tile.run, tile.render, tile.view].filter((x) => x !== undefined).length;
-    if (fills !== 1) throw new ExtensionLoadError(`extension.json: tiles/${index} needs one of run, render or view${fills ? ", not several" : ""}`);
+    const fills = [tile.run, tile.render, tile.view, tile.drawer].filter((x) => x !== undefined).length;
+    if (fills !== 1) throw new ExtensionLoadError(`extension.json: tiles/${index} needs one of run, render, view or drawer${fills ? ", not several" : ""}`);
+    if (tile.fields !== undefined && tile.drawer === undefined) throw new ExtensionLoadError(`extension.json: tiles/${index}/fields is what a drawer reads: name the drawer (drawer: "list")`);
     if (tile.render !== undefined && !shippedScripts.has(tile.render)) throw new ExtensionLoadError(`extension.json: tiles/${index}/render names ${tile.render}, which scripts[] doesn't declare`);
     for (const id of tile.actions ?? []) {
       if (!actionIds.has(id)) throw new ExtensionLoadError(`extension.json: tiles/${index}/actions names ${id}, which actions[] doesn't declare`);

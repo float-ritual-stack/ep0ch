@@ -1,4 +1,4 @@
-import { viewSpec } from "@ep0ch/outline-core/view-spec";
+import { componentAt as componentOn } from "@ep0ch/outline-core/component-at";
 import { renderCollection } from "./collections";
 import { expandsEmbeds } from "./embed-policy";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
@@ -16,13 +16,12 @@ import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap, printable } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
-import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
-import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
-import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
+import { figureSource, frame, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
+import { renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { ifProblemLines, ifState, renderFields, type FieldsDrawing } from "./site-blocks";
 import { regionTail, type RegionBook } from "./output-region";
 import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
-import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
+import type { UseCall } from "@ep0ch/outline-core/template-use";
 import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
@@ -31,7 +30,7 @@ import { fencePicture, fencePictureOf, pictureLinks, pictureLinkTarget, pictureR
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
-import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutStylingTokens, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, underlinesLineAbove, withoutStylingTokens, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { BORDER_BOXES, borderGlyphs, stringFrame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
@@ -677,7 +676,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // The inline links component (src/links.ts): ::links, ::resources, ::backlinks, ::outlinks, one line or a block
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
-    const component = componentAt.get(i), collection = component && viewSpec(component, src);
+    // Which component the line starts is one question for every reader of a note (outline-core's componentAt).
+    const found = componentOn(src, i, componentAt);
+    const component = found?.kind === "view" ? found.block : undefined, collection = found?.kind === "view" ? found.spec : null;
     if (collection) {
       let info: FigureInfo | undefined;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
@@ -689,7 +690,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
-    const lb = linkBlockAt(src, i, componentAt);
+    const lb = found?.kind === "links" ? found : null;
     if (lb) {
       const rows = renderLinkBlock({ ...lb.spec, lines: componentLines(i, componentAt.get(i)?.attrs, lb.spec.lines) }, env.note, W, frame, env.tag, env.linkBlocks, componentLines(i, componentAt.get(i)?.attrs));
       // `height: fill` (PIE-1720): the frame drawn whole, list and preview, so the reader's one scroll carries it; else
@@ -700,14 +701,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // `::use` (src/template-use.ts): a template drawn live in place of its line.
-    const used = env.use ? useCallAt(src, i) : null;
+    const used = env.use && found?.kind === "use" ? found.call : null;
     if (used) {
       insertedRows(env.use!(used, i, W), i);
       continue;
     }
 
     // `::button` (outline-core's button-call.ts): a labelled press.
-    const button = env.button ? buttonCallAt(src, i) : null;
+    const button = env.button && found?.kind === "button" ? found.call : null;
     if (button) {
       // In a list item or a quote (PIE-1224): its bullet or bar first, the button's other rows under the button.
       const mark = button.prefix ? colourBody(button.prefix) : "", inset = button.prefix ? vwidth(button.prefix) : 0;
@@ -718,7 +719,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // `::fields` and `::if` (src/site-blocks.ts): the components that read their note's Site, drawn from the service's
     // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
-    const sb = siteBlockAt(src, i, componentAt);
+    const sb = found?.kind === "fields" || found?.kind === "if" ? found.site : null;
     if (sb?.kind === "fields") {
       out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site, env.fields, env.fieldsAnswer));
       i = sb.end;
@@ -733,7 +734,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
-    const figure = componentAt.get(i), gk = figure && graphKind(figure);
+    const figure = found?.kind === "figure" ? found.block : undefined, gk = found?.kind === "figure" ? found.figure : null;
     if (figure && gk) {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.
@@ -1037,7 +1038,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // A heading or a rule with a style (PIE-599): its band or track, else as written without the style's property.
     // A `---` under a paragraph line is that line's setext underline, never a rule; `***` and `___` always are rules.
     const prev = i ? src[i - 1]! : "";
-    const setext = /^ {0,3}-/.test(line) && !!prev.trim() && !HEADING.test(prev);
+    const setext = underlinesLineAbove(line, prev);
     const declared = lit(i) ? null : styleDeclaration(line, W);
     if (declared) { out.push(...declared); continue; }
     const styled = headingRows(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);

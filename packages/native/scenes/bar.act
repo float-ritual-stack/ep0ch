@@ -1,0 +1,4 @@
+# The bar on everything, with an action typed: its rows are the actions that match, each with its keys. (Over the
+# outline's first note, opened as a press on its row opens it.)
+list.pick n=1 tile=tree
+bar.open query=trash

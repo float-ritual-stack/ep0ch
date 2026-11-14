@@ -256,13 +256,30 @@ describe("the surface without a service", () => {
     for (const c of "Mine: daily?") s.key(char(c), h);
     const act = async (name: string, args: Record<string, unknown>) => s.act(name, args, h, AGENT);
     // Typed in: refused before anything runs, their text and cursor as they were.
-    await expect(act("comment.write", { body: "Twice a week is enough." })).rejects.toThrow("the person is typing in reader; an agent doesn't replace their text · block.mark gets their attention");
+    await expect(act("comment.write", { body: "Twice a week is enough." })).rejects.toThrow("the person is typing in reader; an agent doesn't replace their text until it's sent or closed · block.mark gets their attention");
     expect([s.session.composer!.text, s.session.composer!.row, s.session.composer!.col, s.session.composer!.note]).toEqual(["Mine: daily?", 0, 12, ""]);
     // Theirs while they aren't typing in it too: the draft rule says whose it is, and names the way in.
     expect(draftRule(AGENT, "text", { session: s.session.writing })).toBe(`the person is writing the comment on “Water” here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @claude-7 line in it invites one reply)`);
     // Picking a passage in it is typing in the person's comment: the draft rule refuses it before anything runs.
     await expect(act("comment", { quote: "ferns", body: "Replaced" })).rejects.toThrow("the person is typing in this draft");
     expect(s.session.composer!.text).toBe("Mine: daily?");
+  }));
+
+  test("passage.select picks the words within a span of the note's text when they are there more than once", () => withState(async () => {
+    const text = "Water\nwater the ferns at dusk\n\nwater the ferns at dawn";
+    const h = host();
+    Object.assign(h.ctx.board, { get: async () => note(text) });
+    const s = new NoteSurface();
+    s.show(note(text), h);
+    const act = async (args: Record<string, unknown>) => s.act("passage.select", args, h, AGENT) as Promise<{ quote: string; start: number }>;
+    // With no span and no offset to be nearest it is the first place, as it was.
+    expect(await act({ quote: "water the ferns" })).toMatchObject({ quote: "water the ferns", start: 6 });
+    // from= and to= are the span the words are within: the place in it, wherever it is among the others.
+    const second = text.lastIndexOf("water the ferns");
+    expect(await act({ quote: "water the ferns", from: second - 1, to: text.length })).toMatchObject({ quote: "water the ferns", start: second });
+    expect(await act({ quote: "water the ferns", from: 0, to: 30 })).toMatchObject({ start: 6 });
+    // Words that are in the note, but not in that span, are not picked.
+    await expect(act({ quote: "at dusk", from: second, to: text.length })).rejects.toThrow("isn't in the note's current text");
   }));
 
   test("an agent's own comment in a reader on its own, step by step: its to write until the person types in it", () => withState(async () => {
@@ -462,7 +479,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     key({ kind: "end" }); for (const c of " (mine)") key(char(c));
     const typed = pane.draft!.text;
     // Typing in it: refused before anything runs, the agent's ways said.
-    await expect(act("edit.text", { text: "Turn the compost [stage::queued]\nEvery week." }, cards.mine.id)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · draft.patch lands in their draft, or comment on the note or block.mark it/);
+    await expect(act("edit.text", { text: "Turn the compost [stage::queued]\nEvery week." }, cards.mine.id)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · draft\.patch lands in their draft · comment on the note gets their attention, or block\.mark gets their attention/);
     expect(pane.draft!.text).toBe(typed);
     expect(pane.draft!.note).not.toContain("replaced");
     // Theirs even when they aren't typing in it right now: the draft rule says whose it is.
@@ -496,7 +513,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const theirs = () => ({ text: c.text, cursor: [c.row, c.col], focus: BV.where(b), mode: pane.session?.mode });
     const was = theirs();
     expect(was.text).toBe("Which canes?");
-    await expect(act("comment.write", { body: "Tie them in pairs." }, reader)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · block.mark gets their attention/);
+    await expect(act("comment.write", { body: "Tie them in pairs." }, reader)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text until it's sent or closed · block\.mark gets their attention/);
     expect(message()).toContain("comment.write refused: the person is typing in");
     await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("the person is typing in this draft; an agent doesn't type in it");
     expect(message()).toContain("complete refused: the person is typing in this draft");

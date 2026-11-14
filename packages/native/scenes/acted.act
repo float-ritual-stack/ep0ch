@@ -1,0 +1,9 @@
+# What an extension's action answers is done, or said not done (scenes/about.seed.ts writes the note into a scratch
+# outline). The what-changed extension's `change`, about the note the reader shows, answers its words and asks for
+# the note to be opened with its last change beside it: the note is opened by the open action, and the comparison,
+# which this window doesn't draw, is said in the notice in place of being claimed.
+bar.open scope=screens query=kitchen
+bar.pick n=1
+bar.open scope=search query="Bean rows"
+bar.pick n=1
+extensions.act id=what-changed action=change

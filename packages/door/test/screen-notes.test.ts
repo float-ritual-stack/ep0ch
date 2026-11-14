@@ -3,16 +3,19 @@
 // saved again with a revision check; a built-in's name and a name two notes share refused; deleted to the Trash. And
 // the empty tiles that say what they're for. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { forgetScreenNotes, loadScreenNotes, readScreenNote, screenNoteProblems, screenNoteText } from "../src/desk/screen-notes";
-import { builtinScreen, madeScreen, readSpec, screenNames } from "../src/desk/screen-spec";
+import { builtinScreen, madeScreen, readSpec, screenNames, screenSpec } from "../src/desk/screen-spec";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
+import { nowPage } from "../src/hub/now";
 
 test("a screen note's text holds its spec as data, read back as the same spec under the note's name", () => {
   const spec = readSpec({ name: "potting", title: "potting", layouts: true, layout: { focus: "tree", root: { t: "leaf", kind: "tree", name: "tree" } } });
@@ -21,8 +24,9 @@ test("a screen note's text holds its spec as data, read back as the same spec un
   const read = readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "potting" }], revision: 3 });
   expect(read).toMatchObject({ name: "potting", id: "n1", revision: 3, spec });
   // Renamed by its property, it's that screen; a note without its fence says how to write one.
-  expect(readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }], revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
-  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }] })).toMatchObject({ problem: expect.stringContaining("has no ```json fence") });
+  // (The note's text is what is read, as the service reads it: its property is renamed where it is written.)
+  expect(readScreenNote({ id: "n1", text: text.replace("[screen::potting]", "[screen::seedlings]"), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }], revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
+  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }] })).toMatchObject({ problem: expect.stringContaining("has no layout: neither blocks under it (a split, tabs, a tile …) nor a ```json fence") });
 });
 
 describe.skipIf(!outliner)("screens people make, against a scratch outline", () => {
@@ -199,5 +203,66 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     // ^W v again: its opens already land there, and the person is told so, not left wondering.
     await mine("tile.preview", { where: "down" }, "detail");
     expect((app as any).message).toContain("detail already opens into detail-preview: showed it · alt+l then click detail-preview to unlink");
+  });
+
+  test("a screen saved as blocks under its note (screens.save, the native window's save) opens here as it was arranged", async () => {
+    const spec = { name: "Seed bench", title: "Seed bench", keys: [{ key: "g", label: "zoom", action: "tile.zoom", only: ["reader"] }, { key: "y", label: "fold", action: "tile.collapse", unless: ["tree"] }], newNote: [{ opens: "tab", only: ["reader"] }, { opens: "lands" }], layout: { focus: "reader", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [
+      { t: "leaf", kind: "tree", name: "tree", wires: [{ verb: "select", to: "reader" }] },
+      { t: "split", dir: "col", weights: [0.6, 0.4], kids: [{ t: "leaf", kind: "reader", name: "reader" }, { t: "leaf", kind: "backlinks", name: "roots", source: "tile:reader", subject: "follows" }] }] } } };
+    const saved = await board.request("screens.save", { spec, mutation: { author: "agent", actorId: "seedling-agent" } });
+    expect(saved).toMatchObject({ name: "seed-bench", title: "Seed bench", created: true });
+    // The note holds no JSON: its layout is the blocks under it, which only the service reads.
+    const note = (await board.get(saved.id))!;
+    expect(note.text).toBe("Seed bench [type::screen] [screen::seed-bench] [focus::reader]");
+    await until(() => screenNames().includes("seed-bench"), "the door registered the screen from the service's list");
+    expect(madeScreen("seed-bench")).toMatchObject({ id: saved.id, title: "Seed bench" });
+    await app.dispatch.act({ action: "screen.open", args: { name: "seed-bench" } }, { kind: "user" });
+    await until(() => top().name === "seed-bench", "seed-bench opened");
+    expect(get().tiles.map(t => t.name)).toEqual(["tree", "reader", "roots"]);
+    expect(get().tiles.find(t => t.name === "roots").kind).toBe("backlinks");
+    // Its rule for new notes names kinds as the service resolved them (`screens.reader`, as it serves the tiles'): the
+    // door's own kind answers to that name, so the one rule (outline-core's newNoteRule) picks as it does in a window.
+    await mine("tile.focus", {}, "reader");
+    expect(top().newNoteRule()).toMatchObject({ opens: "tab" });
+    await mine("tile.focus", {}, "tree");
+    expect(top().newNoteRule()).toMatchObject({ opens: "lands" });
+    // Its keys that hold only over some kinds are served the same way, and are the door's own kinds here too: a key
+    // bound only in the reader fires there, and one bound unless the tree stays out of the tree.
+    expect(screenSpec("seed-bench")!.keys!.map(k => [k.key, k.only, k.unless])).toEqual([["g", ["reader"], undefined], ["y", undefined, ["tree"]]]);
+  });
+
+  test("a screen note written with a pinned tile that names no page opens pinned to this door's now page, as it was served", async () => {
+    // As a screen note has written it since before the pin was a reader's mode: `kind: pinned`, and no page.
+    const spec = { name: "now-bench", title: "now-bench", layout: { focus: "tree", root: { t: "split", dir: "row", weights: [0.4, 0.6], kids: [{ t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "pinned", name: "now" }] } } };
+    await board.request("create", { parentId: null, text: screenNoteText(spec as any), author: "user" });
+    await until(() => screenNames().includes("now-bench"), "the door registered the screen");
+    // The service serves the tile as the kind it is now: a reader, pinned, with no page of its own to name.
+    const served = ((await board.request("screens.list", {})).screens as any[]).find(row => row.name === "now-bench").spec.layout.root.kids[1];
+    expect(served).toMatchObject({ mode: "pinned", name: "now" });
+    expect(served.page).toBeUndefined();
+    await app.dispatch.act({ action: "screen.open", args: { name: "now-bench" } }, { kind: "user" });
+    await until(() => top().name === "now-bench", "now-bench opened");
+    const now = (top().layoutSpec().root as any).kids[1];
+    expect(now).toMatchObject({ kind: "reader", mode: "pinned", name: "now", page: nowPage().address });
+  });
+
+  test("the screen the native window ships, saved under a name of the person's own, opens here: a kind this door lacks says so in its place", async () => {
+    // The spec as the native window sends it: the fields of the screen it opens on (the screens extension's, the one
+    // whose spec says windows start there), named as the person typed it.
+    const { start: _start, ...shipped } = (JSON.parse(readFileSync(join(import.meta.dir, "../../outliner/extensions/screens/extension.json"), "utf8")) as { screens: Record<string, unknown>[] }).screens.find(s => s.start === true)!;
+    const saved = await board.request("screens.save", { spec: { ...shipped, name: "Potting bench", title: "Potting bench" }, mutation: { author: "user" } });
+    expect(saved).toMatchObject({ name: "potting-bench", title: "Potting bench", created: true });
+    await until(() => screenNames().includes("potting-bench"), "the door registered the native window's screen");
+    expect(screenNoteProblems().filter(p => p.includes("potting-bench"))).toEqual([]);
+    await app.dispatch.act({ action: "screen.open", args: { name: "potting-bench" } }, { kind: "user" });
+    await until(() => top().name === "potting-bench", "potting-bench opened");
+    const tiles = get().tiles;
+    expect(tiles.map(t => t.name)).toEqual(["tree", "reader", "props", "backlinks", "threads", "proposals", "revisions"]);
+    // The service lists each tile's kind as the screens extension's row names it; the door's own kinds answer to
+    // those names (desk/shipped.ts), so the tree, the reader and the links draw. The properties list is a kind this
+    // door has no drawer for, and so are the lists about the reader's note (its comments, proposals and revisions,
+    // which this door shows in its own margin and windows): each keeps its spec and says the kind isn't one it has.
+    expect(tiles.map(t => [t.name, t.unregistered ?? null])).toEqual([["tree", null], ["reader", null], ["props", "screens.props"], ["backlinks", null], ["threads", "screens.threads"], ["proposals", "screens.proposals"], ["revisions", "screens.revisions"]]);
+    expect(() => render()).not.toThrow();
   });
 });

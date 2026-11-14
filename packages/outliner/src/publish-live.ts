@@ -1,4 +1,5 @@
-import { viewSpec, type ViewSpec } from "@ep0ch/outline-core/view-spec";
+import type { ViewSpec } from "@ep0ch/outline-core/view-spec";
+import { componentAt, componentStarts } from "@ep0ch/outline-core/component-at";
 import { renderComponent } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 // What a published page asks the service for its built-in components (src/publish-figures.ts draws them): a
@@ -9,12 +10,12 @@ import { isVirtualBranchDefinition } from "./virtual-branches";
 // not show (locked, outside a share, not public on a public page) is left out, never named.
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
-import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
+import type { SiteBlock } from "@ep0ch/outline-core/site-blocks";
 import { askProps, asksPerItem, CHILDREN_QUERY, figureQuestion, keepGroups, liveAsk, liveMark, liveProps, liveStatus, NONE, type FigureAnswer, type FigureItem } from "@ep0ch/outline-core/figure-live";
 import type { SiteAnswer, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 import { figureChildRows, figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
-import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
+import { blockGroups, LINK_GROUP_LABELS, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { hostBusy } from "./client";
@@ -64,30 +65,28 @@ export async function drawNoteComponents(
     const lines = note.text.split("\n");
     if (!lines.some(line => /^ {0,3}::[a-z]/.test(line))) continue;
     const structure = noteStructure(lines);
-    const byStart = new Map(componentBlocks(lines).map(block => [block.start, block]));
+    const byStart = componentStarts(lines);
     const drawn = new Map<number, DrawnComponent>();
     for (let i = 0; i < lines.length && components.length < MAX_PUBLISHED_COMPONENTS; i++) {
       if (structure[i] !== -1 && structure[i] !== i) continue;
-      const links = linkBlockAt(lines, i, byStart);
-      const block = byStart.get(i), kind = block && graphKind(block);
-      const collection = block && viewSpec(block, lines);
-      const site = !collection && !links && !kind ? siteBlockAt(lines, i, byStart) : null;
+      // Which component the line starts is one question for every reader (outline-core's componentAt); a page draws these.
+      const found = componentAt(lines, i, byStart);
       // `::if`: its body stays in the page's Markdown when `this` matches (only its two lines go), else it all goes.
-      if (site?.kind === "if") {
-        const held = await holds(host, note.id, site.spec.where, site.spec.problem);
-        if (held) { drawn.set(i, { end: i + 1, markdown: "" }); drawn.set(site.end, { end: site.end + 1, markdown: "" }); }
-        else drawn.set(i, { end: site.end + 1, markdown: "" });
-        i = site.end;
+      if (found?.kind === "if") {
+        const held = await holds(host, note.id, found.site.spec.where, found.site.spec.problem);
+        if (held) { drawn.set(i, { end: i + 1, markdown: "" }); drawn.set(found.end, { end: found.end + 1, markdown: "" }); }
+        else drawn.set(i, { end: found.end + 1, markdown: "" });
+        i = found.end;
         continue;
       }
-      if (!collection && !links && !kind && !site) continue;
-      const end = links ? links.end : site ? site.end : block!.end;
+      if (!found || (found.kind !== "view" && found.kind !== "links" && found.kind !== "fields" && found.kind !== "figure")) continue;
+      const end = found.end;
       let html: string;
       try {
-        html = collection ? await drawCollection(host, note.id, collection)
-          : site ? await drawFields(host, site as Extract<SiteBlock, { kind: "fields" }>, note.id)
-          : links ? await drawLinks(host, links.spec, note.id)
-          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), block!.attrs);
+        html = found.kind === "view" ? await drawCollection(host, note.id, found.spec)
+          : found.kind === "fields" ? await drawFields(host, found.site, note.id)
+          : found.kind === "links" ? await drawLinks(host, found.spec, note.id)
+          : await drawFigure(host, found.figure, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), found.block.attrs);
       } catch (error) {
         html = componentSourceHtml(lines.slice(i, end + 1), `couldn't ask the outline: ${(error as Error).message}`);
       }
@@ -134,7 +133,7 @@ async function drawCovers(host: LiveHost, rows: readonly ListRow[], html: string
 // ── `::fields` and `::if` ──────────────────────────────────────────────────────────────────────────
 
 /** Whether an `::if` draws its body on this page: the service says `this` matches. A query it can't read hides the body. */
-async function holds(host: LiveHost, note: string, where: string, problem: string | undefined): Promise<boolean> {
+export async function holds(host: LiveHost, note: string, where: string, problem: string | undefined): Promise<boolean> {
   if (problem) return false;
   try { return (await produced(host, note, { kind: "if", where }) as Extract<SiteProduced, { kind: "if" }>).holds; }
   catch { return false; }
@@ -179,8 +178,16 @@ function figureRows(note: { id: string; text: string; revision?: number }, first
   };
 }
 
-async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[], rows?: (at: number) => FigureRows, attrs?: string): Promise<string> {
+/** A figure read and answered, before anything draws it: the props it draws from, its footer's words and what is wrong with it; or why it can't be read at all. */
+export type FigureRead = { unreadable: string } | { props: Props; foot: string; error: string; /** What the outline answered, when the figure asked it anything. */ found?: { n: number; truncated: boolean } };
+
+/**
+ * A `::graph-*` figure's props, answered by the outline when it asks anything (its child bullets, its query, its items'
+ * own): what a page draws (`drawFigure`) and what `notes.page` hands a client that draws for itself.
+ */
+export async function readFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, attrs?: string): Promise<FigureRead & { at: number }> {
   const src = figureSource(body, note, block, attrs);
+  const at = src.at ?? 0;
   // A figure block's child bullets are rows too (figureProps says when it wants them): asked once, then read again.
   let wanted = false;
   let read = figureProps(kind, src, () => { wanted = true; return { rows: [], waiting: true }; });
@@ -188,15 +195,21 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
     const rows = await childRows(host, note);
     read = figureProps(kind, src, () => ({ rows, waiting: false }));
   }
-  if ("error" in read) return figureFrame(kind, kind, "", "", read.error);
+  if ("error" in read) return { unreadable: read.error, at };
   let props = read.props, foot = read.children ? "live · child notes" : "", error = "";
   const live = await answerFigure(host, kind, props, note, read.args);
   if (live) { props = live.props; foot = live.status; error = live.error ?? ""; }
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   if (read.warning) error = [error, read.warning].filter(Boolean).join(" · ");
-  const html = figureBodyHtml(kind, props, id => host.href(id), rows?.(src.at ?? 0));
+  return { props, foot, error, at, ...(live?.found ? { found: live.found } : {}) };
+}
+
+async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[], rows?: (at: number) => FigureRows, attrs?: string): Promise<string> {
+  const read = await readFigure(host, kind, body, note, block, attrs);
+  if ("unreadable" in read) return figureFrame(kind, kind, "", "", read.unreadable);
+  const html = figureBodyHtml(kind, read.props, id => host.href(id), rows?.(read.at));
   if (html === null) return componentSourceHtml(source);
-  return figureFrame(kind, String(props.title ?? ""), html || `<p class="dim">no results</p>`, foot, error);
+  return figureFrame(kind, String(read.props.title ?? ""), html || `<p class="dim">no results</p>`, read.foot, read.error);
 }
 
 /**
@@ -230,7 +243,7 @@ async function childRows(host: LiveHost, note: string): Promise<Row[]> {
 }
 
 /** What a producer in a note asks of its Site, answered by the service (`site.answer`): the one orchestration, here and in the door. */
-async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost, "shown">>, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
+export async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost, "shown">>, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
   const props = args && Object.keys(args).length ? Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]])) : undefined;
   // As a page's `{{ }}` values are read (publish-values.ts): asked again naming the notes the page may not show, when the
   // answer was computed from any, so a `{{ }}` operand never reads through one.
@@ -256,7 +269,7 @@ function trouble(error: unknown): string {
 }
 
 /** A live figure's props from the service's answer, or null when it asks nothing. */
-async function answerFigure(host: LiveHost, kind: string, p: Props, note: string, args?: Record<string, string>): Promise<{ props: Props; status: string; error?: string } | null> {
+async function answerFigure(host: LiveHost, kind: string, p: Props, note: string, args?: Record<string, string>): Promise<{ props: Props; status: string; error?: string; found?: { n: number; truncated: boolean } } | null> {
   const asking = liveAsk(kind, p);
   const perItem = asksPerItem(kind, p);
   if (!perItem && asking.error) return { props: p, status: "live", error: asking.error };
@@ -278,7 +291,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
       return { ...item, value: `${kept.size}${c.truncated ? "+" : ""}` };
     }));
     const error = a.counts?.find(c => c.error)?.error;
-    return { props: titled({ ...p, items }), status: "live", ...(error ? { error } : {}) };
+    return { props: titled({ ...p, items }), status: "live", found: { n: items.length, truncated: false }, ...(error ? { error } : {}) };
   }
   if (a.error && !a.blocks.length) return { props: p, status: "live", error: a.error };
   const items = await itemsOf(host, a.blocks as never);
@@ -297,7 +310,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   };
   const drawn = liveProps(kind, asking.props, answer);
   const error = drawn.error ?? a.error ?? answer.hint;
-  return { props: titled(drawn.props), status: liveStatus(answer), ...(error ? { error } : {}) };
+  return { props: titled(drawn.props), status: liveStatus(answer), found: { n: items.length, truncated: a.truncated }, ...(error ? { error } : {}) };
 }
 
 async function itemsOf(host: LiveHost, blocks: readonly { id: string; parentId?: string | null; properties?: BlockProperty[]; createdAt?: string; updatedAt?: string; author?: string }[]): Promise<FigureItem[]> {
@@ -323,15 +336,33 @@ async function withoutUnknowable<T extends { id: string }>(host: LiveHost, note:
 
 // ── `::links` and its kin ──────────────────────────────────────────────────────────────────────────────
 
-const GROUP_NAMES: Record<LinkGroupName, string> = { outlinks: "Outlinks", resources: "Resources", backlinks: "Backlinks", children: "Children", matches: "Matches" };
+/** One row of a links component as read: what it says, the note it stands for (null: none this page shows), where in that note (a backlink's line), and a quiet word after it. */
+export interface LinkRowRead { text: string; id: string | null; at?: number; note?: string }
 
-async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Promise<string> {
+/** A links component read: its groups in order, or why it has none (`problem`, a note not shown, a query the service can't read). */
+export interface LinksRead {
+  title: string;
+  problem?: string;
+  /** Its `of:` names a note this page doesn't show. */
+  hidden?: true;
+  /** Its query wasn't read: the service's words. */
+  unread?: string;
+  groups: { name: string; glyph: string; rows: LinkRowRead[]; note: string }[];
+  status: string;
+}
+
+/**
+ * A `::links` component (and its kin) as the service answers it: outlinks and resources (`blocks.authored-links`),
+ * backlinks (`references.backlinks`), children and a query's matches (`blocks.query`), each row a note this page
+ * shows. What a page draws (`drawLinks`) and what `notes.page` hands a client that draws for itself.
+ */
+export async function readLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Promise<LinksRead> {
   const groups = blockGroups(spec);
   const title = spec.title ?? (spec.query && spec.kind === "links" && !spec.groups ? "matches" : spec.kind);
-  if (spec.problem) return figureFrame("links", title, "", "", spec.problem);
+  if (spec.problem) return { title, problem: spec.problem, groups: [], status: "" };
   const of = spec.of ?? note;
   // Another note's links only when this page shows that note.
-  if (spec.of && !(await host.shown([spec.of])).has(spec.of)) return figureFrame("links", title, `<p class="dim">a note not shown here</p>`);
+  if (spec.of && !(await host.shown([spec.of])).has(spec.of)) return { title, hidden: true, groups: [], status: "" };
   const has = (g: LinkGroupName) => groups.includes(g);
   const [authored, backlinks, children, found] = await Promise.all([
     has("outlinks") || has("resources") ? host.request<AuthoredLinksSnapshot>({ action: "blocks.authored-links", ownerBlockId: of }) : null,
@@ -339,9 +370,7 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
     has("children") ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: CHILDREN, this: of, limit: 1000 }, fields: ["title"] }) : null,
     spec.query ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: spec.query, this: note, limit: 200, ...(spec.sort ? { sort: spec.sort } : {}) }, fields: ["title"] }).catch((e: Error) => e) : null,
   ]);
-  if (found instanceof Error) {
-    return figureFrame("links", title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, "live · query not read", found.message);
-  }
+  if (found instanceof Error) return { title, unread: found.message, groups: [], status: "live · query not read" };
   const matches = found && spec.query ? { ...found, blocks: await withoutUnknowable(host, note, found.blocks, spec.query) } : found;
   // Every note a row stands for, asked once whether this page shows it.
   const ids: string[] = [];
@@ -353,42 +382,58 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
   for (const block of [...(children?.blocks ?? []), ...(matches?.blocks ?? [])]) ids.push(block.id);
   const shown = await host.shown([...new Set(ids)]);
   const titles = await host.titles([...new Set([...(children?.blocks ?? []), ...(matches?.blocks ?? [])].map(block => block.id).filter(id => shown.has(id)))]);
-  const to = (id: string) => (shown.has(id) ? host.href(id) : null);
+  const to = (id: string) => (shown.has(id) ? id : null);
   const filter = prepareSearchQuery(spec.filter);
-  const keep = (rows: LinkRowHtml[]) => rows.filter(row => matchesSearchText(filter, [row.text, row.note ?? ""]));
-  const rows: Record<LinkGroupName, LinkRowHtml[]> = { outlinks: [], resources: [], backlinks: [], children: [], matches: [] };
+  const keep = (rows: LinkRowRead[]) => rows.filter(row => matchesSearchText(filter, [row.text, row.note ?? ""]));
+  const rows: Record<LinkGroupName, LinkRowRead[]> = { outlinks: [], resources: [], backlinks: [], children: [], matches: [] };
   const notes: Partial<Record<LinkGroupName, string>> = {};
   if (authored && authored.kind !== "ready") notes.outlinks = notes.resources = authored.kind === "owner-unavailable" ? `the note is ${authored.reason}` : "the note is too long to read its links";
   if (authored?.kind === "ready") {
-    rows.outlinks = authored.outlinks.entries.flatMap((entry): LinkRowHtml[] => {
+    rows.outlinks = authored.outlinks.entries.flatMap((entry): LinkRowRead[] => {
       const r = entry.resolution;
-      if (r.kind === "ready") return shown.has(r.target.blockId) ? [{ text: r.title || entry.label, href: to(r.target.blockId) }] : [];
-      return [{ text: entry.label, href: null, note: r.kind === "deleted" ? "in Trash" : r.reason }];
+      if (r.kind === "ready") return shown.has(r.target.blockId) ? [{ text: r.title || entry.label, id: to(r.target.blockId) }] : [];
+      return [{ text: entry.label, id: null, note: r.kind === "deleted" ? "in Trash" : r.reason }];
     });
-    rows.resources = authored.resources.entries.flatMap((entry): LinkRowHtml[] => {
+    rows.resources = authored.resources.entries.flatMap((entry): LinkRowRead[] => {
       if (entry.recordBlockId && !shown.has(entry.recordBlockId)) return [];
       const r = entry.resolution;
-      const href = entry.recordBlockId ? to(entry.recordBlockId) : null;
-      return [r.kind === "ready" ? { text: r.addressLabel || entry.label, href, note: r.sourceName } : { text: entry.label, href, note: r.reason }];
+      const id = entry.recordBlockId ? to(entry.recordBlockId) : null;
+      return [r.kind === "ready" ? { text: r.addressLabel || entry.label, id, note: r.sourceName } : { text: entry.label, id, note: r.reason }];
     });
   }
   rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => {
     // The door's backlinkLine selects the same occurrence: prefer the authored block link.
     const occurrence = source.occurrences.find(o => o.kind === "block") ?? source.occurrences[0];
-    const href = to(source.blockId);
-    return { text: source.title || "untitled", href: href && occurrence ? `${href}#${linkingLineId(occurrence.start)}` : href,
+    return { text: source.title || "untitled", id: to(source.blockId), ...(occurrence ? { at: occurrence.start } : {}),
       ...(occurrence?.snippet ? { note: `“${occurrence.snippet}”` } : {}) };
   });
-  const listed = (found: ProjectedBlockCollection | null) => (found?.blocks ?? []).filter(block => shown.has(block.id)).map(block => ({ text: titles.get(block.id) || "untitled", href: to(block.id) }));
+  const listed = (found: ProjectedBlockCollection | null) => (found?.blocks ?? []).filter(block => shown.has(block.id)).map(block => ({ text: titles.get(block.id) || "untitled", id: to(block.id) }));
   rows.children = listed(children);
   rows.matches = listed(matches instanceof Error ? null : matches);
-  const drawn: LinkGroupHtml[] = groups.map(group => ({
-    name: GROUP_NAMES[group], glyph: LINK_GROUPS.find(g => g.group === group)?.glyph ?? "·", rows: keep(rows[group]),
+  const read = groups.map(group => ({
+    name: LINK_GROUP_LABELS[group], glyph: LINK_GROUPS.find(g => g.group === group)?.glyph ?? "·", rows: keep(rows[group]),
     note: notes[group] ?? (spec.filter ? `nothing matches ${spec.filter}` : "nothing here yet"),
   }));
-  const counted = drawn.reduce((n, g) => n + g.rows.length, 0);
+  const counted = read.reduce((n, g) => n + g.rows.length, 0);
   const what = spec.query ? `${counted} match${counted === 1 ? "" : "es"}` : `${counted} link${counted === 1 ? "" : "s"}`;
-  return linksHtml(title, drawn, `live · ${what}${spec.filter ? ` · ${spec.filter}` : ""}`);
+  return { title, groups: read, status: `live · ${what}${spec.filter ? ` · ${spec.filter}` : ""}` };
+}
+
+async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Promise<string> {
+  const read = await readLinks(host, spec, note);
+  if (read.problem) return figureFrame("links", read.title, "", "", read.problem);
+  if (read.hidden) return figureFrame("links", read.title, `<p class="dim">a note not shown here</p>`);
+  if (read.unread !== undefined) {
+    return figureFrame("links", read.title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, read.status, read.unread);
+  }
+  const drawn: LinkGroupHtml[] = read.groups.map(group => ({
+    name: group.name, glyph: group.glyph, note: group.note,
+    rows: group.rows.map((row): LinkRowHtml => {
+      const href = row.id ? host.href(row.id) : null;
+      return { text: row.text, href: href && row.at !== undefined ? `${href}#${linkingLineId(row.at)}` : href, ...(row.note ? { note: row.note } : {}) };
+    }),
+  }));
+  return linksHtml(read.title, drawn, read.status);
 }
 
 // ── saved views ────────────────────────────────────────────────────────────────────────────────────────

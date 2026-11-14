@@ -1,0 +1,27 @@
+{
+  "backend": "herdr-core",
+  "keeps": true,
+  "prompt": [{ "t": "plot", "fg": "#98c379", "bold": true }, " ", { "t": "~/plots", "fg": "#61afef" }, " $ "],
+  "above": [["sown: 12 rows"], ["watered: north bed"]],
+  "screen": [
+    [{ "t": "畑", "wide": true }, " north bed   ", { "t": " ready ", "bg": "#2f5d3a", "fg": "#d7f5dd", "bold": true }],
+    [{ "t": "苗", "wide": true }, " cold frame  ", { "t": " wait  ", "bg": "#5d4a2f", "fg": "#f5e6d7" }, "  frost until Thursday"],
+    [{ "t": "🌱", "wide": true }, " seed trays  ", { "t": " 12 ", "underline": true }, " of 16 sown"]
+  ],
+  "replies": {
+    "seeds": [
+      [{ "t": "packet", "bold": true }, "      ", { "t": "have", "bold": true }, "  ", { "t": "sow by", "bold": true }],
+      ["carrots     3     ", { "t": "April 20", "fg": "#e5c07b" }],
+      ["leeks       1     ", { "t": "April 6", "fg": "#e06c75" }],
+      ["peas        4     ", { "t": "after the frost", "italic": true }]
+    ],
+    "seedbot --plan beds": [
+      [{ "t": "seedbot", "fg": "#c678dd", "bold": true }, " reading the bed plan"],
+      ["  north bed: carrots, then leeks"],
+      ["  cold frame: peas once the frost lifts"],
+      [{ "t": "  planning the beds…", "fg": "#7f848e" }]
+    ]
+  },
+  "reports": { "seedbot --plan beds": { "state": "working", "msg": "planning the beds" } },
+  "others": [{ "address": "t4", "name": "compost", "runs": "tail -f compost.log", "status": "idle" }]
+}

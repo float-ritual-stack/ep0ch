@@ -3,9 +3,11 @@
 // as text, the publisher as `<ul>`, Markdown as a bulleted list, JSON as the rows, CSV as label and detail. The
 // service checks a view's `list` against this (outliner component-primitives.ts); this file does no I/O.
 
+import { actionLine } from "./action-line";
 import { prepareSearchQuery, matchesSearchText, type SearchQuery } from "./search-match";
 import { QUESTION_MAX_LIMIT } from "./protocol";
 import type { RuleTone } from "./rules";
+import type { PagePrimitive } from "./note-page";
 
 /** The tones a row is drawn in: the component primitives' (`good`, `warn`, … ). */
 export type ListTone = RuleTone;
@@ -46,6 +48,36 @@ export interface ListRow {
   /** What the list shows beside (or below) it while the row is selected: a block drawn as an embed, or Blockdown. */
   preview?: { block: string } | { markdown: string };
   do?: Activation;
+  /** The properties it carries that the list shows on it, as its author wrote them: any key. */
+  chips?: ListChip[];
+  /**
+   * The act line a pick runs, as any door's dispatcher reads it (`open id=…`, `screen.open name=…`): `do`, said as a
+   * line by the one rule (`actOf`), for a client that parses no activation. A row that copies or inserts has none.
+   */
+  act?: string;
+  /** In a tree (`arrange: "tree"`): how deep it sits under the list's top (0), */
+  depth?: number;
+  /** whether it opens onto something (a row of notes: a note under it, never only a comment on it or an edit proposed beside it), whether what is under it is listed after it, and how many notes that is (said once they are). */
+  folds?: boolean;
+  open?: boolean;
+  kids?: number;
+  /**
+   * What the row shows under itself, drawn as any primitive is: a proposal's change (a `diff`), a thread's replies, a
+   * component's own example. A row that `folds` in a list whose source reads `open` carries it while it is open
+   * (`lists.read`'s `open` names the rows that are), so a long one is answered only when asked for.
+   */
+  view?: PagePrimitive;
+}
+
+/** A property a row shows: its key and one of its values, as written. */
+export interface ListChip { key: string; value: string }
+
+/** The act line an activation is: an open is `open id=<ref>`, a run its action and arguments; a copy and an insert are no act. */
+export function actOf(d: Activation | undefined): string | undefined {
+  if (!d) return undefined;
+  if ("open" in d) return actionLine({ action: "open", args: { id: typeof d.open === "string" ? d.open : d.open.ref } });
+  if ("run" in d) return actionLine({ action: d.run.action, ...(d.run.args ? { args: d.run.args } : {}) });
+  return undefined;
 }
 
 /** A named run of rows, drawn under its header. `count` is how many rows it holds before any filter. */
@@ -58,7 +90,8 @@ export type ListPreviewSide = (typeof LIST_PREVIEWS)[number];
 export interface ListPrimitive {
   type: "list";
   rows: ListRow[];
-  arrange?: "table" | "rows" | "grid" | "lanes";
+  /** `tree`: rows carry `depth`, `folds` and `open`, and sit in the order they are drawn (a served list's; a view's list has the other four). */
+  arrange?: "table" | "rows" | "grid" | "lanes" | "tree";
   size?: "small" | "large";
   columns?: string[];
   headers?: string[];
@@ -74,6 +107,50 @@ export interface ListPrimitive {
   empty?: string;
   /** The title of the tile it fills (PIE-1525: a render tile's frame, "outbox · 3 waiting on 2 people"); a list in a note ignores it. */
   title?: string;
+}
+
+/** A key the listed notes carry, with the values it takes among them and how many carry each: a list's chips to narrow by. */
+export interface ListFacet { key: string; count: number; values: { value: string; count: number }[]; more?: number }
+
+/** What a list is asked for by name (`lists.read`'s `from`), as it says of itself: every client lists the sources from these rows. */
+export interface ListSource {
+  from: string;
+  /** What it lists, in a few words (a bar's title over its line). */
+  about: string;
+  /** What to type for it, when words narrow it. */
+  placeholder?: string;
+  /** The parameters it reads, each with what it means. */
+  params: { name: string; about: string; required?: true }[];
+  /**
+   * A command bar lists it: under `all` when `main`, alone by its name. `facets`: its answer carries the facets its
+   * matches have, so a facet picked anywhere is a term of its question (the bar opens on it).
+   */
+  bar?: { main?: true; facets?: true };
+}
+
+/**
+ * `lists.read`'s answer: one list, whatever it is of (a tree, a query's matches, a search, a note's links, lanes, facets).
+ * Every row says what it shows and the act line a pick runs; the list says how it is arranged and, for a table, its columns.
+ */
+export interface ListAnswer {
+  from: string;
+  list: ListPrimitive;
+  /** The property keys the listed notes carry, counted over every match: chips that narrow the question. */
+  facets?: ListFacet[];
+  /** What the service says of the question where rows would be ("no notes have <key>; nearest: …"). */
+  hint?: string;
+  /** How many there are in all, when the list holds fewer. */
+  total?: number;
+  truncated?: boolean;
+  /** A tree: the folders whose notes are listed (asked for and there). */
+  open?: string[];
+  /** The property the rows are sorted and grouped by, as asked: names, never a list a client keeps. */
+  sort?: string;
+  group?: string;
+  /** `from: "sources"`: the sources as they say of themselves, a row of the list each (what a client reads; the rows are for a person). */
+  sources?: ListSource[];
+  /** A watched answer hears every change. */
+  anyChange: true;
 }
 
 /** The most rows a list holds (a component's answer cuts each group to this, with `more`). */

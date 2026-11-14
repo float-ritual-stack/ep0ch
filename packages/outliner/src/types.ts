@@ -4,6 +4,8 @@ export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/pro
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineBackup, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+import type { BlockReadField, ProjectedBlock } from "./block-read-fields";
+export { BLOCK_READ_FIELDS, DEFAULT_BLOCK_READ_FIELDS, type BlockReadField, type ProjectedBlock } from "./block-read-fields";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -558,20 +560,9 @@ export interface AnnotationCreateInput {
   readonly properties?: Readonly<Record<string, string | readonly string[]>>;
 }
 
-/** A quote is exact source text; optional context must identify one occurrence. */
-export interface BlockCommentPassage {
-  /** The words, exactly as the block's text has them. */
-  readonly quote: string;
-  /** Where the quote starts in the block's text, when you know. */
-  readonly start?: number;
-  /** Among repeats, the one nearest this offset (an agent's `near=`). */
-  readonly near?: number;
-  /** Text just before the quote, to tell repeats apart. */
-  readonly prefix?: string;
-  /** Text just after the quote, to tell repeats apart. */
-  readonly suffix?: string;
-  readonly itemId?: string;
-}
+/** A quote is exact source text, or (`drawn`) the words as a reader drew them; optional context must identify one occurrence. */
+export interface BlockCommentPassage extends QuotedPassage {}
+import type { QuotedPassage } from "@ep0ch/outline-core/drawn-passage";
 
 export interface BlockCommentInput {
   readonly blockId: string;
@@ -989,8 +980,8 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
-  /** The program a client says it is (a door says `door`): what a script's `act()` looks for, not a clientId prefix. */
-  app?: "door";
+  /** The program a client says it is (a door says `door`, the native window `native`): what a script's `act()` looks for, not a clientId prefix. A press names its own client, whichever it is (`scripts.sequence`'s `clientId`). */
+  app?: "door" | "native";
   /** The host outline this pane is on; a hosted outline stamps its own name. */
   outline?: string;
   navigationProtection?: string | null;
@@ -1018,17 +1009,7 @@ export interface NotePublication {
   permalink?: string;
 }
 
-/** A note rendered as its published page renders it (`notes.render`, PIE-767). */
-export interface RenderedNote {
-  blockId: string;
-  /** Its title as the page shows it. */
-  title: string;
-  format: "markdown" | "html";
-  /** The Markdown, or the HTML article (no page, styles or scripts around it). */
-  text: string;
-  /** Whether it is published itself (rendering doesn't need it to be). */
-  published: boolean;
-}
+export type { RenderedNote } from "@ep0ch/outline-core/note-page";
 
 /**
  * A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names),
@@ -1342,51 +1323,7 @@ export interface VisibleBlockCollection extends QuestionAnswerFields {
   machineryLeftOut?: import("@ep0ch/outline-core/machinery").MachineryLeftOut;
 }
 
-/** Fields a projected block read can return; `id` is always included. */
-export const BLOCK_READ_FIELDS = [
-  "id",
-  "parent",
-  "title",
-  "properties",
-  "revision",
-  "timestamps",
-  "author",
-  "hasChildren",
-  "text",
-  "excerpt",
-] as const;
-export type BlockReadField = (typeof BLOCK_READ_FIELDS)[number];
-/** Omitted `fields` return everything except full text. */
-export const DEFAULT_BLOCK_READ_FIELDS: readonly BlockReadField[] = BLOCK_READ_FIELDS.filter(
-  (field) => field !== "text" && field !== "excerpt",
-);
-
-/** A block reduced to the requested fields. Absent keys were not requested. */
-export interface ProjectedBlock {
-  id: string;
-  /** `parent` */
-  parentId?: string | null;
-  position?: number;
-  /** `title`: first content line without property tokens, as Tree and CLI label it. */
-  title?: string;
-  /** `properties`: block-scoped properties. */
-  properties?: BlockProperty[];
-  revision?: number;
-  /** `timestamps` */
-  createdAt?: string;
-  updatedAt?: string;
-  /** `author`, with any recorded actor/session/task provenance. */
-  author?: BlockAuthor;
-  actorId?: string;
-  sessionId?: string;
-  taskId?: string;
-  /** `hasChildren`: at least one child outside Trash. */
-  hasChildren?: boolean;
-  text?: string;
-  /** `excerpt`: the words after the title as one line (outline-core `noteExcerpt`), what a list row previews. */
-  excerpt?: string;
-}
-
+// What a projected read may name and answer (`BLOCK_READ_FIELDS`, `ProjectedBlock`) is block-read-fields.ts.
 export interface ProjectedVisibleBlock extends ProjectedBlock {
   depth: number;
   /** Query metadata like `depth`: which property records matched, when the query scope attaches them. */
@@ -1716,7 +1653,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "web.sessions.list" }
   | { id: string; action: "web.sessions.revoke"; sessionId?: string; all?: boolean }
   | ({ id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] } & WatchFields)
-  | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
+  | ({ id: string; action: "blocks.read"; ids?: string[]; /** Instead of `ids`: the notes under this one (null: the top level), in order. */ under?: string | null; fields?: BlockReadField[] } & WatchFields)
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[]; includeTrashed?: boolean }
   | ({ id: string; action: "blocks.grep" } & import("@ep0ch/outline-core/text-search").GrepQuery)
@@ -2227,7 +2164,7 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   | ({ id: string; action: "query.suggest" } & import("@ep0ch/outline-core/query-words").QuerySuggestRequest)
   /** Sources answer on outline-core's row contract with shared picks; a turn can be cancelled when its popup closes. */
-  | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
+  | ({ id: string; action: "completion.rows" } & (import("@ep0ch/outline-core/protocol").CompletionRowsRequest | import("@ep0ch/outline-core/protocol").CompletionAtRequest))
   | { id: string; action: "completion.cancel"; turn: string }
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
   | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
@@ -2456,6 +2393,12 @@ export type OutlinerRequestAction =
    * `marks` draws its open highlights and margin notes in the HTML. A `[publish::never]` note is refused. Reads only.
    */
   | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean }
+  /**
+   * Everything a client draws of one note (outline-core's note-page.ts, ADR 0002): title, chips, the body as parts with
+   * each component's answer in it, ancestors, children, backlinks. For a client that can't run outline-core. Takes
+   * `watch` (its answer is awaited: `QueryWatches.askLater`). A note in Trash is refused. Reads only.
+   */
+  | ({ id: string; action: "notes.page"; blockId: string } & WatchFields) | import("./answered-in-modules").ModuleRequest
   /**
    * A share session (`ShareSession`): a short-lived public link to the whole outline, as the tailnet's web client shows
    * it, or with `scope` (a block id) to that note and below only. `open`: the note the link opens on (inside it). `ttl`: `30m`, `1h` (the default), up

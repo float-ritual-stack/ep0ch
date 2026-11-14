@@ -42,7 +42,7 @@ describe("the name a title is kept under", () => {
     expect(text).toContain('--screen "daily test"');
     const m = { id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "daily-test" }], revision: 1 };
     expect(readScreenNote(m)).toMatchObject({ name: "daily-test", title: "daily test", spec: { name: "daily-test", title: "daily test" } });
-    expect(readScreenNote({ ...m, properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }] })).toMatchObject({ name: "seedlings", title: "seedlings" });
+    expect(readScreenNote({ ...m, text: text.replace("[screen::daily-test]", "[screen::seedlings]"), properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }] })).toMatchObject({ name: "seedlings", title: "seedlings" });
   });
 });
 

@@ -159,9 +159,9 @@ import {
   type PageAddressCollection,
   type NoteAddress,
   type PublisherAddress,
-  type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
+import { answeredInModule } from "./answered-in-modules";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
@@ -512,9 +512,9 @@ export class OutlinerServer {
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
         heldBy(`open ${this.outline?.name ?? "outline"}: handler lines`, () => this.extensionCalls?.registryChanged());
-        // Clients read the list again on the event: its resource providers are current by then.
+        // Clients read the list again on the event: its resource providers are current by then. Watched answers made from the registry (the screens) are asked again too.
         void this.refreshResourceProviders().finally(() => {
-          if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+          if (!this.stopping) { this.watches.changed(); this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }); }
         });
       },
       // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
@@ -1167,7 +1167,7 @@ export class OutlinerServer {
       clientId,
       role: registration.role,
       contextId,
-      ...(registration.app === "door" ? { app: "door" as const } : {}),
+      ...(registration.app === "door" || registration.app === "native" ? { app: registration.app } : {}),
       ...(outline ? { outline } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),
@@ -2381,20 +2381,18 @@ export class OutlinerServer {
       }
       return this.answered(request, result);
     }
-    if (request.action === "notes.address" || request.action === "notes.render") {
-      let result: NoteAddress | RenderedNote;
-      if (request.action === "notes.address") {
-        if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
-        result = wired(request.action, await this.noteAddress(request.blockId));
-      } else {
-        if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
-        if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
-        if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
-        result = wired(request.action, await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
-          ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
-        }));
-      }
-      return this.answered(request, result);
+    { const elsewhere = answeredInModule(request, connection, { own: this.own, watches: this.watches, sequence: () => this.store.sequence, require: id => this.store.require(id), address: () => ({ outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }) }); if (elsewhere) return elsewhere; }
+    if (request.action === "notes.address") {
+      if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
+      return this.answered(request, wired(request.action, await this.noteAddress(request.blockId)));
+    }
+    if (request.action === "notes.render") {
+      if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
+      if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
+      if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
+      return this.answered(request, wired(request.action, await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
+        ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
+      })));
     }
     if (
       request.action !== "resources.open" &&
@@ -2586,7 +2584,7 @@ export class OutlinerServer {
           break;
         }
         case "blocks.read":
-          result = wired(action, this.store.readBlocks(request.ids, request.fields));
+          result = wired(action, this.store.readBlocks(request.ids ?? this.store.children(request.under ?? null).map(child => child.id), request.fields, request.ids === undefined));
           break;
         case "blocks.grep":
           result = wired(action, grepBlocks(this.store.liveBlocks(), request));

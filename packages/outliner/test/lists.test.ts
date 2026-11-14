@@ -1,0 +1,274 @@
+// `lists.read` (packages/native/docs/DESIGN.md §3): one list, whatever it is of. One test a producer, over a scratch
+// service in a temp folder; every note is made up (a garden: beds, a seed list, a shed).
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { listSections, type ListAnswer } from "@ep0ch/outline-core/list-row";
+import { OutlinerClient } from "../src/client";
+import { listSources } from "../src/list-producers";
+import { OutlinerServer } from "../src/server";
+import { OutlinerStore } from "../src/store";
+import type { Block } from "../src/types";
+
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+
+async function setup() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-lists-")));
+  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: root });
+  const socket = join(root, "outliner.sock");
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state") });
+  server.setOutline({ name: "garden" });
+  await server.start();
+  const client = new OutlinerClient(socket, 20_000);
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
+  const create = (text: string, parentId?: string) => client.request<Block>({ action: "create", text, author: "user", ...(parentId ? { parentId } : {}) });
+  const list = (from: string, more: Record<string, unknown> = {}) => client.request<ListAnswer>({ action: "lists.read", from, ...more } as never);
+  // The garden: three beds at different stages under one note, a seed list that links to one bed, and a shed.
+  const beds = await create("Beds");
+  const north = await create("North bed [type::bed] [stage::sown] [crop::peas]", beds.id);
+  const south = await create("South bed [type::bed] [stage::planned] [crop::beans]", beds.id);
+  const herbs = await create("Herb spiral [type::bed] [stage::sown] [crop::thyme]", beds.id);
+  const rows = await create("First row", north.id);
+  const seeds = await create(`Seed list\nPeas go in ((${north.id})) first.`);
+  const shed = await create("Shed");
+  return { client, create, list, socket, beds, north, south, herbs, rows, seeds, shed };
+}
+
+/** A scratch outline starts with its own notes (Workspace, Trash, Inbox…): the garden's rows are the ones after them. */
+const SYSTEM = new Set(["Workspace", "Trash", "Inbox", "Bookmarks", "Note mover"]);
+const garden = (answer: ListAnswer) => answer.list.rows.filter(r => !SYSTEM.has(r.label));
+const shape = (answer: ListAnswer) => garden(answer).map(r => [r.label, r.depth ?? 0, r.folds ?? false, r.open ?? false]);
+
+test("children: the outline as a tree, a folder's notes under it only when it is open, each row its own act line", async () => {
+  const { list, beds, north } = await setup();
+  const top = await list("children");
+  expect(top.list.arrange).toBe("tree");
+  expect(shape(top)).toEqual([["Beds", 0, true, false], ["Seed list", 0, false, false], ["Shed", 0, false, false]]);
+  expect(top.open).toEqual([]);
+  expect(garden(top)[0]).toMatchObject({ id: beds.id, do: { open: beds.id }, act: `open id="${beds.id}"` });
+  const unfolded = await list("children", { open: [beds.id, north.id] });
+  expect(shape(unfolded)).toEqual([
+    ["Beds", 0, true, true], ["North bed", 1, true, true], ["First row", 2, false, false], ["South bed", 1, false, false], ["Herb spiral", 1, false, false],
+    ["Seed list", 0, false, false], ["Shed", 0, false, false],
+  ]);
+  // The folders listed are said, and a listed folder says how many notes are under it.
+  expect([...unfolded.open!].sort()).toEqual([beds.id, north.id].sort());
+  expect(garden(unfolded)[0]!.kids).toBe(3);
+  // A tree under one note is the same list, from there.
+  expect(shape(await list("children", { of: beds.id }))).toEqual([["North bed", 0, true, false], ["South bed", 0, false, false], ["Herb spiral", 0, false, false]]);
+  // More rows than asked for is said, never silently cut.
+  expect(await list("children", { limit: 2 })).toMatchObject({ truncated: true, total: 2 });
+});
+
+test("query: a question's matches, sorted and grouped by any property name, with chips, a table's columns and the facets", async () => {
+  const { list, north, south, herbs } = await setup();
+  const found = await list("query", { query: "type=bed", sort: "title asc" });
+  expect(found.list.arrange).toBe("rows");
+  expect(found.list.rows.map(r => r.label)).toEqual(["Herb spiral", "North bed", "South bed"]);
+  expect(found.list.rows[1]).toMatchObject({ id: north.id, act: `open id="${north.id}"`, chips: [{ key: "type", value: "bed" }, { key: "stage", value: "sown" }, { key: "crop", value: "peas" }] });
+  // The facets are the keys the matches carry, counted: nothing here names which keys there may be.
+  expect(found.facets!.find(f => f.key === "stage")!.values).toEqual(expect.arrayContaining([{ value: "sown", count: 2 }, { value: "planned", count: 1 }]));
+  // A property nobody wrote as a column is just an empty cell; a note's own facts are columns too.
+  const table = await list("query", { query: "type=bed", sort: "crop asc", columns: "title crop stage shade" });
+  expect(table.list).toMatchObject({ arrange: "table", columns: ["title", "crop", "stage", "shade"], headers: ["title", "crop", "stage", "shade"] });
+  expect(table.list.rows.map(r => r.cells)).toEqual([["South bed", "beans", "planned", ""], ["North bed", "peas", "sown", ""], ["Herb spiral", "thyme", "sown", ""]]);
+  expect(table.sort).toBe("crop asc");
+  // Grouped by another property the same way: the groups are the list's sections.
+  const grouped = await list("query", { query: "type=bed", group: "crop", sort: "title asc" });
+  expect(grouped.list.groups!.map(g => [g.name, g.count, g.ids])).toEqual(expect.arrayContaining([["peas", 1, [north.id]], ["beans", 1, [south.id]], ["thyme", 1, [herbs.id]]]));
+  // A key no note has is answered with the service's hint, not a silent empty list.
+  const none = await list("query", { query: "soil=clay" });
+  expect(none.list.rows).toEqual([]);
+  expect(none.hint).toContain("soil");
+});
+
+test("query: arranged as a table with no columns named, its columns are the title and the properties the matches carry", async () => {
+  const { list } = await setup();
+  // `list.layout layout=table` on a tile whose spec names no columns: a table of titles alone would show less than rows do.
+  const table = await list("query", { query: "type=bed", sort: "title asc", arrange: "table" });
+  expect(table.list).toMatchObject({ arrange: "table", columns: ["title", "crop", "stage", "type"], headers: ["title", "crop", "stage", "type"] });
+  expect(table.list.rows.map(r => r.cells)).toEqual([["Herb spiral", "thyme", "sown", "bed"], ["North bed", "peas", "sown", "bed"], ["South bed", "beans", "planned", "bed"]]);
+  // The columns the asker names stand as named, and rows asked for stay rows with no cells.
+  expect((await list("query", { query: "type=bed", arrange: "table", columns: "title crop" })).list.columns).toEqual(["title", "crop"]);
+  const rows = await list("query", { query: "type=bed", arrange: "rows" });
+  expect(rows.list.columns).toBeUndefined();
+  expect(rows.list.rows.every(r => r.cells === undefined)).toBe(true);
+});
+
+test("lanes: the matches grouped by a property name into lanes, and refused in words when none is named", async () => {
+  const { list, client, north, south, herbs } = await setup();
+  const board = await list("lanes", { query: "type=bed", group: "stage", sort: "title asc" });
+  expect(board).toMatchObject({ from: "lanes", group: "stage" });
+  expect(board.list.arrange).toBe("lanes");
+  const lanes = Object.fromEntries(board.list.groups!.map(g => [g.name, g.ids]));
+  expect(lanes).toEqual({ sown: [herbs.id, north.id], planned: [south.id] });
+  expect(board.list.groups!.find(g => g.name === "sown")).toMatchObject({ label: "sown", count: 2 });
+  await expect(client.request({ action: "lists.read", from: "lanes", query: "type=bed" } as never)).rejects.toThrow("group=<a property name>");
+});
+
+test("query and lanes: grouped by two property names, a group's own groups come with it, each level labelled by its own key", async () => {
+  const { list, create, beds, north, south, herbs } = await setup();
+  for (const from of ["query", "lanes"]) {
+    const nested = await list(from, { query: "type=bed", group: "stage,crop", sort: "title asc" });
+    expect(nested.group).toBe("stage,crop");
+    expect(nested.list.groups!.map(g => g.name).sort()).toEqual(["planned", "sown"]);
+    // The second level is the group's own groups, as `blocks.query` answers them and a view of the same question lists them.
+    const sown = nested.list.groups!.find(g => g.name === "sown")!;
+    expect(sown.groups!.map(g => [g.label, g.count, g.ids]).sort()).toEqual([["peas", 1, [north.id]], ["thyme", 1, [herbs.id]]]);
+    expect(nested.list.groups!.find(g => g.name === "planned")!.groups!.map(g => [g.label, g.ids])).toEqual([["beans", [south.id]]]);
+    // A section each, named by the way to it: three, where one level alone gives two. Every section's name is its own.
+    const sections = listSections(nested.list);
+    expect(sections.map(s => s.head!.label).sort()).toEqual(["planned / beans", "sown / peas", "sown / thyme"]);
+    expect(new Set(sections.map(s => s.head!.name)).size).toBe(3);
+    expect(sections.find(s => s.head!.label === "sown / thyme")!.rows.map(r => r.id)).toEqual([herbs.id]);
+  }
+  // A note with no value at a level is under that level's own key, never under both.
+  const fallow = await create("Fallow bed [type::bed] [stage::sown]", beds.id);
+  const loose = await create("Loose bed [type::bed] [crop::kale]", beds.id);
+  const more = await list("query", { query: "type=bed", group: "stage,crop", sort: "title asc" });
+  expect(more.list.groups!.find(g => g.name === "sown")!.groups!.find(g => g.ids!.includes(fallow.id))).toMatchObject({ label: "no crop", count: 1 });
+  const unstaged = more.list.groups!.find(g => g.groups?.some(k => k.ids!.includes(loose.id)))!;
+  expect(unstaged).toMatchObject({ name: "", label: "no stage" });
+  expect(unstaged.groups!.map(g => g.label)).toEqual(["kale"]);
+});
+
+test("facets: the properties the matches carry as rows, a group a key, each a pick that narrows the list it is in", async () => {
+  const { list } = await setup();
+  const found = await list("facets", { query: "type=bed" });
+  expect(found.list.groups!.map(g => g.name)).toEqual(expect.arrayContaining(["type", "stage", "crop"]));
+  const sown = found.list.rows.find(r => r.id === "stage=sown")!;
+  expect(found.facets).toBeUndefined();
+  expect(sown).toMatchObject({ label: "sown", detail: "2", group: "stage", do: { run: { action: "facets.set", args: { key: "stage", value: "sown" } } }, act: `facets.set key="stage" value="sown"` });
+});
+
+test("search: notes by the words typed, ranked by the one search, each saying where it sits", async () => {
+  const { list, north } = await setup();
+  const found = await list("search", { query: "north" });
+  expect(found.list.rows[0]).toMatchObject({ id: north.id, label: "North bed", act: `open id="${north.id}"` });
+  expect(found.list.rows[0]!.detail).toContain("Beds");
+  // No words is no question: the list says what to do.
+  expect((await list("search", { query: "  " })).list).toMatchObject({ rows: [], empty: "Type to search." });
+});
+
+test("links: a note's groups as a page's ::links reads them, every group when none is named, and the ones linkGroups names", async () => {
+  const { list, client, create, north, seeds, rows } = await setup();
+  // Nobody chose: every group the note has, as a links tile shows (outline-core's ALL_LINK_GROUPS), each under its own label.
+  const every = await list("links", { of: north.id });
+  expect(every.list.groups!.map(g => [g.name, g.label, g.glyph, g.count])).toEqual([["outlinks", "Outlinks", "→", 0], ["resources", "Resources", "♦", 0], ["backlinks", "Backlinks", "←", 1], ["children", "Children", "↓", 1]]);
+  expect(every.list.rows.map(r => [r.group, r.id, r.label, r.act])).toEqual([["backlinks", seeds.id, "Seed list", `open id="${seeds.id}"`], ["children", rows.id, "First row", `open id="${rows.id}"`]]);
+  expect(every.list.groups!.find(g => g.name === "outlinks")!.note).toBe("nothing here yet");
+  expect((await list("links", { of: north.id, linkGroups: "all" })).list).toEqual(every.list);
+  const back = await list("links", { of: north.id, linkGroups: "backlinks" });
+  expect(back.list.rows.map(r => [r.id, r.label, r.act])).toEqual([[seeds.id, "Seed list", `open id="${seeds.id}"`]]);
+  expect(back.list.title).toBe("Backlinks · 1");
+  expect((await list("links", { of: north.id, linkGroups: "children" })).list.rows.map(r => r.id)).toEqual([rows.id]);
+  expect((await list("links", { of: seeds.id, linkGroups: "outlinks" })).list.rows.map(r => r.id)).toEqual([north.id]);
+  // A screen saved in the door with `linkGroups: resources,backlinks` reads here too: the groups are one list's.
+  const saved = await list("links", { of: north.id, linkGroups: "resources,backlinks" });
+  expect(saved.list.groups!.map(g => g.name)).toEqual(["resources", "backlinks"]);
+  // A note in two groups is two rows, each with an id of its own; a link that leads nowhere is words that open nothing.
+  const lost = await create(`Compost\nSee ((${north.id})) and ((00000000-0000-4000-8000-000000000000)).`, north.id);
+  const both = await list("links", { of: north.id });
+  expect(both.list.rows.filter(r => r.label === "Compost").map(r => [r.group, r.id])).toEqual([["backlinks", lost.id], ["children", `children:${lost.id}`]]);
+  expect((await list("links", { of: lost.id, linkGroups: "outlinks" })).list.rows.map(r => [r.id, r.act ?? null])).toEqual([[north.id, `open id="${north.id}"`], ["outlinks:1", null]]);
+  await expect(client.request({ action: "lists.read", from: "links" } as never)).rejects.toThrow("of=<a block id>");
+  await expect(client.request({ action: "lists.read", from: "links", of: north.id, linkGroups: "cousins" } as never)).rejects.toThrow("cousins isn't a group");
+});
+
+test("properties: a note's properties as a table, each value a question to open, then its record", async () => {
+  const { list, north } = await setup();
+  const about = await list("properties", { of: north.id });
+  expect(about.list).toMatchObject({ arrange: "table", columns: ["property", "value"], title: "North bed" });
+  const stage = about.list.rows.find(r => r.label === "stage")!;
+  expect(stage).toMatchObject({ detail: "sown", cells: ["stage", "sown"], group: "properties", act: `bar.open scope="query" query="stage=sown"` });
+  expect(about.list.rows.filter(r => r.group === "record").map(r => r.label)).toEqual(["revision", "updated", "by", "id"]);
+  expect(about.list.rows.find(r => r.id === "record:id")!.detail).toBe(north.id);
+});
+
+test("activity: what changed lately, newest first, a pick opening the note", async () => {
+  const { list, client, shed, south } = await setup();
+  expect((await list("activity")).list).toMatchObject({ rows: [], empty: "Nothing has changed yet." });
+  await client.request({ action: "update", blockId: shed.id, text: "Shed, with the tools", expectedRevision: shed.revision, mutation: { author: "user" } } as never);
+  await client.request({ action: "update", blockId: south.id, text: "South bed [type::bed] [stage::sown] [crop::beans]", expectedRevision: south.revision, mutation: { author: "agent", actorId: "compost-agent" } } as never);
+  const recent = await list("activity");
+  expect(recent.list.rows.map(r => [r.label, r.act])).toEqual([["South bed", `open id="${south.id}"`], ["Shed, with the tools", `open id="${shed.id}"`]]);
+  expect(recent.list.rows[0]!.detail).toContain("compost-agent");
+});
+
+test("clients: who is attached to the outline now", async () => {
+  const { list, client } = await setup();
+  await client.request({ action: "events.subscribe", clientId: "potting-bench", role: "reader" } as never).catch(() => {});
+  const here = await list("clients");
+  expect(here.list.arrange).toBe("rows");
+  expect(here.list.empty).toBe("Nobody else is here.");
+  expect(Array.isArray(here.list.rows)).toBe(true);
+});
+
+test("screens: the screens there are to open, each a pick that lays the window out, a problem said on its row", async () => {
+  const { list, create } = await setup();
+  const note = await create("Garden work [type::screen] [screen::garden-work]");
+  await create("tile reader [name::reader]", note.id);
+  const broken = await create("Seed swap [type::screen] [screen::seed-swap]");
+  await create("tile wheelbarrow [name::barrow]", broken.id);
+  const found = await list("screens", { kinds: ["reader"] });
+  expect(found.list.rows.map(r => [r.id, r.label, r.act])).toEqual([["garden-work", "Garden work", `screen.open name="garden-work"`], ["seed-swap", "Seed swap", `screen.open name="seed-swap"`]]);
+  expect(found.list.rows[1]).toMatchObject({ tone: "warn" });
+  expect(found.list.rows[1]!.detail).toContain("no tile kind wheelbarrow");
+  expect((await list("screens", { query: "swap" })).list.rows.map(r => r.id)).toEqual(["seed-swap"]);
+  // Words leave the rows the one matcher leaves (outline-core's listRowMatches, which forgives punctuation and a typo
+  // in a longer word): what a filter typed over any list in a door leaves, not a second matcher's substrings.
+  expect((await list("screens", { query: "seed—swap" })).list.rows.map(r => r.id)).toEqual(["seed-swap"]);
+  expect((await list("screens", { query: "gardn" })).list.rows.map(r => r.id)).toEqual(["garden-work"]);
+  expect((await list("screens", { query: "garden-work" })).list.rows.map(r => r.id)).toEqual(["garden-work"]);
+});
+
+test("sources: the producers say what they are, so a bar's sources and an agent's question come from one place", async () => {
+  const { list, client } = await setup();
+  const said = await list("sources");
+  expect(said.list.rows.map(r => r.id)).toEqual(listSources().map(s => s.from));
+  // What a client reads is each source as it says of itself: which a bar lists, which is on its main list, which carries facets.
+  expect(said.sources).toEqual(listSources());
+  expect(said.sources!.filter(s => s.bar).map(s => [s.from, s.about, s.bar])).toEqual([["search", "Notes", { main: true }], ["query", "Query", { facets: true }], ["screens", "Screens", {}], ["extensions", "Extensions", {}], ["outlines", "Outlines", {}], ["programs", "Programs", {}]]);
+  // Every producer is asked for by its row's name, and a name none has is refused with the ones there are.
+  await expect(client.request({ action: "lists.read", from: "wheelbarrows" } as never)).rejects.toThrow("lists.read lists children, search, query");
+});
+
+test("a watched list is asked again when the outline changes, and says its answer moved", async () => {
+  const { socket, create } = await setup();
+  const wire = connect(socket);
+  cleanups.push(() => { wire.destroy(); });
+  const lines: any[] = [];
+  let rest = "";
+  wire.on("data", chunk => { rest += chunk.toString(); const parts = rest.split("\n"); rest = parts.pop() ?? ""; for (const part of parts) if (part.trim()) lines.push(JSON.parse(part)); });
+  const until = async (found: (line: any) => boolean) => { for (let i = 0; i < 400; i++) { const hit = lines.find(found); if (hit) return hit; await Bun.sleep(25); } throw new Error(`nothing came: ${JSON.stringify(lines.slice(-3))}`); };
+  await new Promise<void>(resolve => wire.once("connect", () => resolve()));
+  wire.write(JSON.stringify({ id: "w1", action: "lists.read", from: "children", watch: "tree" }) + "\n");
+  const first = await until(line => line.id === "w1");
+  const labels = (line: any) => line.result.list.rows.map((r: { label: string }) => r.label).filter((label: string) => !SYSTEM.has(label));
+  expect(labels(first)).toEqual(["Beds", "Seed list", "Shed"]);
+  await create("Compost heap");
+  const changed = await until(line => line.event?.action === "queries.changed" && line.event.changes.some((c: { key: string }) => c.key === "tree"));
+  const generation = changed.event.changes.find((c: { key: string }) => c.key === "tree").generation;
+  wire.write(JSON.stringify({ id: "w2", action: "lists.read", from: "children", watch: "tree", generation }) + "\n");
+  const again = await until(line => line.id === "w2");
+  expect(labels(again)).toEqual(["Beds", "Seed list", "Shed", "Compost heap"]);
+});
+
+// What the notes under a note are has one answer (outline-core's `isNoteUnder`, the reading `CHILDREN_QUERY` is made
+// from): a comment on a note and an edit proposed beside it are blocks under it and no notes of it. The tree, the
+// page's own list and a links list's Children all ask it, so none lists one the others leave out.
+test("children: a comment on a note and a proposal beside it are no notes under it, in the tree, on its page and in its links", async () => {
+  const { client, list, north, rows } = await setup();
+  await client.request({ action: "annotations.batch", requestId: "c1", operations: [{ operationId: "1", type: "block-comment", input: { blockId: north.id, expectedRevision: north.revision, body: "Too early for peas?", source: "user" } }], author: "user" } as never);
+  const proposed = await client.request<{ outcome: string }>({ action: "draft.patch", propose: true, blockId: north.id, revision: north.revision, patches: [{ observed: "North bed", replacement: "North bed, by the wall" }], mutation: { author: "agent", actorId: "tidy-agent" } } as never);
+  expect(proposed.outcome).toBe("proposed");
+  const under = (await list("children", { of: north.id })).list.rows.map(r => r.label);
+  const page = await client.request<{ children: { id: string }[]; under?: { rows: { id: string }[] } }>({ action: "notes.page", blockId: north.id } as never);
+  const links = await list("links", { of: north.id, linkGroups: "children" });
+  expect(under).toEqual(["First row"]);
+  expect([page.children.map(c => c.id), page.under?.rows.map(r => r.id)]).toEqual([[rows.id], [rows.id]]);
+  expect(links.list.rows.map(r => r.id)).toEqual([rows.id]);
+});

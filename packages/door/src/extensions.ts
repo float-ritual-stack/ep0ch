@@ -39,7 +39,10 @@ import { READER_OWN_KEYS } from "./surface/reader-keys";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
-import { forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, useInstallableScreens, type ScreenSpec } from "./desk/screen-spec";
+import { builtinScreen, extensionScreen, forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, useInstallableScreens, type ScreenSpec } from "./desk/screen-spec";
+import { SHIPPED_EXTENSION } from "./desk/shipped";
+import { holdShippedScreens } from "./desk/shipped-screens";
+import { targetFilled } from "@ep0ch/outline-core/screen-spec";
 import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
@@ -854,13 +857,24 @@ function bindScreens(served: readonly ExtensionEntry[], problems: string[]) {
   // The way back for a screen an extension the repo offers would add: what screen.open says of it.
   useInstallableScreens(new Map((current?.available ?? []).flatMap(e => (e.screens ?? []).map(n => [n, `the ${e.name} extension adds it: ctrl+k, & and ⏎ on ${e.name}, or ep0ch act extensions.install id=${e.id}`] as [string, string]))));
   for (const [name, print] of boundScreens) if (want.get(name)?.print !== print) { forgetScreen(name); boundScreens.delete(name); }
+  // What the door holds of the shipped screens from their manifest (src/desk/shipped.ts) gives way to what is served
+  // under the same name by the same extension: the served spec is the one that opens (a forked copy's).
+  for (const [name, w] of want) if (!boundScreens.has(name) && extensionScreen(name) === w.extension && w.extension === SHIPPED_EXTENSION) forgetScreen(name);
   for (const [name, w] of want) {
     if (boundScreens.has(name)) continue;
-    if (screenNames().includes(name)) { problems.push(`${w.extension}'s screen ${name} isn't registered: ${screenHolder(name)} has that name`); continue; }
+    if (screenNames().includes(name)) {
+      // A screen the door makes from its own state (the desk's named layouts, the board's hub) stands under its name.
+      // The shipped extension's own copy of it stands down without a word; anyone else's is told the name is taken.
+      if (!builtinScreen(name) || w.extension !== SHIPPED_EXTENSION) problems.push(`${w.extension}'s screen ${name} isn't registered: ${screenHolder(name)} has that name`);
+      continue;
+    }
     const data = specData(w.spec);
-    registerScreen(name, () => readSpec(data), { extension: w.extension });
+    // Opened on a target, the tile its spec says carries it (outline-core's `targetFilled`).
+    registerScreen(name, args => targetFilled(readSpec(data), args), { extension: w.extension, ...(w.spec.target ? { target: w.spec.target.arg } : {}) });
     boundScreens.set(name, w.print);
   }
+  // A shipped screen nobody serves any more is held from the manifest again.
+  holdShippedScreens();
 }
 
 
@@ -952,6 +966,9 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
     changed = true;
   }
   for (const [kind, t] of kinds) {
+    // A kind a door draws itself (`drawer`): the door's own kind answers to its served name (src/desk/shipped.ts), and
+    // a drawer this door hasn't is a tile that says so. Nothing to register either way.
+    if (t.drawer) continue;
     const print = JSON.stringify(t);
     if (boundKinds.get(kind) === print) continue;
     // A built-in (or another module's kind) of the same name stays: an extension can't take its place.

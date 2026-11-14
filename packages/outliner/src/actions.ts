@@ -47,8 +47,12 @@ export interface ActionDecl<R = OutlinerRequest> {
   ext?: "read" | "write" | "mail";
   /** Only the async path answers it (`handleAsync`); the sync `handle` refuses it. */
   async?: true;
-  /** A read a client may watch (ADR 0004): outline-core's `WATCHABLE_ACTIONS`, which the table test holds to these rows. */
-  watch?: true;
+  /**
+   * A read a client may watch (ADR 0004): outline-core's `WATCHABLE_ACTIONS`, which the table test holds to these rows.
+   * `"later"`: its answer takes a turn (a module answers it, asking the service a question per part), so the module
+   * keeps the watch itself (`QueryWatches.askLater`, answered-in-modules.ts) and the sync path never sees it.
+   */
+  watch?: true | "later";
   /** A read that walks the whole outline: it waits behind every other request (loop-watch.ts, PIE-625). */
   whole?: true;
   /**
@@ -163,7 +167,7 @@ export const ACTIONS = {
   "blocks.grep": { read: true, whole: true },
   "blocks.markRead": { event: (request, { result }) => (result as { marked: number }).marked ? content(request.blocks[0]?.id) : null },
   "blocks.query": { read: true, watch: true, whole: true },
-  "blocks.read": { read: true },
+  "blocks.read": { read: true, watch: true },
   "blocks.records": { read: true, whole: true },
   "blocks.resolve": { read: true },
   "bookmarks.remove": { event: (_, { result }) => content((result as BookmarkRemoveReceipt).record.id) },
@@ -278,6 +282,7 @@ export const ACTIONS = {
   "navigation.state": {},
   "notes.address": { ext: "read", async: true },
   "notes.create": { event: (_, { result }) => content((result as NewNoteReceipt).block.id) },
+  "notes.page": { read: true, async: true, watch: "later" },
   "notes.render": { ext: "read", async: true },
   "notes.route": {},
   "outline.snapshot": { copy: true, async: true },
@@ -361,6 +366,19 @@ export const ACTIONS = {
   "shares.snapshot.take": { copy: true, async: true },
   "shares.start": { async: true },
   "shares.tunnel": { async: true },
+  // A screen is a note or an extension's (screens.ts): listed with its problems, saved in the block form. `screens.list` is
+  // watched as `notes.page` is: its answer takes a turn (`QueryWatches.askLater`).
+  "screens.list": { read: true, async: true, watch: "later", machineryBlind: true },
+  "screens.save": { async: true },
+  // One list, whatever it is of (list-producers.ts): a tree, a query's matches, a search, a note's links, lanes, facets,
+  // the screens. Watched as `notes.page` is.
+  "lists.read": { read: true, async: true, watch: "later" },
+  // What a tile an extension's script renders shows, as one view primitive (tile-view.ts). Watched as `notes.page` is.
+  "tiles.view": { read: true, async: true, watch: "later" },
+  // The outlines there are to open from here: this machine's and its forwards' (outline-links.ts). It opens none.
+  "outlines.known": { read: true, async: true },
+  // Where a quoted passage is in a note's text, asked before anything is written about it (passage-find.ts).
+  "passages.find": { read: true, async: true },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
   "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },
@@ -417,6 +435,8 @@ export const copyAnswers = (action: unknown): boolean => { const d = row(String(
 /** What an extension's grant may make of an action: `read`, `write`, `mail`, or undefined (refused). */
 export const extensionMay = (action: unknown): ActionDecl["ext"] | undefined => { const d = row(String(action)); return d?.ext ?? (d?.read ? "read" : undefined); };
 export const isWatchable = (action: unknown): boolean => row(String(action))?.watch === true;
+/** A read whose module keeps its watch (its row's `watch: "later"`): the one thing that says a module read is watched. */
+export const isWatchedLater = (action: unknown): boolean => row(String(action))?.watch === "later";
 export const isWholeOutlineRead = (action: unknown): boolean => row(String(action))?.whole === true;
 export const isMachineryBlindRead = (action: unknown): boolean => row(String(action))?.machineryBlind === true;
 /** Whether a request starts in order but holds nobody behind it: a whole-outline read, or a `detached` one. */
@@ -431,5 +451,5 @@ export function eventOf(request: OutlinerRequest, response: Answered, previousSe
 export const DECLARED = {
   host: names(d => d.host === true), copy: names(d => d.read === true || d.copy === true), async: names(d => d.async === true),
   extension: names(d => d.ext !== undefined || d.read === true), extensionWrites: names(d => d.ext === "write"),
-  watch: names(d => d.watch === true), whole: names(d => d.whole === true), events: names(d => d.event !== undefined),
+  watch: names(d => d.watch !== undefined), whole: names(d => d.whole === true), events: names(d => d.event !== undefined),
 } as const;

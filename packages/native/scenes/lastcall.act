@@ -1,0 +1,4 @@
+# Last callers, opened from the bar's Screens: what changed lately, and the note a row opens beside it.
+bar.open scope=screens query=lastcall
+bar.pick n=1
+list.pick n=1 tile=activity

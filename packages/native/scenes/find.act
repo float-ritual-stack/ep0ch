@@ -1,0 +1,4 @@
+# The bar on the outline's notes, with words typed: the service's search, each row its own act line. (Over the
+# outline's first note, opened as a press on its row opens it.)
+list.pick n=1 tile=tree
+bar.open scope=search query=beans
