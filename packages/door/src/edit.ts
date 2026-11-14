@@ -8,15 +8,13 @@ import { DraftStatus, UNDO_ASK_PAUSE_MS, type DraftArm } from "./draft-status";
 // the revision the draft started from, and a stale one is refused, never overwritten.
 import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
-import { pageTitleLine } from "@ep0ch/outline-core/page-title";
-import { COMPONENT_OPEN, componentBlocks, noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, exactKeyName, keyName, type ArgsOfSet } from "./surface/actions";
-import { Gesture, wordIn } from "./surface/selection";
+import { Gesture } from "./surface/selection";
 import { lineCompletionHooks } from "./surface/line-hooks";
 import { stateDir } from "./state";
 import { width } from "./style";
@@ -26,8 +24,8 @@ import { escByHint } from "./esc-rule";
 import { applyLocated, locateSpans, mapOffset, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { mapCursor, patchedSpans, placeDraftPatch, revertSpans, type PatchedSpan } from "@ep0ch/outline-core/draft-patch-place";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
-import { indentShifts, listLead, listParent, shiftedCol, type ListLead } from "@ep0ch/outline-core/draft-indent";
+import { indentShifts, listLead, shiftedCol, tabTakes, type ListLead } from "@ep0ch/outline-core/draft-indent";
+import { WRAPS, lineOpText, newlineText, selectText, typedMarker, wrapText, type LineOp } from "@ep0ch/outline-core/draft-keys";
 import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
@@ -84,12 +82,6 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  */
 export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
 
-/**
- * What wraps a selection when typed over it (PIE-1607), as VS Code's Markdown does, with its closer: the inner text stays
- * selected, so `[[`, `((` and `**` are the key twice. Not `<` and `$` (VS Code's too): no Blockdown form uses them, and typing
- * one over a word mostly means to replace it.
- */
-const WRAPS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "`": "`", "*": "*", "_": "_", "~": "~" };
 /** A motion's rows: its keys, and the same with the selection following. */
 const go = (to: string, words: string, move: string[], select: string[]): ModeKey[] => [
   ...move.map(key => ({ key, action: "draft.go", args: { to }, label: `go ${words}`, says: `move the cursor ${words}` })),
@@ -805,8 +797,8 @@ export class Draft {
       case "char":
         // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place (a paste goes in as it came).
         if (k.ch === " " && this.col === this.line.length) {
-          const m = TYPED_MARKER.exec(this.line);
-          if (m) { L[this.row] = m[1]! + m[2]!; this.col = L[this.row]!.length; }
+          const made = typedMarker(this.line);
+          if (made !== null) { L[this.row] = made; this.col = made.length; }
         }
         this.insert(k.ch);
         break;
@@ -935,59 +927,13 @@ export class Draft {
     // ⏎ at the end of an answered ask: the answer stays under its ask and the words go on below it (PIE-1585).
     const answer = this.line.slice(this.col) ? undefined : this.answerFolds().find(p => p.line === this.row + 1);
     if (answer) ({ row: this.row, col: this.col } = this.placeOf(this.offsetOf(answer.end, 0) - 1));
-    // ⏎ at the end of a first line of only `[page::x]` titles it `x` (PIE-544), outline-core's rule, the one the service
-    // saves by. Anywhere else on the line (before it, inside the token) it's a plain break: the save titles it later.
-    if (this.titlesPages && this.row === 0 && this.col >= this.lines[0]!.trimEnd().length) {
-      const titled = pageTitleLine(this.lines[0]!);
-      if (titled !== null) { this.lines[0] = titled; this.col = titled.length; }
-    }
-    const line = this.line, L = this.lines;
-    const lead = plain ? null : listLead(line);
-    // The cursor on the item's marker (a click lands there): the break goes before the item, which stays whole.
-    const col = lead && this.col < lead.length ? 0 : this.col;
-    const rest = line.slice(col);
-    if (lead && col >= lead.length) {
-      if (!line.slice(lead.length).trim()) {
-        // An empty item: up to the parent item's level (continuing its numbering), or out of the list.
-        const up = listParent(L, this.row, lead.indent.length);
-        const next = up ? up.indent + nextMarker(up.marker) + up.gap + (lead.box ? "[ ] " : "")
-          : lead.indent ? outdentBy(lead.indent) + lead.marker + lead.gap + lead.box : "";
-        L[this.row] = next;
-        this.col = next.length;
-        return;
-      }
-      const next = lead.indent + nextMarker(lead.marker) + lead.gap + (lead.box ? "[ ] " : "");
-      L[this.row] = line.slice(0, col);
-      L.splice(this.row + 1, 0, next + rest.replace(/^[ \t]+/, ""));
-      this.row++; this.col = next.length;
-      return;
-    }
-    const indent = plain ? "" : /^[ \t]*/.exec(line)![0];
-    if (indent && !line.trim() && col === line.length) {
-      // A line of spaces: Enter takes it up a level, as on an empty item.
-      L[this.row] = outdentBy(indent);
-      this.col = L[this.row]!.length;
-      return;
-    }
-    const keep = indent && col >= indent.length ? indent : "";
-    const closes = !plain && !rest.trim() && this.opensComponent(this.row);
-    L[this.row] = line.slice(0, col);
-    L.splice(this.row + 1, 0, keep + (keep ? rest.replace(/^[ \t]+/, "") : rest));
-    // ⏎ after a component's opening line that nothing closes yet (`::box{list.gap="2"}`): its `::` comes with it, as an
-    // editor closes a bracket, so what's written between reads as the component and not as plain text (PIE-1392).
-    if (closes) L.splice(this.row + 2, 0, indent + "::");
-    this.row++; this.col = keep.length;
-  }
-
-  /** Whether line `row` opens a component with a body (not a one-line call) that no `::` closes yet, outside code. */
-  private opensComponent(row: number): boolean {
-    const open = COMPONENT_OPEN.exec(this.lines[row]!);
-    if (!open || open[2] !== undefined) return false;
-    if (noteCodeFences(this.lines).some(f => row > f.start && row <= f.end)) return false;
-    // Unclosed when a `::` after it closes one more component than the note has now: a closer already below may be an
-    // inner component's (a box typed inside a box), so whether this line is paired isn't asked alone.
-    const closer = [...this.lines.slice(0, row + 1), "::", ...this.lines.slice(row + 1)];
-    return componentBlocks(closer).length > componentBlocks(this.lines).length;
+    // The rest is outline-core's rule (`newlineText`, the one the native window is held to): a first line of only
+    // `[page::x]` titled at its end (PIE-544), a list item continued or ended, an indent kept, and a component's
+    // opening line that nothing closes yet given its `::` (PIE-1392).
+    const at = this.offsetOf(this.row, this.col);
+    const did = newlineText(this.text, at, at, { plain, titles: this.titlesPages, components: true });
+    this.lines = did.text.split("\n");
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
   }
 
   /** The lines a Tab acts on: the selection's, else the cursor's. */
@@ -1011,6 +957,16 @@ export class Draft {
       if (this.anchor && row === this.anchor.row) this.anchor.col = shiftedCol(this.anchor.col, by);
     }
     return shifts.length;
+  }
+
+  /**
+   * Tab's own: the lines at the cursor one level in, where Tab can mean that (outline-core's `tabTakes`: a list item
+   * from any column, several selected lines, any other line from its start or inside its indent). In the middle of a
+   * paragraph it moves nothing. Lines an act names outright go through `indent`.
+   */
+  tab(): number {
+    const [from, to] = this.span();
+    return tabTakes(this.lines, from, to, this.col) ? this.indent(1, from, to) : 0;
   }
 
   // ── an agent's patch (PIE-501): compare-and-swap on a span, while the person types ──
@@ -1270,47 +1226,37 @@ export class Draft {
 
   /** The word under the cursor, its line (again: the next line too) or the whole text selected. */
   selectWhat(what: "word" | "line" | "all") {
-    if (what === "all") { this.place(0, 0); this.place(this.lines.length - 1, Infinity, true); return; }
-    if (what === "word") { const w = wordIn(this.line, this.col); this.place(this.row, w.start); this.place(this.row, w.end, true); return; }
-    const s = this.selection(), first = s ? s[0].row : this.row, last = !s ? this.row : s[1].col === this.endOf(s[1].row) && s[0].col === 0 ? s[1].row + 1 : s[1].row;
-    this.place(first, 0);
-    this.place(Math.min(last, this.lines.length - 1), Infinity, true);
+    const did = selectText(this.text, ...this.ends(), what);
+    const a = this.placeOf(did.anchor), c = this.placeOf(did.cursor);
+    this.place(a.row, a.col);
+    this.place(c.row, c.col, true);
   }
 
-  /** The whole lines a line key acts on: the selection's (one ending at a line's very start leaves that line out), else the cursor's. */
-  private wholeLines(): [number, number] {
-    const s = this.selection();
-    if (!s) return [this.row, this.row];
-    return [s[0].row, s[1].col === 0 && s[1].row > s[0].row ? s[1].row - 1 : s[1].row];
+  /** The selection's two ends as offsets of the text: where it started, and the cursor (the same place with nothing selected). */
+  private ends(): [number, number] {
+    const cursor = this.offsetOf(this.row, this.col);
+    return [this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : cursor, cursor];
+  }
+
+  /** A line key's work, by outline-core's rule (`lineOpText`, the one the native window is held to). Whether anything changed. */
+  private lineOp(op: LineOp): boolean {
+    const [anchor, cursor] = this.ends();
+    const did = lineOpText(this.text, anchor, cursor, op);
+    if (!did.spans.length && did.anchor === anchor && did.cursor === cursor) return false;
+    this.lines = did.text.split("\n");
+    this.anchor = this.anchor && op !== "delete" ? this.placeOf(did.anchor) : null;
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
+    return true;
   }
 
   /** The lines at the cursor moved a line up or down, the cursor and the selection with them. How many rows they moved. */
-  moveLines(by: -1 | 1): number {
-    const [a, b] = this.wholeLines(), L = this.lines;
-    if (a + by < 0 || b + by > L.length - 1) return 0;
-    const moving = L.splice(a, b - a + 1);
-    L.splice(a + by, 0, ...moving);
-    this.row += by;
-    if (this.anchor) this.anchor.row += by;
-    return by;
-  }
+  moveLines(by: -1 | 1): number { return this.lineOp(by < 0 ? "up" : "down") ? by : 0; }
 
   /** The lines at the cursor written again above (`up`: the cursor stays on the upper) or below them (it goes to the copy). */
-  copyLines(where: "up" | "down") {
-    const [a, b] = this.wholeLines(), n = b - a + 1;
-    this.lines.splice(b + 1, 0, ...this.lines.slice(a, b + 1));
-    if (where === "down") { this.row += n; if (this.anchor) this.anchor.row += n; }
-  }
+  copyLines(where: "up" | "down") { this.lineOp(where === "up" ? "copy-up" : "copy-down"); }
 
   /** The lines at the cursor taken out; the cursor stays at its column on what comes up to its row. */
-  deleteLines() {
-    const [a, b] = this.wholeLines();
-    this.anchor = null;
-    this.lines.splice(a, b - a + 1);
-    if (!this.lines.length) this.lines.push("");
-    this.row = Math.min(a, this.lines.length - 1);
-    this.col = Math.min(this.col, this.endOf(this.row));
-  }
+  deleteLines() { this.lineOp("delete"); }
 
   /** The selection, else from the cursor back or on to `to`, taken out. Word-back is what ctrl+w always erased: the word and the spaces after it. */
   erase(to: "word-back" | "word-forward" | "line-start" | "line-end", by: Actor = USER): boolean {
@@ -1349,14 +1295,12 @@ export class Draft {
     const s = this.selection();
     if (!s) throw new ActionRefused("nothing is selected in the draft · select text (shift+arrows, a drag, draft.place extend=true), then type [ or ( to wrap it");
     this.record(USER, "a change");
-    const close = [...open].reverse().map(c => WRAPS[c] ?? c).join("");
-    const forward = this.anchor!.row === s[0].row && this.anchor!.col === s[0].col, text = this.text;
-    const a = this.offsetOf(s[0].row, s[0].col), b = this.offsetOf(s[1].row, s[1].col);
-    this.lines = (text.slice(0, a) + open + text.slice(a, b) + close + text.slice(b)).split("\n");
-    const start = this.placeOf(a + open.length), end = this.placeOf(b + open.length);
-    this.anchor = forward ? start : end;
-    const cursor = forward ? end : start;
-    this.row = cursor.row; this.col = cursor.col; this.goal = null;
+    // Outline-core's rule (`wrapText`): the closer is the opener's mirror, and the inner text stays selected.
+    const did = wrapText(this.text, ...this.ends(), open)!;
+    this.lines = did.text.split("\n");
+    this.anchor = this.placeOf(did.anchor);
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
+    this.goal = null;
     this.wrote(by, "the wrap");
   }
 
@@ -1570,14 +1514,6 @@ export { hangOf, wrapRows, type VRow } from "./draft-view";
 
 export { listLead, type ListLead };
 
-/** An empty item with a marker typed after it: `- -`, `  1. 2.`, `- [ ] *` (indent, the typed marker). */
-const TYPED_MARKER = new RegExp(`^([ \\t]*)(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?([-*+]|\\d{1,9}[.)])$`);
-
-/** The marker after `m`: the same bullet, or the next number with the same closer. */
-export const nextMarker = (m: string) => (/^\d/.test(m) ? `${Number.parseInt(m, 10) + 1}${m.at(-1)}` : m);
-/** An indent one level less: a tab, or two spaces. */
-const outdentBy = (ind: string) => (ind.endsWith("\t") ? ind.slice(0, -1) : ind.slice(0, Math.max(0, ind.length - 2)));
-
 /** A path as the person would type it: their home as `~`. */
 export const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
 
@@ -1627,7 +1563,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.indent", does: "indents the cursor's line, or the selected lines, one level" },
       { act: "draft.indent from=3 to=5", does: "indents lines 3 to 5 one level" },
     ],
-    run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
+    run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.tab(); if (n) d.wrote(actor); return { lines: n }; },
   }),
   "draft.outdent": def({
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: rowKeys("draft.outdent"),

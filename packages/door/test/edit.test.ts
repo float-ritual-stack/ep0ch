@@ -344,9 +344,11 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     for (const k of [char("q"), char("1")]) key(k);                     // menu and focus keys type
     expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
     const focusBefore = (desk as any).focus;
-    key({ kind: "tab" });                                               // tab indents (PIE-496), focus stays
+    key({ kind: "tab" });                                               // tab in the middle of a paragraph moves nothing (native K3: outline-core's tabTakes), focus stays
+    expect([(desk as any).focus, draft.text]).toEqual([focusBefore, "Guarded [stage::queued] typedq1\nbody"]);
+    key({ kind: "home" }); key({ kind: "tab" });                        // from the line's start it indents (PIE-496), focus stays
     expect([(desk as any).focus, draft.text]).toEqual([focusBefore, "  Guarded [stage::queued] typedq1\nbody"]);
-    key({ kind: "backtab" });
+    key({ kind: "end" }); key({ kind: "backtab" });                     // shift+tab takes the level off from any column
     expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
     key(ctrl("w")); key({ kind: "esc" });                               // ^W then esc: still in the edit
     expect(reader().draft).toBe(draft);

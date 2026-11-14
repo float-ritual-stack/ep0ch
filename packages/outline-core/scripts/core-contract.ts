@@ -11,6 +11,7 @@
 //   links      a links list's `linkGroups`    → its groups, in order, or the name none has    (linkGroupsNamed)
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
 //   indent     a draft's text, its selection, in or out → the spans to replace and where the selection is after (indentText)
+//   newline, lines, wrap, typed, select, go, erase, check   a draft's text and selection, a key → the text and the selection after (draft-keys.ts)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
 //   resourceRefs  what an answer asks a client to open → whether it is written as a Resource ref, not a block's id (isResourceRef)
 //   ways       a refusal, each way's own words → the refusal as it is said: the reason, then the ways joined (whySaid)
@@ -25,6 +26,7 @@ import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
 import { sourceLines } from "../src/code-ranges";
 import { way, whyNot, whySaid, type Why } from "../src/way-out";
 import { indentText } from "../src/draft-indent";
+import { LINE_GOES, LINE_OPS, PAIRS, SELECTS, WRAPS, checkText, eraseText, goText, lineOpText, newlineText, selectText, typedText, wrapText, type Keyed, type NewlineOptions } from "../src/draft-keys";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
 import { findQuoted, quoteRefusal, spanIn, wholePassage, type QuotedPassage } from "../src/drawn-passage";
 import { noteMediaLines } from "../src/media-line";
@@ -146,9 +148,14 @@ const INDENT: { name: string; marked: string; dir: 1 | -1 }[] = [
   { name: "an item with nothing after its marker is an item", marked: "- peas\n- |", dir: 1 },
   { name: "an item under an indented item: the item above at its own level", marked: "- beds\n  1. north\n  - so|uth", dir: 1 },
   { name: "a checklist's step is a list item", marked: "- [ ] sow\n- [x] wa|ter", dir: 1 },
-  { name: "prose moves two spaces", marked: "Sow the pe|as.", dir: 1 },
+  { name: "prose from the middle of its line moves nothing: Tab there is no level", marked: "Sow the pe|as.", dir: 1 },
+  { name: "prose moves two spaces from its line's start", marked: "|Sow the peas.", dir: 1 },
+  { name: "prose moves from inside its indent, and from the indent's end", marked: "  |Sow the peas.", dir: 1 },
+  { name: "a heading from the middle of its line moves nothing", marked: "## Be|ds", dir: 1 },
+  { name: "words selected in one line of prose move nothing", marked: "Sow ^the pe|as.", dir: 1 },
+  { name: "a list item moves from any column, its end too", marked: "- peas\n- beans|", dir: 1 },
   { name: "a line indented with a tab moves one tab", marked: "\t- peas\n\t- be|ans", dir: 1 },
-  { name: "prose indented with a tab", marked: "\tSow the pe|as.", dir: 1 },
+  { name: "prose indented with a tab moves one tab, from its indent", marked: "\t|Sow the peas.", dir: 1 },
   { name: "a blank line alone still moves", marked: "- peas\n|", dir: 1 },
   { name: "every line the selection touches moves by the first line's step, and blank lines stay", marked: "- beds\n- no^rth\n\n  - peas\n- sou|th\n- shed", dir: 1 },
   { name: "a selection made upwards is the same lines", marked: "- beds\n- no|rth\n  - peas\n- sou^th", dir: 1 },
@@ -158,7 +165,7 @@ const INDENT: { name: string; marked: string; dir: 1 | -1 }[] = [
   { name: "out: under a parent two levels up, by the nearest item indented less", marked: "- beds\n  - north\n    - pe|as", dir: -1 },
   { name: "out: an indented item with no parent above loses two spaces", marked: "Beds\n   - no|rth", dir: -1 },
   { name: "out: at the margin nothing moves", marked: "- no|rth", dir: -1 },
-  { name: "out: prose loses two spaces, or what it has", marked: " Sow the pe|as.", dir: -1 },
+  { name: "out: prose loses two spaces, or what it has, from any column", marked: " Sow the pe|as.", dir: -1 },
   { name: "out: a tab goes", marked: "\t\t- pe|as", dir: -1 },
   { name: "out: the cursor inside the indent that goes stays at the line's start", marked: "- beds\n |   - north", dir: -1 },
   { name: "out: a selection keeps its nesting: every line by the first line's step, none past the margin", marked: "- beds\n  - no^rth\n    - peas\n - odd\n\n  - sou|th", dir: -1 },
@@ -174,6 +181,108 @@ function indented(c: { name: string; marked: string; dir: 1 | -1 }) {
   for (const span of [...did.spans].reverse()) after = after.slice(0, span.start) + span.replacement + after.slice(span.end);
   return { name: c.name, text, dir: c.dir, anchor: hat, cursor: bar, spans: did.spans, after: { text: after, anchor: did.anchor, cursor: did.cursor }, lines: did.lines };
 }
+
+/** A marked text read: `|` is the cursor, `^` the selection's other end when something is selected. */
+function read(marked: string) {
+  const bar = marked.replace("^", "").indexOf("|"), hat = marked.includes("^") ? marked.replace("|", "").indexOf("^") : bar;
+  return { text: marked.replace("|", "").replace("^", ""), anchor: hat, cursor: bar };
+}
+const after = (did: Keyed) => ({ spans: did.spans, after: { text: did.text, anchor: did.anchor, cursor: did.cursor } });
+
+/**
+ * Return in a draft (`newlineText`). `needs` names what a row asks of a client beyond the text's own lines: the note's
+ * components and code fences (`components`) or a page's title rule (`titles`); a client that has neither part runs
+ * the rows without it.
+ */
+const NEWLINE: { name: string; marked: string; options?: NewlineOptions; needs?: "components" | "titles" }[] = [
+  { name: "a list item goes on: the same marker and gap, the words after the cursor with it", marked: "- sow |peas" },
+  { name: "at an item's end: an empty item to write in", marked: "- peas\n- beans|" },
+  { name: "a numbered item: the next number, the same closer", marked: "9) dig|" },
+  { name: "a number with a dot, indented, under another list", marked: "- beds\n  3. north|\n- shed" },
+  { name: "a checklist's step goes on with an open box, whatever the step's own", marked: "- [x] water|" },
+  { name: "a star, and two spaces after it: both kept", marked: "*  rake| the bed" },
+  { name: "the blanks after the cursor don't come to the new item", marked: "- sow|   peas" },
+  { name: "an empty item at the top level ends the list: its marker goes", marked: "- peas\n- |" },
+  { name: "an empty nested item goes up to its parent's level, with the parent's next marker", marked: "1. beds\n   - north\n   - |" },
+  { name: "an empty nested step goes up with an open box", marked: "- [ ] sow\n  - [ ] |" },
+  { name: "an empty indented item with no parent above steps back two spaces", marked: "Beds\n    - |" },
+  { name: "the cursor on the marker: the break goes before the item, which stays whole", marked: "- peas\n|- beans" },
+  { name: "the cursor inside the marker's gap is on the marker", marked: "-| beans" },
+  { name: "prose breaks where the cursor is", marked: "Sow the |peas." },
+  { name: "an indented line keeps its indent on the new one", marked: "  Sow the peas.|" },
+  { name: "an indented line broken mid-way: the indent kept, the blanks after the cursor not", marked: "\tSow the|  peas." },
+  { name: "the cursor inside the indent: a plain break", marked: " | Sow" },
+  { name: "a line of only blanks steps back a level", marked: "- peas\n    |" },
+  { name: "a selection goes first", marked: "- sow ^peas and |beans" },
+  { name: "a selection over several lines goes, then the item goes on", marked: "- pe^as\n- beans\n- le|eks" },
+  { name: "plain: just the break, on a list item too", marked: "- sow |peas", options: { plain: true } },
+  { name: "plain: no indent kept", marked: "  Sow the peas.|", options: { plain: true } },
+  { name: "words that are not ASCII before the cursor: offsets are UTF-16", marked: "- café 🌱|pêche" },
+  { name: "a component's opening line that nothing closes gets its closer", marked: "::box{gap=\"2\"}|", options: { components: true }, needs: "components" },
+  { name: "a component already closed gets none", marked: "::box|\nBeds\n::", options: { components: true }, needs: "components" },
+  { name: "a first line of only a page token, at its end, is titled", marked: "[page::seed-list]|", options: { titles: true }, needs: "titles" },
+];
+const LINES: { name: string; marked: string }[] = [
+  { name: "the cursor's line", marked: "- beds\n- no|rth\n- south\n- shed" },
+  { name: "the first line", marked: "- be|ds\n- north" },
+  { name: "the last line", marked: "- beds\n- no|rth" },
+  { name: "every line the selection touches", marked: "- beds\n- no^rth\n- sou|th\n- shed" },
+  { name: "a selection made upwards", marked: "- beds\n- no|rth\n- sou^th\n- shed" },
+  { name: "a selection that ends at a line's very start leaves that line out", marked: "- beds\n^- north\n|- south\n- shed" },
+  { name: "the only line", marked: "Sow the pe|as." },
+  { name: "a line longer than the one that comes up to its row", marked: "- beds and borders|\n- a" },
+  { name: "words that are not ASCII: offsets are UTF-16", marked: "- café 🌱\n- pê|che 🍑\n- thé" },
+];
+const WRAPPED: { name: string; marked: string; open: string }[] = [
+  { name: "a bracket wraps the selection, which stays selected", marked: "Sow the ^peas| today", open: "[" },
+  { name: "a selection made backwards keeps its direction", marked: "Sow the |peas^ today", open: "(" },
+  { name: "two characters: the closer is their mirror", marked: "see ^seed list|", open: "[[" },
+  { name: "a mark closes with itself", marked: "^very| dry", open: "**" },
+  { name: "over several lines", marked: "- pe^as\n- be|ans", open: "`" },
+  { name: "nothing selected: nothing to wrap", marked: "Sow the pe|as", open: "[" },
+  { name: "words that are not ASCII", marked: "🌱 ^pêche| 🍑", open: "_" },
+];
+const TYPED: { name: string; marked: string; ch: string; filled?: boolean }[] = [
+  ...Object.keys(WRAPS).map(ch => ({ name: `${ch} typed over a selection wraps it`, marked: "Sow the ^peas| today", ch })),
+  { name: "a letter typed over a selection is only text", marked: "Sow the ^peas| today", ch: "b" },
+  { name: "a wrap character over a selection a client filled in replaces it as any character does", marked: "::box{gap=\"^2|\"}", ch: "(", filled: true },
+  ...Object.keys(PAIRS).map(ch => ({ name: `${ch} at a line's end brings its closer`, marked: "Sow |\nWater", ch })),
+  { name: "an opening bracket before a blank brings its closer", marked: "Sow | the peas", ch: "(" },
+  { name: "an opening bracket before a word comes alone", marked: "Sow |the peas", ch: "(" },
+  { name: "a second bracket inside the pair is paired too: [[ is [[]]", marked: "see [|]", ch: "[" },
+  { name: "a closing bracket typed where the same one stands is typed over", marked: "see [[seed list|]]", ch: "]" },
+  { name: "a closing bracket typed where another stands is only text", marked: "(see [beds|)", ch: "]" },
+  { name: "a closing bracket at the text's end is only text", marked: "(beds|", ch: ")" },
+  { name: "a quote brings no closer", marked: "Sow |", ch: "\"" },
+  { name: "a star brings no closer", marked: "|", ch: "*" },
+  { name: "a marker typed on an empty item, then a space: it is that marker's item", marked: "- peas\n- *|", ch: " " },
+  { name: "a number typed on an empty step keeps the indent and drops the box", marked: "  - [ ] 1.|", ch: " " },
+  { name: "a marker typed on an item that has words is only text", marked: "- peas -|", ch: " " },
+  { name: "a space in the middle of such a line is only text", marked: "- *| peas", ch: " " },
+  { name: "words that are not ASCII before a pair", marked: "pêche 🍑 |", ch: "{" },
+];
+const SELECTED: { name: string; marked: string }[] = [
+  { name: "the cursor in a word", marked: "Sow the pe|as today.\nWater them." },
+  { name: "the cursor in the blanks between words", marked: "Sow  | the peas" },
+  { name: "the cursor at the line's end", marked: "Sow the peas|\nWater them." },
+  { name: "a word with a link's brackets and a hyphen is one run", marked: "see [[seed-li|st]] now" },
+  { name: "an empty line", marked: "Sow\n|\nWater" },
+  { name: "the whole line already selected: the line takes in the next", marked: "^Sow the peas.|\nWater them.\nLift them." },
+  { name: "the last line already selected stays", marked: "Sow the peas.\n^Water them.|" },
+  { name: "part of two lines selected: both whole", marked: "Sow ^the peas.\nWater |them.\nLift them." },
+  { name: "words that are not ASCII: offsets are UTF-16", marked: "thé 🌱 pê|che 🍑 café" },
+];
+const CHECKED: { name: string; marked: string }[] = [
+  { name: "an open step is done", marked: "- [ ] sow the pe|as" },
+  { name: "a done step is open again", marked: "- [x] wa|ter" },
+  { name: "a step in another state is open again", marked: "1. [✓] li|ft" },
+  { name: "a list item with no box gets an open one, the cursor on its text", marked: "- sow the pe|as" },
+  { name: "the cursor on the marker stays there", marked: "|- sow" },
+  { name: "prose becomes an item with an open box", marked: "  Sow the pe|as." },
+  { name: "an empty line becomes an empty step", marked: "Beds\n|" },
+  { name: "several lines go where the first goes, and blank lines stay", marked: "- [ ] s^ow\n\n- [x] water\n- lift\nRa|ke" },
+  { name: "several lines from a done step are all open", marked: "- [x] s^ow\n- [~] water\n- li|ft" },
+];
 
 /**
  * Words a screen's key map might name a key by: every name a key has (the values of `NAMED_KEYS`), a character each
@@ -281,7 +390,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), whether what an answer asks a client to open is written as a Resource ref and not a block's id (isResourceRef), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText: a level in asks tabTakes first), what an editor's keys make of a draft's text and selection (newlineText, lineOpText, wrapText, typedText, selectText, goText, eraseText, checkText: the text after, the selection's two ends and the one span between, changeSpan), whether a word is a key's one name, as a screen's keys name one (isKeyName), whether what an answer asks a client to open is written as a Resource ref and not a block's id (isResourceRef), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -294,6 +403,14 @@ export function coreContract(): string {
     links: LINKS.map(names => ({ names, groups: linkGroupsNamed(names) })),
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
     indent: INDENT.map(indented),
+    newline: NEWLINE.map(c => { const at = read(c.marked); return { name: c.name, ...at, options: c.options ?? {}, ...(c.needs ? { needs: c.needs } : {}), ...after(newlineText(at.text, at.anchor, at.cursor, c.options)) }; }),
+    lines: LINES.flatMap(c => LINE_OPS.map(op => { const at = read(c.marked); return { name: `${op}: ${c.name}`, ...at, op, ...after(lineOpText(at.text, at.anchor, at.cursor, op)) }; })),
+    wrap: WRAPPED.map(c => { const at = read(c.marked), did = wrapText(at.text, at.anchor, at.cursor, c.open); return { name: c.name, ...at, open: c.open, ...(did ? after(did) : { spans: [], after: null }) }; }),
+    typed: TYPED.map(c => { const at = read(c.marked), did = typedText(at.text, at.anchor, at.cursor, c.ch, c.filled); return { name: c.name, ...at, ch: c.ch, filled: !!c.filled, ...(did ? after(did) : { spans: [], after: null }) }; }),
+    select: SELECTED.flatMap(c => SELECTS.map(what => { const at = read(c.marked); return { name: `${what}: ${c.name}`, ...at, what, after: selectText(at.text, at.anchor, at.cursor, what) }; })),
+    go: SELECTED.flatMap(c => LINE_GOES.flatMap(to => [false, true].map(extend => { const at = read(c.marked); return { name: `${to}${extend ? ", selecting" : ""}: ${c.name}`, ...at, to, extend, after: goText(at.text, at.anchor, at.cursor, to, extend) }; }))),
+    erase: SELECTED.flatMap(c => (["line-start", "line-end"] as const).map(to => { const at = read(c.marked); return { name: `${to}: ${c.name}`, ...at, to, ...after(eraseText(at.text, at.anchor, at.cursor, to)) }; })),
+    check: CHECKED.map(c => { const at = read(c.marked); return { name: c.name, ...at, ...after(checkText(at.text, at.anchor, at.cursor)) }; }),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
     resourceRefs: RESOURCE_REFS.map(value => ({ value, resource: isResourceRef(value) })),
     stays: [0, 1, 20, 35, 36, 80, 200, 407, 408, 2000].map(columns => ({ columns, ms: staysMs(columns) })),
