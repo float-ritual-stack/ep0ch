@@ -98,6 +98,10 @@ fn what_an_extension_s_action_answers_is_done_here_or_said_not_done() {
     // step is theirs. The comparison it asks for beside it is no part of this window, and that is said.
     run(&mut rt, "extensions.act id=compost action=sift", Actor::Person);
     assert_eq!(sent(&asked, "extensions.act").last().map(|a| (a["extension"].clone(), a["extensionAction"].clone(), a["blockId"].clone())), Some((json!("compost"), json!("sift"), json!("plot"))));
+    // (The request is the one the service was asked when its answer was written down: outline-core's served-act.json.)
+    let recorded = served_act();
+    for (key, value) in recorded["asked"].as_object().unwrap() { let ours = &sent(&asked, "extensions.act").last().unwrap()[key]; assert!(if value.is_object() { value.as_object().unwrap().keys().all(|k| !ours[k].is_null()) } else { !ours.is_null() }, "the window's request has no {key}, which the recorded one has") }
+    assert_eq!(recorded["answered"]["message"], "the change, beside the note");
     assert_eq!(rt.state.subject().as_deref(), Some("beans"), "the note it asked to have opened is the one the reader shows");
     assert_eq!(steps(&rt.state).last(), Some(&("open id=beans".to_string(), "person".to_string(), true)));
     assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("Sift the heap: the change, beside the note · the note is opened without its last change beside it: this window draws no such comparison", false));

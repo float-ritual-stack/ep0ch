@@ -408,14 +408,19 @@ pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept:
 /// forward: its host is the one asked which outlines there are, and names machines by its own ssh names.
 pub fn garden_away(machine: &'static str) -> Garden { garden_with(ok(), true, None, true, machine) }
 
+/// What a real service answered `extensions.act` as this window asks it, and everything such an answer may ask of a
+/// client (`asks`): outline-core's fixture, written by the outliner's own test (list-extensions.test.ts).
+pub fn served_act() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/served-act.json")).expect("the served act fixture is JSON") }
+
 /// What the stand-in host answers an extension's action with, one made-up action each thing the service's
 /// `extensions.act` may answer (the outliner's extension-calls.ts, `ExtensionActResult`): words alone, a note to
-/// open with its last change beside it, a Resource to open, a question before it does anything (the argument that
+/// open with its last change beside it (the answer a real service gave, `served_act`), a Resource to open, a question before it does anything (the argument that
 /// says yes), words for the clipboard, a line for the caret, and a runbook's plan.
 fn acted(ask: &Value) -> Value {
     let mut answer = json!({ "extension": ask["extension"], "action": ask["extensionAction"], "written": [] });
     let more = match ask["extensionAction"].as_str().unwrap_or("") {
-        "sift" => json!({ "message": "the change, beside the note", "open": "beans", "compare": true }),
+        // (As the service answered what-changed's `change`: the recorded answer, about the garden's beans.)
+        "sift" => { let mut recorded = served_act()["answered"].clone(); recorded["open"] = json!("beans"); for own in ["extension", "action"] { recorded.as_object_mut().unwrap().remove(own); } recorded }
         "ledger" => json!({ "message": "the heap's ledger", "open": "file:/shed/ledger.md" }),
         "empty" if ask["args"]["sure"] != "yes" => json!({ "confirmation": { "message": "Somebody fed the heap since it was last turned. Empty it anyway?", "argument": "sure", "value": "yes" } }),
         "empty" => json!({ "message": "emptied the heap", "written": ["plot"] }),
