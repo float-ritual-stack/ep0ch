@@ -869,3 +869,37 @@ fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place
     assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
     for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
 }
+
+/// Wave A1: what the window takes from Rune and the platform has one place each, and so has what the wave added
+/// to the model. The window's title bar and what its own controls take of the toolbar are the shell's; the
+/// platform's menu, the clipboard and the window's title are the window's hands' (`keys::effects`); a tile's menu is
+/// made by one function, from the actions' rows, and drawn by the platform or by the bar; a file is kept by one
+/// asker, whoever hands it over; a note's card is asked for in one place; a story stands on a recording, made
+/// where the stories are.
+#[test]
+fn what_the_window_takes_from_the_platform_and_a_tile_s_menu_have_one_place_each() {
+    none("the window's own title bar asked for in a second place (`shell::titlebar`)", strays("Titlebar::new(", |path| path == "shell.rs"));
+    none("what the window's own controls take of the toolbar read outside the shell", strays("chrome_insets()", |path| path == "shell.rs"));
+    none("the window's own controls measured the old way, beside the title bar's insets", strays("titlebar_inset()", |path| path == "shell.rs"));
+    none("the platform's menu opened outside the window's hands (`keys::effects`)", strays("popup_menu(", |path| path == "keys.rs"));
+    none("the window named outside its hands (`keys::effects`, from `App::window_title`)", strays("set_title(", |path| path == "keys.rs"));
+    none("a tile's menu row made in a second place (`App::menu_rows`)", strays("MenuItem {", |path| path == "actions/menu.rs"));
+    none("the open menu put or put away outside its own actions and the bar's", strays("st.menu", |path| path == "actions/menu.rs" || path == "actions/bar.rs"));
+    none("what a right-click says written in a second place (`shell::menu_lines`)", ["\"tile.menu at=", "\"tile.point {"].iter().flat_map(|written| strays(written, |path| path == "shell.rs")).collect());
+    none("a label written for a menu's row (the action's own `menu` row says it; a cell's words are the service's)", strays("label: Some(\"", |path| path != "actions/menu.rs"));
+    none("a file kept by a second asker (`App::keep_file`)", strays("\"media.keep\"", |path| path == "actions/draft.rs"));
+    none("dropped files heard outside the page drawer", strays("on_drop_files(", |path| path == "tiles/page.rs"));
+    none("a paste read in a second place (`keys::hand_over`)", calls("pasted_picture", |path| path == "keys.rs" || path == "actions/draft.rs"));
+    none("a media line written by the window (the service writes it: `media.keep`'s `line`)", ["\"[img::", "\"[artifact::"].iter().flat_map(|written| strays(written, |_| false)).collect());
+    none("the row whose note is glanced at written outside its action", strays("st.glance", |path| path == "actions/menu.rs"));
+    none("a note's page asked for a card in a second place (`App::glance_ask`)", calls("glance_ask", |path| path == "actions/menu.rs" || path == "actions/app.rs"));
+    none("a recording answered outside the stories", strays("Recorded::new(", |path| path == "stories.rs" || path == "client.rs"));
+    none("the playground built in a second place (`main.rs`, where every window is made)", strays("Playground::<", |path| path == "main.rs"));
+    // The menu's rows are read from the action table: nothing in the menu's file names an action's label, and the
+    // three words it has of its own are what the pointer was on, never an action's group.
+    let code = |path: &str| std::fs::read_to_string(format!("{}/src/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap().lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    let menu = code("actions/menu.rs");
+    assert!(menu.contains("action.row.menu.iter()") && menu.contains("super::label(&line)"), "a menu's rows and their labels are the actions' own");
+    // A story is data: the model's file names no renderer, and its lines are the recording's.
+    assert!(!code("stories.rs").contains("rune") && !code("stories.rs").contains("include_str!"), "stories.rs is the model's, and compiles nothing of a host's answers in: a story is drawn by the window's own view");
+}

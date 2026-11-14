@@ -97,6 +97,27 @@ fn init() -> App {
     app
 }
 
+/// A window in a story's state, for the playground: opened over the recording a scratch host once answered
+/// (`stories.rs`), with the story's lines run. No host is asked, and nothing it does reaches an outline.
+fn story(told: &stories::Story) -> App {
+    let mut app = App::opened(Box::new(stories::link()), stories::at()).blocking(true);
+    app.start();
+    app.settle();
+    app.script(&told.acts.join("\n"));
+    app.settle();
+    app
+}
+
+/// The playground: Rune's storybook in the window (`App::playground`), with a story for each state of the window
+/// the recorder set up (`stories.rs`: a tile of each kind, the bar, a tile held, a thread's card, a note's card on a
+/// hover). A story's stage is the window's own view over a state of its own, made from a recording, so nothing a
+/// person does there reaches an outline, and it does each turn what every window of the run does. The scenes stay
+/// out of its list: a scene runs its act lines against whatever outline the window is on, and some of them write.
+fn playground() -> rune::Playground<App> {
+    let listed = rune::Playground::<App>::new().scenes(|_| false);
+    stories::all().iter().fold(listed, |listed, told| listed.story(rune::Story::<App>::new(told.name, move || story(told), shell::view).poll(poll).stage(rune::Stage::Fill)))
+}
+
 /// A state nobody opens on: what a window's spec names until the shell hands it the state it was made for.
 fn nobody() -> App { App::new(Box::new(Nowhere(None)), "") }
 
@@ -143,7 +164,7 @@ fn main() {
     rune::orderly_exit();
     // The playground (a debug build's: mod+shift+D, or the bar along the foot of the window) lists this window's
     // stories beside its scenes: each the window whole, in one state, over answers a scratch host once gave.
-    let window = rune::App::new(made(init)).chrome(shell::frame()).titlebar(shell::titlebar()).playground(shell::playground(poll)).on_close(control::gone);
+    let window = rune::App::new(made(init)).chrome(shell::frame()).titlebar(shell::titlebar()).playground(playground()).on_close(control::gone);
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.
     let _control = (!rune::is_headless()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {

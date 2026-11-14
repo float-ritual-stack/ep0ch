@@ -1546,3 +1546,107 @@ fn record_the_stories() {
     let _ = std::fs::remove_dir_all(&root);
     if let Err(panic) = result { std::panic::resume_unwind(panic) }
 }
+
+/// Wave A1's sentence against a scratch host this test starts: a file let go over a note is kept by the service
+/// (`media.keep`: copied into the outline's own media folder under the name the door's rule gives it) and its line,
+/// as the service wrote it, goes in after the line it was dropped on; saved, the page serves a picture there. A
+/// page a note runs is named where it is, and a file a note doesn't keep is refused in the service's words. A row's
+/// note is read for its card without being opened, a tile's menu is answered to an agent from the rows, and a
+/// note's web link is the service's to say. `cargo test -- --ignored live_a_file` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_file_dropped_on_a_note_is_kept_by_the_service_and_a_row_s_note_is_read_for_its_card() {
+    use crate::client::Socket;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-a1-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(20));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        asking(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true }));
+        let mut raw = Socket::connect(&path);
+        let plot = asking(&mut raw, json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": "Plot [type::place]\nFour beds and a cold frame.\n\nThe long path runs between them.", "author": "user" }))["id"].as_str().unwrap().to_string();
+        let beans = asking(&mut raw, json!({ "id": "c", "action": "create", "outline": "scratch", "parentId": null, "text": "Water the beans [type::chore]\nEvery evening while it is dry.", "author": "user" }))["id"].as_str().unwrap().to_string();
+        let picture = root.join("bed at dusk.png");
+        let bytes: Vec<u8> = [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13][..], b"IHDR", &[0, 0, 0, 2, 0, 0, 0, 2, 8, 6, 0, 0, 0]].concat();
+        std::fs::write(&picture, &bytes).unwrap();
+
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        act(&mut app, &format!("open id={plot}"));
+        // The file is let go over the note's first paragraph: its second line.
+        let dropped = act(&mut app, &format!("note.drop line=2 path={}", crate::actions::word(picture.to_str().unwrap())));
+        assert!(dropped.ok, "{}", dropped.said);
+        app.settle();
+        let media = outlines.join("scratch").join("media");
+        let kept: Vec<std::path::PathBuf> = std::fs::read_dir(&media).unwrap_or_else(|e| panic!("the outline has a media folder ({}): {e} · {:?}", media.display(), app.notice)).filter_map(|entry| entry.ok().map(|entry| entry.path())).collect();
+        assert_eq!(kept.len(), 1, "one picture was kept: {kept:?}");
+        assert_eq!(std::fs::read(&kept[0]).unwrap(), bytes, "the kept file is the dropped one");
+        let name = kept[0].file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.len() == "2026-11-14-1a2b3c4d.png".len() && name.ends_with(".png"), "named by its day and contents: {name}");
+        let line = format!("[img::{}]", kept[0].display());
+        assert_eq!(words(&app), format!("Plot [type::place]\nFour beds and a cold frame.\n{line}\n\nThe long path runs between them."), "the service's line is in after the line it was dropped on");
+        // The same picture dropped again is the same file.
+        assert!(act(&mut app, &format!("draft.image path={}", crate::actions::word(picture.to_str().unwrap()))).ok);
+        app.settle();
+        assert_eq!(std::fs::read_dir(&media).unwrap().count(), 1, "one picture twice is one file");
+        // A page a note runs is named where it is; a file a note doesn't keep is refused, and nothing is put in.
+        let page = root.join("night shift.html");
+        std::fs::write(&page, "<p>beds</p>").unwrap();
+        act(&mut app, &format!("draft.image path={}", crate::actions::word(page.to_str().unwrap())));
+        app.settle();
+        assert!(words(&app).contains(&format!("[artifact::{}]", page.display())), "{}", words(&app));
+        let seeds = root.join("seeds.csv");
+        std::fs::write(&seeds, "peas,3\n").unwrap();
+        let before = words(&app).to_string();
+        act(&mut app, &format!("draft.image path={}", crate::actions::word(seeds.to_str().unwrap())));
+        app.settle();
+        assert_eq!(words(&app), before);
+        assert!(app.notice.as_ref().is_some_and(|notice| notice.tone == Tone::Problem && notice.said.contains("no picture and no page")), "{:?}", app.notice);
+        // Saved, the page serves a picture where the line is.
+        assert!(act(&mut app, "edit.save").ok);
+        app.settle();
+        assert!(!unsaved(&app), "{:?}", app.notice);
+        act(&mut app, "edit.close");
+        app.settle();
+        let served = app.page().expect("the saved page came");
+        assert!(served.parts.iter().any(|part| part["view"]["type"] == "picture" && part["view"]["path"].as_str() == kept[0].to_str()), "{:?}", served.parts.iter().map(|part| part["view"]["type"].clone()).collect::<Vec<_>>());
+
+        // A row's note, read for its card: asked once, not opened.
+        assert!(act(&mut app, &format!("glance row={beans} tile=tree")).ok);
+        app.settle();
+        let tree = app.tree_tile().expect("the desk has a tree");
+        assert_eq!(app.glanced(&tree).and_then(|(_, page)| page).map(|page| page.title.clone()).as_deref(), Some("Water the beans"));
+        assert_eq!(app.subject().as_deref(), Some(plot.as_str()), "nothing was opened");
+        act(&mut app, "glance tile=tree");
+        // A tile's menu, answered to an agent from the rows; and a note's web link, which is the service's to say
+        // (this host has no publisher, and says so).
+        let rows = app.act("tile.menu tile=reader", crate::actions::Actor::Agent("seedling-agent".into())).answer["rows"].as_array().cloned().unwrap_or_default();
+        assert!(rows.iter().any(|row| row["act"] == "tile.close") && rows.iter().any(|row| row["act"] == "note.copy-ref kind=link"), "{rows:?}");
+        assert!(act(&mut app, "note.copy-ref kind=link").ok);
+        app.settle();
+        match app.copying() {
+            Some(link) => assert!(link.contains(&plot) || link.contains("/p/"), "the link the service said: {link}"),
+            None => assert!(app.notice.as_ref().is_some_and(|notice| notice.said.contains("web link")), "with no link, the notice says so: {:?}", app.notice),
+        }
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}

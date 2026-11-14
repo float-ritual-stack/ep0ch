@@ -955,6 +955,17 @@ impl App {
         true
     }
 
+    /// What the window is called in its title bar and the system's list of windows: the note its reader shows and
+    /// the outline it is on (`keys::effects` tells the window when it changes).
+    pub fn window_title(&self) -> String {
+        let note = self.shown().map(|page| page.title.trim()).filter(|title| !title.is_empty());
+        match (note, self.at.outline.as_str()) {
+            (_, "") => "ep0ch".to_string(),
+            (Some(note), outline) => format!("{note} \u{b7} {outline}"),
+            (None, outline) => outline.to_string(),
+        }
+    }
+
     /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).
     pub fn revealed(&mut self) -> Option<String> { self.st.reveal.take() }
 

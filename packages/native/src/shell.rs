@@ -95,7 +95,7 @@ fn spine(s: &App, id: &str, at: [f32; 4], fold: &Fold, frame: Frame, k: &Kit) ->
     let said = if fold.flat { row().w_full().h_full().center_y().px(8.0).child(text(name.clone()).font(k.ty.small).color(ink).truncate().help_when_truncated(name.clone())) } else { name.chars().fold(col().w_full().h_full().items_center().py(6.0), |spine, letter| spine.child(text(letter.to_string()).font(k.ty.small).color(ink))) };
     keys::tile(k.interactive(said.key(format!("tile/{name}")).role("button").label(format!("{name}: {}", actions::label(&line))).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.sm).fill(c.layer_01).border(1.0, if s.layout.focus == id { c.border_focus } else { c.border_muted }))
         .opacity(if s.moving.as_ref().is_some_and(|held| held.tile == id) { 0.4 } else { 1.0 })
-        .on_press(act(line)).on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &name, frame) { s.act(&line, Actor::Person); }))
+        .on_press(act(line)).on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &name, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() }))
 }
 
 /// One tile in its box: its title bar (its name, or its set's tabs; held and dragged to move it), then what its
@@ -117,7 +117,7 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
         let label = text(tab_name.clone()).font(if here { k.ty.ui_medium } else { k.ty.ui }).color(if here { c.text_base } else { c.text_muted }).truncate().help_when_truncated(tab_name.clone()).px(6.0).py(3.0).radius(k.radius.sm);
         let label = if alone { label.min_w(0.0) } else { label.w((tab.to - tab.from) as f32 * CELL.0) };
         title = title.child(k.interactive(label).key(format!("tile/{name}/tab/{tab_name}")).role("tab").focus_selected(here).on_press(act(format!("tile.focus tile={}", word(&tab_name))))
-            .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &tab_name, frame) { s.act(&line, Actor::Person); }));
+            .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &tab_name, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() }));
     }
     let floats = s.layout.is_float(id);
     let mut bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 }).child(title);
@@ -136,7 +136,7 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
     if roomy { bar = bar.child(control(&MORE, "tile.menu", "menu")) }
     let bar = bar.child(control(&glyphs::CLOSE, "tile.close", "close"));
     let dragged = name.clone();
-    let bar = bar.on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &dragged, frame) { s.act(&line, Actor::Person); });
+    let bar = bar.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &dragged, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() });
     let problems = s.problems_of(id);
     let mut body = col().w_full().grow(1.0).min_h(0.0);
     // What the service says is wrong with this tile is said on it, in its words.
@@ -321,16 +321,6 @@ pub fn open(born: App, made: rune::AppSpec<App>) {
     let window = rune::App::new(made).chrome(frame()).titlebar(titlebar()).init(move || born).on_close(crate::control::gone);
     crate::control::here(&name, window.handle());
     rune::open_window(rune::WindowSpec::from_app(format!("window/{name}"), window));
-}
-
-/// The playground: Rune's storybook in the window (`App::playground`), with a story for each state of the window
-/// the recorder set up (`stories.rs`: a tile of each kind, the bar, a tile held, a thread's card, a note's card on a
-/// hover). A story's stage is this window's own view over a state of its own, made from a recording, so nothing a
-/// person does there reaches an outline; `poll` is what every window of the run does each turn. The scenes stay
-/// out of its list: a scene runs its act lines against whatever outline the window is on, and some of them write.
-pub fn playground(poll: fn(&mut App, f64, &mut Tx) -> bool) -> rune::Playground<App> {
-    let listed = rune::Playground::<App>::new().scenes(|_| false);
-    crate::stories::all().iter().fold(listed, |listed, story| listed.story(rune::Story::<App>::new(story.name, move || crate::stories::window(story), view).poll(poll).stage(rune::Stage::Fill)))
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {

@@ -46,7 +46,10 @@ static COPY: ActionRow = ActionRow::new("note.copy-ref", Touches::Nothing, "copy
 
 static GLANCE: ActionRow = ActionRow::new("glance", Touches::Nothing, "show the note a row of a list (tile=, row= by the row's id) opens, in a card beside the row, without opening it: its title and how it starts, as the service answers its page. With no row=, the card is put away. The person's: it follows their pointer, resting on a row")
     .person("the card follows the person's pointer: an agent reads a note from the service itself, and opens one here with open id=…")
-    .args(&[("row", ArgSpec::text("the row whose note to show, by its id; left out, the card is put away").optional())])
+    .args(&[
+        ("row", ArgSpec::text("the row whose note to show, by its id; left out (with n=), the card is put away").optional()),
+        ("n", ArgSpec::number("the row by its place in the list, from 1: for a scene, which knows no id").optional()),
+    ])
     .keys(&[KeyRow::via("the pointer resting on a row of a list tile; it goes when the pointer leaves the row")])
     .examples(&[Example { act: "glance row=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree", does: "shows that note in a card beside its row of the tree", safe: Some(true) }]);
 
@@ -172,9 +175,11 @@ impl App {
 
 fn glance(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let Some(tile) = app.about() else { return Outcome::refused("there is no list to glance at a row of") };
-    app.st.glance = match args.text("row") {
-        Some(row) if app.rows_of(&tile).iter().any(|listed| listed.id == row) => Some(Glance { tile, row: row.to_string() }),
+    let nth = args.number("n").and_then(|n| app.rows_of(&tile).get((n.max(1.0) as usize) - 1)).map(|row| row.id.clone());
+    app.st.glance = match args.text("row").map(str::to_string).or(nth) {
+        Some(row) if app.rows_of(&tile).iter().any(|listed| listed.id == row) => Some(Glance { tile, row }),
         Some(row) => return Outcome::refused(format!("{} lists no row {row}", app.layout.name(&tile))),
+        None if args.number("n").is_some() => return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))),
         None => None,
     };
     Outcome::done()

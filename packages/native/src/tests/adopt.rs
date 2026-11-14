@@ -308,9 +308,9 @@ fn a_row_the_pointer_rests_on_shows_its_note_in_a_card_beside_it_and_opens_nothi
 fn every_story_of_the_playground_stands_on_what_a_host_once_answered() {
     let stories = crate::stories::all();
     assert!(stories.len() >= 10, "the recording lists the stories: {}", stories.len());
-    let story = |name: &str| crate::stories::window(stories.iter().find(|story| story.name == name).unwrap_or_else(|| panic!("no story {name}: {:?}", stories.iter().map(|story| story.name).collect::<Vec<_>>())));
+    let story = |name: &str| crate::story(stories.iter().find(|story| story.name == name).unwrap_or_else(|| panic!("no story {name}: {:?}", stories.iter().map(|story| story.name).collect::<Vec<_>>())));
     for told in stories {
-        let app = crate::stories::window(told);
+        let app = crate::story(told);
         assert!(app.online && !app.screen.is_nowhere(), "{} opens on a screen: {:?}", told.name, app.notice);
         assert!(!told.about.is_empty(), "{} says what it shows", told.name);
         assert!(app.steps.iter().all(|step| step.ok), "{}: every line of it ran: {:?}", told.name, app.steps.iter().filter(|step| !step.ok).map(|step| (step.line(), step.said.clone())).collect::<Vec<_>>());
@@ -336,7 +336,7 @@ fn every_story_of_the_playground_stands_on_what_a_host_once_answered() {
 /// there acts on that state alone. The window's real state is as it was.
 #[test]
 fn a_story_opens_in_the_playground_on_a_state_of_its_own_and_is_pressed_there() {
-    let mut rt = rune::App::new(crate::made(crate::nobody)).playground(crate::shell::playground(crate::poll)).headless_runtime((1400.0, 860.0), rune::Env { system_dark: true, scale: 1.0 });
+    let mut rt = rune::App::new(crate::made(crate::nobody)).playground(crate::playground()).headless_runtime((1400.0, 860.0), rune::Env { system_dark: true, scale: 1.0 });
     rt.frame(0.0);
     let real = rt.state.steps.len();
     rt.open_playground("Page/A thread's card", None);

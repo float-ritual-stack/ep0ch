@@ -302,9 +302,10 @@ pub fn rows(s: &App) -> Value {
 }
 
 /// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
-/// Rune's focus as it was last read, and the focus last asked of Rune (with the tiles shown then).
+/// Rune's focus as it was last read, the focus last asked of Rune (with the tiles shown then), and what the window
+/// was last told it is called.
 #[derive(Default)]
-pub struct Held { seq: Vec<KeyEvent>, seen: Option<String>, asked: Option<(String, Vec<String>)>, last: Option<Instant> }
+pub struct Held { seq: Vec<KeyEvent>, seen: Option<String>, asked: Option<(String, Vec<String>)>, last: Option<Instant>, titled: Option<String> }
 
 impl Held {
     /// When the person last pressed a key.
@@ -564,6 +565,9 @@ fn popup(rows: &[actions::menu::MenuItem]) -> rune::PopupMenu {
 /// handed back for it. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if s.closing { tx.close_window() }
+    // The window is called after the note its reader shows and its outline: told when that changes.
+    let title = s.window_title();
+    if s.held().titled.as_deref() != Some(title.as_str()) { tx.set_title(title.clone()); s.held().titled = Some(title) }
     // A paste asked for with no words of its own is the clipboard's: read here, where the window's hands are, and
     // handed to the tile the person was in when they asked (its program, or the block being written there).
     if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| hand_over(s, &tile, content)) }
