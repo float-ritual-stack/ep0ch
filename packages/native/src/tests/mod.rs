@@ -32,6 +32,8 @@
 //!   list handed over equal to what runs; an agent's act while the person types; a window built without one.
 //! - `pty_live.rs` (the `pty` feature): the terminal's crates themselves: a real pseudo-terminal running a made-up
 //!   script, and herdr-core's protocol spoken to a stand-in core in a scratch folder.
+//! - `small.rs`: wave H3's: the status line and a refusal's notice let go, the toolbar past the window's buttons, a
+//!   table's header over its rows, a decoded picture kept, an empty reader's words.
 //! - `typing.rs`: writing a block as in the door (H1): Tab and Shift+Tab move a line or a selection a level as one
 //!   step each, a paste is taken by the window and keeps its lines, and the list that completes a word says what
 //!   its lit row is and how many there are.
@@ -54,6 +56,7 @@ mod parity;
 mod parts;
 mod review;
 mod shell;
+mod small;
 mod store;
 mod support;
 mod sweep2;

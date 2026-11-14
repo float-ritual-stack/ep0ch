@@ -1,4 +1,5 @@
-// The made-up note the `parts` scene opens: figures, a box, a live list and two buttons, written into a scratch
+// The made-up notes the `parts`, `links`, `draft`, `settings` and `headings` scenes open, the first with figures, a
+// box, a live list and two buttons, written into a scratch
 // outline (never a real one: the socket is a scratch host's, named outright).
 //   bun scenes/parts.seed.ts <a scratch host's socket> <outline>
 import { OutlinerClient } from "../../outliner/src/client";
@@ -8,6 +9,22 @@ if (!socket || !outline) throw new Error("usage: bun scenes/parts.seed.ts <a scr
 const client = new OutlinerClient(socket, 20_000);
 const create = (text: string, parentId?: string) => client.request<{ id: string }>({ action: "create", outline, text, author: "user", ...(parentId ? { parentId } : {}) });
 
+const HEADINGS = [
+  "Hazel fence plan [type::plan] [season::spring] [plot::north] [soil::clay] [water::butt] [keeper::Ada] [paths::bark] [fence::hazel]",
+  "Fence style [heading-style::plot] [heading-pattern::dots] [heading-rows::2]",
+  "",
+  "## Beds [heading::plot]",
+  "Four beds, the cold frame first. The peas are due [due::friday].",
+  "",
+  "## Sowing [heading::plot] [heading-tone::amber]",
+  "- Peas in March",
+  "- Beans in May",
+  "",
+  "--- [rule::fade]",
+  "",
+  "### Paths [who::Bram]",
+  "Bark on the long path, grass between the beds.",
+];
 const plan = await create([
   "Bed plan [type::plan] [season::spring]",
   "Four beds this year. The cold frame goes in first.",
@@ -65,5 +82,9 @@ const sent = (days: number) => new Date(Date.now() - days * 86_400_000).toISOStr
 for (const [title, who, days] of [["Jars for the cellar", "Ada: which shelf do the jars go on?", 5], ["Seed swap", "Ada: are the broad beans still spare?", 2], ["The loan of the rotavator", "Bram: is Saturday still good?", 1]] as const) {
   await create(`${title} [type::outbox-item] [outbox::waiting] [waiting-on::${who}] [sent::${sent(days)}]`);
 }
+// The note the `headings` scene opens: headings and a rule that name a style, and a line that declares one. A page
+// that draws no style still leaves out the properties that style a line (the service's prose is without them); what
+// says something stays, here and in the Properties tile beside the reader.
+await create(HEADINGS.join("\n"));
 console.log(plan.id);
 process.exit(0);

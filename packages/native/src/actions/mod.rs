@@ -32,7 +32,7 @@ mod window;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, CELL, Field, FormUi, Notice, Said, TileUi, Tone, Ways};
+pub use app::{App, CELL, Field, FormUi, Notice, Said, TileUi, Tone, Ways, stays};
 pub use carry::{Moving, Strip};
 pub use row::ActionRow;
 
@@ -233,6 +233,15 @@ impl App {
 
     /// Runs a request already read (the control socket sends one). `as` in it names the agent.
     pub fn act_request(&mut self, req: actline::Request, by: Actor) -> Outcome {
+        // A problem the notice has said for long enough to be read goes when the person next acts, unless this act
+        // says something in its place (`App::read`): the refusal answered what they did then.
+        let read = by.is_person().then(|| self.read(std::time::Instant::now())).flatten();
+        let outcome = self.run_request(req, by);
+        if let Some(read) = read { self.put_away(read) }
+        outcome
+    }
+
+    fn run_request(&mut self, req: actline::Request, by: Actor) -> Outcome {
         let by = match (&by, &req.by) { (Actor::Agent(_), Some(named)) => Actor::Agent(named.clone()), _ => by };
         let mut step = Step { action: req.action.clone(), args: req.args.clone(), tile: req.tile.clone(), by: by.clone(), ok: false, said: String::new() };
         let Some(action) = find(&req.action) else {

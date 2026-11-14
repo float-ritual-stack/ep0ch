@@ -23,6 +23,8 @@ import { readScreenNote as readNote } from "@ep0ch/outline-core/screen-note";
 import type { Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
+import { savedNodes } from "@ep0ch/outline-core/screen-spec";
+import { nowPage } from "../hub/now";
 import { resolveKind } from "./tile-kinds";
 import { builtinScreen, extensionScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
 
@@ -91,8 +93,22 @@ export function register(n: ScreenNote) {
 function ownKinds(spec: ScreenSpec): ScreenSpec {
   const own = <T extends { only?: string[]; unless?: string[] }>(over: T): T => ({ ...over, ...(over.only ? { only: over.only.map(resolveKind) } : {}), ...(over.unless ? { unless: over.unless.map(resolveKind) } : {}) });
   const scoped = (list?: readonly { only?: string[]; unless?: string[] }[]) => !!list?.some(over => over.only || over.unless);
-  if (!scoped(spec.newNote) && !scoped(spec.keys)) return spec;
-  return { ...spec, ...(spec.newNote ? { newNote: spec.newNote.map(own) } : {}), ...(spec.keys ? { keys: spec.keys.map(own) } : {}) };
+  const kinds = !scoped(spec.newNote) && !scoped(spec.keys) ? spec : { ...spec, ...(spec.newNote ? { newNote: spec.newNote.map(own) } : {}), ...(spec.keys ? { keys: spec.keys.map(own) } : {}) };
+  return pinnedToNow(kinds);
+}
+/**
+ * A tile a screen note wrote `pinned` with no page is served as what it is now, a reader pinned (`screens.list`,
+ * outline-core's `canonLeaf`), and the page it means is this door's own setting: a served reader pinned to neither a
+ * note nor a page is pinned to the "now" page, as `canonSpec` reads the name where the door meets it itself.
+ */
+function pinnedToNow(spec: ScreenSpec): ScreenSpec {
+  const bare = (leaf: { t?: string; kind?: unknown; mode?: unknown; note?: unknown; page?: unknown } | undefined) =>
+    leaf?.t === "leaf" && typeof leaf.kind === "string" && resolveKind(leaf.kind) === "reader" && leaf.mode === "pinned" && !leaf.note && !leaf.page;
+  const tiles = (layout: ScreenSpec["layout"]) => [...savedNodes(layout.root), ...(layout.floats ?? []).map(f => f.tile)];
+  if (!tiles(spec.layout).some(bare)) return spec;
+  const served = structuredClone(spec);
+  for (const leaf of tiles(served.layout)) if (bare(leaf)) leaf.page = nowPage().address;
+  return served;
 }
 /** One screen note taken out. */
 function unregister(name: string) { writes++; forgetScreen(name); notes.delete(name); }

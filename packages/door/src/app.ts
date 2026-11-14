@@ -14,7 +14,7 @@ import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
 import { outlinesDir } from "./discover";
 import { actionFailure, errorDetails } from "./status-log";
-import { StatusLog, messageContext, readingMs, type MessageDetails } from "./status-log";
+import { MESSAGE_MS, StatusLog, messageContext, readingMs, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -33,7 +33,7 @@ import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, t
 import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { paste, type PasteDoor } from "./paste-path";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, saidToPerson, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
 import { doorMarks } from "./desk/marks";
 import type { Reveal } from "./reveal";
@@ -884,7 +884,7 @@ export class App implements Ctx {
     this.messageUntil = Date.now() + Math.max(ms, readingMs(msg)); this.flashes++; this.redraw();   // never gone before it can be read (PIE-1729)
   }
   /** A message in the status bar: untrusted text stays plain; an explicit href supplies its clickable destination. */
-  flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(fullPlainText(msg), ms, true, details); }
+  flash(msg: string, ms = MESSAGE_MS, details: MessageDetails = {}) { this.showMessage(fullPlainText(msg), ms, true, details); }
 
   // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
   /**
@@ -933,7 +933,7 @@ export class App implements Ctx {
     if (p === null) return;
     this.pressAgain.pressed(p, k);
     const r = this.refusedNow;
-    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + Math.max(4000, readingMs(r.text)); }
+    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + Math.max(MESSAGE_MS, readingMs(r.text)); }
     this.refusedNow = null;
     if (this.heldAfter && this.gesture.length && this.gesture.length < 4) this.gesture.push(p);
     else { this.gesture = [p]; this.gestures++; }
@@ -1329,7 +1329,7 @@ export class App implements Ctx {
         return r;
       } catch (e) {
         const refused = e instanceof ActionRefused || e instanceof Offline;
-        this.flash(refused ? `${who} · ${req.action} refused: ${e.message}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
+        this.flash(refused ? `${who} · ${req.action} refused: ${saidToPerson(e.message)}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
         throw e;
       }
     });

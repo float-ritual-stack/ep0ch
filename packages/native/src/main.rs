@@ -104,6 +104,9 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
     let landed = s.take();
     // The drafts held are renewed on the service, and it is told when the keys go quiet: asked again when due.
     if let Some(due) = s.beat() { tx.wake_after(due) }
+    // What the status line says goes once it has been up long enough to read; asked again when that is due.
+    let (faded, due) = s.fade(std::time::Instant::now());
+    if let Some(due) = due { tx.wake_after(due) }
     // A program in a terminal tile has something new to show (its screen lands at once: the drawer's own grid says so).
     let ran = s.ran();
     let moved = keys::effects(s, tx) | keys::follow(s, tx) | ran;
@@ -114,7 +117,7 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
         s.reconnect();
         tx.wake_after(Duration::from_secs(2));
     }
-    landed || moved
+    landed || moved || faded
 }
 
 /// What every window of the run is made of: its view, its keys, what it does each turn. `init` makes its state.
@@ -130,7 +133,7 @@ fn made(init: fn() -> App) -> AppSpec<App> {
 }
 
 fn main() {
-    let window = rune::App::new(made(init)).on_close(control::gone);
+    let window = rune::App::new(made(init)).chrome(shell::frame()).on_close(control::gone);
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.
     let _control = (!rune::is_headless()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {

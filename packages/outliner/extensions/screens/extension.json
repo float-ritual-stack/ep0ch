@@ -21,7 +21,7 @@
     {
       "kind": "reader",
       "name": "Reader",
-      "description": "a reader of notes: it keeps the note opened into it (note=<id> starts it on one, mode=pinned keeps it there)",
+      "description": "a note, read and written where it stands: one picked in a list, followed by a link or found in the bar opens here and stays",
       "drawer": "page",
       "replaces": [
         "reader"
@@ -42,7 +42,7 @@
     {
       "kind": "backlinks",
       "name": "Links",
-      "description": "the links of the note its home reader shows (source=tile:<name>): outlinks, resources, backlinks and children",
+      "description": "the links of the note its reader shows: outlinks, resources, backlinks and children",
       "drawer": "list",
       "fields": {
         "from": "links"
@@ -54,7 +54,7 @@
     {
       "kind": "props",
       "name": "Properties",
-      "description": "the properties and the record of the note another tile shows (source=tile:<name>); a pick opens the question for that value",
+      "description": "the properties and the record of the note its reader shows; a pick opens the question for that value",
       "drawer": "list",
       "fields": {
         "from": "properties",
@@ -116,7 +116,7 @@
     {
       "kind": "threads",
       "name": "Comments",
-      "description": "the comment threads on the note another tile shows (source=tile:<name>): the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
+      "description": "the comment threads on the note its reader shows: the ones open first, each with its passage and replies under it, and Reply and Resolve as its own presses",
       "drawer": "list",
       "fields": {
         "from": "threads",
@@ -129,7 +129,7 @@
     {
       "kind": "proposals",
       "name": "Proposals",
-      "description": "the edits waiting beside the note another tile shows (source=tile:<name>): who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
+      "description": "the edits waiting beside the note its reader shows: who sent each and why it didn't apply, what it would change as lines, and Apply and Dismiss as its own presses",
       "drawer": "list",
       "fields": {
         "from": "proposals",
@@ -142,7 +142,7 @@
     {
       "kind": "revisions",
       "name": "Revisions",
-      "description": "the texts the note another tile shows had (source=tile:<name>), newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
+      "description": "the texts the note its reader shows had, newest first; a press on an earlier one shows what changed since, and Restore puts its text in the editor",
       "drawer": "list",
       "fields": {
         "from": "revisions",

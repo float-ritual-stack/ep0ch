@@ -4,6 +4,7 @@
 // service finds the components, asks their questions (`site.answer`) and says what each holds. Pure: no I/O.
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, calloutLead, quoteDepth, type CalloutRegistry } from "./callouts";
 import { noteCodeFences } from "./component-block";
+import { unstyledLines } from "./heading-styles";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
 import type { SourceRange } from "./code-ranges";
 import type { ComponentKind } from "./component-at";
@@ -210,6 +211,8 @@ export function pageAddresses(text: string): string[] {
 }
 
 const label = (s: string) => s.replace(/([\[\]\\])/g, "\\$1");
+/** The lines of `lines` that are code: a fence's own two and what is between them. */
+const codeLines = (lines: readonly string[]): Set<number> => new Set(noteCodeFences(lines).flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, i) => f.start + i)));
 
 /** The ids `text` refers to without a label: a page reads their titles once, for `proseMarkdown`. */
 export function unlabelledReferences(text: string): string[] {
@@ -219,9 +222,13 @@ export function unlabelledReferences(text: string): string[] {
 /**
  * Blockdown prose as Markdown for a Markdown renderer: each reference and page link a Markdown link (`titles`: what an
  * unlabelled reference reads as; `pages`: the note each page address resolves to), each callout's `[!type] title` a bold lead in its quote, and two written lines two
- * lines (a hard break where Markdown would run them together). Code is left as written.
+ * lines (a hard break where Markdown would run them together). A property that styles the line it is on is left out
+ * (a heading's `[heading::band]`, a line's `[heading-style::plot]`, a rule's, a `style.*`: outline-core's
+ * `unstyledLines`, the one rule every reader has); any other stays the note's words. Code is left as written.
  */
-export function proseMarkdown(text: string, titles: ReadonlyMap<string, string>, pages: ReadonlyMap<string, string> = new Map(), callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
+export function proseMarkdown(written: string, titles: ReadonlyMap<string, string>, pages: ReadonlyMap<string, string> = new Map(), callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
+  const source = written.split("\n"), fenced = codeLines(source);
+  const text = unstyledLines(source, i => fenced.has(i)).join("\n");
   let out = "", at = 0;
   for (const l of linkOccurrences(text)) {
     if (l.kind === "markdown" || l.kind === "url" || (l.kind === "page" && l.nested) || l.start < at) continue;
@@ -235,6 +242,6 @@ export function proseMarkdown(text: string, titles: ReadonlyMap<string, string>,
     const line = lines[c.line]!;
     lines[c.line] = `${line.slice(0, line.length - quoteDepth(line).content.length)}**${calloutLead(c, callouts)}**`;
   }
-  const code = new Set(noteCodeFences(lines).flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, i) => f.start + i)));
+  const code = codeLines(lines);
   return lines.map((line, i) => !code.has(i) && !code.has(i + 1) && line.trim() && lines[i + 1]?.trim() && !line.endsWith("  ") ? `${line}  ` : line).join("\n");
 }

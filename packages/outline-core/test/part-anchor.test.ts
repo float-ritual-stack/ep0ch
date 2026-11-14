@@ -55,3 +55,25 @@ test("a passage that starts or ends inside a word is the whole words, read as a 
   // A span that holds nothing a reader draws is answered as it came.
   expect(wholePassage(text, { start: text.indexOf("- PDF"), end: text.indexOf("- PDF") + 2 })).toEqual({ span: { start: text.indexOf("- PDF"), end: text.indexOf("- PDF") + 2 }, words: "", widened: false });
 });
+
+// Past a rule that names a style the two readings agree (the prose is served `---`, and the source's rule is a rule),
+// so a word written three times in a row is marked where it was picked and not at the nearest other.
+test("a passage after a rule that names a style is marked on its own words", () => {
+  const source = "Sow the peas.\n\n--- [rule::fade]\n\nRake, rake, rake the bed.";
+  const rendered = proseMarkdown(source, new Map());
+  expect(rendered).toContain("\n---\n");
+  for (const start of [source.indexOf("Rake"), source.indexOf("rake"), source.lastIndexOf("rake")]) {
+    const found = spanIn(source, { start, end: start + 4 }, rendered)!;
+    expect(rendered.slice(found.start, found.end)).toBe(source.slice(start, start + 4));
+    expect(rendered.slice(0, found.start).split(/rake/i).length).toBe(source.slice(0, start).split(/rake/i).length);
+  }
+  // Right under a line of prose the dashes are no rule: they are served as written, drawn as words, and read as words
+  // in the source too, so a mark after them is still on its own words.
+  const under = "Sow the peas.\n--- [rule::fade]\n\nRake, rake, rake.";
+  const served = proseMarkdown(under, new Map());
+  expect(served).toContain("--- [rule::fade]");
+  for (const start of [under.indexOf("Rake"), under.indexOf("rake"), under.lastIndexOf("rake")]) {
+    const found = spanIn(under, { start, end: start + 4 }, served)!;
+    expect(served.slice(0, found.start).split(/rake/i).length).toBe(under.slice(0, start).split(/rake/i).length);
+  }
+});

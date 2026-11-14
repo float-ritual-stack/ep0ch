@@ -5,6 +5,7 @@
 //! state is private to `actions/`: everything else reads it (`App` derefs to `State`) and changes it by an act line.
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use std::ops::Deref;
 
 use base64::Engine;
@@ -77,11 +78,30 @@ pub struct Notice {
     pub tone: Tone,
     pub said: String,
     pub undo: Option<String>,
+    /// Which notice it is, of every one made in this run: the same words said again are another notice.
+    pub(in crate::actions) made: u64,
 }
 
 impl Notice {
-    pub fn info(said: impl Into<String>) -> Notice { Notice { tone: Tone::Info, said: said.into(), undo: None } }
-    pub fn problem(said: impl Into<String>) -> Notice { Notice { tone: Tone::Problem, said: said.into(), undo: None } }
+    fn new(tone: Tone, said: String) -> Notice {
+        static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Notice { tone, said, undo: None, made: MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+    }
+    pub fn info(said: impl Into<String>) -> Notice { Notice::new(Tone::Info, said.into()) }
+    pub fn problem(said: impl Into<String>) -> Notice { Notice::new(Tone::Problem, said.into()) }
+}
+
+/// How long something said to the person stays up before it may go: outline-core's `staysMs` (reading-time.ts), the
+/// rule the door's status bar keeps a message by, ported once and held by `core-contract.json`'s `stays`. A moment to
+/// look, then about 14 columns a second, at most 30 s, and never under 4 s. A column here is a character.
+pub fn stays(columns: usize) -> Duration { Duration::from_millis((1500 + columns as u64 * 70).min(30_000).max(4000)) }
+
+/// Since when the window has said what it says now: the notice (by which notice it is) and the status line (by its
+/// words). `App::fade` keeps it, each turn; nothing that says something has to.
+#[derive(Default)]
+pub struct Heard {
+    notice: Option<(u64, Instant)>,
+    status: Option<(u64, Instant)>,
 }
 
 /// The command bar as it stands: open or not, the source it lists, what is typed, the lit row.
@@ -208,8 +228,10 @@ pub struct State {
     /// The window was asked to close: the shell closes it on the next frame.
     pub closing: bool,
     pub notice: Option<Notice>,
-    /// The last act an agent ran, as the status line says it.
+    /// The last act an agent ran, as the status line says it: up for as long as it takes to read (`App::fade`).
     pub agent_said: Option<String>,
+    /// Since when each of those two has been up.
+    pub heard: Heard,
 
     /// Every act, as it was read and how it went.
     pub steps: Vec<Step>,
@@ -321,6 +343,7 @@ impl App {
                 closing: false,
                 notice: None,
                 agent_said: None,
+                heard: Heard::default(),
                 steps: Vec::new(),
                 trashed: HashMap::new(),
                 reveal: None,
@@ -943,6 +966,44 @@ impl App {
         self.pump();
     }
 
+    /// What time does to what the window says, asked each turn (`poll`), by the door's rule for its status bar
+    /// (`stays`). The status line, what an agent last did or was refused, goes once it has been up long enough to
+    /// read: it is news, and an agent's refusal from minutes ago is none. The notice is noted as up since now; it is
+    /// put away by the person (its close, their next act once it has been read: `App::read`), never by the clock:
+    /// the window keeps no log to find it in afterwards. True when something went; and how long until it wants asking
+    /// again.
+    pub fn fade(&mut self, now: Instant) -> (bool, Option<Duration>) {
+        let made = self.notice.as_ref().map(|notice| notice.made);
+        if self.heard.notice.map(|(made, _)| made) != made { self.st.heard.notice = made.map(|made| (made, now)) }
+        let Some((words, columns)) = self.agent_said.as_ref().map(|said| { use std::hash::{Hash, Hasher}; let mut h = std::collections::hash_map::DefaultHasher::new(); said.hash(&mut h); (h.finish(), said.chars().count()) }) else { self.st.heard.status = None; return (false, None) };
+        let since = match self.heard.status { Some((seen, since)) if seen == words => since, _ => { self.st.heard.status = Some((words, now)); now } };
+        let (up, stays) = (now.saturating_duration_since(since), stays(columns));
+        if up < stays { return (false, Some(stays - up)) }
+        self.st.agent_said = None;
+        self.st.heard.status = None;
+        (true, None)
+    }
+
+    /// The problem the notice says, when it has been up long enough to have been read: which notice it is. The
+    /// dispatcher asks before it runs an act of the person's, and puts that notice away after it when the act left
+    /// it as it was: a refusal answered what they did then, and they have moved on.
+    pub(in crate::actions) fn read(&self, now: Instant) -> Option<u64> {
+        let notice = self.notice.as_ref().filter(|notice| notice.tone == Tone::Problem)?;
+        let (_, since) = self.heard.notice.filter(|(made, _)| *made == notice.made)?;
+        (now.saturating_duration_since(since) >= stays(notice.said.chars().count())).then_some(notice.made)
+    }
+
+    /// Puts the notice away when it is still the one `read` named.
+    pub(in crate::actions) fn put_away(&mut self, read: u64) {
+        if self.notice.as_ref().is_some_and(|notice| notice.made == read) { self.st.notice = None }
+    }
+
+    /// What the window says has been up `by` longer than it has (a test's clock: nothing here waits).
+    #[cfg(test)]
+    pub fn aged(&mut self, by: Duration) {
+        for since in [&mut self.st.heard.notice, &mut self.st.heard.status].into_iter().flatten() { since.1 = since.1.checked_sub(by).expect("a time that far back") }
+    }
+
     /// When the person last pressed a key, as the key table remembers it.
     pub fn last_key(&self) -> Option<std::time::Instant> { self.held.last_key() }
 
@@ -967,6 +1028,8 @@ impl App {
     pub(in crate::actions) fn said(&mut self, step: &Step) {
         if step.by.is_person() { return }
         self.st.agent_said = Some(if step.ok { format!("{} · {}", step.by.label(), step.action) } else { format!("{} · {} refused: {}", step.by.label(), step.action, step.said) });
+        // (The same words said by another act are news again.)
+        self.st.heard.status = None;
     }
 
     /// The reader `tile` shows `id`. `remember`: the note it showed is somewhere to go back to.
@@ -1003,7 +1066,8 @@ impl App {
     // ── pictures ────────────────────────────────────────────────────────────────────────────────────────────
 
     /// The pictures these pages show are the ones held: a file's bytes are asked of the host (`media.read`), an svg
-    /// fence's text is the picture already, and what no page shows any more is let go.
+    /// fence's text is the picture already, and what no page shows any more goes behind them, the last few kept
+    /// decoded (`Pictures::keep`).
     fn want_pictures(&mut self, pages: &[Page]) {
         let shown: HashSet<String> = pages.iter().flat_map(Page::pictures).map(Picture::key).collect();
         self.pictures.keep(&shown);
