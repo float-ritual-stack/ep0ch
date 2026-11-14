@@ -134,7 +134,10 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(JSON.stringify(get().tree)).toBe(share);
     expect(message()).toContain("the screen is locked: resizing is refused");
     // Agents are refused the same way, by the same rule; reading and the dock still work (the contents are live).
-    await expect(act("layout.move", { to: "middle", where: "tabs" }, "side")).rejects.toThrow(/the screen is locked: moving side is refused/);
+    // The agent is answered the act line; the person, who is the one who can lift it, reads their own way on the status
+    // bar: the chip to click, or the key.
+    await expect(act("layout.move", { to: "middle", where: "tabs" }, "side")).rejects.toThrow("the screen is locked: moving side is refused · layout.lock on=false unlocks it");
+    expect(message()).toBe(`an agent (${AS}) · layout.move refused: the screen is locked: moving side is refused · a click on ▣ screen locked (or ^W P) unlocks it`);
     await expect(act("tile.resize", { by: 2 }, "side")).rejects.toThrow(/locked/);
     await expect(act("tile.close", {}, "middle")).rejects.toThrow(/closing middle is refused/);
     await expect(mine("layout.load", { name: "river" })).rejects.toThrow(/the screen is locked: loading river/);

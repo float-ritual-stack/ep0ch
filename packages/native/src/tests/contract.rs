@@ -384,6 +384,15 @@ fn what_an_answer_asks_to_have_opened_is_a_resource_as_outline_core_says() {
     for row in &rows { let value = row["value"].as_str().unwrap(); assert_eq!(crate::ext::resource_ref(value), row["resource"] == true, "{value:?}") }
 }
 
+/// How long something said stays up is the door's rule for its status bar (outline-core's `staysMs`): the window's
+/// status line and its notice are timed by the port, row for row.
+#[test]
+fn what_is_said_stays_up_as_long_as_outline_core_says() {
+    let rows = table("core-contract")["stays"].as_array().unwrap().clone();
+    assert!(rows.len() >= 8);
+    for row in rows { assert_eq!(crate::actions::stays(row["columns"].as_u64().unwrap() as usize).as_millis() as u64, row["ms"].as_u64().unwrap(), "{row}") }
+}
+
 #[test]
 fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     use crate::keys::chord_named;

@@ -675,7 +675,7 @@ pub fn changed(app: &mut App, said: &Said, key: &str, generation: u64) {
 pub fn window(app: App) -> Runtime<App> {
     let mut rt = Runtime::new(app, view, (1180.0, 760.0), Env { system_dark: false, scale: 1.0 });
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
-    rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
+    rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran() | s.fade(std::time::Instant::now()).0; crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
     rt.on_key = Some(crate::keys::press);
     // The tiles' area is measured on the first frame, and the tiles sit in it from the next.
     for _ in 0..3 { rt.frame(0.0); }

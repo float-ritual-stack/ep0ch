@@ -20,16 +20,22 @@
 //   read as any words are (a page draws the title through Markdown: its code ticks and emphasis are marks);
 // - a callout's `[!type]`: its icon (and the type's own title when the line gives none), as `proseMarkdown` leads it;
 // - emphasis marks, code ticks, a backslash that escapes a mark, a line's list, quote or heading marker, a code
-//   fence's own two lines, a table's pipes and its separator row, a rule (`---`) and the line of dashes or equals
-//   signs under a heading: not drawn (a reader that shows such a line as written, in a code fence, has it in the
-//   quote, where it is read the same way);
+//   fence's own two lines, a table's pipes and its separator row, a rule (`---`, with the style it names or none)
+//   and the line of dashes or equals signs under a heading: not drawn (a reader that shows such a line as written,
+//   in a code fence, has it in the quote, where it is read the same way);
 // - any run of blanks, a line break among them: one space.
+//
+// **A quote may start mid-line.** What a line starts with says what it is (`2026. ` a list's number, `- ` its dash,
+// `> ` a quote, `# ` a heading, `---` a rule), and a quote's first characters may be none of those: a selection that
+// starts on a year and its full stop. So a quote has two readings (`quoteReadings`): its words with only marks and
+// blanks folded, asked first, and the reading the source gets, asked when the first is nowhere in the text.
 //
 // Offsets are UTF-16, as passage.ts keeps them. Pure: no I/O.
 
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, calloutLead, quoteDepth, type CalloutRegistry } from "./callouts";
 import { STEP_BOX } from "./checklist-marks";
 import { noteCodeFences } from "./component-block";
+import { styledLine, underlinesLineAbove } from "./heading-styles";
 import { blockReferenceOccurrences, fragmentAnchorMatch, MARKDOWN_LINK_SOURCE, pageAddressReferences } from "./link-syntax";
 import { findPassage, isMiss, missMessage, quotePlaces, type FindOptions, type PassageMiss } from "./passage";
 import { propertyTokenMatches } from "./property-grammar";
@@ -118,9 +124,12 @@ export function drawnText(source: string, reads: DrawnReads = {}): DrawnText {
     const lead = calloutLead(callout, registry);
     spans.push({ start: from, end: from + close, words: callout.title ? lead.slice(0, lead.length - callout.title.length) : lead });
   }
-  // Each line's marker and anchor; a rule's line whole.
+  // Each line's marker and anchor; a rule's line whole, one that names a style too (`--- [rule::fade]`: heading-styles.ts
+  // says which lines those are, and a page that draws no style is served it as `---`). Dashes with a style right under
+  // a line of prose are no rule to any reader (`underlinesLineAbove`, the question `unstyledLines` asks): they stay
+  // words, as they are served.
   lines.forEach((line, i) => {
-    if (RULE_LINE.test(line)) return void whole(i);
+    if (RULE_LINE.test(line) || (styledLine(line)?.kind === "rule" && !underlinesLineAbove(line, i ? lines[i - 1]! : ""))) return void whole(i);
     const marker = LINE_MARKER.exec(line);
     if (marker) spans.push({ start: starts[i]!, end: starts[i]! + marker[0].length });
     const anchor = fragmentAnchorMatch(line);
@@ -161,6 +170,26 @@ export function drawnWords(quote: string, reads: DrawnReads = {}): string {
   return drawnText(quote, reads).text;
 }
 
+/** A quote's words with only its marks left out and its blanks folded: nothing in it is read as a line's shape. */
+function plainWords(quote: string): string {
+  let text = "";
+  for (let i = 0; i < quote.length; i++) {
+    if (isMark(quote, i, quote.length)) continue;
+    if (!/\s/.test(quote[i]!)) text += quote[i];
+    else if (text && !text.endsWith(" ")) text += " ";
+  }
+  return text.trimEnd();
+}
+
+/**
+ * The ways a quote's words may be read, in the order they are asked: as they are (marks and blanks folded), then as
+ * the source is read (a line's marker, a rule, a token, a link's target left out). The first that is in the text is
+ * the quote; one reading when both give the same words, none when a reader draws nothing of it.
+ */
+export function quoteReadings(quote: string, reads: DrawnReads = {}): string[] {
+  return [...new Set([plainWords(quote), drawnWords(quote, reads)])].filter(Boolean);
+}
+
 /** The first drawn character that came from `offset` of the source or later (the drawn text's length when none did). */
 function drawnOffset(drawn: DrawnText, offset: number): number {
   let low = 0, high = drawn.at.length;
@@ -193,10 +222,14 @@ export function drawnSpan(source: string, drawn: DrawnText, from: number, to: nu
   return { start, end };
 }
 
-/** Every place the drawn words of `quote` are in `drawn`, in order, as offsets of the drawn text (passage.ts's `quotePlaces`). */
+/** Every place the drawn words of `quote` are in `drawn`, in order, as offsets of the drawn text (passage.ts's `quotePlaces`), by the first reading of the quote that is there at all. */
 export function drawnPlaces(drawn: DrawnText, quote: string, o: FindOptions = {}, reads: DrawnReads = {}): { words: string; places: number[] } {
-  const words = drawnWords(quote, reads);
-  return { words, places: quotePlaces(drawn.text, words, o) };
+  let words = "";
+  for (words of quoteReadings(quote, reads)) {
+    const places = quotePlaces(drawn.text, words, o);
+    if (places.length) return { words, places };
+  }
+  return { words, places: [] };
 }
 
 /**
@@ -206,23 +239,26 @@ export function drawnPlaces(drawn: DrawnText, quote: string, o: FindOptions = {}
  * drawn just before and after. (`start` is a source quote's alone: a drawn passage doesn't know where it starts.)
  */
 export function findDrawnPassage(text: string, quote: string, o: Omit<FindOptions, "start"> = {}, reads: DrawnReads = {}): { start: number; end: number } | PassageMiss {
-  const drawn = drawnText(text, reads), words = drawnWords(quote, reads);
-  if (!words) return { why: "the quote has no words a reader draws", count: 0 };
-  const before = o.prefix ? drawnWords(o.prefix, reads) : "", after = o.suffix ? drawnWords(o.suffix, reads) : "";
+  const drawn = drawnText(text, reads), readings = quoteReadings(quote, reads);
+  if (!readings.length) return { why: "the quote has no words a reader draws", count: 0 };
+  const before = o.prefix ? quoteReadings(o.prefix, reads) : [], after = o.suffix ? quoteReadings(o.suffix, reads) : [];
   const exclude = o.exclude;
-  const found = findPassage(drawn.text, words, {
+  const asked = (words: string) => findPassage(drawn.text, words, {
     ...(o.near === undefined ? {} : { near: drawnOffset(drawn, o.near) }),
     ...(o.lower === undefined ? {} : { lower: drawnOffset(drawn, o.lower) }),
     ...(o.upper === undefined ? {} : { upper: drawnOffset(drawn, o.upper) }),
     // The words around it are compared as drawn, a blank either side of the quote being nobody's.
-    ...(before || after || exclude ? { exclude: (from, to) => {
-      if (before && !drawn.text.slice(0, from).trimEnd().endsWith(before)) return true;
-      if (after && !drawn.text.slice(to).trimStart().startsWith(after)) return true;
+    ...(before.length || after.length || exclude ? { exclude: (from, to) => {
+      if (before.length && !before.some(words => drawn.text.slice(0, from).trimEnd().endsWith(words))) return true;
+      if (after.length && !after.some(words => drawn.text.slice(to).trimStart().startsWith(words))) return true;
       if (!exclude) return false;
       const span = drawnSpan(text, drawn, from, to);
       return exclude(span.start, span.end);
     } } : {}),
   });
+  // The quote as it is first; as the source is read when those words are nowhere in the text.
+  let found = asked(readings[0]!);
+  for (const words of readings.slice(1)) { if (!isMiss(found) || found.count > 0) break; found = asked(words); }
   if (!isMiss(found)) return drawnSpan(text, drawn, found.start, found.end);
   // The nearest words there are, said where they are in the source.
   if (!found.nearest) return found;

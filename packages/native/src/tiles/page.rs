@@ -220,14 +220,15 @@ fn selected(change: &rune::SelectionChange, parts: &str, spans: &[Option<(u64, u
 }
 
 /// A reader with no page to draw. Told no note, it is empty and says so in its kind's own words (`tiles::waiting`),
-/// with the ways to give it a note under them, each a button its action's row labels and the key table caps; told
+/// with what to do next under them, a line an act: the button its action's row labels, the key the table binds to it
+/// and what that key does (`tiles::way`); told
 /// one whose page is on its way (or with the outline still being called), that.
 fn empty(cx: &TileCx, k: &Kit) -> El {
     let calling = cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty());
     if !calling && cx.app.note_of(cx.id).is_none() {
-        let ways = row().key(cx.key("empty/ways")).gap(8.0).center_y()
-            .child(button(cx, "bar.open", ButtonVariant::Ghost).build(k).key(cx.key("empty/find")))
-            .child(button(cx, "note.new", ButtonVariant::Ghost).build(k).key(cx.key("empty/new")));
+        let ways = col().key(cx.key("empty/ways")).gap(6.0)
+            .child(super::way(cx, "bar.open", "find", k))
+            .child(super::way(cx, "note.new", "new", k));
         return super::waiting(cx, Some(ways), k);
     }
     col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(if calling { "Calling the outline…" } else { "Offline: the note isn't read yet." }).font(k.ty.body).color(k.c.text_muted))

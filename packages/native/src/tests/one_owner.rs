@@ -734,6 +734,29 @@ fn a_terminal_s_deciders_each_have_one_place() {
     assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
 }
 
+/// Wave H3, small things: each has one place.
+/// - How long something said stays up is one port of outline-core's rule (`actions::stays`), and the status line
+///   goes by the clock in one place (`App::fade`); a notice is put away by the dispatcher alone, beside the person's
+///   own dismiss.
+/// - What the window's own buttons take of the toolbar is asked of Rune once, in the shell, and the frame a window
+///   asks for is said once.
+/// - What an empty tile offers to do next is worded by the action rows through one builder (`tiles::way`).
+/// - Which decoded pictures are kept is the picture cache's own.
+#[test]
+fn what_h3_added_has_one_owner_each() {
+    none("the time something said stays up written outside `actions::stays`", ["30_000", "from_millis(4000", "from_secs(4)"].iter().flat_map(|number| strays(number, |path| path == "actions/app.rs")).collect());
+    none("what the status line says taken away outside `App::fade`", strays("agent_said = None", |path| path == "actions/app.rs"));
+    none("since when something has been said kept outside the App", strays("st.heard.", |path| path == "actions/app.rs"));
+    none("a read notice put away outside the dispatcher", strays(".put_away(", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    none("the window's own buttons asked about outside the shell", strays("titlebar_inset()", |path| path == "shell.rs"));
+    none("a window's frame said outside `shell::frame`", strays("Chrome", |path| path == "shell.rs"));
+    let framed: Vec<String> = strays(".chrome(", |_| false).into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert_eq!(framed, ["main.rs", "shell.rs"], "every window of the run is given the one frame: the first, and one torn out");
+    // What to do next in an empty tile is a line its action's row words, built by one builder: no drawer keys one.
+    none("a way to fill an empty tile built by a drawer: `tiles::way` builds it from the action's row", strays("empty/find", |_| false));
+    none("which pictures are kept decided outside the picture cache", ["pictures.held", ".behind"].iter().flat_map(|word| strays(word, |path| path == "tiles/picture.rs")).collect());
+}
+
 /// H4, a comment in place: each of its questions has one answerer. Where picked words are, and that a passage is
 /// whole words, is the service's (`passages.find`, asked by the one action that hears words picked): the window
 /// widens no selection and reads no text for a word's end. What is attached to a note's words is the service's

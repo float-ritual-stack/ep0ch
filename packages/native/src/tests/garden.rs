@@ -299,7 +299,7 @@ fn a_lost_link_is_made_again_and_everything_wanted_is_asked_for_afresh() {
 }
 
 #[test]
-fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
+fn a_page_s_pictures_are_asked_of_the_host_once_and_kept_decoded_behind_it() {
     let Garden { app, asked, said, .. } = garden(ok());
     let mut app = app.blocking(true);
     act(&mut app, "open id=shed");
@@ -314,9 +314,47 @@ fn a_page_s_pictures_are_asked_of_the_host_once_and_let_go_with_the_page() {
     let before = asked.borrow().len();
     changed(&mut app, &said, &page_key(&asked, "shed"), 1);
     assert!(asked.borrow().len() > before && !asked.borrow()[before..].iter().any(|a| a["action"] == "media.read"));
-    // Another note's page: the shed's pictures are let go.
+    // Another note's page: the shed's pictures are behind it, still decoded, and the one that failed is let go.
     act(&mut app, "open id=plot");
-    assert!(page.pictures().iter().all(|p| app.picture(p).is_none()));
+    let held: Vec<bool> = page.pictures().iter().map(|p| matches!(app.picture(p), Some(Shown::Ready { image, .. }) if image.size().is_some())).collect();
+    assert_eq!(held, [true, true, true, false]);
+    assert!(app.picture(missing).is_none(), "a picture that never came is asked for again when its page is back");
+    // Back on the shed: its pictures are drawn at once. Nothing decoded is read or decoded again (a 3 MB photo took
+    // a moment each time its note was come back to); only the one that failed is asked for once more.
+    let before = asked.borrow().len();
+    act(&mut app, "back");
+    assert_eq!(app.page().map(|p| p.id.as_str()), Some("shed"));
+    let again: Vec<String> = asked.borrow()[before..].iter().filter(|a| a["action"] == "media.read").map(|a| a["path"].as_str().unwrap().to_string()).collect();
+    assert_eq!(again, ["pictures/missing.png"]);
+    let shown: Vec<bool> = page.pictures().iter().map(|p| matches!(app.picture(p), Some(Shown::Ready { image, .. }) if image.size().is_some())).collect();
+    assert_eq!(shown, [true, true, true, false]);
+}
+
+/// How many pictures stay decoded behind the pages shown is bounded: the ones let go last are the ones kept.
+#[test]
+fn the_pictures_kept_behind_the_pages_shown_are_the_last_few_let_go() {
+    use crate::tiles::picture::Pictures;
+    use std::collections::HashSet;
+    let svg = |n: usize| format!("<svg xmlns='http://www.w3.org/2000/svg' width='{0}' height='{0}'><rect width='{0}' height='{0}'/></svg>", 8 + n).into_bytes();
+    let mut pictures = Pictures::default();
+    let shown = |keys: &[usize]| keys.iter().map(|n| format!("bed-{n}.svg")).collect::<HashSet<String>>();
+    // Twelve pages come and go, a picture each.
+    for n in 0..12 {
+        pictures.decode(format!("bed-{n}.svg"), svg(n), "image/svg+xml", true);
+        pictures.keep(&shown(&[n]));
+    }
+    let held: Vec<usize> = (0..12).filter(|n| pictures.holds(&format!("bed-{n}.svg"))).collect();
+    assert_eq!(held, [3, 4, 5, 6, 7, 8, 9, 10, 11], "the one shown, and the eight let go last");
+    // One shown again is no longer behind, and its place is nobody's until another is let go.
+    pictures.keep(&shown(&[5]));
+    assert!((3..12).all(|n| pictures.holds(&format!("bed-{n}.svg"))));
+    pictures.keep(&shown(&[0]));
+    assert!(pictures.holds("bed-5.svg") && !pictures.holds("bed-3.svg"), "the oldest behind goes first");
+    // A picture asked for and never come, and one that failed, are not kept behind.
+    pictures.asked("bed-90.svg".into());
+    pictures.failed("bed-91.svg".into(), "it isn't on the outline's machine".into());
+    pictures.keep(&shown(&[0]));
+    assert!(!pictures.holds("bed-90.svg") && !pictures.holds("bed-91.svg"));
 }
 
 #[test]

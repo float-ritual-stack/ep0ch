@@ -8,11 +8,11 @@ page the service answers of it) drawn on a headless window. **draws**: every par
 the service says what is wrong, or a part drew nothing. **empty**: the service answers no part for the example.
 **panicked**: building it panicked (a test failure).
 
-Of 43 components: 30 draws, 11 partly, 1 problem, 1 empty, 0 panicked.
+Of 43 components: 31 draws, 10 partly, 1 problem, 1 empty, 0 panicked.
 
 | Component | Group | Fared | Its parts, as written → drawn | Why |
 |---|---|---|---|---|
-| `heading-style` | layout | **partly** | prose → markdown | Blockdown's own forms in its prose (a property, a value, a component) stay as written |
+| `heading-style` | layout | **draws** | prose → markdown |  |
 | `callout` | layout | **draws** | prose → markdown |  |
 | `rule` | layout | **partly** | prose → markdown | Blockdown's own forms in its prose (a property, a value, a component) stay as written |
 | `note-mover` | site | **partly** | prose → markdown | Blockdown's own forms in its prose (a property, a value, a component) stay as written |

@@ -23,6 +23,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
 ![The library: the components under their groups, one picked with its own example as written and as drawn, dark](docs/library-dark.png)
 
+![A note whose headings and rule name a style: drawn without the properties that style a line, the ones that say something kept; its properties beside it, a table whose rows scroll under a line below its column header, dark](docs/headings-dark.png)
 ![A note with a query-backed component, dark](docs/note-dark.png)
 ![Live figures answered by the service, dark](docs/figures-dark.png)
 ![A query with the facets its matches carry, dark](docs/query-dark.png)
@@ -70,7 +71,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Do | How |
 |---|---|
 | Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
-| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words, with Find and New note under them |
+| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words (written for the person at the tile), and what to do next under them, a line each: Find and New note as buttons, each with its key and what the key does, read from the action's own row |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
@@ -110,6 +111,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Jump between agents | The bar's Programs (`bar.open scope=programs`, the kitchen's Programs and its tile): the programs this window runs, in a tile or not, each with what it reports of itself; a row takes the keys to its program (`terminal.jump key=`), in a tile beside the note when it has none. What herdr-core runs that this window never started is listed after them in the tile, and is never ended, typed into or attached from here |
 | Scroll, paste and copy in a terminal | `shift+pageup` and `shift+pagedown` or the wheel move through what scrolled off (`terminal.scroll`); `mod+shift+v` pastes the clipboard as a paste (`terminal.paste`); words are selected with the mouse, as in a note, and copied with ⌘C on a Mac (elsewhere step out with `ctrl+]` first: Ctrl+C in a program is the program's) |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
+| Read what an agent did, and move on | The toolbar's status line names the agent and the act, or why it was refused, for as long as it takes to read (4 s at least, about 14 characters a second, 30 s at most: the door's rule for its status bar), then it goes. It has the room the toolbar has left between the names and the screen's buttons, and takes none of theirs; where that cuts it short, the pointer resting on it reads the whole of it. A refusal of your own is the notice under the toolbar: it stays until you have had time to read it and do something else, or dismiss it; the clock alone takes no notice away |
 
 **The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
 keycap on a button, the bar's rows and `actions` over the control socket all read the row. The defaults:
@@ -317,6 +319,10 @@ src/ (Rust, Rune)                                      the outline host
   `tiles.view` and builds the primitive it answers through the one registry, so a list in it is the list
   drawer's. Its settings are a form drawn from its schema as `extensions.list` says it; what is typed is sent as
   the value its field's type says, and the service checks it. Nothing in the window names an extension.
+- **A property that styles a line is no content.** A heading's `[heading::band]` and its own fields, a line that
+  declares a style, a rule's `[rule::fade]` and any `style.*` are left out of the prose the service serves
+  (outline-core's `unstyledLines`, by the readers the door's own reader asks); a property that says something
+  stays the note's words. The window reads no Blockdown to do it.
 - **The service answers a note whole** (`notes.page`, outline-core's `note-page.ts`): title, chips, properties, the
   body as parts, and the notes above, under and linking to it. It walks the note as a published page does (one
   finder says which component a line starts, outline-core's `componentAt`) and asks the same questions; where a
@@ -388,8 +394,17 @@ src/ (Rust, Rune)                                      the outline host
     `draft.patch` is the way in for everybody else.
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
   lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
-  the UI thread, and keeps only those of the pages its readers show. One the host can't read says so, in the host's words, where it
-  would be.
+  the UI thread, and keeps those of the pages its readers show, with the last few they showed still decoded behind
+  them (eight at most, and no more than 128 MiB of pixels: a note come back to draws its photos at once). One the
+  host can't read says so, in the host's words, where it would be.
+- **What is said goes when it has been read** (`App::fade`, `App::read`; `actions::stays` is outline-core's
+  `staysMs` by port, the rule the door's status bar keeps a message by). The status line is news and goes by the
+  clock. A notice is the person's: a problem's goes with their next act once it has been up long enough to read,
+  unless that act says something in its place.
+- **The toolbar starts past the window's own buttons** where they sit over it (`shell::toolbar_lead`, from Rune's
+  `Cx::titlebar_inset`): on a Mac the content fills the window under a clear title bar, and the outline's name is
+  drawn after the traffic lights. In full screen, and on every other platform, it starts at the edge. Each window's
+  frame is said once (`shell::frame`).
 - **What is about a note is a list that follows a reader** (`extensions/screens`: the `threads`, `proposals` and
   `revisions` kinds, each the list drawer over a producer of `lists.read`, with `source: tile:<reader>` and
   `subject: follows`, as the links tile has). The window has no code for any of them. The desk holds the three as
@@ -426,7 +441,10 @@ src/ (Rust, Rune)                                      the outline host
 - **A reader shows the note it was told, and no other** (`App::note_of`). One told none shows none: the layout's
   rules read that (`Facts.showing`) and the tile draws that, so a close's heir and an open's landing replace
   nothing that was on screen. What an empty tile says is its kind's own row (`tiles::waiting`: the name and the
-  description the service serves for the kind), for a reader and for a list about a note nobody shows alike; a
+  description the service serves for the kind, which is written for the person at the tile; how a screen writes a
+  tile of the kind is the extension's page to say), for a reader and for a list about a note nobody shows alike,
+  and what to do next is a line an act (`tiles::way`: the button its action's row labels, the key the table binds
+  and what that key does, in the row's words); a
   window opens on its screen with its reader empty, and the arrangement kept between runs brings back what each
   reader showed.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
@@ -599,6 +617,9 @@ model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the sam
 reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here;
 F2's are in `lists.rs` and `shell.rs`: a fold's mark only on a row the service says opens onto notes, and a reader
 told no note drawn as empty in its kind's own words), and
+`small.rs` has what the first run by hand met (wave H3: the status line letting an agent's refusal go once it has
+been read, a refusal's notice going with the person's next act, the toolbar starting past a Mac's window buttons,
+a table's rows scrolling under a line below its column header, an empty reader's words and ways from the rows), and
 `margin.rs` has a comment in place (picked words found as whole words by the service, the comment's field under the
 part its words are in with both in view, the words a thread is on marked and its card beside them, opened by a press
 on either, the person's send bringing the comments forward and an agent's moving no tab, the door's keys for picked
@@ -705,6 +726,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
 `drag` (the tree held by its title over the second reader's upper middle, by `layout.carry`: the zones every tile offers, the lit one, the held tile dimmed; `layout.drop` would land it),
+`headings` (a note `parts.seed.ts` writes: headings and a rule that name a style and a line that declares one, drawn without the properties that style a line, with its properties listed beside it),
 `ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
@@ -754,6 +776,13 @@ toolbar button is
   18 points of its 26 and the band under it starts inside the title. A group (a screen in a tile) takes no tile
   dropped into it, and no part of a note is dragged out of a reader (the door's `element.detach`). No tile kind
   here takes a tile's content (the door's shelves), so the rule's `receive` is ported and never asked.
+- On a Mac: the toolbar starting past the traffic lights was built from Rune's source and run here by telling a
+  headless runtime the inset a Mac's window reports; it was not run on a Mac. The toolbar is no drag region of its
+  own (AppKit's title bar band moves the window). A torn-out window has the same row over its tile and starts
+  past its own buttons by the same rule, held by the same test and run on no Mac either.
+- The status line on a full toolbar: on the desk in a window 1180 points wide its room is about a dozen characters,
+  the start of the agent's name; the act and why it was refused are read on a hover. The window keeps no log of
+  what it said once it has gone.
 - Windows: a torn-out window isn't opened again at the next start (its unsaved text is: the first window brings
   it back) and has no toolbar of its own (the bar is its `mod+k`). Its tile goes back into the window it came from
   along that window's right edge, by the layout's rule for a new tile: it is not dropped at a place chosen across
@@ -805,7 +834,8 @@ toolbar button is
   it; one whose look word isn't read says so and still runs; a button inside a list item draws as a part between the items. `docs/prim-coverage.md` has each.
 - A list in a note has no filter, selection or preview pane, and its lanes show eight rows each and scroll the
   rest; a row that copies or inserts is words, in a note and in a list tile alike. A heading
-  style's glyph tracks aren't drawn.
+  style's band, glyph track, tone and lettering aren't drawn: a heading that names a style is drawn as a plain
+  heading, without the properties that style it (the service says no style a page could draw yet).
 - Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle
   (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
   a view's card covers and pictures in properties aren't shown.
