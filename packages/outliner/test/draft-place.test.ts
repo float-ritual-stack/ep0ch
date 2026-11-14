@@ -153,7 +153,7 @@ test("a page nobody has written is offered with the request that makes it, and a
   // A page nobody wrote yet: offered as the door offers it, after every match, with what the client sends first
   // (`makes`: `pages.follow`). Return is the field's until it is chosen (`enter`), as in the door.
   const text = "See [[compost-heap";
-  type Row = { label: string; kind?: string; insert: string; enter?: string; makes?: { action: string; params: { address: string } } };
+  type Row = { label: string; kind?: string; insert: string; enter?: string; makes?: { action: "pages.follow"; params: { address: string } } };
   const answer = await client.request<{ token: { kind: string; query: string } | null; rows: Row[]; message?: string }>({ action: "completion.rows", text, cursor: text.length });
   expect(answer.token).toMatchObject({ kind: "page", query: "compost-heap" });
   const made = answer.rows.find(row => row.makes);
@@ -217,7 +217,7 @@ test("completion.rows for a text and a cursor says each row's docs, and draws th
   // first, unless said) carries it on an example (`view`: the schema's `shown`, a band over a heading). No note is
   // walked for it, and nothing is said to be "as drawn" that the page's walk leaves as words.
   const text = "Beds [heading-pattern::";
-  const values = await client.request<Listed & { rows: (Row & { sample?: { type: string; pattern?: string }; view?: { type: string; pattern?: string; text?: string } })[] }>({ action: "completion.rows", text, cursor: text.length, near: bed.id });
+  const values = await client.request<Omit<Listed, "rows"> & { rows: (Row & { sample?: { type: string; pattern?: string }; view?: { type: string; pattern?: string; text?: string } })[] }>({ action: "completion.rows", text, cursor: text.length, near: bed.id });
   expect(values.rows.map(row => row.label).sort()).toEqual(["dots", "rule", "stack", "uptime", "waffle"]);
   const dots = values.rows.findIndex(row => row.label === "dots");
   expect(values.rows[dots]!.docs).toBe("sparse dots, now and then a bright one");
