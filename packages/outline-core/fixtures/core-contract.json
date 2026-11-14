@@ -231,6 +231,23 @@
     {"name":"the tile with the keys is no stop (a tab behind): the next is the first","shown":[{"id":"tree"},{"id":"reader"}],"focus":"hidden","last":{},"floats":[],"stops":["tree","reader"],"next":"tree","before":"tree"},
     {"name":"nothing shown","shown":[],"focus":"reader","last":{},"floats":[],"stops":[],"next":null,"before":null}
   ],
+  "presses": [
+    {"name":"a click selects","presses":[{"row":"beans","now":1000}],"gestures":["select"]},
+    {"name":"the click that gave the list the keys only selects","presses":[{"row":"beans","now":1000,"focusing":true}],"gestures":["focus"]},
+    {"name":"a second click soon after opens","presses":[{"row":"beans","now":1000},{"row":"beans","now":1300}],"gestures":["select","open"]},
+    {"name":"a double click opens even when its first press brought the keys","presses":[{"row":"beans","now":1000,"focusing":true},{"row":"beans","now":1200}],"gestures":["focus","open"]},
+    {"name":"a second click after the interval selects again","presses":[{"row":"beans","now":1000},{"row":"beans","now":1400},{"row":"beans","now":1900}],"gestures":["select","select","select"]},
+    {"name":"a click on another row selects it","presses":[{"row":"beans","now":1000},{"row":"onions","now":1100},{"row":"onions","now":1200}],"gestures":["select","select","open"]},
+    {"name":"a third click starts afresh","presses":[{"row":"beans","now":1000},{"row":"beans","now":1100},{"row":"beans","now":1200},{"row":"beans","now":1300}],"gestures":["select","open","select","open"]},
+    {"name":"alt held opens fresh","presses":[{"row":"beans","now":1000,"mods":8}],"gestures":["fresh"]},
+    {"name":"ctrl held opens fresh, on the click that brings the keys too","presses":[{"row":"beans","now":1000,"mods":16,"focusing":true}],"gestures":["fresh"]},
+    {"name":"the middle button opens fresh","presses":[{"row":"beans","now":1000,"button":1}],"gestures":["fresh"]},
+    {"name":"shift alone is a click","presses":[{"row":"beans","now":1000,"mods":4}],"gestures":["select"]},
+    {"name":"a fresh open forgets the press before it","presses":[{"row":"beans","now":1000},{"row":"beans","now":1100,"mods":8},{"row":"beans","now":1200}],"gestures":["select","fresh","select"]},
+    {"name":"the selected row clicked is selected again, never opened","presses":[{"row":"beans","now":1000,"selected":true}],"gestures":["select"]},
+    {"name":"an untimed second press opens however long after","presses":[{"row":"beans","now":1000,"untimed":true},{"row":"beans","now":9000,"untimed":true}],"gestures":["select","open"]},
+    {"name":"an untimed second press that brings the keys back is a first","presses":[{"row":"beans","now":1000,"untimed":true},{"row":"beans","now":9000,"untimed":true,"focusing":true}],"gestures":["select","focus"]}
+  ],
   "ways": [
     {"name":"no way: the reason alone","why":{"reason":"almanac can't go there: it's the only tile","ways":[]},"said":[],"whole":"almanac can't go there: it's the only tile"},
     {"name":"one way follows the reason","why":{"reason":"log holds work","ways":[{"act":"tile.close","tile":"log","does":"closes it first"}]},"said":["the key that closes it closes it first"],"whole":"log holds work · the key that closes it closes it first"},

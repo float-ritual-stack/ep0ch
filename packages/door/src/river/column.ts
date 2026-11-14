@@ -30,7 +30,7 @@ import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, rowLines, waiting } from "../text";
-import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, pageRows, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
+import { lastTop, pageRows, pressFresh, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { askInBar } from "../bar/ask";
@@ -738,7 +738,7 @@ export class RiverColumn extends ReaderPane {
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
     // An alt-, ctrl- or middle-click on a link is a fresh one, as in a reader (a button's alt=, or asking its slots again).
-    const fresh = g === "fresh" || (!!link && (!!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE));
+    const fresh = g === "fresh" || (!!link && pressFresh(k));
     this.down = { row, ...(target ? { target } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(fresh ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
