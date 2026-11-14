@@ -111,6 +111,18 @@ const ARRANGED = ["rows", "table", "lanes", "grid"] as const;
 const TABLE_COLUMNS = 6;
 
 /**
+ * A question's groups as a list's: every level `blocks.query` answers (`group` names one property or two), as a view
+ * of the same question lists them (site-producers' `groups`). A group inside another is named by the way to it, so
+ * every section's name is its own; a note with no value at a level is under that level's own key (`keys`, as asked).
+ */
+function grouped(found: QuestionGroup[], keys: string[], parent?: string): ListGroup[] {
+  return found.map(g => {
+    const name = parent === undefined ? g.value ?? "" : `${parent}/${g.value ?? ""}`;
+    return { name, label: g.value ?? `no ${keys[0] ?? ""}`, count: g.count, ids: g.ids, ...(g.groups?.length ? { groups: grouped(g.groups, keys.slice(1), name) } : {}) };
+  });
+}
+
+/**
  * A question's matches (`query`, the views' grammar) as rows: sorted and grouped by the property names asked, each row
  * with the properties it carries as chips and, when `columns` names some (or it is asked as a table), a cell a column. Grouped, the groups are the
  * list's sections (`arrange: "lanes"` draws each as a lane); the facets are counted over every match.
@@ -129,7 +141,7 @@ async function matches(own: Own, request: ListsRequest, lanes = false): Promise<
     ...(note.hasNotes ? { folds: true } : {}),
     do: opens(note.id),
   }));
-  const groups: ListGroup[] | undefined = found.groups?.map(g => ({ name: g.value ?? "", label: g.value ?? `no ${request.group}`, count: g.count, ids: g.ids }));
+  const groups = found.groups ? grouped(found.groups, (request.group ?? "").split(",").map(key => key.trim())) : undefined;
   const list: ListPrimitive = {
     type: "list", arrange, rows, ...(columns.length ? { columns, headers: columns } : {}), ...(groups ? { groups } : {}),
     empty: (request.query ?? "").trim() ? "Nothing matches." : "Every note matches an empty question: say which with a property (type=bed).",

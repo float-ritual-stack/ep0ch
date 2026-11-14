@@ -12,11 +12,13 @@
 //   cursor     an offset, the spans a patch placed → where the offset is once they are replaced   (mapCursor)
 //   indent     a draft's text, its selection, in or out → the spans to replace and where the selection is after (indentText)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
+//   resourceRefs  what an answer asks a client to open → whether it is written as a Resource ref, not a block's id (isResourceRef)
 //   ways       a refusal, each way's own words → the refusal as it is said: the reason, then the ways joined (whySaid)
 //   quoted     a note's text, a quote as a client sends it with a comment → the span of the source it is, or the
 //              refusal the service sends (findQuoted, quoteRefusal). `quotedNote` is the made-up note most of them
 //              are about, as a page: a stand-in host serves it and answers a comment from these rows, so it refuses
 //              what the service refuses.
+import { staysMs } from "../src/reading-time";
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
@@ -28,6 +30,7 @@ import { findQuoted, quoteRefusal, spanIn, wholePassage, type QuotedPassage } fr
 import { noteMediaLines } from "../src/media-line";
 import { pagePicture, proseMarkdown } from "../src/note-page";
 import { isMiss } from "../src/passage";
+import { isResourceRef } from "../src/resource-ref";
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, LINK_GROUPS, linkGroupsNamed } from "../src/link-blocks";
 import { actOf, listSections, type ListGroup, type ListRow } from "../src/list-row";
 import { selectionQuery, type Clause } from "../src/query-clauses";
@@ -111,6 +114,9 @@ const TERMS: { raw: string; picks: [string, string][] }[] = [
   { raw: "  type=bed  ", picks: [["tag", "frost"], ["owner", "ada@plot"], ["sown", "2026-03-01"], ["crop", ""]] },
   { raw: "candor", picks: [["stage", "sown"]] },
 ];
+
+/** What an answer may ask a client to open (an extension's `open`): Resource refs in each form, block ids, and words that only look like one. */
+const RESOURCE_REFS = ["file:/shed/ledger.md", "web:https://seeds.example/peas", "resource:seed-list", "file:", "north-bed", "8f2c1d7e-0b1a-4c3d-9e5f-a1b2c3d4e5f6", "files", "webcal://beds.example/sowing", "File:/shed/ledger.md", " file:/shed/ledger.md", "https://seeds.example/peas", "resources", ""];
 
 const LINKS: string[][] = [[], ["all"], ["backlinks"], ["children", "outlinks"], ["Resources", " backlinks "], ["all", "children"], ["cousins"], ["backlinks", "matches"]];
 
@@ -262,6 +268,8 @@ const QUOTED: { name: string; text: string; passage: QuotedPassage }[] = [
   { name: "and picked as drawn", text: PLOT_TEXT, passage: { quote: "Peas go in last.", drawn: true } },
   { name: "a stand-in page that draws more than its note's text holds: the words are not in the note", text: PLOT_TEXT,
     passage: { quote: "Before the rain. See the shed and seeds.", drawn: true, within: { start: 19, end: 35 } } },
+  { name: "a selection that starts on a year and its full stop, mid-sentence: the whole of it, once (no list's number is read into it)", text: "The frost came late in 2026. Then it rained for a week.\n\nThen it rained again in May.",
+    passage: { quote: "2026. Then it rained", drawn: true } },
 ];
 
 /** A table as text: its head, then each list one row a line, so a changed rule is a changed line. */
@@ -273,7 +281,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), whether what an answer asks a client to open is written as a Resource ref and not a block's id (isResourceRef), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -287,6 +295,8 @@ export function coreContract(): string {
     cursor: CURSOR.map(c => ({ name: c.name, spans: c.spans, at: OFFSETS.map(offset => [offset, mapCursor(offset, c.spans)]) })),
     indent: INDENT.map(indented),
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
+    resourceRefs: RESOURCE_REFS.map(value => ({ value, resource: isResourceRef(value) })),
+    stays: [0, 1, 20, 35, 36, 80, 200, 407, 408, 2000].map(columns => ({ columns, ms: staysMs(columns) })),
     ways: WAYS.map(c => ({ ...c, whole: whySaid(c.why, each => c.said[c.why.ways.indexOf(each)] ?? null) })),
     // (A row about `quotedNote` leaves its text out: it is the note's.)
     quoted: QUOTED.map(c => {

@@ -12,8 +12,8 @@ path = "src/main.rs"
 
 # Rune is pre-release: pin a rev of its `dev` branch (never rewritten) and move it on purpose.
 [dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0", features = ["markdown", "mermaid"] }
+rune = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e", features = ["markdown", "mermaid"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Picture bytes come over the wire as base64 (`media.read`).
@@ -29,6 +29,17 @@ moonframe-mux = { git = "https://github.com/moonframehq/moonframe", rev = "b67a3
 # A shell or an agent in a tile: `cargo build --features pty`. Without it the window is what it was, and pulls
 # nothing new.
 pty = ["dep:moonframe-terminal", "dep:moonframe-mux"]
+
+# Rune's own patches, from the same rev as the pins above (Rune's README, "Depending on Rune"): a dependency's
+# `[patch]` doesn't reach the workspace that depends on it, so without these the window builds against stock crates.
+# winit carries the macOS input-method and Windows window-creation fixes, parley_engine the bidi and shaping fixes,
+# wgpu-hal and accesskit_windows Rune's own changes. The list is the `[patch.crates-io]` table in Rune's root
+# Cargo.toml: when a bump adds an entry there, add it here, and move every rev together with the pins.
+[patch.crates-io]
+winit = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "a5360a637fe42f25462353afd06663321dadfc5e" }
 
 # Its own workspace: the repository's packages are bun's, and cargo should never look above this folder.
 [workspace]

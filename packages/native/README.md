@@ -23,6 +23,7 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
 ![The library: the components under their groups, one picked with its own example as written and as drawn, dark](docs/library-dark.png)
 
+![A note whose headings and rule name a style: drawn without the properties that style a line, the ones that say something kept; its properties beside it, a table whose rows scroll under a line below its column header, dark](docs/headings-dark.png)
 ![A note with a query-backed component, dark](docs/note-dark.png)
 ![Live figures answered by the service, dark](docs/figures-dark.png)
 ![A query with the facets its matches carry, dark](docs/query-dark.png)
@@ -41,12 +42,23 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 
 ```sh
 cd packages/native
-cargo run --release -- -- --ws pie                    # the window; any outline the usual rule names
-cargo run --release -- -- --ws pie --machine float-2  # another machine's, over its forward
+cargo install --locked --path .               # once a machine: builds the window, puts ep0ch-native on the PATH
+ep0ch-native -- --ws pie                      # the window; any outline the usual rule names
+ep0ch-native -- --ws pie --machine float-2    # another machine's, over its forward
+cargo run --release -- -- --ws pie            # the same from the checkout, with nothing installed
 ```
 
-Everything after the second `--` names the outline as every client does: `--ws`, then `EP0CH_WS`, then the nearest
-`.ep0ch`. That rule is the door's own, run once at launch (`resolve.ts`, with `bun` on the PATH or `EP0CH_BUN`);
+- **Nothing installs the window.** `ep0ch install --apply` builds no Rust: the command is there once `cargo install
+  --locked --path .` has run on that machine, from this folder (its `rust-toolchain.toml` is read from where cargo
+  runs, and `--locked` builds the crates `Cargo.lock` names).
+  The door says the same when asked for a window that isn't built (`ep0ch act --door native …` with no
+  `ep0ch-native` on the PATH names this line).
+- **Build it again after each `PROTOCOL` bump.** The window carries the checkout's number (`build.rs`); a host on
+  a later one refuses it with "this window is older: build it again from the checkout", which is this line again.
+- **It runs from the checkout it was built in:** `resolve.ts` is read there, with `bun` on the PATH or `EP0CH_BUN`.
+
+Everything after the `--` (the second one, under `cargo run`) names the outline as every client does: `--ws`, then
+`EP0CH_WS`, then the nearest `.ep0ch`. That rule is the door's own, run once at launch (`resolve.ts`, with `bun` on the PATH or `EP0CH_BUN`);
 after that the window speaks the host's socket itself and runs nothing else. `EP0CH_SOCKET` names a host
 outright, as it does for the door, and is read by that same rule (a typed `--machine` wins over it): the window
 never reads it itself.
@@ -54,12 +66,20 @@ never reads it itself.
 Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU draws through lavapipe
 (`mesa-vulkan-drivers`, `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`).
 
+Rune is pre-release, so `Cargo.toml` pins one rev of its `dev` branch (`a5360a6`, Nov 13) for `rune` and
+`rune-kit`, and patches the four crates Rune patches (`winit`, `parley_engine`, `wgpu-hal`, `accesskit_windows`) from
+that same rev, as Rune's README asks of an app ("Depending on Rune"): a dependency's `[patch]` does not reach the
+crate that depends on it, and without the table the window is built on the stock crates, with none of Rune's
+macOS input-method fixes in winit. Moving the pin moves all six revs together (and the probes' crate's), and an
+entry Rune adds to its own table is added here. What that rev changed for this window is in
+[PROBES.md §18](docs/PROBES.md#18-rune-at-a5360a6-r0).
+
 ## What Evan can do in it
 
 | Do | How |
 |---|---|
 | Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
-| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words, with Find and New note under them |
+| Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words (written for the person at the tile), and what to do next under them, a line each: Find and New note as buttons, each with its key and what the key does, read from the action's own row |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
@@ -87,9 +107,9 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | See every key | The keys screen (`screen.open name=keys`, from the bar's Screens): every way to press an action, where it holds and what it does; a pick runs it |
 | Browse the components | The library screen (`screen.open name=library`): every component there is to write, under its group; a press on one shows what it is, its own example as written and that example drawn |
 | Make, move, bin | `note.new` under the open one; `note.move` up, down, in, out; `note.trash` (the notice has Undo) |
-| Add to it | The bar's Extensions (`bar.open scope=extensions`, the toolbar's Extensions): the outline's extensions as the service lists them. A row opens an installed one's page, installs one the repo has (`extensions.install id=`), and, once a name is typed, removes one, its demo notes kept or binned (`extensions.uninstall id= demo=keep\|remove`). What one adds is here as soon as the service lists it: its screens among the Screens, its tiles drawn (one its script renders is drawn from the primitives the service answers), its actions run by `extensions.act id= action=` |
+| Add to it | The bar's Extensions (`bar.open scope=extensions`, the toolbar's Extensions): the outline's extensions as the service lists them. A row opens an installed one's page, installs one the repo has (`extensions.install id=`), and, once a name is typed, removes one, its demo notes kept or binned (`extensions.uninstall id= demo=keep\|remove`). What one adds is here as soon as the service lists it: its screens among the Screens, its tiles drawn (one its script renders is drawn from the primitives the service answers), its actions run by a line (`extensions.act id= action=`). What an action answers is done or said not done: a note it asks to have opened is opened, words for the clipboard are copied, a question it asks before going on is said with the line that says yes |
 | Change an extension's settings | Its settings row opens a form: a field each as the extension's own schema says it (its name, what it means, what it takes, what it does left empty). Enter saves, Esc puts it away; a value the service refuses keeps the form, every word as typed, with why. A line does the same (`extensions.configure id=waiting warn-days=7`) |
-| Switch outline | The bar's Outlines (`bar.open scope=outlines`, the toolbar's Outlines): this machine's outlines and the ones on the machines it holds a forward to, as the service lists them. A row switches this window (`outline.switch name= [machine=]`). Only an outline that is listed opens: a name nobody has is refused, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; its name stays on the toolbar, a press back to it |
+| Switch outline | The bar's Outlines (`bar.open scope=outlines`, the toolbar's Outlines): this machine's outlines and the ones on the machines it holds a forward to, as the service lists them. A row switches this window (`outline.switch name= [machine=]`). Only an outline that is listed opens: a name nobody has is refused, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; its name stays on the toolbar, a press back to it. In a window on another machine's outline the list is that machine's host's: its own outlines open, and one it lists on a further machine is refused with the launch that opens it from here (the machine's name on that row is that host's, not this machine's) |
 | Open a second window | `tile.tear` (`mod+shift+t`, the kitchen's Tear out): the tile leaves this window for one of its own, on the same outline, showing what it showed. Both windows read one store: a note both show is read once, and a link's 64 watches are shared. A window may switch outline by itself; `window.close` closes it |
 | Find | The bar, with words: the service's search, under the actions that match |
 | Query | The bar on a query: the views' grammar (`type=letter mail=waiting`), with the facets the matches carry as chips that narrow it; a header chip on a note, or a row of its properties, opens the query for it |
@@ -99,6 +119,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Jump between agents | The bar's Programs (`bar.open scope=programs`, the kitchen's Programs and its tile): the programs this window runs, in a tile or not, each with what it reports of itself; a row takes the keys to its program (`terminal.jump key=`), in a tile beside the note when it has none. What herdr-core runs that this window never started is listed after them in the tile, and is never ended, typed into or attached from here |
 | Scroll, paste and copy in a terminal | `shift+pageup` and `shift+pagedown` or the wheel move through what scrolled off (`terminal.scroll`); `mod+shift+v` pastes the clipboard as a paste (`terminal.paste`); words are selected with the mouse, as in a note, and copied with ⌘C on a Mac (elsewhere step out with `ctrl+]` first: Ctrl+C in a program is the program's) |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
+| Read what an agent did, and move on | The toolbar's status line names the agent and the act, or why it was refused, for as long as it takes to read (4 s at least, about 14 characters a second, 30 s at most: the door's rule for its status bar), then it goes. It has the room the toolbar has left between the names and the screen's buttons, and takes none of theirs; where that cuts it short, the pointer resting on it reads the whole of it. A refusal of your own is the notice under the toolbar: it stays until you have had time to read it and do something else, or dismiss it; the clock alone takes no notice away |
 
 **The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
 keycap on a button, the bar's rows and `actions` over the control socket all read the row. The defaults:
@@ -291,15 +312,25 @@ src/ (Rust, Rune)                                      the outline host
   of the window it goes to, and the shell opens it (`App::born`); a block is written in one window at a time.
 - **An outline is switched by name** (`actions/outline.rs`). Which outlines there are is the service's list
   (`outlines.known`, asked each time); how one is reached is the rule every client opens an outline by
-  (`resolve.ts --to <name> [<machine>]`, the door's `resolveTarget`). The outline left is parked whole in the
+  (`resolve.ts --to <name> [<machine>]`, the door's `resolveTarget`). A machine's name belongs to the machine that
+  says it: this machine's own host names the machines it reaches as this machine does, and the rule follows them;
+  a host on another machine names them its own way, so it speaks for its own machine's outlines alone
+  (`vouched`), and nobody is asked the way by a name of its. The outline left is parked whole in the
   window (arrangement, tiles, the way back, the blocks being written with their holds let go) and its
   arrangement kept in its own file; coming back asks nobody.
 - **What an extension adds is the service's word** (`ext.rs`, `actions/ext.rs`). The bar's Extensions is a list
-  the service answers (`lists.read from=extensions`), each row with the act line it runs. Its kinds arrive with
+  the service answers (`lists.read from=extensions`), each row with the act line it runs. What one of its actions
+  answers (`extensions.act`) is read whole where it was asked (`acted`): everything such an answer may ask of a
+  client is the service's list, written down with a real answer (`outline-core/fixtures/served-act.json`), and a
+  test holds the reader to doing or saying each. Its kinds arrive with
   the screens (`screens.list`): one its script renders names the `view` drawer (`tiles/rendered.rs`), which asks
   `tiles.view` and builds the primitive it answers through the one registry, so a list in it is the list
   drawer's. Its settings are a form drawn from its schema as `extensions.list` says it; what is typed is sent as
   the value its field's type says, and the service checks it. Nothing in the window names an extension.
+- **A property that styles a line is no content.** A heading's `[heading::band]` and its own fields, a line that
+  declares a style, a rule's `[rule::fade]` and any `style.*` are left out of the prose the service serves
+  (outline-core's `unstyledLines`, by the readers the door's own reader asks); a property that says something
+  stays the note's words. The window reads no Blockdown to do it.
 - **The service answers a note whole** (`notes.page`, outline-core's `note-page.ts`): title, chips, properties, the
   body as parts, and the notes above, under and linking to it. It walks the note as a published page does (one
   finder says which component a line starts, outline-core's `componentAt`) and asks the same questions; where a
@@ -371,8 +402,17 @@ src/ (Rust, Rune)                                      the outline host
     `draft.patch` is the way in for everybody else.
 - **Pictures are parts too.** The page names each picture (its path, or an svg fence's own text) and how the note
   lays it out; the window reads a file's bytes with `media.read`, hands them to Rune's image cache to decode off
-  the UI thread, and keeps only those of the pages its readers show. One the host can't read says so, in the host's words, where it
-  would be.
+  the UI thread, and keeps those of the pages its readers show, with the last few they showed still decoded behind
+  them (eight at most, and no more than 128 MiB of pixels: a note come back to draws its photos at once). One the
+  host can't read says so, in the host's words, where it would be.
+- **What is said goes when it has been read** (`App::fade`, `App::read`; `actions::stays` is outline-core's
+  `staysMs` by port, the rule the door's status bar keeps a message by). The status line is news and goes by the
+  clock. A notice is the person's: a problem's goes with their next act once it has been up long enough to read,
+  unless that act says something in its place.
+- **The toolbar starts past the window's own buttons** where they sit over it (`shell::toolbar_lead`, from Rune's
+  `Cx::titlebar_inset`): on a Mac the content fills the window under a clear title bar, and the outline's name is
+  drawn after the traffic lights. In full screen, and on every other platform, it starts at the edge. Each window's
+  frame is said once (`shell::frame`).
 - **What is about a note is a list that follows a reader** (`extensions/screens`: the `threads`, `proposals` and
   `revisions` kinds, each the list drawer over a producer of `lists.read`, with `source: tile:<reader>` and
   `subject: follows`, as the links tile has). The window has no code for any of them. The desk holds the three as
@@ -409,7 +449,10 @@ src/ (Rust, Rune)                                      the outline host
 - **A reader shows the note it was told, and no other** (`App::note_of`). One told none shows none: the layout's
   rules read that (`Facts.showing`) and the tile draws that, so a close's heir and an open's landing replace
   nothing that was on screen. What an empty tile says is its kind's own row (`tiles::waiting`: the name and the
-  description the service serves for the kind), for a reader and for a list about a note nobody shows alike; a
+  description the service serves for the kind, which is written for the person at the tile; how a screen writes a
+  tile of the kind is the extension's page to say), for a reader and for a list about a note nobody shows alike,
+  and what to do next is a line an act (`tiles::way`: the button its action's row labels, the key the table binds
+  and what that key does, in the row's words); a
   window opens on its screen with its reader empty, and the arrangement kept between runs brings back what each
   reader showed.
 - **The keys screen has no table of its own.** The window hands `lists.read from=actions` its action rows (where a
@@ -537,11 +580,27 @@ ep0ch act --door native proposal.dismiss id=<a proposal's id, as peek lists it> 
 ## Check it
 
 ```sh
-cargo test                          # the window over a stand-in link that answers by wire action
+cargo test                          # the window over a stand-in link that answers by wire action; also what a
+                                    # change under packages/outline-core/fixtures or the door's layout is held by
+                                    # (scripts/box-test native runs it on the test box)
 cargo test --features pty           # the same, and the terminal's crates: a real pty, herdr-core by a stand-in
 cargo test -- --ignored live        # the same window against a scratch outline host it starts (needs bun)
 bun run check                       # resolve.ts, and scripts/native-forkable
 ```
+
+**No bun gate runs cargo, and the fixtures have a second reader here.** `bun run check` in this folder is `tsc` over
+one file and `scripts/native-forkable`. `packages/outline-core/fixtures/` holds what the door, outline-core and the
+service answer, written down (the layout, place, drop, address and actor tables, `core-contract.json`,
+`action-rows.json`, `act-lines.json`, `served-screens.json`, `served-act.json`, `primitives.json`). The door's and
+the outliner's own tests only make those files again and compare them with what is committed, so a door change that
+moves a row is green there; the window's ports of the same rules (`layout::apply` and `place`, the drop rule, the
+address resolver, the action rows, outline-core's rules in `tests/contract.rs`) are asked the rows by `cargo test`
+alone. So a diff under `packages/native` **or** `packages/outline-core/fixtures` runs `cargo test` here, and a row
+that goes red is fixed in the window's port in the same PR. In the foreground, up to ten minutes once the build is
+warm: `export CARGO_TARGET_DIR=<a build folder that is kept>` (a first build is about 480 crates) and, where there
+is no GPU, `export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`. On the test box `scripts/box-test native`
+runs the same (this folder's check, then the suite) with the build kept between runs; it is never part of `all`, so
+a merge batch names it when a PR in it touches this folder or the fixtures.
 
 `src/tests/` has one file a kind of test: the garden (what the window asks and does with the answers), the window
 drawn and pressed, the parity table (every action by its chord, by its bar row pressed and by its act line, one
@@ -566,6 +625,9 @@ model names no Rune type). `owners.rs`, `sweep2.rs` and `sweep3.rs` hold the sam
 reader's note goes to its heir, Return under a row that would write nothing, a refusal names an action here;
 F2's are in `lists.rs` and `shell.rs`: a fold's mark only on a row the service says opens onto notes, and a reader
 told no note drawn as empty in its kind's own words), and
+`small.rs` has what the first run by hand met (wave H3: the status line letting an agent's refusal go once it has
+been read, a refusal's notice going with the person's next act, the toolbar starting past a Mac's window buttons,
+a table's rows scrolling under a line below its column header, an empty reader's words and ways from the rows), and
 `margin.rs` has a comment in place (picked words found as whole words by the service, the comment's field under the
 part its words are in with both in view, the words a thread is on marked and its card beside them, opened by a press
 on either, the person's send bringing the comments forward and an agent's moving no tab, the door's keys for picked
@@ -595,7 +657,7 @@ rule between two, each comment anchored to the source they were drawn from, and 
 the comment kept; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
 keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
 bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
-removed by an agent's act; then a switch to a second outline of the same host and back), H1's (two lines pasted with a carriage return between them saved as two lines and served as two picture parts, Tab on the second, and the five values a heading's pattern has listed with each one's own words, the lit one's drawing and the count), and the tree's folds (beds
+removed by an agent's act; then a switch to a second outline of the same host and back), RW's (the default-on what-changed extension's `change` run about the reader's note: the note the service asks for opened by the open action as the person and as an agent, and the comparison said not drawn), H1's (two lines pasted with a carriage return between them saved as two lines and served as two picture parts, Tab on the second, and the five values a heading's pattern has listed with each one's own words, the lit one's drawing and the count), and the tree's folds (beds
 with only a comment, only a proposed edit and both under them drawn with no mark, the one with a note among them
 unfolded onto it, and the window's reader empty until a note is opened). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
@@ -620,7 +682,10 @@ service: the rows it writes are what runs, and a row's pick is the jump.
 (PROBES.md §7).
 
 `src/tests/ext.rs` is W7's over the stand-in host: an extension installed from the bar's row, used, configured by
-its form (a value refused keeps the form) and removed; a switch of outline and back to a block as it was being
+its form (a value refused keeps the form) and removed; what an extension's action answers done or said not done
+(a note opened as whoever asked, from the answer a real service gave; a Resource, a question, words for the
+clipboard, a caret's line and a runbook); a window on another machine's outline following no machine name of that
+host's; a switch of outline and back to a block as it was being
 written (a name nobody has refused, nothing made); a tile torn into a second window drawn headless, two links in
 one store, and the control socket naming the window an act is for; a torn window that switches outline keeping
 no arrangement there and its words in a file of its own; and a window closed mid-block holding nothing afterwards.
@@ -640,7 +705,14 @@ proof it switches:
 
 ![The same note as above, light: the theme follows the system](docs/note-light.png)
 
-Rune renders headless, so a change can be looked at without a display, on a scratch outline:
+Rune renders headless, so a change can be looked at without a display, on a scratch outline. The headless flags
+are a debug build's: Rune links them into a release build only with its `tooling` feature, which this crate
+leaves off, so `target/release/ep0ch-native --snap …` ends saying so.
+
+Most pictures on this page were drawn on the Rune pin before `a5360a6`. A render made now has the same boxes and
+the same words, and differs at the edges of its letters: on Linux a hinted face's rows now land on whole pixels
+([PROBES.md §18](docs/PROBES.md#18-rune-at-a5360a6-r0) has the two side by side). A picture is drawn again by the
+wave that changes what it shows, on that wave's own scratch outline.
 
 ```sh
 target/debug/ep0ch-native --snap out.png --scene bar --theme dark -- --ws scratch
@@ -657,6 +729,8 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A close the layout refuses: the notice names the way out by this window's own key](docs/ways-dark.png)
 
+![An extension's action answered more than words: the note it asked for is opened, and the comparison this window doesn't draw is said in the notice, not claimed](docs/acted-dark.png)
+
 ![A tile held by its title: every tile shows the places it would take it in, the one under the pointer lit, the held tile dimmed, and the foot says what is held, where it would land and the key that lets go](docs/drag-dark.png)
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
@@ -667,6 +741,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
 `drag` (the tree held by its title over the second reader's upper middle, by `layout.carry`: the zones every tile offers, the lit one, the held tile dimmed; `layout.drop` would land it),
+`headings` (a note `parts.seed.ts` writes: headings and a rule that name a style and a line that declares one, drawn without the properties that style a line, with its properties listed beside it),
 `ways` (a reader a block is being written in is asked to close: the layout's refusal is the notice, its way out said by the key this window binds; an agent's resize under the typing is told the act that gets the person's attention here; `parts.seed.ts` writes its note),
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
@@ -680,7 +755,7 @@ pictures it draws into the folder, an svg fence and a mermaid fence), and `quote
 words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
 and one begun on words picked as a selection says them), and `margin` (a note the same seed writes with two comment
 threads on words of it: the passages marked, the first thread opened beside its words; draw it wide, `--size 1760x900 --at 0.5`,
-for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list). `--act <file>` runs any file of them before the
+for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list), and `acted` (the same seed's note in the kitchen's reader, and the default-on what-changed extension's `change` run about it by a line: the notice says its words and what of its answer is not done here). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
@@ -716,6 +791,13 @@ toolbar button is
   18 points of its 26 and the band under it starts inside the title. A group (a screen in a tile) takes no tile
   dropped into it, and no part of a note is dragged out of a reader (the door's `element.detach`). No tile kind
   here takes a tile's content (the door's shelves), so the rule's `receive` is ported and never asked.
+- On a Mac: the toolbar starting past the traffic lights was built from Rune's source and run here by telling a
+  headless runtime the inset a Mac's window reports; it was not run on a Mac. The toolbar is no drag region of its
+  own (AppKit's title bar band moves the window). A torn-out window has the same row over its tile and starts
+  past its own buttons by the same rule, held by the same test and run on no Mac either.
+- The status line on a full toolbar: on the desk in a window 1180 points wide its room is about a dozen characters,
+  the start of the agent's name; the act and why it was refused are read on a hover. The window keeps no log of
+  what it said once it has gone.
 - Windows: a torn-out window isn't opened again at the next start (its unsaved text is: the first window brings
   it back) and has no toolbar of its own (the bar is its `mod+k`). Its tile goes back into the window it came from
   along that window's right edge, by the layout's rule for a new tile: it is not dropped at a place chosen across
@@ -724,8 +806,9 @@ toolbar button is
   everything above about a hold were run on Linux in headless windows: none of it was run on a Mac or on a display.
 
 - Writing: a block is its whole source in one field, as typed: nothing is drawn of it until it is saved (no
-  preview beside), and a long block (past a thousand lines) types slowly, since the field is laid out whole on each
-  key (PROBES.md §12). The editor's own keys (undo, word motion, select all) are Rune's and have no act line; Return
+  preview beside). A long block types as fast as its frame draws since the pin moved: Rune lays out the paragraph
+  a key changed, not the field (6.7 ms a key at a thousand lines, 13 ms at three thousand, where it was 38 and
+  113: PROBES.md §12). The editor's own keys (undo, word motion, select all) are Rune's and have no act line; Return
   types a line and continues no list (the door's `draft.newline` does), and Tab moves no snippet's slot. A
   completion row that makes something when chosen (a page nobody wrote yet, an anchor on a heading, a new
   component) isn't offered, nor are a row's variations; the list shows what the service sent, with no Jev
@@ -767,15 +850,23 @@ toolbar button is
   it; one whose look word isn't read says so and still runs; a button inside a list item draws as a part between the items. `docs/prim-coverage.md` has each.
 - A list in a note has no filter, selection or preview pane, and its lanes show eight rows each and scroll the
   rest; a row that copies or inserts is words, in a note and in a list tile alike. A heading
-  style's glyph tracks aren't drawn.
+  style's band, glyph track, tone and lettering aren't drawn: a heading that names a style is drawn as a plain
+  heading, without the properties that style it (the service says no style a page could draw yet).
 - Pictures: text inside an SVG isn't drawn (Rune rasterises without fonts); a header image crops to its middle
   (`hero-focus`, `blur`, `tint`, `fade` and a title over it aren't read); artifacts and video stay as written;
   a view's card covers and pictures in properties aren't shown.
 - Outlines: a window on another machine's outline lists that host's outlines, so this machine's are reached from
-  there only by the name left on the toolbar (or `machine=""`); a machine that doesn't answer is listed from the
-  copies kept here and can't be switched to. A new outline isn't made from the window (`ep0ch outline create`).
+  there only by the name left on the toolbar (an outline this window was on), and an outline that host lists on a
+  further machine not at all: both are refused with the launch that opens them from here (`ep0ch-native -- --ws
+  <name>`), since no link to this machine's own host is made from such a window. A machine that doesn't answer is
+  listed from the copies kept here and can't be switched to. A new outline isn't made from the window (`ep0ch
+  outline create`).
 - Extensions: an extension's own bar source isn't listed in this bar (its rows carry no act line yet), its
+  actions have no row there either (a line runs one: `extensions.act id= action=`), its
   secrets are said in the form and set elsewhere, and a schema that isn't an object of named fields has no form.
+  Of what an action may answer, a Resource to open, the note's last change drawn beside it, a line put at the
+  caret and a runbook are said and not done here, and a question it asks first has no button: the notice says the
+  line that says yes.
   A kind that runs a program is a terminal tile, in a window built with its terminal.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
@@ -787,5 +878,7 @@ toolbar button is
   back (the bar's Extensions installs it).
 - After its own write the window reads what it shows at once rather than waiting for the watch to say so.
 - The bar's list bounds itself to seven rows (`list::bounded`): `rune-kit`'s `Dialog` doesn't bound a scroll view in its body.
-- Rune is pre-release and pinned by rev in `Cargo.toml`. Windows builds also need Rune's `wgpu-hal` patch
-  (its README, "Add it"), and the socket is a Unix one.
+- Windows: the socket is a Unix one. (Rune's own patches, `wgpu-hal` among them, are in `Cargo.toml` since R0.)
+- A quit drops what the run holds (`rune::orderly_exit`): the control socket leaves its folder as it is dropped.
+  Rune's faster default, which ends the process at the quit's last hook, would leave the file behind until the
+  next launch; the socket's removal is not a quit hook yet.

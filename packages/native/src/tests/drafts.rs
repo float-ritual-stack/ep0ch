@@ -387,7 +387,7 @@ fn a_patch_waits_while_an_input_method_is_composing() {
     let mut rt = window(g.app);
     press(&mut rt, "tile/reader/edit");
     rt.ime(Ime::Enabled);
-    rt.ime(Ime::Preedit("か".into(), Some((0, 3))));
+    rt.ime(Ime::Preedit("か".into(), Some((0, 3)), Vec::new()));
     rest(&mut rt);
     assert_eq!(words(&rt.state), PLOT, "what is being composed is not text yet");
     let now = draft(&rt.state).unwrap().stands(false);

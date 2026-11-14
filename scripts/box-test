@@ -4,6 +4,7 @@
 # is removed whatever happens. The exit code is the suites'.
 #
 #   scripts/box-test [--on float-box|boxd] [--ref <rev>] [--each] [--keep] [--replace] [--alone] [package …]   default: --ref HEAD, the door
+#   scripts/box-test native                                         the native window's cargo suite (float-box only)
 #   scripts/box-test --refresh-golden                               rebuild the golden boxd box from origin/main
 #
 #   --on      where to run (or EP0CH_BOX_TARGET). Default: float-box when `ssh float-box true` answers in 5 s, else boxd.
@@ -23,6 +24,13 @@
 #             under a backfill and an import, held to ping p95 < 200 ms), last in `all` (claude-mod's needs a
 #             logged-in claude, which boxd injects). The door's files run in parallel (`--parallel`): one per vCPU
 #             on boxd, TEST_EACH_JOBS on float-box.
+#             native (never part of all) is `bun run check` then `cargo test` in packages/native: the one place the
+#             contract tables in outline-core/fixtures are asked of the window's Rust (its layout, its action rows,
+#             outline-core's own rules as ported), so a change to the door's layout or actions, to those fixtures or to
+#             packages/native runs it. float-box only: the build is kept between runs in EP0CH_BOX_CARGO_TARGET
+#             (default ~/.cache/ep0ch/box-test-native-target on the box; a first run builds about 480 crates), with
+#             the box's own cargo and rustup (packages/native/rust-toolchain.toml names the toolchain; Linux also
+#             needs libxkbcommon-dev, libwayland-dev and mesa-vulkan-drivers). A boxd fork keeps nothing, so it is refused there.
 #   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
 #   --alone   float-box: wait for the runs ahead, then hold every slot, so no other box-test run goes beside this one (the nightly).
 #   --replace stop this worktree's running run (float-box) and start this one instead of being refused.
@@ -57,10 +65,10 @@ while [ $# -gt 0 ]; do
     --replace) replace=1; shift;;
     --alone) alone=1; shift;;
     --refresh-golden) refresh=1; target=boxd; shift;;
-    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     all) pkgs+=(outline-core outliner door claude-mod host-bench); shift;;
-    door|outliner|outline-core|claude-mod|host-bench) pkgs+=("$1"); shift;;
-    *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod host-bench all)" >&2; exit 2;;
+    door|outliner|outline-core|claude-mod|host-bench|native) pkgs+=("$1"); shift;;
+    *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod host-bench native all)" >&2; exit 2;;
   esac
 done
 [ ${#pkgs[@]} -gt 0 ] || pkgs=(door)
@@ -68,6 +76,10 @@ if [ -z "$target" ]; then
   if ssh -o ConnectTimeout=5 -o BatchMode=yes "$box_host" true </dev/null >/dev/null 2>&1; then target=float-box; else target=boxd; fi
 fi
 case $target in float-box|boxd) ;; *) echo "box-test: --on takes float-box or boxd, not \"$target\"" >&2; exit 2;; esac
+# The native window's cargo build is some 480 crates: float-box keeps it between runs, a boxd fork starts from none.
+if [ $target = boxd ]; then
+  for p in "${pkgs[@]}"; do [ "$p" = native ] && { echo "box-test: native runs on float-box, where its cargo build is kept between runs (a boxd fork would build it cold each time): --on float-box" >&2; exit 2; }; done
+fi
 
 say() { printf '\033[2mbox-test:\033[0m %s\n' "$*" >&2; }
 # The test-time budget (PIE-1422, scripts/test-budget.ts): the run script ends by printing each package's JUnit as
@@ -151,11 +163,23 @@ if [ $target = float-box ]; then
   home_line="mkdir -p $dir/home; export HOME=$dir/home; "
   for p in "${pkgs[@]}"; do [ "$p" = claude-mod ] && home_line=""; done
   # with-secrets groups: an empty folder of the run's, even when HOME stays (claude-mod), so no test host reads a real key.
-  run="${home_line}mkdir -p $dir/secrets; export WITH_SECRETS_DIR=$dir/secrets; for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done; export EP0CH_TEST_SLACK=2"
+  # (The box's own home is kept by name first: its cargo and rustup live there, and the native build's kept folder.)
+  run="box_home=\$HOME; ${home_line}mkdir -p $dir/secrets; export WITH_SECRETS_DIR=$dir/secrets; for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done; export EP0CH_TEST_SLACK=2"
   run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
+  # The native window's build folder on the box, outside the run dir (which goes with the run): the next run finds it warm.
+  cargo_target=${EP0CH_BOX_CARGO_TARGET:-}
+  [ -z "$cargo_target" ] || [[ $cargo_target =~ ^/[A-Za-z0-9_./-]+$ ]] || { echo 'box-test: EP0CH_BOX_CARGO_TARGET is an absolute path of plain characters' >&2; exit 2; }
   for p in "${pkgs[@]}"; do
     # The host's fairness under bulk writes (PIE-1413): a timed run, after the suites, measured on its own.
     if [ "$p" = host-bench ]; then run+="; echo; echo '━━ host-bench: bun run bench:host --check'; (cd packages/outliner && EP0CH_BENCH_TMP=\$TMPDIR nice -n 10 bun run bench:host --check); c=\$?; [ \$code = 0 ] && code=\$c"; continue; fi
+    # The native window (packages/native): its check, then its cargo suite, which is what asks the contract tables of
+    # the window's Rust. The box's own cargo and rustup (the run's HOME is private), headless Rune through lavapipe,
+    # and the build kept in a folder of the box's, so only the first run builds every crate.
+    if [ "$p" = native ]; then
+      run+="; echo; echo '━━ native: bun run check'; (cd packages/native && nice -n 10 bun run check); c=\$?; [ \$code = 0 ] && code=\$c"
+      run+="; echo; echo '━━ native: cargo test'; (cd packages/native && export CARGO_HOME=\${CARGO_HOME:-\$box_home/.cargo} RUSTUP_HOME=\${RUSTUP_HOME:-\$box_home/.rustup} && cargo=\$(command -v cargo || echo \$CARGO_HOME/bin/cargo) && { [ -x \"\$cargo\" ] || { echo 'no cargo on this box: the native suite needs rustup (packages/native/rust-toolchain.toml names the toolchain), libxkbcommon-dev, libwayland-dev and mesa-vulkan-drivers'; exit 2; }; } && export CARGO_TARGET_DIR=${cargo_target:-\$box_home/.cache/ep0ch/box-test-native-target} VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json && mkdir -p \"\$CARGO_TARGET_DIR\" && nice -n 10 \"\$cargo\" test); c=\$?; [ \$code = 0 ] && code=\$c"
+      continue
+    fi
     # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):
     # the parity parts take minutes each, and one after another they were most of a 30-minute run (PIE-760).
     par=""; [ "$p" = door ] && par=" --parallel=$jobs"

@@ -585,6 +585,25 @@ fn a_window_an_outline_and_an_extension_each_have_one_owner() {
     // rendered tile is asked in one place.
     none("an extension changed outside its own actions", ["\"extensions.install\"", "\"extensions.uninstall\"", "\"extensions.configure\"", "\"extensions.act\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/ext.rs")).collect());
     none("a rendered tile asked from somewhere new", strays("\"tiles.view\"", |path| path == "actions/app.rs"));
+    // What the service answers an extension's action with is read where the action was asked, whole: a note to open
+    // goes through the open action's own row (never a line written for it), words for the clipboard are the
+    // window's hands' to copy, asked for by that answer alone.
+    let ext = &sources().into_iter().find(|(path, _)| path == "actions/ext.rs").expect("actions/ext.rs").1;
+    // (Everything such an answer may ask of a client is the service's list, written down with a real answer:
+    // outline-core's served-act.json, `asks`.)
+    let acted = ext.split("fn acted(").nth(1).expect("actions/ext.rs has `acted`");
+    for asks in super::support::served_act()["asks"].as_array().expect("the fixture lists what an answer may ask") { let key = format!("\"{}\"", asks.as_str().unwrap()); assert!(acted.contains(&key), "actions/ext.rs's `acted` reads no {key}: what an extension's action answers is done here or said not done") }
+    assert!(acted.contains("super::nav::OPEN.id"), "a note an extension's action asks to have opened goes through the open action's own row");
+    none("a second reader of what is written as a Resource ref (`ext::resource_ref`, held to outline-core's rows)", strays("\"resource:\"", |path| path == "ext.rs"));
+    none("the clipboard written outside the window's hands (`keys::effects`)", strays("tx.copy(", |path| path == "keys.rs"));
+    none("words put on the clipboard for somebody other than an extension's answer for the person", strays("st.copying =", |path| path == "actions/ext.rs"));
+    // A machine's name belongs to the machine that says it: whether the host asked may speak for an outline is one
+    // rule, asked before anybody is asked the way, and the launch that opens one from here is written once.
+    none("a second rule for whose a machine's name is", strays("fn vouched(", |path| path == "actions/outline.rs"));
+    let outline = &sources().into_iter().find(|(path, _)| path == "actions/outline.rs").expect("actions/outline.rs").1;
+    let switch = outline.split("fn switch(").nth(1).and_then(|rest| rest.split("\nfn ").next()).expect("the switch's run");
+    assert!(switch.find("vouched(").zip(switch.find("\"outlines.known\"")).is_some_and(|(rule, ask)| rule < ask), "outline.switch asks whose the machine's name is before it asks which outlines there are");
+    none("the window's launch line written somewhere new (`launch` in actions/outline.rs)", strays("ep0ch-native -- ", |path| path == "actions/outline.rs"));
     // Whose a script's act or a draft's ask is, the store is told by the action that knows; it reads no request to guess.
     none("the store told whose an event is from somewhere new", [".pressing(", ".holding("].iter().flat_map(|call| strays(call, |path| ["actions/script.rs", "actions/draft.rs", "store.rs"].contains(&path))).collect());
     let texts = sources();
@@ -713,6 +732,29 @@ fn a_terminal_s_deciders_each_have_one_place() {
     // the rest. And it holds the programs where every window of a run finds them: in the store's hub.
     let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
     assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
+}
+
+/// Wave H3, small things: each has one place.
+/// - How long something said stays up is one port of outline-core's rule (`actions::stays`), and the status line
+///   goes by the clock in one place (`App::fade`); a notice is put away by the dispatcher alone, beside the person's
+///   own dismiss.
+/// - What the window's own buttons take of the toolbar is asked of Rune once, in the shell, and the frame a window
+///   asks for is said once.
+/// - What an empty tile offers to do next is worded by the action rows through one builder (`tiles::way`).
+/// - Which decoded pictures are kept is the picture cache's own.
+#[test]
+fn what_h3_added_has_one_owner_each() {
+    none("the time something said stays up written outside `actions::stays`", ["30_000", "from_millis(4000", "from_secs(4)"].iter().flat_map(|number| strays(number, |path| path == "actions/app.rs")).collect());
+    none("what the status line says taken away outside `App::fade`", strays("agent_said = None", |path| path == "actions/app.rs"));
+    none("since when something has been said kept outside the App", strays("st.heard.", |path| path == "actions/app.rs"));
+    none("a read notice put away outside the dispatcher", strays(".put_away(", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    none("the window's own buttons asked about outside the shell", strays("titlebar_inset()", |path| path == "shell.rs"));
+    none("a window's frame said outside `shell::frame`", strays("Chrome", |path| path == "shell.rs"));
+    let framed: Vec<String> = strays(".chrome(", |_| false).into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert_eq!(framed, ["main.rs", "shell.rs"], "every window of the run is given the one frame: the first, and one torn out");
+    // What to do next in an empty tile is a line its action's row words, built by one builder: no drawer keys one.
+    none("a way to fill an empty tile built by a drawer: `tiles::way` builds it from the action's row", strays("empty/find", |_| false));
+    none("which pictures are kept decided outside the picture cache", ["pictures.held", ".behind"].iter().flat_map(|word| strays(word, |path| path == "tiles/picture.rs")).collect());
 }
 
 /// H4, a comment in place: each of its questions has one answerer. Where picked words are, and that a passage is

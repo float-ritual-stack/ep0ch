@@ -30,6 +30,8 @@ import { heldBack, keysIn, MARK_THEM, NOBODY, SHELL_IDLE_MS, typingIn, type Scre
 import { agentRefusal, type AgentLevel } from "./agent-level";
 import { way, type Why } from "@ep0ch/outline-core/way-out";
 import { refusalSaid } from "./way-out";
+/** What an agent was answered, said again for the person (way-out.ts): what shows an agent's refusal on their screen asks it. */
+export { saidToPerson } from "./way-out";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */

@@ -30,6 +30,12 @@ export const unlockWays = (self: LayoutSelf = SCREEN_SELF): Way[] => {
 };
 /** A policy's layer as `layout.policy` names it: the screen, or a container by its id. A kind's own default is no node. */
 export const nodeOf = (by: string | undefined): { node?: string } => (by !== undefined && (by === "screen" || /^[sgdcf]\d+$/.test(by)) ? { node: by } : {});
+/**
+ * The container a way's act names by its id, when it is one (never the screen: every tile is in it). An act line says
+ * the place in its arguments; a key means its act only where the person's keys are, so the door's sayer reads this to
+ * know a key alone may lead nowhere.
+ */
+export const containerNamed = (w: Way): string | undefined => { const node = w.args?.node; return typeof node === "string" && node !== "screen" ? nodeOf(node).node : undefined; };
 /** The way out of a policy that says no: its flag turned on at the layer that says it (the policy panel's row, for the person with their keys there). */
 export const turnsOn = (flag: string, by: string | undefined): Way => way("layout.policy", `turns ${flag} on`, { args: { ...nodeOf(by), [flag]: true }, at: "there" });
 /** Why an open landed somewhere other than where it was aimed, and what undoes that, each an act (a pinned reader's pin let go). */

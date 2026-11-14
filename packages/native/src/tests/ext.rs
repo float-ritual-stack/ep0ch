@@ -79,6 +79,107 @@ fn waiting_is_installed_from_the_bar_s_own_row_used_configured_by_its_form_and_r
     assert_eq!(rt.state.act("extensions.configure id=waiting", Actor::Agent("compost-agent".into())).said, "no extension waiting is installed here · the bar's Extensions lists the ones that are, and installs waiting");
 }
 
+/// What the service answers an extension's action with is done in the window or said not done (the outliner's
+/// `ExtensionActResult`): its words alone said nothing of a note it asked to have opened, a question it asked
+/// before doing anything, words for the clipboard, a line for the caret or a runbook, so the window stated
+/// something that had not happened.
+#[test]
+fn what_an_extension_s_action_answers_is_done_here_or_said_not_done() {
+    let Garden { app, asked, .. } = garden(ok());
+    let mut rt = window(app);
+    let board = rune::clipboard::memory();
+    rt.use_clipboard(&board);
+    fn run(rt: &mut rune::Runtime<App>, line: &str, by: Actor) { rt.update(|s, _| { assert!(s.act(line, by).ok, "{line}"); s.settle(); }); rest(rt); }
+    let steps = |app: &App| control::peek(app)["screen"]["steps"].as_array().unwrap().iter().map(|step| (step["line"].as_str().unwrap_or("").to_string(), step["by"].as_str().unwrap_or("").to_string(), step["ok"] == true)).collect::<Vec<_>>();
+    let problem = |app: &App| app.notice.as_ref().is_some_and(|notice| notice.tone == crate::actions::Tone::Problem);
+    assert_eq!(rt.state.subject().as_deref(), Some("plot"));
+
+    // A note it asks to have opened is opened, by the open action as whoever asked: the layout places it and the
+    // step is theirs. The comparison it asks for beside it is no part of this window, and that is said.
+    run(&mut rt, "extensions.act id=compost action=sift", Actor::Person);
+    assert_eq!(sent(&asked, "extensions.act").last().map(|a| (a["extension"].clone(), a["extensionAction"].clone(), a["blockId"].clone())), Some((json!("compost"), json!("sift"), json!("plot"))));
+    // (The request is the one the service was asked when its answer was written down: outline-core's served-act.json.)
+    let recorded = served_act();
+    let ours = sent(&asked, "extensions.act").last().cloned().expect("the act was asked");
+    for (key, value) in recorded["asked"].as_object().unwrap() { let ours = &ours[key]; assert!(if value.is_object() { value.as_object().unwrap().keys().all(|k| !ours[k].is_null()) } else { !ours.is_null() }, "the window's request has no {key}, which the recorded one has") }
+    assert_eq!(recorded["answered"]["message"], "the change, beside the note");
+    assert_eq!(rt.state.subject().as_deref(), Some("beans"), "the note it asked to have opened is the one the reader shows");
+    assert_eq!(steps(&rt.state).last(), Some(&("open id=beans".to_string(), "person".to_string(), true)));
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("Sift the heap: the change, beside the note · the note is opened without its last change beside it: this window draws no such comparison", false));
+    // An agent's is the agent's open: it lands by the layout's rule for one, recorded as theirs.
+    run(&mut rt, "open id=plot", Actor::Person);
+    run(&mut rt, "extensions.act id=compost action=sift", Actor::Agent("compost-agent".into()));
+    assert_eq!(steps(&rt.state).last(), Some(&("open id=beans".to_string(), "agent:compost-agent".to_string(), true)));
+    assert!(rt.state.shown_tiles().iter().any(|tile| rt.state.note_of(tile).as_deref() == Some("beans")), "the agent's open landed");
+    // A Resource is no note: this window opens none, and says which it was asked for.
+    run(&mut rt, "extensions.act id=compost action=ledger", Actor::Person);
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("The ledger: the heap's ledger · it asks for file:/shed/ledger.md to be opened, and this window opens notes only", true));
+
+    // A question before it does anything: nothing was done, and the line that says yes is the act again with the
+    // argument the service named.
+    run(&mut rt, "extensions.act id=compost action=empty", Actor::Person);
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("Empty the heap: Somebody fed the heap since it was last turned. Empty it anyway? · nothing is done yet: extensions.act action=empty id=compost sure=yes says yes", true));
+    run(&mut rt, "extensions.act action=empty id=compost sure=yes", Actor::Person);
+    assert_eq!((sent(&asked, "extensions.act").last().map(|a| a["args"].clone()), said(&rt.state).as_str(), problem(&rt.state)), (Some(json!({ "sure": "yes" })), "Empty the heap: emptied the heap", false));
+
+    // Words for the clipboard are copied for the person, whose clipboard it is, and never for an agent.
+    run(&mut rt, "extensions.act id=compost action=tag", Actor::Person);
+    assert_eq!((board.text().map(|text| text.to_string()), said(&rt.state)), (Some("Compost · turned on the third of May".to_string()), "A tag for the bin: a tag for the bin · copied: Compost · turned on the third of May".to_string()));
+    board.set_text("the person's own");
+    run(&mut rt, "extensions.act id=compost action=tag", Actor::Agent("compost-agent".into()));
+    assert_eq!((board.text().map(|text| text.to_string()), said(&rt.state).as_str(), problem(&rt.state)), (Some("the person's own".to_string()), "A tag for the bin: a tag for the bin · its words for the clipboard are not copied for an agent (the clipboard is the person's): Compost · turned on the third of May", true));
+
+    // A line for the caret and a runbook are not done in this window, and each is said so, with the line.
+    run(&mut rt, "extensions.act id=compost action=log", Actor::Person);
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("Log a turn: its line is not put at the caret in this window: - turned the heap", true));
+    run(&mut rt, "extensions.act id=compost action=rounds", Actor::Person);
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("The rounds: it answered a runbook, and this window runs none", true));
+    // Words alone are said as they were.
+    run(&mut rt, "extensions.act id=compost action=turn", Actor::Person);
+    assert_eq!((said(&rt.state).as_str(), problem(&rt.state)), ("Turn the heap: turned the heap", false));
+}
+
+/// A window on another machine's outline asks that machine's host which outlines there are, and that host names
+/// the machines it reaches by its own ssh names. Such a name was handed to this machine's rule as if it were this
+/// machine's (a forward to "laptop", asked for on the laptop), and this machine's own outlines were looked for
+/// among the other host's and refused with a hint that led back to the same name.
+#[test]
+fn a_window_on_another_machine_s_outline_follows_no_machine_name_of_that_host_s() {
+    let Garden { mut app, asked, outlines, reached, .. } = garden_away("big-box");
+    // big-box's host: its own outlines, and one on a machine it calls laptop.
+    *outlines.borrow_mut() = json!({ "outlines": [{ "name": "garden", "here": true }, { "name": "orchard" }, { "name": "allotment", "machine": "laptop" }] });
+    assert_eq!(app.at, OutlineAt { outline: "garden".into(), machine: "big-box".into() });
+
+    // The row of a third machine, as that host wrote it: refused before anybody is asked, with what opens it from here.
+    assert!(!act(&mut app, "outline.switch name=allotment machine=laptop").ok);
+    assert_eq!(said(&app), "Still on garden: laptop is big-box's name for the machine allotment is on, not this machine's, and this window follows no name of another machine's. From here it opens in a window of its own: ep0ch-native -- --ws allotment --machine <this machine's ssh name for it> (no --machine when it is this machine's own).");
+    assert_eq!((sent(&asked, "outlines.known").len(), reached.borrow().len(), app.at.outline.as_str()), (0, 0, "garden"), "nobody was asked the way to laptop");
+    // An agent is told the same, and nothing is said over the person's notice by it.
+    let refused = app.act("outline.switch name=allotment machine=laptop", Actor::Agent("compost-agent".into()));
+    assert!(!refused.ok && refused.said.starts_with("Still on garden: laptop is big-box's name for the machine allotment is on"));
+
+    // This machine's own: they are not that host's to list, and the window says so in place of looking among its rows.
+    assert!(!act(&mut app, "outline.switch name=allotment machine=\"\"").ok);
+    assert_eq!(said(&app), "Still on garden: this window asks big-box's host which outlines there are, and this machine's own are not its to list. From here one opens in a window of its own: ep0ch-native -- --ws allotment.");
+    assert_eq!((sent(&asked, "outlines.known").len(), reached.borrow().len()), (0, 0));
+
+    // A name that host has only on a machine of its own naming, asked for with no machine: the hint never says
+    // machine=<that host's name>, which this machine can't follow.
+    act(&mut app, "outline.switch name=allotment");
+    assert_eq!(said(&app), "No outline named allotment on big-box here, and none is made by asking. There are: garden on big-box, orchard on big-box, allotment on laptop. (big-box lists one by that name on a machine it calls laptop: ep0ch-native -- --ws allotment --machine <this machine's ssh name for it> opens it from here, in a window of its own.)");
+    assert_eq!((app.at.outline.as_str(), reached.borrow().len()), ("garden", 0));
+
+    // Another outline of that machine's own opens as before: over the forward the window was opened on.
+    act(&mut app, "outline.switch name=orchard");
+    assert_eq!((app.at.clone(), reached.borrow().clone()), (OutlineAt { outline: "orchard".into(), machine: "big-box".into() }, vec![OutlineAt { outline: "orchard".into(), machine: "big-box".into() }]));
+    // On this machine a name its own host lists is its own name: said as it was, and followed.
+    let Garden { mut app, reached, .. } = garden(ok());
+    act(&mut app, "outline.switch name=allotment machine=shed-box");
+    assert_eq!(said(&app), "No outline named allotment on shed-box here, and none is made by asking. There are: allotment, garden, orchard on shed-box. (this machine has one by that name: say machine=\"\".)");
+    act(&mut app, "outline.switch name=orchard machine=shed-box");
+    assert_eq!(reached.borrow().last(), Some(&OutlineAt { outline: "orchard".into(), machine: "shed-box".into() }), "this machine's own name for a machine is asked the way to");
+}
+
 #[test]
 fn a_setting_typed_is_the_value_its_type_says() {
     let listed: crate::ext::Extensions = serde_json::from_value(json!({ "extensions": [{ "id": "greenhouse", "state": "active", "settings": { "fields": [

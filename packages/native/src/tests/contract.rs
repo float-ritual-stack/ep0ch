@@ -374,6 +374,25 @@ fn every_refusal_is_said_from_its_reason_and_its_ways_as_outline_core_says_it() 
     }
 }
 
+/// What an answer asks a client to open is a block's id or a Resource ref (`file:`, `web:`, `resource:`), told apart
+/// as outline-core's `isResourceRef` tells them: the window's `ext::resource_ref` is that rule by port, asked of what
+/// an extension's action answers (`extensions.act`'s `open`).
+#[test]
+fn what_an_answer_asks_to_have_opened_is_a_resource_as_outline_core_says() {
+    let rows = table("core-contract")["resourceRefs"].as_array().expect("the table has the Resource-ref rows").clone();
+    assert!(rows.len() >= 10 && rows.iter().any(|row| row["resource"] == true) && rows.iter().any(|row| row["resource"] == false));
+    for row in &rows { let value = row["value"].as_str().unwrap(); assert_eq!(crate::ext::resource_ref(value), row["resource"] == true, "{value:?}") }
+}
+
+/// How long something said stays up is the door's rule for its status bar (outline-core's `staysMs`): the window's
+/// status line and its notice are timed by the port, row for row.
+#[test]
+fn what_is_said_stays_up_as_long_as_outline_core_says() {
+    let rows = table("core-contract")["stays"].as_array().unwrap().clone();
+    assert!(rows.len() >= 8);
+    for row in rows { assert_eq!(crate::actions::stays(row["columns"].as_u64().unwrap() as usize).as_millis() as u64, row["ms"].as_u64().unwrap(), "{row}") }
+}
+
 #[test]
 fn a_key_as_a_screen_names_it_reads_as_a_chord() {
     use crate::keys::chord_named;

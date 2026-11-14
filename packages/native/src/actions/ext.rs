@@ -37,13 +37,13 @@ static CONFIGURE: ActionRow = ActionRow::new("extensions.configure", Touches::No
     .menu(&[MenuRow::new("Settings", "Extensions", None)])
     .examples(&[Example { act: "extensions.configure id=waiting warn-days=7", does: "waits are drawn as a warning after seven days", safe: None }]);
 
-static ACT: ActionRow = ActionRow::new("extensions.act", Touches::Nothing, "run one of an installed extension's own actions (action=, as the extension names it), about the note a reader shows when it acts on one. Every other key=value is an argument of that action. The service runs it and records what it writes as the extension's, with who asked beside it")
+static ACT: ActionRow = ActionRow::new("extensions.act", Touches::Nothing, "run one of an installed extension's own actions (action=, as the extension names it), about the note a reader shows when it acts on one. Every other key=value is an argument of that action. The service runs it and records what it writes as the extension's, with who asked beside it. What it answers is done here or said not done: a note it asks to have opened is opened as whoever asked, words for the clipboard are copied for the person, a question it asks first is said with the line that says yes, and a line for the caret or a runbook is said and left")
     .args(&[
         ("id", ArgSpec::text("the installed extension's id")),
         ("action", ArgSpec::text("the action, by the id the extension gives it")),
         (FREE, ArgSpec::text("any other key=value is an argument of that action").optional()),
     ])
-    .keys(&[KeyRow::via("a line typed in the bar, or a press on its row in the bar's Extensions once its name is typed")])
+    .keys(&[KeyRow::via("a line typed in the bar")])
     .examples(&[Example { act: "extensions.act action=turn id=compost", does: "runs the compost extension's turn", safe: None }]);
 
 static SAVE: ActionRow = ActionRow::new("form.save", Touches::Nothing, "save the open form: each field that was changed is set (one emptied is taken out, back to its default), by the same write a line would make. A value the service refuses keeps the form open, every word as typed, with why")
@@ -176,17 +176,60 @@ fn act(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // One that acts on a note acts on the one a reader shows; the service says when it needs one and has none.
     if let Some(note) = app.subject() { request["blockId"] = json!(note) }
     let at = app.at.clone();
-    app.store.write(&at, "extensions.act", request, by, acted, json!({ "label": label }));
+    app.store.write(&at, "extensions.act", request, by, acted, json!({ "label": label, "id": id, "action": action, "args": own }));
     Outcome::answer(json!({ "running": running }))
 }
 
+/// What the service answered an extension's action with (the outliner's `ExtensionActResult`), each thing done here
+/// or said not done: its words are never the whole of it.
+///
+/// - **A question before it does anything** (`confirmation`): nothing is done, and the way to say yes is the act
+///   again with the argument the service names, written as a line by the one writer.
+/// - **A note to open** (`open`): opened by the open action as whoever asked, so the layout places it, the actor
+///   rule holds and the step is theirs. A Resource is no note here, and the change it may ask for beside the note
+///   (`compare`) is no part of this window: both are said.
+/// - **Words for the clipboard** (`copy`): the person's are copied (`keys::effects`, where the window's hands are);
+///   an agent's never, the clipboard being the person's.
+/// - **A line for the caret** (`insert`) and **a runbook** are not done in this window, and each is said so.
 fn acted(app: &mut App, reply: Reply) {
     let label = reply.ctx["label"].as_str().unwrap_or("the action").to_string();
-    app.st.notice = Some(match reply.result {
-        Err(refusal) => Notice::problem(format!("{label}: {}", refusal.error)),
-        Ok(result) => Notice::info(match result["message"].as_str().or(result["answer"].as_str()) { Some(said) => format!("{label}: {said}"), None => format!("{label}: done.") }),
-    });
+    let result = match reply.result {
+        Ok(result) => result,
+        Err(refusal) => { app.st.notice = Some(Notice::problem(format!("{label}: {}", refusal.error))); return app.wrote(&[None]) }
+    };
+    if let Some(asks) = result.get("confirmation").filter(|asks| asks.is_object()) {
+        let mut again: Map<String, Value> = reply.ctx["args"].as_object().cloned().unwrap_or_default();
+        for key in ["id", "action"] { again.insert(key.into(), reply.ctx[key].clone()); }
+        if let Some(argument) = asks["argument"].as_str() { again.insert(argument.into(), asks["value"].clone()); }
+        app.st.notice = Some(Notice::problem(format!("{label}: {} · nothing is done yet: {} says yes", asks["message"].as_str().unwrap_or("it asks before it goes on"), actline::Request { action: ACT.id.to_string(), tile: None, by: None, args: again }.line())));
+        return;
+    }
+    let (mut said, mut left) = (Vec::new(), false);
+    said.extend(result["message"].as_str().or(result["answer"].as_str()).map(str::to_string));
+    match result["open"].as_str() {
+        // (A Resource is named by what it is: outline-core's rule, `ext::resource_ref`.)
+        Some(resource) if crate::ext::resource_ref(resource) => { left = true; said.push(format!("it asks for {resource} to be opened, and this window opens notes only")) }
+        Some(note) => {
+            let opened = app.act_request(actline::Request { action: super::nav::OPEN.id.to_string(), tile: None, by: None, args: Map::from_iter([("id".to_string(), json!(note))]) }, reply.by.clone());
+            if !opened.ok { left = true; said.push(format!("the note it asks to have opened was not: {}", opened.said)) }
+            else if result["compare"] == true { said.push("the note is opened without its last change beside it: this window draws no such comparison".into()) }
+        }
+        None => {}
+    }
+    if let Some(words) = result["copy"].as_str() {
+        if reply.by.is_person() { app.st.copying = Some(words.to_string()); said.push(format!("copied: {words}")) }
+        else { left = true; said.push(format!("its words for the clipboard are not copied for an agent (the clipboard is the person's): {words}")) }
+    }
+    if let Some(line) = result["insert"]["text"].as_str() { left = true; said.push(format!("its line is not put at the caret in this window: {line}")) }
+    if result.get("runbook").is_some_and(|plan| !plan.is_null()) { left = true; said.push("it answered a runbook, and this window runs none".into()) }
+    let said = if said.is_empty() { "done.".to_string() } else { said.join(" · ") };
+    app.st.notice = Some(if left { Notice::problem(format!("{label}: {said}")) } else { Notice::info(format!("{label}: {said}")) });
     app.wrote(&[None]);
+}
+
+impl App {
+    /// Words to put on the clipboard, once: the window's hands do it (`keys::effects`).
+    pub fn copying(&mut self) -> Option<String> { self.st.copying.take() }
 }
 
 fn save(app: &mut App, _: &Args, by: &Actor) -> Outcome {

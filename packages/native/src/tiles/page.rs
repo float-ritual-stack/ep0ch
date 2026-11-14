@@ -220,14 +220,15 @@ fn selected(change: &rune::SelectionChange, parts: &str, spans: &[Option<(u64, u
 }
 
 /// A reader with no page to draw. Told no note, it is empty and says so in its kind's own words (`tiles::waiting`),
-/// with the ways to give it a note under them, each a button its action's row labels and the key table caps; told
+/// with what to do next under them, a line an act: the button its action's row labels, the key the table binds to it
+/// and what that key does (`tiles::way`); told
 /// one whose page is on its way (or with the outline still being called), that.
 fn empty(cx: &TileCx, k: &Kit) -> El {
     let calling = cx.app.loading_of(cx.id) || (cx.app.online && cx.app.machine.is_empty());
     if !calling && cx.app.note_of(cx.id).is_none() {
-        let ways = row().key(cx.key("empty/ways")).gap(8.0).center_y()
-            .child(button(cx, "bar.open", ButtonVariant::Ghost).build(k).key(cx.key("empty/find")))
-            .child(button(cx, "note.new", ButtonVariant::Ghost).build(k).key(cx.key("empty/new")));
+        let ways = col().key(cx.key("empty/ways")).gap(6.0)
+            .child(super::way(cx, "bar.open", "find", k))
+            .child(super::way(cx, "note.new", "new", k));
         return super::waiting(cx, Some(ways), k);
     }
     col().key(cx.key("empty")).w_full().h_full().center().gap(12.0).padding(28.0).child(text(if calling { "Calling the outline…" } else { "Offline: the note isn't read yet." }).font(k.ty.body).color(k.c.text_muted))
@@ -310,7 +311,9 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
     // Beside it: what the lit row says of itself (its source's words, Blockdown) and what choosing it makes (the
     // service's drawing of its example), each a primitive built by the registry. A row that says neither has no panel.
     if lit.docs.is_none() && shown.is_none() { return }
-    let at = PrimCx::of(cx);
+    // In a popover, which has no scroll of its own: a list in the row's example is built whole, as a list inside a
+    // row is, never as the page's virtual rows (Rune panics on a virtual stack outside a scroll viewport).
+    let at = PrimCx::of(cx).in_row();
     let panel = col().key(cx.key("complete-docs")).preserve_focus_on_press(true).w(360.0).padding(10.0).gap(8.0)
         .children(lit.docs.as_ref().map(|docs| prim::build(&json!({ "type": "blockdown", "text": docs }), &at.at("complete-docs/says"), k)))
         .children(shown.map(|view| prim::build(view, &at.at("complete-docs/makes"), k)));

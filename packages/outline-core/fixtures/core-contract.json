@@ -1,5 +1,5 @@
 {
-  "about": "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
+  "about": "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), whether what an answer asks a client to open is written as a Resource ref and not a block's id (isResourceRef), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
   "by": "packages/outline-core/scripts/core-contract.ts",
   "linkGroups": {"all":["outlinks","resources","backlinks","children"],"groups":[{"group":"outlinks","glyph":"→","label":"Outlinks"},{"group":"resources","glyph":"♦","label":"Resources"},{"group":"backlinks","glyph":"←","label":"Backlinks"},{"group":"children","glyph":"↓","label":"Children"},{"group":"matches","glyph":"≡","label":"Matches"}]},
   "quotedNote": {"id":"sowing","title":"Sowing plan","revision":3,"text":"Sowing plan [type::plan]\nSow the [early peas](https://seeds.example/peas) in March, **before** the last frost.\n\nWater the beds at dusk.\n\n[img::pictures/beds.svg]\n\nWater the beds at dusk, and again at dawn.\n\n[img::pictures/shed.svg]\n\n- Net the peas against pigeons.\n- Stake the beans before the wind.","chips":[{"key":"type","value":"plan"}],"parts":[{"type":"part","kind":"prose","block":"sowing","span":{"start":25,"end":135},"line":1,"view":{"type":"markdown","text":"Sow the [early peas](https://seeds.example/peas) in March, **before** the last frost.\n\nWater the beds at dusk."}},{"type":"part","kind":"picture","block":"sowing","span":{"start":137,"end":161},"line":5,"view":{"type":"picture","path":"pictures/beds.svg","width":"fit"}},{"type":"part","kind":"prose","block":"sowing","span":{"start":163,"end":205},"line":7,"view":{"type":"markdown","text":"Water the beds at dusk, and again at dawn."}},{"type":"part","kind":"picture","block":"sowing","span":{"start":207,"end":231},"line":9,"view":{"type":"picture","path":"pictures/shed.svg","width":"fit"}},{"type":"part","kind":"prose","block":"sowing","span":{"start":233,"end":299},"line":11,"view":{"type":"markdown","text":"- Net the peas against pigeons.  \n- Stake the beans before the wind."}}],"thread":{"id":"thread-sowing","start":95,"end":135},"marked":[{"line":1,"marks":[{"kind":"thread","id":"thread-sowing","start":70,"end":110,"act":"thread.toggle thread=\"thread-sowing\"","from":"threads"}]}]},
@@ -149,6 +149,33 @@
     {"key":"click","named":false},
     {"key":"","named":false}
   ],
+  "resourceRefs": [
+    {"value":"file:/shed/ledger.md","resource":true},
+    {"value":"web:https://seeds.example/peas","resource":true},
+    {"value":"resource:seed-list","resource":true},
+    {"value":"file:","resource":true},
+    {"value":"north-bed","resource":false},
+    {"value":"8f2c1d7e-0b1a-4c3d-9e5f-a1b2c3d4e5f6","resource":false},
+    {"value":"files","resource":false},
+    {"value":"webcal://beds.example/sowing","resource":false},
+    {"value":"File:/shed/ledger.md","resource":false},
+    {"value":" file:/shed/ledger.md","resource":false},
+    {"value":"https://seeds.example/peas","resource":false},
+    {"value":"resources","resource":false},
+    {"value":"","resource":false}
+  ],
+  "stays": [
+    {"columns":0,"ms":4000},
+    {"columns":1,"ms":4000},
+    {"columns":20,"ms":4000},
+    {"columns":35,"ms":4000},
+    {"columns":36,"ms":4020},
+    {"columns":80,"ms":7100},
+    {"columns":200,"ms":15500},
+    {"columns":407,"ms":29990},
+    {"columns":408,"ms":30000},
+    {"columns":2000,"ms":30000}
+  ],
   "ways": [
     {"name":"no way: the reason alone","why":{"reason":"almanac can't go there: it's the only tile","ways":[]},"said":[],"whole":"almanac can't go there: it's the only tile"},
     {"name":"one way follows the reason","why":{"reason":"log holds work","ways":[{"act":"tile.close","tile":"log","does":"closes it first"}]},"said":["the key that closes it closes it first"],"whole":"log holds work · the key that closes it closes it first"},
@@ -178,6 +205,7 @@
     {"name":"the same words, picked as a reader drew them (an act's passage.select)","text":"Plot [type::chore]\nBefore the rain.","passage":{"quote":"Before the rain.","drawn":true},"found":{"start":19,"end":35,"exact":"Before the rain."},"whole":{"start":19,"end":35,"exact":"Before the rain.","quote":"Before the rain.","widened":false}},
     {"name":"words nobody wrote","text":"Plot [type::chore]\nBefore the rain.","passage":{"quote":"words nobody wrote"},"refused":{"kind":"not-found","error":"Comment quote or context was not found; read the current source and select it again (\"words nobody wrote\" isn't in the text now)"}},
     {"name":"and picked as drawn","text":"Plot [type::chore]\nBefore the rain.","passage":{"quote":"Peas go in last.","drawn":true},"refused":{"kind":"not-found","error":"Comment quote or context was not found; read the current source and select it again (\"Peas go in last.\" isn't in the text now)"}},
-    {"name":"a stand-in page that draws more than its note's text holds: the words are not in the note","text":"Plot [type::chore]\nBefore the rain.","passage":{"quote":"Before the rain. See the shed and seeds.","drawn":true,"within":{"start":19,"end":35}},"refused":{"kind":"not-found","error":"Comment quote or context was not found; read the current source and select it again (\"Before the rain. See the shed and seeds.\" isn't in the text now (nearest: \"Before the rain.\" at 19))"}}
+    {"name":"a stand-in page that draws more than its note's text holds: the words are not in the note","text":"Plot [type::chore]\nBefore the rain.","passage":{"quote":"Before the rain. See the shed and seeds.","drawn":true,"within":{"start":19,"end":35}},"refused":{"kind":"not-found","error":"Comment quote or context was not found; read the current source and select it again (\"Before the rain. See the shed and seeds.\" isn't in the text now (nearest: \"Before the rain.\" at 19))"}},
+    {"name":"a selection that starts on a year and its full stop, mid-sentence: the whole of it, once (no list's number is read into it)","text":"The frost came late in 2026. Then it rained for a week.\n\nThen it rained again in May.","passage":{"quote":"2026. Then it rained","drawn":true},"found":{"start":23,"end":43,"exact":"2026. Then it rained"},"whole":{"start":23,"end":43,"exact":"2026. Then it rained","quote":"2026. Then it rained","widened":false}}
   ]
 }

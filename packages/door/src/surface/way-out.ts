@@ -5,9 +5,15 @@
 // and nothing for an action this door hasn't. So a key moved in keybindings.json is the key every refusal names, and no
 // refusal names an action that is no row here. The guard test (test/one-owner.test.ts) fails when a layout file spells
 // a key or an action in a sentence again.
+//
+// A refusal is said once for each reader. What an agent is answered is its act line; the person, who watches the status
+// bar and is often the one who can lift what refused it, reads their own key or the chip to click. The sayer keeps
+// what it told an agent with the refusal it was said from (`TOLD`), so whoever shows an agent's refusal to the person
+// says it again for them (`saidToPerson`): the refusal is data until it is drawn.
 import { waysSaid, whySaid, type Way, type Why } from "@ep0ch/outline-core/way-out";
+import { containerNamed } from "../desk/layout-refusal";
 import { wChordOf } from "../desk/wkeys";
-import type { Actor } from "../socket";
+import { USER, type Actor } from "../socket";
 import { hyperLabel } from "../hyper";
 import { allActionSets, chordName, declaredKeys, keyCaption, shownLine } from "./actions";
 import { keysNow } from "./keymap";
@@ -66,12 +72,45 @@ export function waySaid(w: Way, actor: Actor): string | null {
   const key = wayKey(w), line = wayLine(w);
   if (actor.kind === "agent") return w.theirs ? `the person's ${key ? `${key} (${line})` : line} ${w.does}` : `${line} ${w.does}`;
   const keyed = key ? `${key}${w.at ? ` ${w.at}` : ""}` : null;
-  const how = w.on ? `a click on ${w.on}${keyed ? ` (or ${keyed})` : ""}` : keyed ?? line;
+  // A key means its act where the person's keys are (the policy panel opens on the containers of the tile with the
+  // keys). A way that names a container by id, and no place the keys are for its key to mean it, is said by the act
+  // that names the container, with the key and where it holds beside it.
+  const far = key && !w.at && !w.on ? containerNamed(w) : undefined;
+  const how = far ? `${line} (or ${key} in ${far})` : w.on ? `a click on ${w.on}${keyed ? ` (or ${keyed})` : ""}` : keyed ?? line;
   return `${how} ${w.does}`;
 }
 
 /** Ways out as this door says them to `actor` (what a lock answers: how it is undone). */
 export const waysOutSaid = (ways: readonly Way[], actor: Actor): string => waysSaid(ways, each => waySaid(each, actor));
 
-/** A refusal as this door says it to `actor`: its reason, then the ways out the door has. */
-export const refusalSaid = (w: Why, actor: Actor): string => whySaid(w, each => waySaid(each, actor));
+/** What agents were told lately, each with the refusal it was said from: the last few, newest last. */
+const TOLD = new Map<string, Why>();
+const TOLD_MOST = 64;
+
+/**
+ * A refusal as this door says it to `actor`: its reason, then the ways out the door has. What an agent is told is
+ * kept with the refusal, for `saidToPerson`.
+ */
+export function refusalSaid(w: Why, actor: Actor): string {
+  const said = whySaid(w, each => waySaid(each, actor));
+  if (actor.kind === "agent" && w.ways.length) {
+    TOLD.delete(said);
+    TOLD.set(said, w);
+    if (TOLD.size > TOLD_MOST) TOLD.delete(TOLD.keys().next().value!);
+  }
+  return said;
+}
+
+/**
+ * `message` as the person reads it: words an agent was answered (a refusal, or a sentence with one in it), with the
+ * refusal in them said for the person, by their key or the control to click. Words that hold no refusal this sayer
+ * told an agent are as they were. What shows an agent's refusal on the person's screen (the status bar's flash) asks
+ * this; the agent's own answer keeps the act line.
+ */
+export function saidToPerson(message: string): string {
+  let told: string | undefined;
+  for (const said of TOLD.keys()) if (message.includes(said) && (!told || said.length > told.length)) told = said;
+  if (told === undefined) return message;
+  const theirs = refusalSaid(TOLD.get(told)!, USER);
+  return message.replace(told, () => theirs);
+}
