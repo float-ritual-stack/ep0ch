@@ -206,7 +206,7 @@ fn markdown(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let piece = |text: &str, lit: Vec<(std::ops::Range<usize>, Highlight)>, key: String| -> El {
         let tile = word(&cx.tile.name);
         let shown = Markdown::new(text).selectable(true).tasks_read_only()
-            .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); });
+            .on_link_tx(move |s: &mut App, href: &str, tx| { s.act(&crate::keys::pressed(&format!("link.follow ref={} tile={tile}", word(href)), crate::keys::held_bits(tx), 0), Actor::Person); });
         if lit.is_empty() { return shown.build(k).key(key) }
         let (moved, at, boxes, from) = (pointer.clone(), pointer.clone(), boxes.clone(), cx.tile.name.clone());
         shown.highlights(lit).build(k).key(key)

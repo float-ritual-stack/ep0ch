@@ -19,6 +19,8 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A comment written where its words are, inside a part: the note's prose is one part, and the field stands in it under the list whose last item was picked (a press late at each end, found as whole words), over the paragraph that follows, the words two threads are on still marked on both sides, dark](docs/inplace-dark.png)
 
 ![A comment on words as the reader draws them: begun on words across bold text and a reference, beside a thread the service anchored to the source such words were drawn from (the link whole, the bold run with its marks), dark](docs/quote-dark.png)
+![What opens where, on every title: the tree's opens wired to a pinned reader (its lock), so the row just opened landed beside it and the notice says where, why and the way back; the links tile held on the note it lists while the reader moved on; the reader a note just landed in marked; and the row under the tiles saying where the keys of the tile that has them land, dark](docs/opens-dark.png)
+![A wire being set by picking its tile on screen: every tile that can take the tree's opens says what a press on it does, the tree itself offers an open in place, the foot says which wire it is and where it lands now, and the row under the tiles lists the keys of the mode, dark](docs/wire-dark.png)
 ![The keys screen: every way to press an action, a list made from the actions' own rows, dark](docs/keys-dark.png)
 ![A screen saved as a note with keys of its own: the list of the keys beside its reader puts that screen's first, dark](docs/screenkeys-dark.png)
 ![The library: the components under their groups, one picked with its own example as written and as drawn, dark](docs/library-dark.png)
@@ -78,7 +80,8 @@ entry Rune adds to its own table is added here. What that rev changed for this w
 
 | Do | How |
 |---|---|
-| Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Walk the outline | The tree tile: a press on a row selects it (the reader its select wire names shows the note), a second press at once opens it, and a press on its fold's mark folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Move without the mouse | **A list and a tree have a cursor row**: `j` `k` or the arrows step it, PgDn and PgUp move it a page (the rows in view less one), Home and End take it to the ends, Return opens its row where the tile's opens land. It is a row by its id, so it stays on its note while the rows change under it, and it is neither the pointer's hover nor the mark of the open note: an edge and a fill while its tile has the keys, a dim fill when it has not. In a tree `l` or → unfolds the row, `h` or ← folds it or, folded already, climbs to the row it is under, and Space does either; on a board `h` `l` cross the lanes and `H` `L` the groups. **A reader has a reading line**, the bar beside the part of its page the keys are on: `j` `k` move it, PgDn or Space, PgUp, Home, End or `G` scroll the page and leave it where it is, alt+← or Backspace goes back, alt+→ forward again, `u` up to the note this one is under. **Tab and Shift+Tab** go round the tiles in the layout's reading order (a board's lanes are one stop, a dock one, the floats last), each title says its tile's number and that digit gives it the keys, and alt+`n` alt+`p` bring a tab set's next tab forward. **Esc steps back one thing at a time** (`q` on a tile too): the notice, a zoomed tile, the dock the keys are in, then the keys to the screen's home tile, and with nothing left it says so. **The row under the tiles says the keys that matter** in the tile that has them, read from the key table (a tree's and a list's, or a reader's, and what Esc does here); while a sequence is begun it lists what the keys so far can still become. Every one of these is an action with an act line (`list.step`, `list.select`, `tree.fold`, `reading.step`, `scroll`, `forward`, `up`, `tile.focus by=`, `keys.stop n=`, `tab.select`, `keys.home`) |
 | Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words (written for the person at the tile), and what to do next under them, a line each: Find and New note as buttons, each with its key and what the key does, read from the action's own row |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
@@ -92,6 +95,11 @@ entry Rune adds to its own table is added here. What that rev changed for this w
 | Press a button | A `::button` in a note is a button: an act line this window has runs here; one with steps or a script is run by the service, and what its script does in a window happens in this one. What it did is said under the button |
 | See its pictures | The header image (`[layout::hero]`) as a band above the title; `[img::…]` lines (PNG, JPEG, SVG) where they stand; an ```svg fence as the picture its text is; a ```mermaid fence as a diagram |
 | Follow anything | A link, a child, a backlink, a row in a component; `back` goes back |
+| Decide where things open | As in the door. **Select**: one press on a row, or `j` and `k`: the cursor moves, the note shows in the tiles the list's select wires name, and nothing opens (the press that brings the tile the keys only puts the cursor there). **Open**: a second press at once, or Return: it lands where the layout says (the tile's own open wire, its container's rule, its reader, else the first reader not pinned); the tree hands its keys to the reader it opened in, any other list keeps them. **Open fresh**: Option or the shortcut modifier held on the press, the middle button, or Alt+Return: beside what is shown, never over it (`list.open where=new`, `open fresh=true`, `link.follow fresh=true`, `bar.pick alt=true`). A link in a note and a row of a list in a note open on one press, fresh with the modifier. Each title says where its tile's opens land, and the row under the tiles says it for the tile with the keys (select, open, alt) |
+| Wire a tile by hand | Alt+L then `o`, `s` or `a` (or a press on the wire on a title, or on the row under the tiles) begins the open, select or open-fresh wire of the tile with the keys: every tile that can take it says "press to link here", the tile itself "press to open in place", and the foot says where the wire lands now. A press on a tile, its number, or `h` `j` `k` `l` for a neighbour links it (`tile.link to= verb=`); `x` unlinks; Escape lets go. A list wired to itself reads its notes in its own tile, and Back returns to the list. `tile.preview` (Shift+O beside, Alt+Shift+O below) opens a reader joined to a list by a select wire, or to a reader by an open wire, in one step; run again it shows the one that is there and says how to unlink it. `reader.follow source=<list>` wires a list's cursor into a reader |
+| Pin a reader | `p` in it, or the lock on its title (`reader.pin`): it keeps its note, a select wire into it waits, and an open aimed at it lands in a reader beside it, with a notice that says where it landed, why, and the key that unpins. Kept with the arrangement, and written with a saved screen (`mode: pinned`) |
+| Hold what is about a note | A list about a note (its links, its properties, its comments, proposals and revisions) says on its title whether it follows its reader or is held, and on which note; a press there, or Shift+B in it, holds it or lets it go (`tile.hold`). `b` in a reader aims every such list at that reader's note (they are held on it, the reader is their home, and the first of them takes the keys); `b` in the list aims it at its reader's note again (`tile.aim`, `id=` for another note). An agent's open never moves a held list, and its aim leaves held lists where they are |
+| See where something landed | The tile a note just opened or was previewed in is marked on its title until it has been seen (ten seconds, or the keys given to it), whoever opened it. A landing that is not where it was aimed is said: "opened in reader3 · reader2 is pinned: opened beside it · P in reader2 unpins it"; a held reader an open is aimed at keeps its old note as a spine beside it, and says so |
 | Do anything | The command bar: every action there is, by a word of its name or of what it does, with its keys beside it. A whole act line typed runs as written (`open id=…`) |
 | Write | `edit` opens the note's Blockdown source where the note stands, with the rest of its page around it; `edit.save` saves at the revision it read and keeps you in the editor; Esc leaves once everything is saved. Another note opened meanwhile lands beside, and may be written too: a block each |
 | Indent a list | Tab puts the caret's line, or every line the selection touches, a level in: a list item under the item above it, anything else two spaces (`draft.indent`); Shift+Tab takes it back out (`draft.outdent`). Each is one step of the editor's undo, and the door's rule (outline-core's `indentText`) |
@@ -133,12 +141,26 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | Chord | Act line | Where | Does |
 |---|---|---|---|
 | `mod+[` | `back` | everywhere | back |
+| `alt+left` | `back` | page | back to the note before |
+| `backspace` | `back` | page | back to the note before |
+| `alt+right` | `forward` | page | forward again |
+| `u` | `up` | page | the note this one is under |
+| `j` | `reading.step by=1` | page | the next part of the page |
+| `down` | `reading.step by=1` | page | the next part of the page |
+| `k` | `reading.step by=-1` | page | the part before |
+| `up` | `reading.step by=-1` | page | the part before |
+| `pagedown` | `scroll by=1` | page | a page down |
+| `space` | `scroll by=1` | page | a page down |
+| `pageup` | `scroll by=-1` | page | a page up |
+| `home` | `scroll to=top` | page | the top of the page |
+| `end` | `scroll to=end` | page | the end of the page |
+| `shift+g` | `scroll to=end` | page | the end of the page |
 | `mod+n` | `note.new` | everywhere | a new note under the open one |
 | `mod+backspace` | `note.trash` | tile | move the open note to the Trash |
 | `alt+up` | `note.move step=up` | tile | move the note up |
 | `alt+down` | `note.move step=down` | tile | move the note down |
-| `alt+right` | `note.move step=in` | tile | move the note in, under the one above |
-| `alt+left` | `note.move step=out` | tile | move the note out, after its parent |
+| `alt+shift+right` | `note.move step=in` | tile | move the note in, under the one above |
+| `alt+shift+left` | `note.move step=out` | tile | move the note out, after its parent |
 | `mod+e` | `edit` | everywhere | edit the open note |
 | `mod+s` | `edit.save` | everywhere | save |
 | `mod+enter` | `edit.save` | draft | save, from the note's source |
@@ -157,18 +179,60 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |
 | `enter` | `bar.pick` | bar | pick the lit row |
+| `alt+enter` | `bar.pick alt=true` | bar | pick it the other way: a note opens fresh, beside what is shown |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
-| `escape` | `notice.dismiss` | tile | dismiss the notice |
+| `l` | `tree.fold open=true` | branches | unfold the row |
+| `right` | `tree.fold open=true` | branches | unfold the row |
+| `h` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `left` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `space` | `tree.fold` | branches | fold or unfold the row |
+| `j` | `list.step by=1` | rows | the next row |
+| `down` | `list.step by=1` | rows | the next row |
+| `k` | `list.step by=-1` | rows | the row before |
+| `up` | `list.step by=-1` | rows | the row before |
+| `pagedown` | `list.step by=1 page=true` | rows | a page of rows down |
+| `pageup` | `list.step by=-1 page=true` | rows | a page of rows up |
+| `l` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `right` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `h` | `list.step axis=column by=-1` | rows | the lane before |
+| `left` | `list.step axis=column by=-1` | rows | the lane before |
+| `shift+l` | `list.step axis=group by=1` | rows | the next group |
+| `shift+h` | `list.step axis=group by=-1` | rows | the group before |
+| `enter` | `list.pick` | rows | open the row the cursor is on |
+| `home` | `list.select n=1` | rows | the first row |
+| `end` | `list.select n=-1` | rows | the last row |
+| `alt+enter` | `list.open where=new` | rows | open it fresh: beside what is shown |
+| `escape` | `notice.dismiss` | noticed | dismiss the notice |
+| `alt+n` | `tab.select by=1` | tile | the next tab of this set |
+| `alt+p` | `tab.select by=-1` | tile | the tab before |
+| `escape` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `q` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `1` | `keys.stop n=1` | tile | the keys to tile 1 |
+| `2` | `keys.stop n=2` | tile | the keys to tile 2 |
+| `3` | `keys.stop n=3` | tile | the keys to tile 3 |
+| `4` | `keys.stop n=4` | tile | the keys to tile 4 |
+| `5` | `keys.stop n=5` | tile | the keys to tile 5 |
+| `6` | `keys.stop n=6` | tile | the keys to tile 6 |
+| `7` | `keys.stop n=7` | tile | the keys to tile 7 |
+| `8` | `keys.stop n=8` | tile | the keys to tile 8 |
+| `9` | `keys.stop n=9` | tile | the keys to tile 9 |
 | `mod+d` | `tile.split` | everywhere | split this tile: a new one on its right |
 | `mod+shift+d` | `tile.split dir=down` | everywhere | split this tile: a new one below |
 | `mod+w` | `tile.close` | everywhere | close this tile |
+| `tab` | `tile.focus by=1` | tile | the keys to the next tile |
+| `shift+tab` | `tile.focus by=-1` | tile | the keys to the tile before |
 | `mod+alt+left` | `tile.focus dir=left` | everywhere | the keys to the tile on the left |
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
 | `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
+| `minus` | `tile.collapse on=true` | tile | fold this tile to a spine |
+| `plus` | `tile.collapse on=false` | tile | open this tile from its spine |
+| `equal` | `tile.collapse on=false` | tile | open this tile from its spine |
 | `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
+| `escape` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
+| `q` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
 | `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
@@ -178,10 +242,44 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `shift+pageup` | `terminal.scroll lines=-12` | program | up through what scrolled off |
 | `shift+pagedown` | `terminal.scroll lines=12` | program | back down |
 | `mod+shift+v` | `terminal.paste` | program | paste the clipboard into the program |
+| `escape` | `dock.toggle` | docked | shut the dock the keys are in |
+| `q` | `dock.toggle` | docked | shut the dock the keys are in |
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
 | `mod+shift+l` | `layout.lock` | everywhere | lock or unlock the arrangement |
+| `alt+l then o` | `wire.pick verb=open` | tile | choose where this tile's opens land |
+| `alt+l then s` | `wire.pick verb=select` | tile | choose where what its cursor is on shows |
+| `alt+l then a` | `wire.pick verb=alt` | tile | choose where its open fresh lands |
+| `escape` | `wire.pick on=false` | linking | lets go: no wire changes |
+| `q` | `wire.pick on=false` | linking | lets go: no wire changes |
+| `o` | `wire.pick verb=open` | linking | the wire for where an open lands |
+| `s` | `wire.pick verb=select` | linking | the wire for where a select shows |
+| `a` | `wire.pick verb=alt` | linking | the wire for where an open fresh lands |
+| `x` | `wire.pick unlink=true` | linking | unlink: take this wire away |
+| `h` | `wire.pick dir=left` | linking | link to the tile on the left |
+| `left` | `wire.pick dir=left` | linking | link to the tile on the left |
+| `l` | `wire.pick dir=right` | linking | link to the tile on the right |
+| `right` | `wire.pick dir=right` | linking | link to the tile on the right |
+| `k` | `wire.pick dir=up` | linking | link to the tile above |
+| `up` | `wire.pick dir=up` | linking | link to the tile above |
+| `j` | `wire.pick dir=down` | linking | link to the tile below |
+| `down` | `wire.pick dir=down` | linking | link to the tile below |
+| `1` | `wire.pick n=1` | linking | link to tile 1 |
+| `2` | `wire.pick n=2` | linking | link to tile 2 |
+| `3` | `wire.pick n=3` | linking | link to tile 3 |
+| `4` | `wire.pick n=4` | linking | link to tile 4 |
+| `5` | `wire.pick n=5` | linking | link to tile 5 |
+| `6` | `wire.pick n=6` | linking | link to tile 6 |
+| `7` | `wire.pick n=7` | linking | link to tile 7 |
+| `8` | `wire.pick n=8` | linking | link to tile 8 |
+| `9` | `wire.pick n=9` | linking | link to tile 9 |
+| `shift+o` | `tile.preview` | tile | a preview beside this tile, wired to it |
+| `alt+shift+o` | `tile.preview where=down` | tile | a preview below this tile, wired to it |
+| `p` | `reader.pin` | page | pin this reader on its note, or let it go |
+| `shift+b` | `tile.hold` | rows | hold this list on its note, or let it follow its reader |
+| `b` | `tile.aim` | page | aim the lists about a note at this reader's |
+| `b` | `tile.aim` | rows | aim this list at its reader's note again |
 | `escape` | `layout.drop cancel=true` | moving | lets go: the tile stays where it was |
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |
@@ -197,7 +295,12 @@ action as the person, in the tile it names, over the kinds of tile it says; the 
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
-notice). While the list that completes a word is open its keys come first and the editor's still hold (`complete`
+notice, a zoom, the dock the keys are in, and last the keys home). What the tile with the keys draws adds its
+own keys over `tile`'s, the nearest first: `branches` (a tree's) over `rows` (a list's), or `page` (a reader's), then what Escape steps back out of
+there (`noticed`, `zoomed`, `docked`). So `j` is the list's in a list and the reader's in a reader, and one chord
+never means two things where the keys are. `peek`'s whereabouts say the layers that hold (`layers`).
+
+![The window worked by keys: the tree's cursor on one row (an edge and a fill) and the open note's row marked quietly beside it, the reader's reading line a dim bar by its part, each title with its number among the stops, and under the tiles the keys of the tile that has them](docs/cursor-dark.png) While the list that completes a word is open its keys come first and the editor's still hold (`complete`
 is a layer over `draft`); a list with nothing to choose from, only the service's word (no such page yet), keeps
 Esc alone (`said`), and every other key is the editor's. Both docks resize by their inner edge.
 
@@ -439,8 +542,22 @@ src/ (Rust, Rune)                                      the outline host
 - **One send is one request** (`DraftSession.send`, `draft::send_name`): a comment's or a reply's request is named
   by its draft and its words, so a draft tried again is the request it was and the same words written another time
   (a second "Agreed." in a thread) are another, which the service writes.
+- **What opens where is the layout's to say and the person's to steer** (`actions/wires.rs`, `press.rs`). A press
+  on a row is one act, `list.press`, which asks the door's own rule what the press is (outline-core's `rowGesture`,
+  ported once in `press.rs` and held by `core-contract.json`'s `presses`: the press that brings the keys, a
+  select, an open on the second, an open fresh) and runs the list's own act for it. A select is delivered in one
+  place (`App::picked`: every tile the list's select wires name, never one that is pinned, written in or has the
+  person's keys; picks soon after each other are one walk with one way back). An open fresh is a verb held while
+  the act runs and read by the one open (`nav::land`, the one caller of `place`). A wire is the layout's (`Op::Link`,
+  issued by `tile.link` alone; `wire.pick` is the person's mode that picks its tile on screen), and what a title,
+  the hint row and `peek` say of a tile's wires is placement's own answer asked without opening anything
+  (`App::wire_words`). A pin, a hold and the reader a list was aimed at are the tile's own state, read by the
+  layout's rules as facts (`Facts.pinned`, `held`, `deliberate`, `hands_keys`), kept in the arrangement's file and
+  stamped on a saved screen's leaves in the words screens use.
 - **A list speaks for one reader** (`App::home_of`): the tile it names as its source when that reads notes, else
-  the reader its selection feeds, else where the screen's opens land. Its subject when it follows, the note it
+  the reader its selection feeds, else where the screen's opens land. (A list whose kind hands its keys on, the
+  outline tree, tells the layout no home unless it names one: its open goes by its wire, its container's rule,
+  else to the first reader not pinned, which takes the keys, as in the door.) Its subject when it follows, the note it
   marks as open, where its own opens land and the reader a press in it acts in are that one tile. Reply and
   Restore act there, and Restore names the note its text is of (`revision.restore of=…`), so a list that kept its
   note while the reader moved on puts nothing into another note's editor.
@@ -746,7 +863,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
-title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
+title), `opens` and `wire` (K2, on the same notes: a pinned reader, a held links tile, the tree's opens wired by hand and a landing said; and a wire being set by picking its tile, run with `--act scenes/opens.act` or `--act scenes/wire.act` after the second `--`), `cursor` (K1: the notes `bun scenes/cursor.seed.ts <socket> <outline>` writes into a new outline, moved through by the keys' own acts: the tree's cursor, the open note's mark, the reading line, the stops' numbers and the hint row), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
 box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
 `pictures` (notes `bun scenes/about.seed.ts <socket> <outline> <a scratch folder>` writes: a note with three texts
@@ -870,6 +987,15 @@ toolbar button is
   A kind that runs a program is a terminal tile, in a window built with its terminal.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
+- Keys, from the door's, not here yet: the window prefix (`^W` and what follows it: move, swap, resize, even,
+  gather, widen, hold; `mod+w` is Ctrl+W off a Mac, and the table has no row for one platform alone), a list
+  filtered by typing (`/`), stepping through a page's elements and following the link the keys are on (`[` `]`
+  Return), sections stepped and folded (`(` `)` `f` `F` `z`), Return opened beside (alt+Return: where an open
+  lands is the next wave's), a links tile aimed by `b`, a float moved by `H J K L`, a spine opened by Return, the
+  keys screen on `?`, and the letters that move a note (`K J I O`: only the alt chords do). A press on a part of a
+  page does not put the reading line there yet: `j` and `k` do. Which lane of a board was used last is not kept, so
+  Tab into a board stops on its first lane. The Mac's own handling of alt+`n` and alt+`p` (Option types a
+  character there) is read, not run.
 - Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);
   the person's `keybindings.json` isn't read yet, so nothing is rebound and the keys screen lists no key of
   theirs, and a button's keycap is its row's default even where a screen binds another key to the same line. A

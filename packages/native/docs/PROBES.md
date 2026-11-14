@@ -28,7 +28,8 @@ list's row does ([14](#14-selections-and-what-else-w6-met)). W8 added what herdr
 and spoken to a stand-in but never run ([15](#15-herdr-core-w8)). H3 added what a Mac's title bar takes of the toolbar, read from Rune and run on
 a headless runtime, not on a Mac ([17](#17-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)). R0 moved
 the Rune pin from `cb0c118` to `a5360a6` and ran every probe again on it: the answers above hold, and what changed
-for the window is in [18](#18-rune-at-a5360a6-r0).
+for the window is in [18](#18-rune-at-a5360a6-r0). K1 built the keys a person moves through the window by, and wrote
+down which of Rune's own parts could not carry them and why ([19](#19-keys-everywhere-and-what-runes-own-parts-could-not-carry-k1)).
 
 ## How to run
 
@@ -847,6 +848,105 @@ focus that goes to a neighbour when the focused element leaves the tree, F6 betw
 `Tx::scroll_center`, `rune_kit::search::Fold` (search that folds case and width in every language),
 `rune::text::compare_names`, and `El::placeholder_font`.
 
+## 19. Keys everywhere, and what Rune's own parts could not carry (K1)
+
+**The cursor of a list, a reader's reading line, Tab between tiles and the hint row are the window's own, on
+Rune's lower layers: `El::on_key` on a tile's root, `Tx::scroll_into_view`, `Tx::scroll_page`.** It is the shape of
+Rune's own `examples/scroll_keys.rs`: a selection in app state moved by keys, and the list scrolled to keep it in
+view. Each row below is why Rune's part was not used as it is. Paths are under Rune at `a5360a6`. What was read:
+the wave's map read the kit's README whole and Rune's README on views, focus, key routing, scrolling, text fields
+and selectable text, with the source lines cited here; the builder read the kit's "Tree and Table", the head of
+`scroll_keys.rs`, and `runtime/input/keys.rs`, `input/chord.rs` and `el/tx/scroll.rs`. The other examples and the
+rest of Rune's README (video, materials, windows, tooling) were not read for this wave.
+
+| Asked of | What it has | What the experience needs, and what was built |
+|---|---|---|
+| The kit's `Tree` and `Table` (`crates/rune-kit/src/tree.rs:86-90, 599-641`, its README's "Tree") | one focusable control over virtual rows, its cursor in a `TreeModel` the app's state holds; arrows, Home, End, PgUp, PgDn, Return, Space and type-ahead, fixed; `on_open(\|s, id, tx\|)` carries no modifier (`tree/view.rs:338-343`) | a model with no Rune type in it (the renderer seam; §5: the kit's `Tree` takes a field named at compile time), rows that are the service's (chips, cells, sections, a press of their own), the door's letters beside the arrows (`j k h l`), each key a row of the table that an agent can run as an act line and the hint row can read, a cursor an agent reads (`peek`) and that outlives the rows changing. The window keeps its one list (`list.rs`'s virtual rows) and the cursor is `TileUi.cursor`, a row's id, moved by `list.step` |
+| `focus_group` (`crates/rune/src/el/focus.rs:114-121`, README "Focus") | arrows rove Rune's focus among built, focusable children; no app state | rows built only in view cannot hold focus when they are out of it, and focus is nothing an act line moves. `focus.rs:85-96` says the same: an element with `on_key` and `focusable(true)` is "a control that owns its keyboard, like a virtualised list" |
+| `focus_highlight` (`el/focus.rs:155-161`) | one highlight the pointer and the keys share: hover moves it | a cursor hover never moves. The row's fill is drawn from `TileUi` (`tiles/list.rs`, `Mark`) and `hover` stays hover |
+| Tab (`runtime/input/focus.rs:559-587`, `el/focus.rs:107-113`) | elements with `on_key`, fields and groups in document order, or a static `tab_index` | the layout's order, where a board's lanes are one stop and a dock one, and the stop depends on where the keys last were. A tile's `on_key` runs before focus navigation (`runtime/input/keys.rs:236-246`), so Tab is a row on `tile` (`tile.focus by=1`) and the layout answers (`cursor::tab_stops`). Run: `tab_goes_round_the_tiles_in_the_layout_s_order_and_a_digit_gives_its_tile_the_keys` asks `Tx::focused` after each Tab |
+| Read-only text (README "Selectable text": pointer only, "isn't a Tab stop") | no keyboard position in rendered text; the kit's Markdown has no block cursor | a reading line. It is a part of the page by its place (`TileUi.reading`), drawn as a bar beside the part and brought into view with `scroll_into_view` on its key |
+| A scroll viewport's keys (README "Scrolling") | PgUp, PgDn, Home and End scroll it; arrows, `j k`, Space and `G` never do | the reader's keys are rows (`scroll by=`, `to=`), so they are said in the hint row and run by an agent; `keys::effects` calls `scroll_page`, `scroll_to_y` and `scroll_to_bottom`. In a list the same four keys move the cursor: the tile's `on_key` takes them before the viewport does (run: `a_page_of_a_long_list_is_the_rows_in_view_and_the_cursor_s_row_is_brought_into_view`) |
+| `Chord` (`input/chord.rs`) | one chord; no sequence, and nothing that lists what may follow one | the table already held sequences (`a then c`); what a begun one can still become is now the hint row's lines (`App::hinted`), by the keys left to press |
+| A link lit inside a text (`runtime/selection/links.rs:257-270`: `link_tab`, `enter_links` are `pub(super)`) | Tab walks the links of one focused text; an app cannot read or set which is lit | not built: stepping a page's elements (`[` `]`) and following the one the keys are on needs either the service to list a prose link as an element or a link-focus API from Rune. Worth raising upstream |
+
+What the window found on the way:
+
+- **`scroll_into_view` reaches a row that is not built.** The cursor's row 590 rows down a list of 600 is brought
+  into view by its key alone (the virtual rows' key function names it); no offset is worked out here.
+- **A row's page is the view's, told by layout.** `El::on_layout` on the list's scroll says its height, and the
+  drawer tells the tile how many rows that is (`App::list_room`): the model has no pixels, and the door's rule (the
+  rows in view less one) needs the number. The first page before a layout is one row.
+- **`mod+w` is Ctrl+W off a Mac.** The door's window prefix (`^W` then a key) cannot be a sequence here while
+  `mod+w` closes a tile: on Linux and Windows the two are the same chord, and the table has no row that holds on
+  one platform alone. Not built; the directions keep `mod+alt+arrows`.
+- **A hint that takes room moves every tile once.** The row under the tiles is always drawn, a fixed 22 points,
+  so the tiles' area never changes when the keys move; the area a window is taken to have before its first layout
+  is a row shorter for it.
+
+Not run: a Mac (Option with `n` or `p` types a character there; `Chord::matches_tx` falls back to the key's own
+letter by Rune's doc, read and not run), a screen reader's reading of the cursor row, a real keyboard's repeat.
+
+## 20. What opens where, and what Rune's parts gave and lacked (K2)
+
+The door's model (select, open, open fresh, wires, pins, a held subject) is the layout engine the window already
+ports plus the hands to steer it. What was read first: Rune's README and rune-kit's, `crates/rune/examples/popup_menu.rs`,
+`canvas_input.rs` and `growth_reorder.rs` (presses with a button and modifiers), `crates/rune-kit/examples/tree.rs`
+and `table.rs` (a virtualised tree's own selection and activation), `examples/kit-gallery` (Popover, Menu, HoverCard)
+and `crates/rune/src/runtime/on_key_tests.rs` (how a press sees the modifiers held).
+
+**Used as they are.**
+
+- `El::on_press_tx` with `Tx::mods` (`el/handlers.rs:10`, `el/tx/keys.rs:35`): what the pointer held when it
+  pressed. `keys::held_bits` is the one reading.
+- `El::on_middle_press` (`el/handlers.rs:53`): the middle button on a row, with no focus moved and no drag begun.
+- `Tx::clock` (`el/tx.rs:350`): the window's logical clock, which a headless run steps. A press says when it
+  was on that clock (`list.press at=`), so two presses a frame apart are a double press in a test as on a screen.
+- `Markdown::on_link_tx`: a link in prose pressed with Option or the shortcut modifier held is followed fresh.
+- `IconButton`, `El::help`, `El::max_w`: the pin, each control's sentence, a chip cut to the room it has.
+
+**Lacked, and what was built in its place.**
+
+- **A rule for what a press on a row is.** Rune runs `on_press` for every press, the first of a double press
+  included, and `on_double_press` beside it at the system's interval (`el/handlers.rs:36-46`); it has no notion of
+  "the press that brought the keys only selects", "a third press starts afresh" or "a modifier forgets the press
+  before". The rule is the door's and must answer the same in both doors, so it is outline-core's `rowGesture`,
+  ported as `press.rs` and held by a table; `on_double_press` is not used. The cost: the double press is the door's
+  400 ms on the window's clock, not the system's interval (a Mac's setting is not read).
+- **Which press gave a tile the keys.** `Tx::focused` in a press reads the focus after the press moved it
+  (`el/tx/keys.rs:54`), and Rune's focus follows the layout's here anyway (`keys::follow`). The window notes it
+  itself: `tile.focus` naming a tile is what a press says, and the next `list.press` there is the one that brought
+  the keys (`State.focusing`).
+- **The button of a link's click.** The docs of `on_link` say a middle click calls it with `Tx::button` set
+  (`el/text.rs:416-419`), but at `a5360a6` the field is `pub(crate)` with no public reader (`el/tx.rs:85-86`). So a
+  middle click on a link in prose follows it in place; Option or the shortcut modifier opens it fresh. Worth
+  raising upstream: a `pub fn button(&self)` on `Tx`.
+- **A Control-click on a Mac.** It is the secondary press and never a primary one (`el/handlers.rs:271`,
+  `runtime/input/secondary.rs`), so the door's ctrl-click for an open fresh cannot be copied there: fresh is Option,
+  Cmd or the middle button. Unrun on a Mac.
+- **A mode for choosing an element on screen.** Rune has none, and rune-kit's Popover and Menu choose from a
+  list, not from what is drawn. Link mode is the window's own: a state of the model (`State.linking`), a key layer
+  (`linking`), and one box over each tile that can take the wire, drawn by the shell from the model's words
+  (`App::link_offer`, `linking_said`) as the held tile's places are, each a press that runs `wire.pick to=`.
+- **rune-kit's Tree as the outline.** Still not it (§19): a press on a row with children toggles it, `on_open`
+  is only for rows without children (`rune-kit/src/tree/view.rs:383-399`) and Return only activates, so there is no
+  select apart from open and no open fresh. The window's own list keeps the cursor in its state and the press rule
+  in `press.rs`.
+- **A drag begun on a control of a title.** A control with `on_press` takes the pointer, so the title's own
+  `on_drag` never hears a drag begun on it. Each control on a title carries the tile itself (`on_drag` with the
+  title's own handler), and which controls a title has never depends on whether its tile has the keys: the press
+  that brings them must find the control it went down on still there, or the drag is lost with it.
+- **A hover wire.** `El::help` is a text tooltip with the system's delay (README "Tooltips"), not a note shown
+  after a delay. The hover verb is not built (the door's is an extension, the glass).
+
+**Found on the way.**
+
+- The whole test binary and `target/debug/ep0ch-native` are shared by every worktree that builds into one
+  `CARGO_TARGET_DIR`: a snapshot must be drawn by a copy of the binary taken in the same command that built it,
+  or it is another lane's window.
+- A socket path under a long scratch folder is refused (`SUN_LEN`); a symlink to the socket from a short folder
+  is how the scenes were drawn.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
@@ -856,14 +956,14 @@ own functions on made-up garden layouts and never edited by hand.
 | Table | Asks | Holds the answer of |
 |---|---|---|
 | `layout-contract.json` | a saved layout, an operation, who asks and where the person is | `apply`: the layout after, or the refusal as data (its reason, and each way out as an act: an action, its arguments, what it does; never a key); for the close that commits, who keeps the closed reader's note (`closeHeir`: a tile here, one across an edge, none) |
-| `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves |
+| `place-contract.json` | a saved layout and an open | `placement`: the tile the note lands in and why, and the layout the open leaves. K2 added the rows for who gets the keys: a list that hands its keys on (`handsKeys` in a tile's facts) and an open handed in (`handsKeys` on the request) |
 | `act-lines.json` | an act line; a `tile=` | the line's words, its request, its arguments typed by the action; the address it is |
 | `address-contract.json` | the tiles a window has, an address and the tile asked from | the one tile it names, why none has it, or the refusal when several do |
 | `action-rows.json` | every built-in action | its `ActionRow` under its set's scope |
 | `screens.json` | every built-in screen | its `ScreenSpec`, read back through `readSpec` |
 | `actor-contract.json` | an action's row (`touches`, `while`, `person`), who runs it (the person, an agent, a script's run with and without the invitation a press minted) and where the person is | `actorRule`: whether they may, with the door's sentence when not. Cargo asks each row of the window's `rule()` and holds it to whether, not to the words |
 | `drop-contract.json` | the tiles on screen as a drag sees them (each one's frame in cells, a tab set's labels, a content receiver, a float), the area and the tile held; a shut dock's handles and a cell | `dropAt` for every cell of the area and a cell more on each side, `zonesOf` for each tile, `handleDrop`, and for each drop the act (`dropAction`, `dropArgs`), the operation (`dropOp`) and whether a float lands there (`floatLanding`). Cargo asks `layout/drop.rs` every cell |
-| `core-contract.json` | a request; a list's rows and groups; a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName`, and a refusal said from its reason and each way's own words (`whySaid`) (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
+| `core-contract.json` | a request; a list's rows and groups; presses on a list's rows, one after another (`presses`: outline-core's `rowGesture`, K2); a list's cursor and a step, a tree's rows by depth, the tiles shown and the tile with the keys (`steps`, `parents`, `tabStops`: outline-core's `cursorStepped`, `parentRow`, `tabStops` and `nextStop`, K1); a screen's new-note rules and a kind; a spec and a target; a question and picks; a links list's `linkGroups`; an offset and a patch's placed spans; every name a key has (`keyNames`) | outline-core's own `actionLine`, `listSections`, `newNoteRule`, `targetFilled`, `selectionQuery`, `linkGroupsNamed`, `mapCursor`, `isKeyName`, and a refusal said from its reason and each way's own words (`whySaid`) (made by `outline-core/scripts/core-contract.ts`, kept true by its `test/core-contract.test.ts`) |
 
 ```sh
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts           # write them; prints each table's rows

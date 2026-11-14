@@ -1,0 +1,19 @@
+# What opens where (K2), on the notes `cursor.seed.ts` writes. The tree's cursor is put on the beds and the reader
+# its select wire names shows them; the row opened hands the keys to that reader. A second reader is split off and
+# pinned (the lock on its title), the links tile is held on the note it lists (its title says "held" and what on,
+# while the reader moves on), and the tree's opens are wired to the pinned reader, so the next row opened lands
+# beside it: the notice says where it landed, why, and the way back. Each title says where its tile's opens land,
+# a press on that picks another tile on screen, the tile a note just landed in is marked, and the row under the
+# tiles says where the keys of the tile that has them land.
+tile.focus tile=tree
+list.select n=-3
+list.pick
+tile.split tile=reader
+reader.pin on=true tile=reader2
+tile.hold on=true tile=backlinks
+tile.link to=reader2 verb=open tile=tree
+tile.focus tile=tree
+tree.fold open=true
+list.step by=1
+list.pick
+tile.focus tile=tree

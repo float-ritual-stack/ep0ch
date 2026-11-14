@@ -36,6 +36,8 @@ pub struct Request {
     pub keys: Option<bool>,
     pub inspect: bool,
     pub act: bool,
+    /// The person's open handed in (the bar's pick, a line typed), not a list's own: its reader takes the keys.
+    pub hands_keys: bool,
 }
 
 impl Request {
@@ -45,7 +47,7 @@ impl Request {
         Request {
             from: text("from").unwrap_or_default(), note: text("note").unwrap_or_default(), to: text("to"), where_: text("where"), hover: text("verb").as_deref() == Some("hover"), fresh: flag("fresh"), rule: text("rule"),
             keep: v.get("keep").and_then(Value::as_bool), history: flag("history"), at: v.get("at").and_then(At::read), container: text("container"), new_note: text("newNote"), default: flag("default"),
-            keys: v.get("keys").and_then(Value::as_bool), inspect: flag("inspect"), act: flag("act"),
+            keys: v.get("keys").and_then(Value::as_bool), inspect: flag("inspect"), act: flag("act"), hands_keys: flag("handsKeys"),
         }
     }
 }
@@ -290,7 +292,8 @@ pub fn placement(s: &Layout, request: &Request, ctx: &Ctx) -> Placement {
     if from_tile && !routed && let Some(screen) = &ctx.screen && facts(from).opens_out { return Placement { destination: hand_out(screen), ..base(&route) } }
     let mut result = Placement {
         reveal: ctx.standing && verb != "hover",
-        give_new_keys: keys && request.keys != Some(false) && !ctx.busy && (to.is_some() || !facts(from).lists || matches!(route, Some(Route::Into(_) | Route::Next))),
+        // (A list whose kind hands its keys on, the outline tree, gives the reader the keys for an open nothing routes.)
+        give_new_keys: keys && request.keys != Some(false) && ((!ctx.busy && (to.is_some() || request.hands_keys || !facts(from).lists || matches!(route, Some(Route::Into(_) | Route::Next)))) || (route.is_none() && !fresh && facts(from).hands_keys)),
         ..base(&route)
     };
     if verb == "hover" && route.is_none() { return result }

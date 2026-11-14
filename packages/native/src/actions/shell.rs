@@ -5,7 +5,7 @@ use crate::actline::Args;
 
 static DISMISS: ActionRow = ActionRow::new("notice.dismiss", Touches::Nothing, "take away the notice above the tiles. The person's: an agent's own notices go when the person has read them")
     .person("the notice is the person's to dismiss")
-    .keys(&[KeyRow::on("escape", "tile", "dismiss the notice")])
+    .keys(&[KeyRow::on("escape", "noticed", "dismiss the notice")])
     .menu(&[MenuRow::new("Dismiss", "Window", Some("escape"))]);
 
 pub static ACTIONS: &[Action] = &[Action { row: &DISMISS, run: dismiss, about: About::Nothing }];

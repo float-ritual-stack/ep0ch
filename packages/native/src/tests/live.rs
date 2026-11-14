@@ -1134,7 +1134,9 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         assert!(act(&mut app, "screen.open name=keys").ok, "{:?}", app.notice);
         let listed: Vec<(String, crate::actline::Request, String)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty())
             .map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap(), ListRow::cell(&row.cells[2]))).collect();
-        let table: Vec<(String, crate::actline::Request, String)> = crate::keys::table().iter().map(|bind| (bind.spec.clone(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", crate::keys::Layer::name).to_string())).collect();
+        // (The service lists a row's keys once, as the row wrote them: `j down` is one row there and two chords of the table.)
+        let mut table: Vec<(String, crate::actline::Request, String)> = crate::keys::table().iter().map(|bind| (bind.row.to_string(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", crate::keys::Layer::name).to_string())).collect();
+        table.dedup();
         assert_eq!(listed, table, "the keys screen equals the rows: the service wrote each line from the row this window handed it");
         // An action no key reaches is listed too, under what does reach it.
         assert!(rows(&app, "keys").iter().any(|row| row.group.as_deref() == Some("no key") && ListRow::cell(&row.cells[1]) == "proposal.apply"));
@@ -1147,7 +1149,10 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         for _ in 0..100 { app.settle(); if act(&mut app, "screen.open name=seed-list").ok { break } std::thread::sleep(Duration::from_millis(50)) }
         assert_eq!(app.screen.name, "seed-list", "{:?}", app.notice);
         let table = crate::keys::rows(&app);
-        let tabled: Vec<(String, crate::actline::Request)> = table.as_array().unwrap().iter().map(|row| (row["chord"].as_str().unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap())).collect();
+        // (A row's keys once, as the row wrote them; a screen's own key is its chord.)
+        let mut tabled: Vec<(String, crate::actline::Request, String)> = table.as_array().unwrap().iter().map(|row| (row["keys"].as_str().or(row["chord"].as_str()).unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap(), row["layer"].as_str().unwrap().to_string())).collect();
+        tabled.dedup();
+        let tabled: Vec<(String, crate::actline::Request)> = tabled.into_iter().map(|(keys, request, _)| (keys, request)).collect();
         let listed: Vec<(String, crate::actline::Request)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty()).map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap())).collect();
         assert_eq!(listed, tabled, "a screen's own keys are the list's first rows and the table's");
         assert_eq!(tabled[1], ("K".to_string(), crate::actline::parse("tile.focus tile=keys").unwrap()));
@@ -1185,7 +1190,7 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
 #[ignore = "starts an outline host with bun"]
 fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over_the_socket() {
     use crate::client::Socket;
-    use super::support::{press, rest, window};
+    use super::support::{open_row, rest, window};
     with_host("caret", |path, _| {
         let mut raw = Socket::connect(path);
         let mut n = 0;
@@ -1224,7 +1229,7 @@ fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over
         // The beds unfolded, as a press on its row does once it is the open note: the first press opens it and unfolds it.
         let folds = |rt: &rune::Runtime<App>, id: &str| rt.find(&format!("tile/tree/row/{id}/fold")).is_some();
         assert!(folds(&rt, &beds), "a note with notes under it has the mark");
-        press(&mut rt, &format!("tile/tree/row/{beds}"));
+        open_row(&mut rt, &format!("tile/tree/row/{beds}"));
         assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()));
         assert!(rt.state.ui(&tree).unfolded.contains(&beds), "{:?}", rt.state.ui(&tree).unfolded);
         let under = |rt: &rune::Runtime<App>, parent: &str| -> Vec<(String, usize, bool)> {
@@ -1237,17 +1242,17 @@ fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over
         assert_eq!([&north, &south, &east, &west].map(|id| folds(&rt, id)), [false, false, false, true]);
         // A press on a bed with only a comment under it opens it, and a second folds nothing: nothing is listed under it.
         for id in [&north, &south, &east] {
-            press(&mut rt, &format!("tile/tree/row/{id}"));
-            press(&mut rt, &format!("tile/tree/row/{id}"));
+            open_row(&mut rt, &format!("tile/tree/row/{id}"));
+            open_row(&mut rt, &format!("tile/tree/row/{id}"));
             assert_eq!(rt.state.subject().as_deref(), Some(id.as_str()));
             assert!(!rt.state.ui(&tree).unfolded.contains(id.as_str()) && under(&rt, id).is_empty());
         }
         // What is under the north bed is listed where comments are: its thread, with the reply.
-        press(&mut rt, &format!("tile/tree/row/{north}"));
+        open_row(&mut rt, &format!("tile/tree/row/{north}"));
         let threads = rt.state.rows_of(&rt.state.layout.named("threads").expect("the desk has the comments")).to_vec();
         assert_eq!(threads.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(), ["Too early for peas?"]);
         // The west bed's mark opens onto its one note, and not onto the comment or the proposal beside it.
-        press(&mut rt, &format!("tile/tree/row/{west}"));
+        open_row(&mut rt, &format!("tile/tree/row/{west}"));
         assert!(rt.state.ui(&tree).unfolded.contains(&west));
         assert_eq!(under(&rt, &west), [("First row".to_string(), 1, false)]);
         assert!(rt.find(&format!("tile/tree/row/{row}")).is_some() && !folds(&rt, &row), "its note is on screen under it");
@@ -1414,5 +1419,199 @@ fn live_a_block_is_written_as_in_the_door_a_paste_keeps_its_lines_tab_indents_an
         // Tab writes the lit row: the list is still the list's while it is open.
         chord(&mut rt, Key::Tab, Mods::default());
         assert!(words(&rt.state).ends_with(&format!("[heading-pattern::{}]", found.rows[1].label)), "{}", words(&rt.state));
+    });
+}
+
+/// K1's sentence against a real outline host: Evan moves through the window without the mouse. Keys alone, through
+/// the runtime: a digit gives the tree the keys, the letters and the arrows move its cursor over the service's own
+/// rows, a folder is unfolded and climbed out of, Return opens the row where the tree's opens land, Tab goes round
+/// to the reader, whose keys move a reading line through the page the service framed and go back and forward, and
+/// the hint row says the keys of whichever tile has them. Nothing is pressed with the pointer.
+/// `cargo test -- --ignored live` (it needs bun and the checkout around this crate).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_evan_moves_through_a_tree_a_page_and_between_tiles_without_the_mouse() {
+    use crate::client::Socket;
+    use super::support::{chord, rest, window};
+    use rune::{Key, Mods};
+    with_host("keys", |path, _| {
+        let mut raw = Socket::connect(path);
+        let mut n = 0;
+        let mut ask = |mut request: Value| { n += 1; request["id"] = json!(format!("r{n}")); request["outline"] = json!("scratch"); asked(&mut raw, request).unwrap_or_else(|refused| panic!("the host refused: {refused}")) };
+        let mut note = |text: &str, parent: Option<&str>| ask(json!({ "action": "create", "parentId": parent, "text": text, "author": "user" }))["id"].as_str().unwrap().to_string();
+        let beds = note("Beds\n\nFour beds this year, the cold frame first.\n\n## Sowing\n\n- Peas in March\n- Beans in May\n\n## Paths\n\nBark on the long path.", None);
+        let north = note("North bed [type::bed]\n\nPeas along the fence.", Some(&beds));
+        let south = note("South bed [type::bed]\n\nBeans, then garlic.", Some(&beds));
+        let row = note("First row", Some(&south));
+        let shed = note("Shed\n\nThe fork hangs by the door.", None);
+
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        let mut rt = window(app);
+        rest(&mut rt);
+        let key = |rt: &mut rune::Runtime<App>, key: Key| chord(rt, key, Mods::default());
+        let letter = |rt: &mut rune::Runtime<App>, text: &str| chord(rt, Key::Text(text.to_string()), Mods::default());
+        let focus = |rt: &rune::Runtime<App>| rt.state.layout.name(&rt.state.layout.focus);
+        let cursor = |rt: &rune::Runtime<App>| rt.state.ui(&rt.state.layout.named("tree").unwrap()).cursor.clone();
+        let hinted = |rt: &rune::Runtime<App>| rt.state.hinted().into_iter().map(|hint| hint.does).collect::<Vec<_>>();
+        // The tree's title says its number among the stops, and that digit gives it the keys.
+        let stops: Vec<String> = rt.state.tab_stops().iter().map(|id| rt.state.layout.name(id)).collect();
+        let tree_at = stops.iter().position(|stop| stop == "tree").expect("the tree is a stop");
+        letter(&mut rt, &(tree_at + 1).to_string());
+        assert_eq!(focus(&rt), "tree");
+        assert!(hinted(&rt).contains(&"the next row") && hinted(&rt).contains(&"unfold the row"), "{:?}", hinted(&rt));
+        // j is the first row of the service's tree, the down arrow the next; nothing has been opened yet.
+        let tree = rt.state.layout.named("tree").unwrap();
+        let listed = |rt: &rune::Runtime<App>| rt.state.rows_of(&tree).iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+        let top = listed(&rt);
+        assert!(top.contains(&beds) && top.contains(&shed) && !top.contains(&north), "the top of the outline, as the service lists it: {top:?}");
+        letter(&mut rt, "j");
+        assert_eq!(cursor(&rt), Some(top[0].clone()));
+        key(&mut rt, Key::Down);
+        assert_eq!(cursor(&rt), Some(top[1].clone()));
+        // (K2: the cursor opens nothing, and the reader the tree's select wire names shows the row it is on.)
+        assert!(!rt.state.steps.iter().any(|step| step.action == "open" || step.action == "list.pick"), "the cursor opened nothing");
+        assert_eq!(rt.state.subject(), Some(top[1].clone()), "the reader follows the cursor by the tree's select wire");
+        // The keys alone reach any row: from the top, a row at a time, to the beds.
+        let reach = |rt: &mut rune::Runtime<App>, id: &str| {
+            chord(rt, Key::Home, Mods::default());
+            for _ in 0..rt.state.rows_of(&tree).len() { if rt.state.ui(&tree).cursor.as_deref() == Some(id) { return } chord(rt, Key::Text("j".into()), Mods::default()); }
+            assert_eq!(rt.state.ui(&tree).cursor.as_deref(), Some(id), "j reaches every row: {:?} focus {} last {:?}", rt.state.rows_of(&tree).iter().map(|row| (row.label.clone(), row.depth)).collect::<Vec<_>>(), rt.state.layout.name(&rt.state.layout.focus), rt.state.steps.iter().rev().take(3).map(|step| (step.line(), step.ok, step.said.clone())).collect::<Vec<_>>());
+        };
+        reach(&mut rt, &beds);
+        // l unfolds the beds: the service lists what is under them, and the cursor stays on its note.
+        letter(&mut rt, "l");
+        assert_eq!(cursor(&rt), Some(beds.clone()));
+        let at = listed(&rt).iter().position(|id| *id == beds).unwrap();
+        assert_eq!(listed(&rt)[at + 1..at + 3], [north.clone(), south.clone()], "its beds are listed under it");
+        letter(&mut rt, "j");
+        letter(&mut rt, "j");
+        key(&mut rt, Key::Right);
+        assert!(rt.state.rows_of(&tree).iter().any(|listed| listed.id == row), "the south bed unfolded onto its note");
+        letter(&mut rt, "j");
+        assert_eq!(cursor(&rt), Some(row.clone()));
+        // h on a row that folds nothing climbs to the row it is under; h there folds it.
+        letter(&mut rt, "h");
+        assert_eq!(cursor(&rt), Some(south.clone()));
+        letter(&mut rt, "h");
+        assert!(!rt.state.rows_of(&tree).iter().any(|listed| listed.id == row), "the south bed is folded again");
+        // Return opens the cursor's row where the tree's opens land.
+        // (K2: the tree hands its keys to the reader it opened in, as in the door; the digit on its title brings them back.)
+        key(&mut rt, Key::Enter);
+        assert_eq!(rt.state.subject().as_deref(), Some(south.as_str()));
+        assert_eq!(focus(&rt), rt.state.layout.name(&rt.state.reader().unwrap()), "Return in the tree gave the reader the keys");
+        let tree_stop = rt.state.tab_stops().iter().position(|id| *id == tree).unwrap() + 1;
+        letter(&mut rt, &tree_stop.to_string());
+        assert_eq!(focus(&rt), "tree");
+        reach(&mut rt, &beds);
+        key(&mut rt, Key::Enter);
+        assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()));
+        // Tab goes round the stops to the reader: its keys are the hint row's now.
+        let reader = rt.state.layout.name(&rt.state.reader().unwrap());
+        for _ in 0..stops.len() { if focus(&rt) == reader { break } key(&mut rt, Key::Tab); }
+        assert_eq!(focus(&rt), reader);
+        assert!(hinted(&rt).contains(&"the next part of the page") && !hinted(&rt).contains(&"the next row"), "{:?}", hinted(&rt));
+        // j moves the reading line through the parts of the page as the service framed them; it is drawn beside its part.
+        let parts = rt.state.shown().map_or(0, |page| page.parts.len());
+        assert!(parts >= 1, "the beds' page has parts");
+        letter(&mut rt, "j");
+        assert_eq!(rt.state.ui(&rt.state.reader().unwrap()).reading, Some(0));
+        assert!(rt.find(&format!("tile/{reader}/reading/0")).is_some(), "the reading line is drawn beside the part it is on");
+        // alt+left goes back to the south bed, alt+right forward again, and u goes up from the bed to the beds.
+        chord(&mut rt, Key::Left, Mods { alt: true, ..Mods::default() });
+        assert_eq!(rt.state.subject().as_deref(), Some(south.as_str()));
+        chord(&mut rt, Key::Right, Mods { alt: true, ..Mods::default() });
+        assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()));
+        chord(&mut rt, Key::Left, Mods { alt: true, ..Mods::default() });
+        letter(&mut rt, "u");
+        for _ in 0..40 { if rt.state.subject().as_deref() == Some(beds.as_str()) { break } std::thread::sleep(Duration::from_millis(50)); rt.update(|s, _| { s.settle(); }); rest(&mut rt); }
+        assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()), "u opened the note the south bed is under");
+        // Every act was the person's, by a key: no press, and the tree's cursor is still where it was left.
+        assert!(rt.state.steps.iter().all(|step| step.by.is_person()));
+        assert_eq!(cursor(&rt), Some(beds));
+    });
+}
+
+/// K2's sentence against a real outline host: on the screen the service ships, a press on a tree's row selects it
+/// and the reader its select wire names shows the note the service answers; a second press opens it and the tree
+/// hands its keys on; Option held opens fresh beside; a reader pinned sends the next open beside it and says so; a
+/// wire set by hand moves where the tree's opens land; and the links tile, held, keeps its note while the reader
+/// moves on. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_what_opens_where_is_steered_by_press_key_and_wire_over_the_socket() {
+    use crate::client::Socket;
+    use super::support::{chord, open_row, press, rest, window};
+    use rune::{Key, Mods, PhysicalInput};
+    with_host("opens", |path, _| {
+        let mut raw = Socket::connect(path);
+        let mut n = 0;
+        let mut ask = |mut request: Value| { n += 1; request["id"] = json!(format!("r{n}")); request["outline"] = json!("scratch"); asked(&mut raw, request).unwrap_or_else(|refused| panic!("the host refused: {refused}")) };
+        let mut note = |text: &str, parent: Option<&str>| ask(json!({ "action": "create", "parentId": parent, "text": text, "author": "user" }))["id"].as_str().unwrap().to_string();
+        let beds = note("Beds\n\nFour beds this year.", None);
+        let north = note("North bed [type::bed]\n\nPeas along the hazel fence. See ((south)).", Some(&beds));
+        let south = note("South bed [type::bed]\n\nBeans, then garlic.", Some(&beds));
+        let shed = note("Shed\n\nThe fork hangs by the door.", None);
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        let (tree, reader) = (app.layout.named("tree").expect("the desk has a tree"), app.reader().expect("the desk has a reader"));
+        // As shipped: the tree's cursor shows in the reader, and its opens go to the first reader not pinned.
+        assert_eq!((app.wire_words(&tree, "select").as_str(), app.wire_words(&tree, "open").as_str()), ("reader", "reader"));
+        assert!(app.facts(&tree).hands_keys, "the tree's kind says it hands its keys on, as the service serves it");
+        let mut rt = window(app);
+        rest(&mut rt);
+        let shows = |rt: &rune::Runtime<App>, tile: &str| rt.state.layout.named(tile).and_then(|id| rt.state.note_of(&id));
+        let focus = |rt: &rune::Runtime<App>| rt.state.layout.name(&rt.state.layout.focus);
+        // The press that brings the keys selects and shows nothing; the next shows the note in the reader.
+        press(&mut rt, &format!("tile/tree/row/{shed}"));
+        assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("tree", None));
+        press(&mut rt, &format!("tile/tree/row/{beds}"));
+        assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("tree", Some(beds.clone())));
+        assert_eq!(rt.state.shown_of(&reader).map(|page| page.title.clone()).as_deref(), Some("Beds"), "the page the service answered is drawn for it");
+        // A second press at once opens: the keys go to the reader, and the folder unfolds.
+        open_row(&mut rt, &format!("tile/tree/row/{beds}"));
+        assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("reader", Some(beds.clone())));
+        assert!(rt.find(&format!("tile/tree/row/{north}")).is_some());
+        // Option held: fresh, in a reader beside, and the reader keeps its note.
+        let before = rt.state.layout.all().len();
+        rt.physical_input(PhysicalInput::Modifiers(Mods { alt: true, ..Mods::default() }));
+        rt.frame(0.0);
+        press(&mut rt, &format!("tile/tree/row/{north}"));
+        rt.physical_input(PhysicalInput::Modifiers(Mods::default()));
+        rest(&mut rt);
+        assert_eq!((rt.state.layout.all().len(), shows(&rt, "reader")), (before + 1, Some(beds.clone())));
+        let fresh = rt.state.layout.all().into_iter().find(|id| *id != reader && rt.state.note_of(id).as_deref() == Some(north.as_str())).map(|id| rt.state.layout.name(&id)).expect("the north bed opened in a reader of its own");
+        // The reader pinned by its key: the tree's next open passes it by for the first reader not pinned (the one the
+        // fresh open made), which is the person's own and keeps the note it showed as a step back.
+        rt.update(|s, _| { assert!(s.act("tile.focus tile=reader", crate::actions::Actor::Person).ok); });
+        rest(&mut rt);
+        chord(&mut rt, Key::Text("p".into()), Mods::default());
+        assert!(rt.state.pinned(&reader));
+        open_row(&mut rt, &format!("tile/tree/row/{south}"));
+        assert_eq!(shows(&rt, "reader"), Some(beds.clone()), "pinned, it keeps its note");
+        assert_eq!((shows(&rt, &fresh), rt.state.ui(&rt.state.layout.named(&fresh).unwrap()).history.last().cloned()), (Some(south.clone()), Some(north.clone())));
+        let notice = rt.state.notice.as_ref().map(|notice| notice.said.clone()).unwrap_or_default();
+        assert!(notice.starts_with(&format!("opened in {fresh}")), "a landing that keeps no spine says so: {notice}");
+        // A wire set by hand: the tree's opens go to the reader the fresh open made, and its title says so in `peek`.
+        rt.update(move |s, _| { assert!(s.act(&format!("tile.link to={fresh} verb=open tile=tree"), crate::actions::Actor::Person).ok); });
+        rest(&mut rt);
+        let peek = crate::control::peek(&rt.state);
+        let said = peek["screen"]["tiles"].as_array().unwrap().iter().find(|tile| tile["name"] == "tree").map(|tile| tile["opens"].clone()).unwrap();
+        assert_eq!(said["select"], "reader");
+        assert_ne!(said["open"], "reader", "{said}");
+        // The links tile held keeps the note it lists while its reader moves on, and follows again when let go.
+        let links = rt.state.layout.named("backlinks").expect("the desk has the links");
+        rt.update(|s, _| { for line in ["reader.pin on=false tile=reader", "tile.hold on=true tile=backlinks"] { assert!(s.act(line, crate::actions::Actor::Person).ok, "{line}") } });
+        let held = shed.clone();
+        rt.update(move |s, _| { assert!(s.act(&format!("open id={held} tile=reader"), crate::actions::Actor::Person).ok); });
+        rest(&mut rt);
+        assert_eq!((shows(&rt, "reader"), rt.state.subject_of(&links)), (Some(shed.clone()), Some(beds.clone())));
+        rt.update(|s, _| { assert!(s.act("tile.hold on=false tile=backlinks", crate::actions::Actor::Person).ok); });
+        rest(&mut rt);
+        assert_eq!(rt.state.subject_of(&links), Some(shed.clone()));
     });
 }

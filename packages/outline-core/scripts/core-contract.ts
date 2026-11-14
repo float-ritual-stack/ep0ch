@@ -13,12 +13,19 @@
 //   indent     a draft's text, its selection, in or out → the spans to replace and where the selection is after (indentText)
 //   keyNames   a word                         → whether it is a key's one name, as a screen's keys name one (isKeyName)
 //   resourceRefs  what an answer asks a client to open → whether it is written as a Resource ref, not a block's id (isResourceRef)
+//   steps      a list's cursor, its rows, its view, a step → the row the cursor is on after           (cursorStepped)
+//   parents    a tree's rows by depth, a row  → the row it is under                                  (parentRow)
+//   tabStops   the tiles shown, each with the columns or dock it is in, the tile with the keys → where Tab stops, and
+//              the stop one step on and one back from that tile                                       (tabStops, nextStop)
+//   presses    presses on a list's rows, one after another → what each asks for: focus, select, open, fresh (rowGesture)
 //   ways       a refusal, each way's own words → the refusal as it is said: the reason, then the ways joined (whySaid)
 //   quoted     a note's text, a quote as a client sends it with a comment → the span of the source it is, or the
 //              refusal the service sends (findQuoted, quoteRefusal). `quotedNote` is the made-up note most of them
 //              are about, as a page: a stand-in host serves it and answers a comment from these rows, so it refuses
 //              what the service refuses.
 import { staysMs } from "../src/reading-time";
+import { MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, MOUSE_SHIFT, rowGesture, type LastPress, type RowGesture, type RowPress } from "../src/row-press";
+import { cursorStepped, nextStop, parentRow, tabStops, type CursorStep, type ShownTile } from "../src/list-cursor";
 import { join } from "node:path";
 import { actionLine, type ActRequest } from "../src/action-line";
 import { isKeyName, MOUSE_KEYS, NAMED_KEYS } from "../src/action-row";
@@ -279,6 +286,58 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
   return `{\n${[...lines, ...rows].join(",\n")}\n}\n`;
 }
 
+/** A cursor's steps: a row, a page and an end, from the middle, from each end, from no row yet, in a list with none. */
+const STEPS: { at: number; n: number; room: number; step: CursorStep }[] = [
+  ...[-1, 0, 3, 11].flatMap(at => [{ by: 1 }, { by: -1 }, { page: 1 as const }, { page: -1 as const }, { edge: "first" as const }, { edge: "last" as const }].map(step => ({ at, n: 12, room: 5, step }))),
+  { at: 4, n: 40, room: 1, step: { page: 1 } }, { at: 4, n: 40, room: 0, step: { page: -1 } }, { at: 4, n: 40, room: 9.5, step: { page: 1 } },
+  { at: 2, n: 3, room: 20, step: { page: 1 } }, { at: 0, n: 1, room: 5, step: { by: 1 } }, { at: -1, n: 0, room: 5, step: { by: 1 } }, { at: 0, n: 0, room: 5, step: { edge: "last" } },
+];
+
+/** A tree's rows by depth: plot (beans, onions (sets)), shed, and a row deeper than the one above by two. */
+const DEPTHS = [0, 1, 1, 2, 0, 2, 1];
+
+const tile = (id: string, within?: string, columns = false): ShownTile<string> => ({ id, ...(within === undefined ? {} : { in: within, columns }) });
+/** Where Tab stops: tiles of the tree, a board's lanes as one stop, a dock as one, then the floats. */
+const TAB_STOPS: { name: string; shown: ShownTile<string>[]; focus: string; last?: Record<string, string>; floats?: string[] }[] = [
+  { name: "every tile shown is a stop, in reading order", shown: [tile("tree"), tile("reader"), tile("links")], focus: "reader" },
+  { name: "the floats come after the tiles", shown: [tile("tree"), tile("reader")], focus: "tree", floats: ["seed-list", "notes"] },
+  { name: "a board's lanes are one stop: their first tile", shown: [tile("tree"), tile("sown", "lanes", true), tile("growing", "lanes", true), tile("picked", "lanes", true), tile("reader")], focus: "tree" },
+  { name: "lanes with the keys in them stop on the tile that has them", shown: [tile("tree"), tile("sown", "lanes", true), tile("growing", "lanes", true), tile("reader")], focus: "growing" },
+  { name: "lanes stop on the tile last used in them", shown: [tile("sown", "lanes", true), tile("growing", "lanes", true), tile("picked", "lanes", true), tile("reader")], focus: "reader", last: { lanes: "picked" } },
+  { name: "a tile last used that is shown no longer is passed over", shown: [tile("sown", "lanes", true), tile("growing", "lanes", true), tile("reader")], focus: "reader", last: { lanes: "picked" } },
+  { name: "a dock is one stop: its first tile, whatever was last used", shown: [tile("reader"), tile("list", "d1"), tile("preview", "d1")], focus: "reader", last: { d1: "preview" } },
+  { name: "a dock with the keys in it stops on the tile that has them", shown: [tile("reader"), tile("list", "d1"), tile("preview", "d1")], focus: "preview" },
+  { name: "two docks are two stops", shown: [tile("tree", "d1"), tile("reader"), tile("links", "d2"), tile("props", "d2")], focus: "reader" },
+  { name: "the tile with the keys is no stop (a tab behind): the next is the first", shown: [tile("tree"), tile("reader")], focus: "hidden" },
+  { name: "nothing shown", shown: [], focus: "reader" },
+];
+
+/** Presses on a list's rows, one after another: each a row, when, and what the pointer and the list said of it. */
+type Pressed = RowPress & { row: string; now: number };
+const PRESSES: { name: string; presses: Pressed[] }[] = [
+  { name: "a click selects", presses: [{ row: "beans", now: 1000 }] },
+  { name: "the click that gave the list the keys only selects", presses: [{ row: "beans", now: 1000, focusing: true }] },
+  { name: "a second click soon after opens", presses: [{ row: "beans", now: 1000 }, { row: "beans", now: 1300 }] },
+  { name: "a double click opens even when its first press brought the keys", presses: [{ row: "beans", now: 1000, focusing: true }, { row: "beans", now: 1200 }] },
+  { name: "a second click after the interval selects again", presses: [{ row: "beans", now: 1000 }, { row: "beans", now: 1400 }, { row: "beans", now: 1900 }] },
+  { name: "a click on another row selects it", presses: [{ row: "beans", now: 1000 }, { row: "onions", now: 1100 }, { row: "onions", now: 1200 }] },
+  { name: "a third click starts afresh", presses: [{ row: "beans", now: 1000 }, { row: "beans", now: 1100 }, { row: "beans", now: 1200 }, { row: "beans", now: 1300 }] },
+  { name: "alt held opens fresh", presses: [{ row: "beans", now: 1000, mods: MOUSE_ALT }] },
+  { name: "ctrl held opens fresh, on the click that brings the keys too", presses: [{ row: "beans", now: 1000, mods: MOUSE_CTRL, focusing: true }] },
+  { name: "the middle button opens fresh", presses: [{ row: "beans", now: 1000, button: MOUSE_MIDDLE }] },
+  { name: "shift alone is a click", presses: [{ row: "beans", now: 1000, mods: MOUSE_SHIFT }] },
+  { name: "a fresh open forgets the press before it", presses: [{ row: "beans", now: 1000 }, { row: "beans", now: 1100, mods: MOUSE_ALT }, { row: "beans", now: 1200 }] },
+  { name: "the selected row clicked is selected again, never opened", presses: [{ row: "beans", now: 1000, selected: true }] },
+  { name: "an untimed second press opens however long after", presses: [{ row: "beans", now: 1000, untimed: true }, { row: "beans", now: 9000, untimed: true }] },
+  { name: "an untimed second press that brings the keys back is a first", presses: [{ row: "beans", now: 1000, untimed: true }, { row: "beans", now: 9000, untimed: true, focusing: true }] },
+];
+
+/** A run of presses, each asked of the rule with what the one before left. */
+function pressed(presses: Pressed[]): RowGesture[] {
+  let last: LastPress<string> = null;
+  return presses.map(({ row, ...p }) => { const said = rowGesture(last, row, p); last = said.last; return said.gesture; });
+}
+
 export function coreContract(): string {
   return table({
     about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), whether what an answer asks a client to open is written as a Resource ref and not a block's id (isResourceRef), how long something said to a person stays up, by how many columns it is (staysMs), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
@@ -297,6 +356,10 @@ export function coreContract(): string {
     keyNames: KEY_NAMES.map(key => ({ key, named: isKeyName(key) })),
     resourceRefs: RESOURCE_REFS.map(value => ({ value, resource: isResourceRef(value) })),
     stays: [0, 1, 20, 35, 36, 80, 200, 407, 408, 2000].map(columns => ({ columns, ms: staysMs(columns) })),
+    steps: STEPS.map(c => ({ ...c, to: cursorStepped(c.step, c) })),
+    parents: DEPTHS.map((_, at) => ({ depths: DEPTHS, at, parent: parentRow(DEPTHS, at) })),
+    tabStops: TAB_STOPS.map(c => { const stops = tabStops(c.shown, c.focus, key => c.last?.[key], c.floats ?? []); return { name: c.name, shown: c.shown, focus: c.focus, last: c.last ?? {}, floats: c.floats ?? [], stops, next: nextStop(stops, c.focus, 1) ?? null, before: nextStop(stops, c.focus, -1) ?? null }; }),
+    presses: PRESSES.map(c => ({ ...c, gestures: pressed(c.presses) })),
     ways: WAYS.map(c => ({ ...c, whole: whySaid(c.why, each => c.said[c.why.ways.indexOf(each)] ?? null) })),
     // (A row about `quotedNote` leaves its text out: it is the note's.)
     quoted: QUOTED.map(c => {

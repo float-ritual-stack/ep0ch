@@ -38,7 +38,7 @@ fn the_tiles_about_a_note_follow_the_reader_and_a_hidden_one_asks_nothing() {
     assert_eq!(rt.state.subject_of(&rt.state.layout.named("threads").unwrap()).as_deref(), Some("plot"));
     assert!(rt.find("tile/threads/row/thread-plot").is_some(), "{:?}", keyed(&rt, "tile/threads/"));
     // The reader moves on: the list is asked of the note it shows now, and the row is that note's.
-    press(&mut rt, "tile/tree/row/shed");
+    open_row(&mut rt, "tile/tree/row/shed");
     assert_eq!(lists_of(&asked, "threads").last().map(|a| a["of"].clone()), Some(json!("shed")));
     assert!(rt.find("tile/threads/row/thread-shed").is_some() && rt.find("tile/threads/row/thread-plot").is_none());
     // Another tab in front: now it asks, of the same note, and the comments ask no more.
@@ -46,7 +46,7 @@ fn the_tiles_about_a_note_follow_the_reader_and_a_hidden_one_asks_nothing() {
     assert_eq!(lists_of(&asked, "proposals").last().map(|a| a["of"].clone()), Some(json!("shed")));
     assert!(rt.find("tile/proposals/row/proposal-shed").is_some());
     let before = lists_of(&asked, "threads").len();
-    press(&mut rt, "tile/tree/row/plot");
+    open_row(&mut rt, "tile/tree/row/plot");
     assert_eq!(lists_of(&asked, "proposals").last().map(|a| a["of"].clone()), Some(json!("plot")));
     assert_eq!(lists_of(&asked, "threads").len(), before, "the comments are behind a tab now: nothing is asked for them");
     // What `peek` says of one: what it follows and the rows the service listed, each with its own presses.
@@ -414,12 +414,14 @@ fn the_keys_screen_is_a_list_made_from_the_rows_the_window_hands_over() {
     // What comes back is drawn as any table is, and its rows are the key table's: each chord with the line it runs.
     let rows = rt.state.rows_of(&rt.state.layout.named("keys").unwrap()).to_vec();
     let listed: Vec<(String, crate::actline::Request, String)> = rows.iter().map(|row| (crate::page::ListRow::cell(&row.cells[0]), crate::actline::parse(&crate::page::ListRow::cell(&row.cells[1])).unwrap(), crate::page::ListRow::cell(&row.cells[2]))).collect();
-    let table: Vec<(String, crate::actline::Request, String)> = keys::table().iter().map(|bind| (bind.spec.clone(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", Layer::name).to_string())).collect();
+    // (A row lists its keys once, as it wrote them: `j down` is one row of the screen and two chords of the table.)
+    let mut table: Vec<(String, crate::actline::Request, String)> = keys::table().iter().map(|bind| (bind.row.to_string(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", Layer::name).to_string())).collect();
+    table.dedup();
     assert_eq!(listed, table, "the keys screen and the key table are the same rows");
     assert!(rt.find("tile/keys/columns").is_some() && rt.find(&format!("tile/keys/row/{}", rows[0].id)).is_some(), "{:?}", keyed(&rt, "tile/keys/").iter().take(8).collect::<Vec<_>>());
     // A pick runs the line, where the same line typed in the bar would.
     let back = rows.iter().find(|row| row.act.as_deref() == Some("bar.open")).expect("the bar's chord is listed");
-    press(&mut rt, &format!("tile/keys/row/{}", back.id));
+    open_row(&mut rt, &format!("tile/keys/row/{}", back.id));
     assert!(rt.state.bar.open);
 }
 
@@ -447,7 +449,9 @@ fn a_screen_s_own_keys_are_pressed_before_the_table_s_and_listed_first() {
     let rows = rt.state.rows_of(&rt.state.layout.named("keys").unwrap()).to_vec();
     let cell = |row: &crate::page::ListRow, n: usize| crate::page::ListRow::cell(&row.cells[n]);
     let listed: Vec<(String, crate::actline::Request)> = rows.iter().map(|row| (cell(row, 0), crate::actline::parse(&cell(row, 1)).unwrap())).collect();
-    let tabled: Vec<(String, crate::actline::Request)> = table.as_array().unwrap().iter().map(|row| (row["chord"].as_str().unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap())).collect();
+    let mut tabled: Vec<(String, crate::actline::Request, String)> = table.as_array().unwrap().iter().map(|row| (row["keys"].as_str().or(row["chord"].as_str()).unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap(), row["layer"].as_str().unwrap().to_string())).collect();
+    tabled.dedup();
+    let tabled: Vec<(String, crate::actline::Request)> = tabled.into_iter().map(|(keys, request, _)| (keys, request)).collect();
     assert_eq!(listed, tabled, "the keys list and the key table are the same rows, the screen's first");
     assert_eq!(rows[0].group.as_deref(), Some("this screen"));
     // Its key wins over the table's for the same chord (the table's own opens the bar on a query), as the person.

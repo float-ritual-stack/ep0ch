@@ -1,0 +1,14 @@
+# Keys everywhere (K1): the window worked without the mouse, on the notes `cursor.seed.ts` writes. The tree has
+# the keys: its cursor put on the beds, that row opened in the reader (which unfolds it), the reader's reading line
+# put on the first part of its page, and the keys back on the tree with the cursor two rows further on. Two marks
+# in the tree, never one for both: the cursor's row (an edge and a fill while its tile has the keys) and the open
+# note's (a quiet fill). The reader's reading line is the bar beside its part, dim while the reader hasn't the
+# keys, left where it was. Each title says its tile's number among the stops Tab goes round, and the row under the
+# tiles says the keys of the tile that has them, from the key table.
+tile.focus tile=tree
+list.select n=-4
+list.pick
+reading.step by=1 tile=reader
+tile.focus tile=tree
+list.step by=1
+list.step by=1

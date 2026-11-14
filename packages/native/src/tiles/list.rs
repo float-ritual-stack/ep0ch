@@ -14,13 +14,14 @@ use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use rune::{El, Icon, ScrollSpec, col, el, row, text};
+use rune::{El, Icon, ScrollSpec, Tx, col, el, row, text};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, ControlSize, Kit, glyphs};
 use serde_json::{Value, json};
 
 use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use crate::actions::{App, word};
+use crate::keys;
 use crate::list::{self, Rows};
 use crate::page::{ListAnswer, ListGroup, ListRow, ListView, Section};
 use crate::store::Ask;
@@ -50,14 +51,32 @@ fn facts(cx: &TileCx) -> Value {
         "columns": answer.map(|a| a.list.columns.clone()), "facets": answer.map(|a| a.facets.iter().map(|f| f.key.clone()).collect::<Vec<_>>()),
         "hint": answer.and_then(|a| a.hint.clone()), "truncated": answer.is_some_and(|a| a.truncated), "sort": answer.and_then(|a| a.sort.clone()), "group": answer.and_then(|a| a.group.clone()),
         "question": cx.app.question_of(cx.id), "narrowed": cx.ui.narrowed, "chosen": cx.ui.chosen, "unfolded": cx.ui.unfolded,
-        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.home_note(cx.id),
+        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.home_note(cx.id), "cursor": cx.ui.cursor,
     })
 }
 
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.home_note(cx.id), cx.app.question_of(cx.id)).hash(&mut h);
+    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.home_note(cx.id), cx.app.question_of(cx.id), &cx.ui.cursor).hash(&mut h);
     h.finish()
+}
+
+/// What a press on a row runs, with what the pointer held: the primary button and the middle one are both the row's.
+#[derive(Clone)]
+struct Pressed { line: String, from: String, page: bool }
+
+impl Pressed {
+    /// The line a press with these modifiers and this button runs, at this time of the window's clock.
+    fn line(&self, tx: &Tx, button: u32) -> String {
+        let bits = keys::held_bits(tx);
+        if self.page { keys::pressed(&self.line, bits, button) } else { format!("{} mods={bits} button={button} at={}", self.line, (tx.clock() * 1000.0) as u64) }
+    }
+    /// The row's presses on `row`.
+    fn on(self, row: El) -> El {
+        let middle = self.clone();
+        row.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.pressed_in(&self.line(tx, 0), &self.from); })
+            .on_middle_press(move |s: &mut App, tx: &mut Tx| { s.pressed_in(&middle.line(tx, crate::press::MIDDLE), &middle.from); })
+    }
 }
 
 /// Where a list is drawn, and what a press in it runs there. One list, two places: a list tile (its own answer,
@@ -85,14 +104,17 @@ impl Place {
     /// What a press on a row runs. In a list tile, the tile's pick of it (`list.pick`, which runs the row's own act
     /// line, folds a folder's row that is already open, and opens or folds a row that only folds); on a page, the
     /// row's own act line, from the page's tile. A row with no act line that folds nothing is words.
-    fn pick(&self, cx: &TileCx, r: &ListRow) -> Option<impl Fn(&mut App) + Clone + 'static> {
+    /// It is a press as the pointer says it: in a list tile `list.press`, which asks the one rule what the press is
+    /// (the press that brings the keys, a select, an open on the second, an open fresh with a modifier held or the
+    /// middle button); on a page the row's line, run fresh when the pointer says so (`keys::pressed`).
+    fn pick(&self, cx: &TileCx, r: &ListRow) -> Option<Pressed> {
         let line = match (&r.act, self.page) {
             (Some(act), true) => act.clone(),
-            (Some(_), false) => format!("list.pick id={}", word(&r.id)),
-            (None, false) if r.folds && self.unfolds(cx) => format!("list.pick id={}", word(&r.id)),
+            (Some(_), false) => format!("list.press id={}", word(&r.id)),
+            (None, false) if r.folds && self.unfolds(cx) => format!("list.press id={}", word(&r.id)),
             (None, _) => return None,
         };
-        Some(cx.act(line))
+        Some(Pressed { line, from: cx.name.clone(), page: self.page })
     }
     /// What a press on a chip (a property and one of its values) runs: a list tile's question is narrowed by it
     /// (`facets.set`); on a page it is a question of its own, in the bar (`bar.narrow`, as the page's own chips are).
@@ -115,15 +137,20 @@ fn chip(cx: &TileCx, at: &Place, key: &str, value: &str, said: String, on: bool,
 /// One row: its mark and label, the properties it carries as chips, and its detail under it (or beside it, in a
 /// tree). A cell that carries an act line is a press of its own on the row (the service's word on what it runs), and
 /// what the row shows under itself (`view`) is a primitive, built by the registry as any is: a change, a thread's
-/// replies, an example. A row that folds, in a list whose rows open, shows which way it is.
-fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &Kit) -> El {
+/// replies, an example. A row that folds, in a list whose rows open, shows which way it is. `mark`: how the row
+/// stands (`Mark`: the keys' cursor is on it, it is the open note's).
+fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, mark: Mark, k: &Kit) -> El {
     let c = &k.c;
     let tall = r.tall();
     let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
     let mut line = row().w_full().gap(6.0).center_y();
     // The fold's mark is the row's own word (`folds`, the service's: in a list of notes, that a note is under it), so
     // a mark drawn always opens onto something; a row that folds nothing has a dot in a tree, and nothing elsewhere.
-    let fold = || rune::icon(if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 14.0).color(c.text_faint).key(format!("{}/fold", at.row_key(cx, &r.id)));
+    // (In a list tile whose folders unfold the mark is a press of its own: it folds at once, and selects nothing.)
+    let fold = || {
+        let mark = rune::icon(if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 14.0).color(c.text_faint).key(format!("{}/fold", at.row_key(cx, &r.id)));
+        if tree && !at.page && at.unfolds(cx) { k.interactive(mark).role("button").label("Fold or unfold").on_press(cx.act(format!("tree.fold id={}", word(&r.id)))) } else { mark }
+    };
     if tree {
         line = line.child(el().w(r.depth.min(12) as f32 * 14.0)).child(if r.folds { fold() } else { rune::icon(&DOT, 14.0).color(c.text_faint) });
     } else if r.folds && at.unfolds(cx) {
@@ -143,10 +170,10 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     for chip_ in r.chips.iter().take(3) { line = line.child(chip(cx, at, &chip_.key, &chip_.value, chip_.value.clone(), at.narrowed(cx, &chip_.key, &chip_.value), &format!("row/{}/chip", r.id), k)) }
     let detail = r.detail.as_deref().filter(|d| !d.is_empty() && !tree).map(|detail| { let said = text(detail.to_string()).font(k.ty.small).color(c.text_faint); if tall { said.wrap() } else { said.truncate() } });
     let head = match detail { Some(detail) => col().w_full().gap(1.0).child(line).child(detail), None => line };
-    let fill = if selected { c.surface_hover } else if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT };
-    let head = head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill);
+    let fill = mark.fill(k).unwrap_or(if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT });
+    let head = mark.edge(head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill), k);
     let head = match at.pick(cx, r) {
-        Some(run) => k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
+        Some(run) => run.on(k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page)),
         None => head,
     };
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
@@ -164,21 +191,36 @@ pub fn card(cx: &TileCx, r: &ListRow, under: &str, press: Option<&str>, whole: b
     let mut shown = r.clone();
     shown.act = press.map(str::to_string);
     if !whole { shown.view = None; shown.cells.clear() }
-    row_el(cx, &Place::page(cx, under), &shown, false, false, k)
+    row_el(cx, &Place::page(cx, under), &shown, false, Mark::default(), k)
+}
+
+/// How a row stands in its list, beside what it says: the keys' cursor is on it (`cursor`: whether its tile has the
+/// keys), and it is the row of the note the list's reader shows (`open`). Two marks, never one for both, and
+/// neither is the pointer's hover: the cursor is a fill with an edge while its tile has the keys and a dim fill
+/// when it has not (it stays where it was left), the open note's a quiet fill.
+#[derive(Clone, Copy, Default)]
+struct Mark { cursor: Option<bool>, open: bool }
+
+impl Mark {
+    fn fill(self, k: &Kit) -> Option<rune::Color> {
+        match self { Mark { cursor: Some(true), .. } => Some(k.selection()), Mark { cursor: Some(false), .. } => Some(k.c.layer_03), Mark { open: true, .. } => Some(k.c.surface_hover), _ => None }
+    }
+    /// The edge of the row the keys are on, drawn inside it so nothing moves when the cursor does.
+    fn edge(self, row: El, k: &Kit) -> El { if self.cursor == Some(true) { row.outline(1.0, -1.0, k.c.border_focus) } else { row } }
 }
 
 fn height(r: &ListRow, tree: bool) -> f32 { if tree || r.detail.as_deref().is_none_or(str::is_empty) { LINE } else { TWO } }
 
 /// A table's row: a cell a column, the first its label when the list gives no cell for it.
-fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, selected: bool, k: &Kit) -> El {
+fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, mark: Mark, k: &Kit) -> El {
     let c = &k.c;
-    let mut line = row().w_full().h(LINE).gap(8.0).center_y().px(8.0).radius(k.radius.sm).fill(if selected { c.surface_hover } else { rune::Color::TRANSPARENT }).key(at.row_key(cx, &r.id));
+    let mut line = mark.edge(row().w_full().h(LINE).gap(8.0).center_y().px(8.0).radius(k.radius.sm).fill(mark.fill(k).unwrap_or(rune::Color::TRANSPARENT)), k).key(at.row_key(cx, &r.id));
     for i in 0..columns.max(1) {
         let words = r.cells.get(i).map(ListRow::cell).unwrap_or_else(|| if i == 0 { r.label.clone() } else { String::new() });
         line = line.child(text(words).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0));
     }
     match at.pick(cx, r) {
-        Some(run) => k.interactive(line).role("row").focusable(at.page).on_press(run),
+        Some(run) => run.on(k.interactive(line).role("row").focusable(at.page)),
         None => line,
     }
 }
@@ -224,8 +266,10 @@ fn listed(cx: &TileCx, at: &Place, view: &Rc<ListView>, items: Vec<Item>, k: &Ki
             Item::Head(g) => head_el(&cx, &place, g, &kit),
             Item::Row(n) => {
                 let r = &built.rows[*n];
-                let lit = selected.as_deref() == Some(r.id.as_str());
-                if table { table_row(&cx, &place, r, columns, lit, &kit) } else { row_el(&cx, &place, r, tree, lit, &kit) }
+                // The cursor is the tile's own, read as it stands now: a list on a page has none.
+                let cursor = (!place.page && cx.ui.cursor.as_deref() == Some(r.id.as_str())).then_some(cx.focused);
+                let mark = Mark { cursor, open: selected.as_deref() == Some(r.id.as_str()) };
+                if table { table_row(&cx, &place, r, columns, mark, &kit) } else { row_el(&cx, &place, r, tree, mark, &kit) }
             }
         }
     });
@@ -238,7 +282,7 @@ type Listed = Rows<Box<dyn for<'a> Fn(&'a App, usize) -> Cow<'a, str>>, Box<dyn 
 /// A list's arrangements, as the list says them (outline-core's `ListPrimitive.arrange`): any other word is rows.
 const TREE: &str = "tree";
 const TABLE: &str = "table";
-const LANES: &str = "lanes";
+use crate::page::LANES;
 
 /// A table's header: a column a property. In a list tile a press sorts by it (`list.sort`); on a page it is words.
 fn columns_el(cx: &TileCx, at: &Place, view: &ListView, sort: Option<&str>, k: &Kit) -> Option<El> {
@@ -337,7 +381,12 @@ fn said_el(key: String, words: &str, k: &Kit) -> El { col().key(key).w_full().pa
 
 fn said(cx: &TileCx, words: &str, k: &Kit) -> El { said_el(cx.key("empty"), words, k) }
 
-fn scroll(cx: &TileCx, part: &str, body: El, k: &Kit) -> El { k.scroll_bar(col().key(cx.key(part)).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).child(body)) }
+/// A list tile's rows in their scroll. How many rows the scroll shows is told to the tile as it is laid out
+/// (`App::list_room`, by `line`, a row's height): a page of the cursor is that many rows less one.
+fn scroll(cx: &TileCx, part: &str, line: f32, body: El, k: &Kit) -> El {
+    let tile = cx.id.to_string();
+    k.scroll_bar(col().key(cx.key(part)).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).on_layout(move |s: &mut App, at: [f32; 4]| s.list_room(&tile, (at[3] / line).floor() as f64)).child(body))
+}
 
 fn draw(cx: &TileCx, k: &Kit) -> El {
     let ask = cx.app.list_ask(cx.id);
@@ -369,5 +418,7 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
         return body.child(lanes_el(cx, &at, &view, &sections, &scrolled, k).grow(1.0).h_full());
     }
     let rows = list::rows(cx.key("rows"), listed(cx, &at, &view, items(&sections), k));
-    body.child(el().w_full().grow(1.0).min_h(0.0).child(scroll(cx, "scroll", rows, k)))
+    // (A row's height as the list estimates one: a line in a tree and a table, two where rows carry their detail.)
+    let line = if view.arrange == TREE || view.arrange == TABLE { LINE } else { TWO };
+    body.child(el().w_full().grow(1.0).min_h(0.0).child(scroll(cx, "scroll", line, rows, k)))
 }

@@ -21,10 +21,16 @@ static CLOSE: ActionRow = ActionRow::new("tile.close", Touches::Shape, "close a 
     .menu(&[MenuRow::new("Close", "Tile", Some("mod+w"))])
     .examples(&[Example { act: "tile.close tile=reader2", does: "closes the second reader", safe: None }]);
 
-pub(super) static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, or dir= the next one that way from the tile that has them. The person's: an agent never moves their keys")
+pub(super) static FOCUS: ActionRow = ActionRow::new("tile.focus", Touches::Screen, "give a tile the keys: tile= by name, dir= the next one that way from the tile that has them, or by= stops on in reading order (negative: back; round the ends: each tile shown is a stop, a board's lanes one stop and a dock one, then the floats). The person's: an agent never moves their keys")
     .person("the person's keys are theirs: an agent never moves them · a comment on the note gets their attention (comment body=…)")
-    .args(&[("dir", ArgSpec::text("the next tile that way").optional().choices(&["left", "right", "up", "down"]))])
+    .args(&[
+        ("dir", ArgSpec::text("the next tile that way").optional().choices(&["left", "right", "up", "down"])),
+        ("by", ArgSpec::number("stops on, in reading order (negative: back)").optional()),
+    ])
     .keys(&[
+        KeyRow::with("tab", Some("tile"), "the keys to the next tile", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("shift+tab", Some("tile"), "the keys to the tile before", &[("by", Scalar::Whole(-1))]),
+
         KeyRow::with("mod+alt+left", None, "the keys to the tile on the left", &[("dir", Scalar::Text("left"))]),
         KeyRow::with("mod+alt+right", None, "the keys to the tile on the right", &[("dir", Scalar::Text("right"))]),
         KeyRow::with("mod+alt+up", None, "the keys to the tile above", &[("dir", Scalar::Text("up"))]),
@@ -46,13 +52,18 @@ static COLLAPSE: ActionRow = ActionRow::new("tile.collapse", Touches::Shape, "fo
         ("on", ArgSpec::flag("true folds it, false opens it; left out, the other way").optional()),
         ("dir", ArgSpec::text("v: a spine down a row of tiles; h: one across a column of them (default: the way its split runs)").optional().choices(&["v", "h"])),
     ])
-    .keys(&[KeyRow::keys("mod+shift+c", "fold this tile to a spine, or open it again"), KeyRow::via("the fold on a tile's title; a press on a spine opens it")])
+    .keys(&[
+        KeyRow::keys("mod+shift+c", "fold this tile to a spine, or open it again"),
+        KeyRow::with("minus", Some("tile"), "fold this tile to a spine", &[("on", Scalar::Flag(true))]),
+        KeyRow::with("plus equal", Some("tile"), "open this tile from its spine", &[("on", Scalar::Flag(false))]),
+        KeyRow::via("the fold on a tile's title; a press on a spine opens it"),
+    ])
     .menu(&[MenuRow::new("Fold to a spine", "Tile", Some("mod+shift+c"))])
     .examples(&[Example { act: "tile.collapse on=true tile=tree", does: "folds the tree to a spine, keeping what is in it", safe: None }]);
 
 static ZOOM: ActionRow = ActionRow::new("tile.zoom", Touches::Shape, "zoom a tile (tile=, else the one with the keys) to fill the window (on=true), or put it back in its place (on=false); left out, the other way. Nothing of the arrangement changes under it")
     .args(&[("on", ArgSpec::flag("true zooms, false unzooms; left out, the other way").optional())])
-    .keys(&[KeyRow::keys("mod+shift+enter", "zoom this tile to the whole window, or back")])
+    .keys(&[KeyRow::keys("mod+shift+enter", "zoom this tile to the whole window, or back"), KeyRow::with("escape q", Some("zoomed"), "put the zoomed tile back in its place", &[("on", Scalar::Flag(false))])])
     .menu(&[MenuRow::new("Zoom", "Tile", Some("mod+shift+enter"))])
     .examples(&[Example { act: "tile.zoom tile=reader", does: "fills the window with the reader, or puts it back when it is zoomed", safe: None }]);
 
@@ -76,7 +87,37 @@ static AGENT: ActionRow = ActionRow::new("tile.agent", Touches::Shape, "what an 
     .keys(&[KeyRow::via("its row in the command bar, with the level typed (tile.agent policy=edit)")])
     .examples(&[Example { act: "tile.agent policy=edit tile=reader", does: "lets agents write on the reader's note but not close or move the tile", safe: None }]);
 
+static TAB: ActionRow = ActionRow::new("tab.select", Touches::Shape, "bring another tab of a tab set to the front (tile=: a tile of the set, else the one with the keys): by= tabs on (negative: back), round the ends. The tab brought forward takes the keys when its set had them")
+    .args(&[("by", ArgSpec::number("tabs on (negative: back; default 1)").optional())])
+    .keys(&[
+        KeyRow::with("alt+n", Some("tile"), "the next tab of this set", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("alt+p", Some("tile"), "the tab before", &[("by", Scalar::Whole(-1))]),
+        KeyRow::via("a press on a tab"),
+    ])
+    .examples(&[Example { act: "tab.select by=1 tile=reader", does: "brings the tab after the reader's to the front of its set", safe: None }]);
+
+static HOME: ActionRow = ActionRow::new("keys.home", Touches::Screen, "the last step back: give the keys to the screen's home tile when they are on another, and say there is nothing left to close when they are home. The person's: an agent never moves their keys")
+    .person("the person's keys are theirs: an agent never moves them · a comment on the note gets their attention (comment body=…)")
+    .keys(&[KeyRow::on("escape q", "tile", "step back: the keys to the screen's home tile")]);
+
+static STOP: ActionRow = ActionRow::new("keys.stop", Touches::Screen, "give the keys to the tile whose title says that number: n= its place among the stops the keys go round (tile.focus by=), from 1. The person's: an agent never moves their keys")
+    .person("the person's keys are theirs: an agent never moves them · a comment on the note gets their attention (comment body=…)")
+    .args(&[("n", ArgSpec::number("the stop's number, from 1, as its tile's title says it"))])
+    .keys(&[
+        KeyRow::with("1", Some("tile"), "the keys to tile 1", &[("n", Scalar::Whole(1))]),
+        KeyRow::with("2", Some("tile"), "the keys to tile 2", &[("n", Scalar::Whole(2))]),
+        KeyRow::with("3", Some("tile"), "the keys to tile 3", &[("n", Scalar::Whole(3))]),
+        KeyRow::with("4", Some("tile"), "the keys to tile 4", &[("n", Scalar::Whole(4))]),
+        KeyRow::with("5", Some("tile"), "the keys to tile 5", &[("n", Scalar::Whole(5))]),
+        KeyRow::with("6", Some("tile"), "the keys to tile 6", &[("n", Scalar::Whole(6))]),
+        KeyRow::with("7", Some("tile"), "the keys to tile 7", &[("n", Scalar::Whole(7))]),
+        KeyRow::with("8", Some("tile"), "the keys to tile 8", &[("n", Scalar::Whole(8))]),
+        KeyRow::with("9", Some("tile"), "the keys to tile 9", &[("n", Scalar::Whole(9))]),
+    ])
+    .examples(&[Example { act: "keys.stop n=2", does: "the keys go to the second tile, in reading order", safe: Some(true) }]);
+
 pub static ACTIONS: &[Action] = &[
+    Action { row: &TAB, run: tab, about: About::Any }, Action { row: &HOME, run: home, about: About::Nothing }, Action { row: &STOP, run: stop, about: About::Nothing },
     Action { row: &SPLIT, run: split, about: About::Any }, Action { row: &CLOSE, run: close, about: About::Any }, Action { row: &FOCUS, run: focus, about: About::Any }, Action { row: &DOCK, run: dock, about: About::Any },
     Action { row: &COLLAPSE, run: collapse, about: About::Any }, Action { row: &ZOOM, run: zoom, about: About::Any }, Action { row: &FLOAT, run: float, about: About::Any }, Action { row: &PLACE, run: place_float, about: About::Any }, Action { row: &AGENT, run: agent, about: About::Any },
 ];
@@ -105,6 +146,8 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if same { for field in ["source", "subject"] { if let Some(value) = app.spec(&from).and_then(|s| s.fields.get(field)).cloned() { spec.fields.insert(field.into(), value); } } }
     let note = app.note_of(&from).filter(|_| reads(&kind) && same);
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
+    // A tile made by hand is one the person asked for: no open aimed elsewhere takes it for showing the note.
+    if outcome.ok && app.stands(by) { app.ui_mut(&name).deliberate = true }
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }
     outcome
 }
@@ -131,12 +174,41 @@ fn close(app: &mut App, _: &Args, by: &Actor) -> Outcome {
 }
 
 fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    // Stops on in reading order (`App::tab_stops`: the layout's tiles as the one rule groups them), round the ends.
+    if app.aimed.is_none() && let Some(by_stops) = args.number("by") {
+        let Some(tile) = crate::cursor::next_stop(&app.tab_stops(), &app.layout.focus, by_stops as i64) else { return Outcome::refused("no tile is shown to give the keys to") };
+        return app.reshape(&Op::Focus { tile, quiet: false }, by);
+    }
     let tile = match (app.aimed.clone(), args.text("dir").and_then(Dir::read)) {
         (Some(tile), _) => tile,
         (None, Some(dir)) => match neighbour(&app.layout.rects(app.area, &|_| false), &app.layout.focus, dir) { Some(next) => next, None => return Outcome::refused(format!("there is no tile {} of this one", match dir { Dir::Left => "left", Dir::Right => "right", Dir::Up => "above", Dir::Down => "below" })) },
-        (None, None) => return Outcome::refused("tile.focus names a tile (tile=) or a direction (dir=)"),
+        (None, None) => return Outcome::refused("tile.focus names a tile (tile=), a direction (dir=) or stops on (by=)"),
     };
-    app.reshape(&Op::Focus { tile, quiet: false }, by)
+    // A tile named is what a press says (`keys::follow`, `App::pressed_in`): the tile it gave the keys is noted, so
+    // the press on a row that brought them only selects (`list.press`, the door's rule).
+    let given = app.aimed.is_some() && app.stands(by) && app.layout.focus != tile;
+    let done = app.reshape(&Op::Focus { tile: tile.clone(), quiet: false }, by);
+    if done.ok && given { app.st.focusing = Some((tile.clone(), std::time::Instant::now())) }
+    // The keys on a tile: what landed there has been seen.
+    if done.ok && app.stands(by) { app.ui_mut(&tile).arrived = None }
+    done
+}
+
+fn tab(app: &mut App, args: &Args, by: &Actor) -> Outcome { app.reshape(&Op::Tab { tile: target(app), by: Some(args.number("by").map_or(1, |by| by as i64)) }, by) }
+
+/// The last step back (the door's keys-home): the keys go to the screen's home tile, as the layout is told it
+/// (`App::home`); home already, or with no home said, there is nothing left to close, and that is said.
+fn home(app: &mut App, _: &Args, by: &Actor) -> Outcome {
+    match app.home().filter(|home| *home != app.layout.focus && app.shown_tiles().contains(home)) {
+        Some(tile) => app.reshape(&Op::Focus { tile, quiet: false }, by),
+        None => { let said = "Nothing left to close here."; app.st.notice = Some(super::Notice::info(said)); Outcome { said: said.into(), ..Outcome::done() } }
+    }
+}
+
+/// The keys to a stop by its number: the place the tile's title says, among the stops Tab goes round.
+fn stop(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let (stops, n) = (app.tab_stops(), args.number("n").map_or(1, |n| n.max(1.0) as usize));
+    match stops.get(n - 1).cloned() { Some(tile) => app.reshape(&Op::Focus { tile, quiet: false }, by), None => Outcome::refused(format!("there is no tile {n} here: {} are shown", stops.len())) }
 }
 
 fn dock(app: &mut App, args: &Args, by: &Actor) -> Outcome {

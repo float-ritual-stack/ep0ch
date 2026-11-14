@@ -19,15 +19,19 @@ fn the_note_draws_every_part_and_a_row_in_a_component_opens_its_note() {
 }
 
 #[test]
-fn a_press_on_a_tree_row_opens_its_note_and_on_the_open_note_folds_it() {
+fn a_double_press_on_a_tree_row_opens_its_note_and_its_fold_mark_folds_it() {
     let mut rt = window(garden(ok()).app);
-    press(&mut rt, "tile/tree/row/plot");
-    assert!(rt.find("tile/tree/row/onions").is_some(), "the open note's row unfolds what is under it");
-    press(&mut rt, "tile/tree/row/onions");
+    open_row(&mut rt, "tile/tree/row/plot");
+    assert!(rt.find("tile/tree/row/onions").is_some(), "a folder opened unfolds what is under it");
+    open_row(&mut rt, "tile/tree/row/onions");
     assert_eq!(rt.state.subject().as_deref(), Some("onions"));
     assert!(rt.find("tile/tree/row/fork").is_some(), "opening a folder shows its notes");
-    press(&mut rt, "tile/tree/row/onions");
-    assert!(rt.find("tile/tree/row/fork").is_none(), "and a press on the open note folds it again");
+    // Opened again it stays unfolded: folding is its mark's own press, at once, and opens nothing.
+    open_row(&mut rt, "tile/tree/row/onions");
+    assert!(rt.find("tile/tree/row/fork").is_some());
+    press(&mut rt, "tile/tree/row/onions/fold");
+    assert!(rt.find("tile/tree/row/fork").is_none(), "a press on the fold mark folds it again");
+    assert_eq!(rt.state.subject().as_deref(), Some("onions"));
 }
 
 /// A block is written where it is read: its source stands in the page in place of what is drawn from it, with the
@@ -126,7 +130,7 @@ fn the_bar_s_keys_move_its_lit_row_and_a_line_typed_whole_runs_as_written() {
 fn esc_closes_one_thing_at_a_time_the_bar_then_the_editor_then_the_notice() {
     let mut rt = window(garden(ok()).app);
     let steps: Vec<&str> = keys::esc_steps().iter().map(|bind| bind.line.as_str()).collect();
-    assert_eq!(steps, ["bar.close", "form.close", "layout.drop cancel=true", "complete.dismiss", "edit.close", "notice.dismiss"], "the list is the rows bound to Escape, by layer");
+    assert_eq!(steps, ["bar.close", "form.close", "layout.drop cancel=true", "wire.pick on=false", "complete.dismiss", "edit.close", "notice.dismiss", "tile.zoom on=false", "dock.toggle", "keys.home"], "the list is the rows bound to Escape, by layer: a tile held, a wire being set, on a tile the notice, then a zoom, then the dock the keys are in, then the keys home");
     rt.update(|s, _| { s.act("link.follow ref=ep0ch:p/Seed%20list", Actor::Person); s.act("edit", Actor::Person); s.act("bar.open", Actor::Person); });
     rest(&mut rt);
     assert_eq!(rt.state.person().layer, keys::Layer::Bar);

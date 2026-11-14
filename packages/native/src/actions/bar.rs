@@ -37,8 +37,9 @@ static PICK: ActionRow = ActionRow::new("bar.pick", Touches::Nothing, "pick a ro
         ("n", ArgSpec::number("the row, from 1").optional()),
         ("source", ArgSpec::text("with key=: the row by its source and key, whatever its number now").optional()),
         ("key", ArgSpec::text("with source=: the row's key").optional()),
+        ("alt", ArgSpec::flag("the row's other way: a note opens fresh, beside what is shown and never over it").optional()),
     ])
-    .keys(&[KeyRow::on("enter", "bar", "pick the lit row"), KeyRow::via("a press on a row of the bar")])
+    .keys(&[KeyRow::on("enter", "bar", "pick the lit row"), KeyRow::with("alt+enter", Some("bar"), "pick it the other way: a note opens fresh, beside what is shown", &[("alt", Scalar::Flag(true))]), KeyRow::via("a press on a row of the bar; with Option or the shortcut modifier held, the other way")])
     .examples(&[Example { act: "bar.pick source=actions key=note.new", does: "runs the bar's note.new row", safe: None }]);
 
 static MOVE: ActionRow = ActionRow::new("bar.move", Touches::Nothing, "move the command bar's lit row down (by=1) or up (by=-1), round again. The person's: the lit row is their selection")
@@ -121,7 +122,10 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     }
     // The bar is put away first: what the row runs lands on the window, not on the bar.
     if app.stands(by) { app.st.bar.open = false }
+    // The other way (Alt+Return, a modifier held on the press): what the row opens, it opens fresh.
+    let outer = std::mem::replace(&mut app.st.fresh, args.flag("alt") == Some(true));
     let ran = app.act(&row.line, by.clone());
+    app.st.fresh = outer;
     // (The words selected in a reader when the bar opened were the row's to use: a comment took them.)
     if app.stands(by) { app.unselect() }
     Outcome { answer: json!({ "ran": row.line, "answer": ran.answer }), ..ran }

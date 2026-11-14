@@ -76,12 +76,12 @@ fn facts(cx: &TileCx) -> Value {
         "whole": cx.ui.unfolded.contains(&mark.id), "says": cx.app.attached_row(cx.id, &mark).map(|row| &row.label),
     })).collect();
     let picked = cx.ui.passage.as_ref().map(|quoted| json!({ "words": quoted.words, "found": quoted.found.as_ref().and_then(|found| found.as_ref().ok()).map(|(start, end)| json!([start, end])), "refused": quoted.refused() }));
-    json!({ "note": cx.app.note_of(cx.id), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": cx.app.loading_of(cx.id), "editing": editing, "back": cx.ui.history, "parts": framed, "marks": marked, "picked": picked, "said": cx.ui.said.as_ref().map(|said| &said.words) })
+    json!({ "note": cx.app.note_of(cx.id), "title": page.map(|p| p.title.clone()), "revision": page.map(|p| p.revision), "loading": cx.app.loading_of(cx.id), "editing": editing, "back": cx.ui.history, "ahead": cx.ui.ahead, "reading": cx.ui.reading.map(|at| at + 1), "parts": framed, "marks": marked, "picked": picked, "said": cx.ui.said.as_ref().map(|said| &said.words) })
 }
 
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (&cx.ui.note, cx.ui.history.len(), cx.app.loading_of(cx.id), cx.ui.said.as_ref().map(|said| (&said.block, said.line, &said.words))).hash(&mut h);
+    (&cx.ui.note, cx.ui.history.len(), cx.app.loading_of(cx.id), cx.ui.said.as_ref().map(|said| (&said.block, said.line, &said.words)), cx.ui.reading).hash(&mut h);
     // The cards shown whole, and the words picked (their actions stand by them, where the service found them).
     (&cx.ui.unfolded, cx.ui.passage.as_ref().map(|quoted| (&quoted.words, quoted.ends_at()))).hash(&mut h);
     // (The hint row says the keys of the layer they are in: the editor's, or the open list's.)
@@ -140,7 +140,7 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
             let inset = written.and_then(|draft| draft.writes.stands_at()).filter(|(line, _)| parts::line_of(part) == Some(line + 1)).and_then(|(_, place)| prim::inset(part, place, &field));
             let here = at.at(format!("part/{i}"));
             let built = prim::build(part, &match &inset { Some(inset) => here.taking(inset), None => here }, k);
-            body = body.child(beside(cx, part, built, margin, roomy, k));
+            body = body.child(reading_line(cx, i, beside(cx, part, built, margin, roomy, k), k));
             if inset.is_none() && let Some(field) = field() { body = body.child(held(field)) }
             if picked == Some(i) { body = body.children(offered(cx, k).map(&held)) }
         },
@@ -151,6 +151,18 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
     let opacity = if cx.app.loading_of(cx.id) && draft.is_none() { 0.55 } else { 1.0 };
     k.scroll_bar(col().key(cx.key("scroll")).w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(row().w_full().justify_center().child(body.opacity(opacity))))
 }
+
+/// The reading line: the part of the page the keys are on (`TileUi.reading`, moved by `reading.step`), marked by a
+/// bar beside it that hangs in the page's own padding, so nothing of the part moves when the line does. Bright
+/// while the reader has the keys, dim when it has not: it stays where it was left. Every other part is as built.
+fn reading_line(cx: &TileCx, part: usize, built: El, k: &Kit) -> El {
+    if cx.ui.reading != Some(part) { return built }
+    let ink = if cx.focused { k.c.border_focus } else { k.c.border_hover };
+    el().key(cx.key(format!("reading/{part}"))).w_full().child(built).child(el().key(cx.key("reading")).absolute(-READING_GAP, 0.0).w(READING_BAR).h_full().radius(READING_BAR / 2.0).fill(ink))
+}
+/// The reading line's bar, and how far to the left of its part it hangs (inside the page's padding).
+const READING_BAR: f32 = 3.0;
+const READING_GAP: f32 = 12.0;
 
 /// The reading measure, the room around it, and the margin beside it for what is attached to the words, in points.
 const MEASURE: f32 = 772.0;

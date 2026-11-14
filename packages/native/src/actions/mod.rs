@@ -29,10 +29,11 @@ mod terminal;
 mod tile;
 mod tree;
 mod window;
+mod wires;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{App, CELL, Field, FormUi, Notice, Said, TileUi, Tone, Ways, stays};
+pub use app::{App, CELL, Field, FormUi, Notice, Said, Scroll, TileUi, Tone, Ways, stays};
 pub use carry::{Moving, Strip};
 pub use row::ActionRow;
 
@@ -131,7 +132,7 @@ pub struct Action {
     pub about: About,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, carry::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, wires::ACTIONS, carry::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }
@@ -189,7 +190,7 @@ pub(crate) fn attention() -> Way { Way::new(review::ATTENTION.id, "on the note g
 /// with where their keys are for it to mean this, else the act line; an agent reads the act line, and for a way
 /// that is the person's alone, that it is theirs, by their key. (A control a way names is the door's to draw: this
 /// window draws none of them, and says none.)
-fn way_said(way: &Way, by: &Actor) -> Option<String> {
+pub(crate) fn way_said(way: &Way, by: &Actor) -> Option<String> {
     find(&way.act)?;
     let line = actline::Request { action: way.act.clone(), tile: way.tile.clone(), by: None, args: way.args.iter().cloned().collect() }.line();
     let key = crate::keys::cap_of(&way.act, &way.args);
@@ -283,6 +284,8 @@ impl App {
         (self.st.aimed, self.st.about) = outer;
         // A border's drag is a run of resizes; anything else ends it.
         if !layout::resizes(action.row) { self.st.dragging = None }
+        // The press that gave a tile the keys is the next press there, or none: any other act of the person's lets it go.
+        if by.is_person() && !std::ptr::eq(action.row, &tile::FOCUS) && action.row.id != "list.press" { self.st.focusing = None }
         step.ok = outcome.ok;
         step.said = outcome.said.clone();
         self.said(&step);
