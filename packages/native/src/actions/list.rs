@@ -60,7 +60,8 @@ static NARROW: ActionRow = ActionRow::new("facets.set", Touches::Nothing, "narro
     .keys(&[KeyRow::via("a press on a facet's row, or on a chip of a list")])
     .examples(&[Example { act: "facets.set key=stage value=sown tile=beds", does: "keeps the beds whose stage is sown", safe: Some(true) }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &PICK, run: pick, about: About::Lists }, Action { row: &STEP, run: step, about: About::Lists }, Action { row: &SELECT, run: select, about: About::Lists }, Action { row: &SORT, run: sort, about: About::Lists }, Action { row: &GROUP, run: group, about: About::Lists }, Action { row: &LAYOUT, run: layout, about: About::Lists }, Action { row: &NARROW, run: narrow, about: About::Lists }];
+// (The cursor's steps first: the hint row says a tile's keys in the order their rows are listed.)
+pub static ACTIONS: &[Action] = &[Action { row: &STEP, run: step, about: About::Lists }, Action { row: &PICK, run: pick, about: About::Lists }, Action { row: &SELECT, run: select, about: About::Lists }, Action { row: &SORT, run: sort, about: About::Lists }, Action { row: &GROUP, run: group, about: About::Lists }, Action { row: &LAYOUT, run: layout, about: About::Lists }, Action { row: &NARROW, run: narrow, about: About::Lists }];
 
 /// The list tile an act is about: the one the dispatcher found for it (`App::target`: the one aimed at, else the one
 /// with the keys when it lists, else the first that does).

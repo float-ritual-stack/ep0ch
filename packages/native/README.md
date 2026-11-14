@@ -79,6 +79,7 @@ entry Rune adds to its own table is added here. What that rev changed for this w
 | Do | How |
 |---|---|
 | Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Move without the mouse | **A list and a tree have a cursor row**: `j` `k` or the arrows step it, PgDn and PgUp move it a page (the rows in view less one), Home and End take it to the ends, Return opens its row where the tile's opens land. It is a row by its id, so it stays on its note while the rows change under it, and it is neither the pointer's hover nor the mark of the open note: an edge and a fill while its tile has the keys, a dim fill when it has not. In a tree `l` or → unfolds the row, `h` or ← folds it or, folded already, climbs to the row it is under, and Space does either; on a board `h` `l` cross the lanes and `H` `L` the groups. **A reader has a reading line**, the bar beside the part of its page the keys are on: `j` `k` move it, PgDn or Space, PgUp, Home, End or `G` scroll the page and leave it where it is, alt+← or Backspace goes back, alt+→ forward again, `u` up to the note this one is under. **Tab and Shift+Tab** go round the tiles in the layout's reading order (a board's lanes are one stop, a dock one, the floats last), each title says its tile's number and that digit gives it the keys, and alt+`n` alt+`p` bring a tab set's next tab forward. **Esc steps back one thing at a time** (`q` on a tile too): the notice, a zoomed tile, the dock the keys are in, then the keys to the screen's home tile, and with nothing left it says so. **The row under the tiles says the keys that matter** in the tile that has them, read from the key table (a tree's and a list's, or a reader's, and what Esc does here); while a sequence is begun it lists what the keys so far can still become. Every one of these is an action with an act line (`list.step`, `list.select`, `tree.fold`, `reading.step`, `scroll`, `forward`, `up`, `tile.focus by=`, `keys.stop n=`, `tab.select`, `keys.home`) |
 | Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words (written for the person at the tile), and what to do next under them, a line each: Find and New note as buttons, each with its key and what the key does, read from the action's own row |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
@@ -253,7 +254,12 @@ action as the person, in the tile it names, over the kinds of tile it says; the 
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
-notice). While the list that completes a word is open its keys come first and the editor's still hold (`complete`
+notice, a zoom, the dock the keys are in, and last the keys home). What the tile with the keys draws adds its
+own keys over `tile`'s, the nearest first: `tree` over `list`, or `reader`, then what Escape steps back out of
+there (`noticed`, `zoomed`, `docked`). So `j` is the list's in a list and the reader's in a reader, and one chord
+never means two things where the keys are. `peek`'s whereabouts say the layers that hold (`layers`).
+
+![The window worked by keys: the tree's cursor on one row (an edge and a fill) and the open note's row marked quietly beside it, the reader's reading line a dim bar by its part, each title with its number among the stops, and under the tiles the keys of the tile that has them](docs/cursor-dark.png) While the list that completes a word is open its keys come first and the editor's still hold (`complete`
 is a layer over `draft`); a list with nothing to choose from, only the service's word (no such page yet), keeps
 Esc alone (`said`), and every other key is the editor's. Both docks resize by their inner edge.
 
@@ -802,7 +808,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
-title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
+title), `cursor` (K1: the notes `bun scenes/cursor.seed.ts <socket> <outline>` writes into a new outline, moved through by the keys' own acts: the tree's cursor, the open note's mark, the reading line, the stops' numbers and the hint row), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
 box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
 `pictures` (notes `bun scenes/about.seed.ts <socket> <outline> <a scratch folder>` writes: a note with three texts
@@ -926,6 +932,15 @@ toolbar button is
   A kind that runs a program is a terminal tile, in a window built with its terminal.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
+- Keys, from the door's, not here yet: the window prefix (`^W` and what follows it: move, swap, resize, even,
+  gather, widen, hold; `mod+w` is Ctrl+W off a Mac, and the table has no row for one platform alone), a list
+  filtered by typing (`/`), stepping through a page's elements and following the link the keys are on (`[` `]`
+  Return), sections stepped and folded (`(` `)` `f` `F` `z`), Return opened beside (alt+Return: where an open
+  lands is the next wave's), a links tile aimed by `b`, a float moved by `H J K L`, a spine opened by Return, the
+  keys screen on `?`, and the letters that move a note (`K J I O`: only the alt chords do). A press on a part of a
+  page does not put the reading line there yet: `j` and `k` do. Which lane of a board was used last is not kept, so
+  Tab into a board stops on its first lane. The Mac's own handling of alt+`n` and alt+`p` (Option types a
+  character there) is read, not run.
 - Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);
   the person's `keybindings.json` isn't read yet, so nothing is rebound and the keys screen lists no key of
   theirs, and a button's keycap is its row's default even where a screen binds another key to the same line. A

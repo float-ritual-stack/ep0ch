@@ -873,3 +873,43 @@ fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place
     assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
     for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
 }
+
+/// K1, keys everywhere: where the keys are in a tile is state only its own actions move, the rules for a step and
+/// for a stop are the ports of outline-core's and nobody else works one out, and what the hint row says is read
+/// from the key table by one function.
+#[test]
+fn a_cursor_a_reading_line_and_a_tab_stop_each_have_one_mover_and_the_hint_row_one_reader() {
+    // (Code alone: a comment may name what it explains.)
+    let texts = sources();
+    let code = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| panic!("no {path}"));
+    // A list's cursor is put on a row by the list's own actions (a step, a pick, a tree's fold or climb), by its id.
+    none("a list's cursor moved outside the list's and the tree's own actions", strays(".cursor = Some(", |path| path == "actions/list.rs" || path == "actions/tree.rs" || path.starts_with("pty")));
+    none("a list's cursor kept by its place and not by its row's id", strays("cursor: Option<usize>", |_| false));
+    // A reader's reading line: its own action moves it, and showing another note lets it go.
+    none("a reading line moved outside the reader's own action", strays("reading = ", |path| path == "actions/nav.rs" || path == "actions/app.rs"));
+    none("a reader's way forward written outside its own actions", strays("ui.ahead", |path| path == "actions/nav.rs" || path == "actions/app.rs" || path == "tiles/page.rs"));
+    // Where a step lands, a row's parent and which tiles are one stop: one port each, held by the contract table.
+    for rule in ["fn stepped(step", "fn parent_row(", "fn tab_stops(", "fn next_stop(", "fn page_rows("] { none(&format!("a second {rule}…): the rule is cursor.rs's, by outline-core's"), strays(rule, |path| path == "cursor.rs" || (rule == "fn tab_stops(" && path == "actions/layout.rs"))) }
+    none("where a step lands asked outside the list's and the reader's own actions", strays("cursor::stepped(", |path| ["actions/list.rs", "actions/nav.rs"].contains(&path)));
+    none("a page of rows worked out outside the rule", strays("page_rows(", |path| path == "cursor.rs"));
+    none("the stops worked out outside `App::tab_stops`", strays("cursor::tab_stops(", |path| path == "actions/layout.rs"));
+    none("the stops asked for a move of the keys outside the tile's own actions", strays("next_stop(", |path| path == "cursor.rs" || path == "actions/tile.rs"));
+    assert!(!code("cursor.rs").contains("rune") && !code("cursor.rs").contains("App"), "the cursor's rules are pure: no renderer and no window");
+    // A scroll moved by an act is asked of the next frame, where the window's hands are.
+    none("a scroll moved outside `keys::effects`", ["scroll_page(", "scroll_to_y(", "scroll_to_bottom("].iter().flat_map(|hand| strays(hand, |path| path == "keys.rs")).collect());
+    none("a scroll asked of the next frame outside the reader's own action", strays("st.scroll = ", |path| path == "actions/nav.rs"));
+    // What the tile with the keys adds to the key table is the person's whereabouts, read by `person` alone; the
+    // hint row is the table read by one function, drawn by the shell, which spells no key.
+    assert_eq!(code("keys.rs").matches("self.tile_layers()").count(), 1, "what a tile adds to the keys is asked by `App::person` alone");
+    none("the hint row's lines read outside the shell's foot", calls("hinted", |path| path == "shell.rs" || path == "keys.rs"));
+    let foot = code("shell.rs");
+    let foot = &foot[foot.find("fn foot(").expect("the shell draws the hint row")..];
+    let foot = &foot[..foot.find("\n}\n").unwrap()];
+    assert!(foot.contains("s.hinted()") && !foot.contains("\"Esc") && !foot.contains("Tab") && !foot.contains("does: \""), "the hint row spells no key and words none: {foot}");
+    // A row's two marks are drawn by the one drawer of a list, from the tile's own state.
+    none("a cursor's row marked outside the list drawer", strays("ui.cursor", |path| path == "tiles/list.rs"));
+    // Escape's steps on a tile are rows on the layers `person` reports, in one order.
+    for (layer, line) in [("noticed", "notice.dismiss"), ("zoomed", "tile.zoom on=false"), ("docked", "dock.toggle"), ("tile", "keys.home")] {
+        assert!(crate::keys::table().iter().any(|bind| bind.layer.map(crate::keys::Layer::name) == Some(layer) && bind.spec == "escape" && bind.line == line), "Escape on {layer} is {line}");
+    }
+}
