@@ -388,48 +388,108 @@ fn list(ask: &Value, titled: &dyn Fn(&str) -> String, screens: &Value, shipped: 
     }
 }
 
-/// `completion.rows` for a text and a cursor (a UTF-16 offset), as the stand-in host answers it: a `[[` left open
-/// before the cursor on its line is a token, and the garden's pages whose names hold what was typed are its rows,
-/// each with what it says of itself, and the one the ask lights (`lit`, the first unless said) with what it makes.
+/// `completion.rows` for a text and a cursor (a UTF-16 offset), as the stand-in host answers it, in the service's
+/// own shape (outline-core's `CompletionAtRow`): a `[[` left open before the cursor on its line is a page's token,
+/// `::` at a line's start a component's, `[` a property's key and `[key::` its value. Each row says what it is
+/// (`kind`), which letters of its label were typed (`matches`), what it says of itself (`docs`), a small drawing of
+/// how it looks when it has one (`sample`), the stops of what it writes (`slots`) and whether choosing it leaves
+/// more to complete (`next`); the one the ask lights (`lit`, the first unless said) what choosing it makes (`view`).
 fn completion(text: &str, cursor: usize, lit: usize) -> Value {
     let units: Vec<u16> = text.encode_utf16().collect();
     let before = String::from_utf16_lossy(&units[..cursor.min(units.len())]);
     let line = before.rsplit('\n').next().unwrap_or("");
-    if let Some(query) = line.strip_prefix("::") { return components_begun(query, cursor - line.encode_utf16().count(), cursor, lit) }
-    let Some(open) = line.rfind("[[").filter(|open| !line[*open..].contains("]]")) else { return json!({ "answers": [], "picks": {}, "token": null, "rows": [] }) };
-    let query = &line[open + 2..];
+    let after = String::from_utf16_lossy(&units[cursor.min(units.len())..]);
+    let none = || json!({ "answers": [], "picks": {}, "token": null, "rows": [] });
+    // The letters of `label` that `typed` names, in order, as the service's matcher marks them (a run it holds).
+    let marks = |label: &str, typed: &str| -> Vec<usize> { match label.to_lowercase().find(&typed.to_lowercase()) { Some(at) if !typed.is_empty() => (at..at + typed.len()).collect(), _ => Vec::new() } };
+    let holds = |label: &str, typed: &str| label.to_lowercase().contains(&typed.to_lowercase());
+    // What of `insert` is still to come after `typed` (the token as typed), less what already stands after the cursor.
+    let rest = |insert: &str, typed: &str, tail: &str| -> Value { match insert.strip_prefix(typed).filter(|_| !typed.is_empty()) { Some(more) if !more.is_empty() => json!(more.strip_suffix(tail).filter(|_| !tail.is_empty()).unwrap_or(more)), _ => Value::Null } };
+    let boxed = |written: &str, drawn: Value| json!({ "type": "box", "children": [{ "type": "box", "title": "As written", "children": [{ "type": "source", "text": written }] }, { "type": "box", "title": "As drawn", "children": [drawn] }] });
+    if let Some(open) = line.rfind("[[").filter(|open| !line[*open..].contains("]]")) {
+        let query = &line[open + 2..];
+        let start = cursor - line[open..].encode_utf16().count();
+        let pages = [("Seed list", "seed-list", "a page"), ("Shed", "shed", "a page"), ("Sowing calendar", "sowing-calendar", "a page")];
+        // A link already closed after the cursor is part of the token, and a row that would leave it as typed says Return
+        // is the field's (`enter`: the service's word, outline-core's `enterKeeps`), as `completion.rows` answers it.
+        let closed = after.starts_with("]]");
+        let (end, token) = if closed { (cursor + 2, format!("[[{query}]]")) } else { (cursor, format!("[[{query}")) };
+        let mut rows: Vec<Value> = pages.iter().filter(|(title, address, _)| holds(title, query) || address.contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| {
+            let mut row = json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}"), "matches": marks(title, query) });
+            if row["insert"] == token.as_str() { row["enter"] = json!("new line") }
+            let more = rest(&format!("[[{address}]]"), &line[open..], if closed { "]]" } else { "" });
+            if !more.is_null() { row["rest"] = more }
+            // What the row says of itself, and on the row asked to be lit what choosing it makes, as written and as drawn.
+            row["docs"] = json!(format!("The page **{title}**, by its address."));
+            if n == lit { row["view"] = boxed(&format!("[[{address}]]"), json!({ "type": "markdown", "text": format!("[{title}](ep0ch:p/{address})") })) }
+            row
+        }).collect();
+        // A page nobody has written yet is offered after every match: choosing it makes the page, then links it.
+        let slug = query.trim().to_lowercase().replace(' ', "-");
+        if slug.len() >= 4 && rows.is_empty() && slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !pages.iter().any(|(_, address, _)| *address == slug) {
+            rows.push(json!({ "id": rows.len().to_string(), "label": format!("+ new page [[{slug}]]"), "kind": "new", "from": "pages", "insert": format!("[[{slug}]]"), "pick": format!("pick-{slug}"), "enter": "new line", "matches": [],
+                "docs": format!("Makes the page **{slug}**, then links it."), "makes": { "action": "pages.follow", "params": { "address": slug } } }));
+        }
+        let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
+        return json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" });
+    }
+    // `::` at a line's start: the components, each with its skeleton and the stops in it. The first lists notes: its
+    // example, drawn, holds a list.
+    if let Some(query) = line.strip_prefix("::").filter(|query| query.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
+        let start = cursor - line.encode_utf16().count();
+        let components: Vec<(String, String, &str, String)> = [("links", "Links", "links", "::links{query=\"type=bed\"}"), ("backlinks", "Backlinks", "links", "::backlinks{}"), ("view", "A saved view", "site", "::view{of=\"((beds))\"}"), ("graph-stat", "Stat tiles", "figures", "::graph-stat\n---\nvalue: 12\nlabel: Beds sown\n---"), ("graph-check", "A checklist", "figures", "::graph-check\n---\ntitle: Before the frost\n---"), ("callout", "Callouts", "layout", "> [!tip] Water early")]
+            .into_iter().map(|(name, title, group, uses)| (name.to_string(), title.to_string(), group, uses.to_string()))
+            .chain((1..=12).map(|n| (format!("graph-bed-{n}"), format!("Bed figure {n}"), "figures", format!("::graph-bed-{n}{{}}")))).collect();
+        let rows: Vec<Value> = components.iter().filter(|(name, title, _, _)| holds(name, query) || holds(title, query)).enumerate().map(|(n, (name, title, group, uses))| {
+            // The stops of a skeleton: each value written after a `key: ` or inside quotes, in order.
+            let mut slots: Vec<Value> = Vec::new();
+            let mut at = 0;
+            for piece in uses.split_inclusive('\n') {
+                if let Some((key, value)) = piece.trim_end_matches('\n').split_once(": ").filter(|_| !piece.starts_with("::")) { let from = at + key.len() + 2; slots.push(json!({ "start": from, "end": from + value.len() })) }
+                else if let (Some(open), Some(close)) = (piece.find('"'), piece.rfind('"')) && close > open { slots.push(json!({ "start": at + open + 1, "end": at + close })) }
+                at += piece.len();
+            }
+            let mut row = json!({ "id": n.to_string(), "label": title, "detail": format!("::{name}"), "kind": "component", "group": group, "from": "components", "insert": uses, "pick": format!("pick-{name}"), "matches": marks(title, query), "docs": format!("{title}: what `::{name}` draws.") });
+            if !slots.is_empty() { row["select"] = slots[0].clone(); row["slots"] = json!(slots) }
+            if n == lit {
+                // (The first lists notes, as a component that lists notes does on a real host: a list drawn beside the list.)
+                let drawn = if name == "links" { part("plot", "links", 1, json!({ "name": "links", "title": "The beds" }), json!({ "type": "list", "rows": [{ "id": "beans", "label": "Water the beans", "act": opens("beans") }, { "id": "peas", "label": "Sow the peas", "act": opens("peas") }] })) } else { json!({ "type": "markdown", "text": format!("**{title}**") }) };
+                row["view"] = boxed(uses, drawn);
+            }
+            row
+        }).collect();
+        let message = if rows.is_empty() { json!("no component by that name") } else { Value::Null };
+        return json!({ "answers": [], "picks": {}, "token": { "kind": "component", "start": start, "end": cursor, "query": query }, "rows": rows, "heading": "components", "message": message, "pickKey": "::" });
+    }
+    // `[key` and `[key::value`: a property, the last one left open on the line.
+    let Some(open) = line.rfind('[').filter(|open| !line[*open..].contains(']')) else { return none() };
+    let typed = &line[open + 1..];
     let start = cursor - line[open..].encode_utf16().count();
-    let pages = [("Seed list", "seed-list", "a page"), ("Shed", "shed", "a page"), ("Sowing calendar", "sowing-calendar", "a page")];
-    // A link already closed after the cursor is part of the token, and a row that would leave it as typed says Return
-    // is the field's (`enter`: the service's word, outline-core's `enterKeeps`), as `completion.rows` answers it.
-    let closed = String::from_utf16_lossy(&units[cursor.min(units.len())..]).starts_with("]]");
-    let (end, token) = if closed { (cursor + 2, format!("[[{query}]]")) } else { (cursor, format!("[[{query}")) };
-    let rows: Vec<Value> = pages.iter().filter(|(title, address, _)| title.to_lowercase().contains(&query.to_lowercase()) || address.contains(&query.to_lowercase())).enumerate().map(|(n, (title, address, detail))| {
-        let mut row = json!({ "id": n.to_string(), "label": title, "detail": detail, "kind": "page", "from": "pages", "insert": format!("[[{address}]]"), "pick": format!("pick-{address}") });
-        if row["insert"] == token.as_str() { row["enter"] = json!("new line") }
-        // What the row says of itself, and on the row asked to be lit what choosing it makes, as written and as drawn.
-        row["docs"] = json!(format!("The page **{title}**, by its address."));
-        if n == lit { row["view"] = json!({ "type": "box", "children": [{ "type": "box", "title": "As written", "children": [{ "type": "source", "text": format!("[[{address}]]") }] }, { "type": "box", "title": "As drawn", "children": [{ "type": "markdown", "text": format!("[{title}](ep0ch:p/{address})") }] }] }) }
+    // A bracket already closed after the cursor is the token's: a value chosen never doubles it.
+    let end = if after.starts_with(']') { cursor + 1 } else { cursor };
+    let patterns = [("dots", "sparse dots, now and then a bright one"), ("uptime", "an uptime strip's bars"), ("waffle", "a checkerboard of shades, every other column"), ("stack", "shades fading out from the edge into sparse dots"), ("rule", "a frame's line")];
+    if let Some((key, query)) = typed.split_once("::") {
+        let values: Vec<(&str, &str, bool)> = match key { "heading-pattern" => patterns.iter().map(|(value, meaning)| (*value, *meaning, true)).collect(), "stage" => vec![("sown", "3 notes", false), ("sprouting", "2 notes", false), ("done", "1 note", false)], _ => Vec::new() };
+        let rows: Vec<Value> = values.iter().filter(|(value, _, _)| holds(value, query)).enumerate().map(|(n, (value, meaning, drawn))| {
+            let mut row = json!({ "id": n.to_string(), "label": value, "kind": "value", "from": "properties", "insert": format!("[{key}::{value}]"), "pick": format!("pick-{value}"), "matches": marks(value, query), "docs": meaning });
+            if *drawn { row["sample"] = json!({ "type": "track", "pattern": value }); if n == lit { row["view"] = json!({ "type": "band", "text": "Your calls", "level": 2, "pattern": value }) } } else { row["detail"] = json!(meaning) }
+            let more = rest(&format!("[{key}::{value}]"), &line[open..], if after.starts_with(']') { "]" } else { "" });
+            if !more.is_null() { row["rest"] = more }
+            row
+        }).collect();
+        let message = if rows.is_empty() { json!(format!("no {key} value matches \"{query}\"")) } else { Value::Null };
+        return json!({ "answers": [], "picks": {}, "token": { "kind": "value", "start": start, "end": end, "query": query }, "rows": rows, "heading": "properties", "message": message, "pickKey": format!("key::{key}") });
+    }
+    let keys = [("heading-pattern", "1 note", "the glyph track the band is drawn in"), ("heading-style", "1 note", "declares a style by this name"), ("header", "1 note", "a note's header image"), ("harvest", "8 notes", "8 notes with harvest"), ("stage", "6 notes", "6 notes with stage"), ("type", "40 notes", "40 notes with type")];
+    let rows: Vec<Value> = keys.iter().filter(|(key, _, _)| holds(key, typed)).enumerate().map(|(n, (key, detail, docs))| {
+        let mut row = json!({ "id": n.to_string(), "label": key, "detail": detail, "kind": "property", "from": "properties", "insert": format!("[{key}::"), "pick": format!("pick-{key}"), "matches": marks(key, typed), "docs": docs, "next": true });
+        if typed.is_empty() { row["enter"] = json!("new line") }
+        let more = rest(&format!("[{key}::"), &line[open..], "");
+        if !more.is_null() { row["rest"] = more }
         row
     }).collect();
-    let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
-    json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
-}
-
-/// `completion.rows` for a `::` at a line's start, a component begun: the stand-in's two, each with what it says of
-/// itself, and the one lit with its example as written and as drawn. The first's example lists notes, as a
-/// component that lists notes does on a real host: a list drawn beside the completion list.
-fn components_begun(query: &str, start: usize, end: usize, lit: usize) -> Value {
-    let all = [("links", "Links", "The notes a question finds, as a list."), ("graph-stat", "Stat tiles", "A row of numbers, each over its label.")];
-    let rows: Vec<Value> = all.iter().filter(|(name, _, _)| name.contains(&query.to_lowercase())).enumerate().map(|(n, (name, label, docs))| {
-        let mut row = json!({ "id": name, "label": label, "detail": format!("`::{name}` on a line of its own"), "kind": "component", "from": "components", "insert": format!("::{name}\n::"), "pick": format!("pick-{name}"), "docs": docs });
-        let drawn = if *name == "links" { part("plot", "links", 1, json!({ "name": "links", "title": "The beds" }), json!({ "type": "list", "rows": [{ "id": "beans", "label": "Water the beans", "act": opens("beans") }] })) }
-            else { part("plot", "figure", 1, json!({ "name": "graph-stat", "figure": "stat" }), json!({ "type": "row", "children": [{ "type": "stat", "label": "beds", "value": "4" }] })) };
-        if n == lit { row["view"] = json!({ "type": "box", "children": [{ "type": "box", "title": "As written", "children": [{ "type": "source", "text": format!("::{name}\n::") }] }, { "type": "box", "title": "As drawn", "children": [drawn] }] }) }
-        row
-    }).collect();
-    let message = if rows.is_empty() { json!("no component by that name") } else { Value::Null };
-    json!({ "answers": [], "picks": {}, "token": { "kind": "component", "start": start, "end": end, "query": query }, "rows": rows, "heading": "components", "message": message, "pickKey": "::" })
+    if rows.is_empty() { return none() }
+    json!({ "answers": [], "picks": {}, "token": { "kind": "key", "start": start, "end": end, "query": typed }, "rows": rows, "heading": "properties", "pickKey": "[key" })
 }
 
 /// The garden, with the plot opened in the reader the screen's opens land in, as the person would open it first (a
@@ -554,6 +614,8 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             // two pages for a `[[` left open, and no token anywhere else.
             "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize, ask["lit"].as_u64().unwrap_or(0) as usize)),
             "completion.picked" => Ok(json!({})),
+            // A page followed by its address is made when nobody has written it; one in the trash is not.
+            "pages.follow" => match ask["address"].as_str() { Some("compost-bin") => Ok(json!({ "status": "deleted", "block": null, "created": false })), address => Ok(json!({ "status": "resolved", "block": { "id": address }, "created": true })) },
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.
             // (A comment on words is answered as the service answered that quote of that text: `quoted`.)
@@ -689,10 +751,13 @@ pub fn changed(app: &mut App, said: &Said, key: &str, generation: u64) {
 
 // ── the window itself ─────────────────────────────────────────────────────────────────────────────────────────
 
-pub fn window(app: App) -> Runtime<App> {
-    let mut rt = Runtime::new(app, view, (1180.0, 760.0), Env { system_dark: false, scale: 1.0 });
+pub fn window(app: App) -> Runtime<App> { window_sized(app, (1180.0, 760.0)) }
+
+/// The window at a size of the test's choosing.
+pub fn window_sized(app: App, size: (f32, f32)) -> Runtime<App> {
+    let mut rt = Runtime::new(app, view, size, Env { system_dark: false, scale: 1.0 });
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
-    rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran() | s.fade(std::time::Instant::now()).0; crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
+    rt.poll = Some(|s, clock, tx| { let landed = s.take() | s.ran() | s.fade(std::time::Instant::now()).0 | s.tick(clock).0; crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
     rt.on_key = Some(crate::keys::press);
     // The tiles' area is measured on the first frame, and the tiles sit in it from the next.
     for _ in 0..3 { rt.frame(0.0); }

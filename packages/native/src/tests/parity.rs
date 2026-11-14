@@ -20,7 +20,9 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
         ("edit.save" | "edit.close" | "draft.paste" | "draft.indent" | "draft.outdent", _) => vec!["edit"],
         // The list's own keys need the list: a block being written, with a page's name begun in it.
-        ("complete.accept" | "complete.enter" | "complete.move" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[se\""],
+        ("complete.accept" | "complete.enter" | "complete.move" | "complete.jump" | "complete.light" | "complete.ask" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[s\""],
+        // A skeleton's stops are stepped once a component's skeleton is written: one chosen from the list.
+        ("snippet.next" | "snippet.previous" | "snippet.end", _) => vec!["edit", "draft.paste text=\"\n::links\"", "complete.accept"],
         // The keys go to the tile above or below from one that has a tile there; a dock is toggled where one is.
         ("tile.focus", "tile.focus dir=up") => vec!["tile.focus tile=backlinks"],
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
@@ -132,6 +134,8 @@ fn event(chord: &rune::Chord) -> rune::KeyEvent {
         ChordKey::Right => Key::Right,
         ChordKey::PageUp => Key::PageUp,
         ChordKey::PageDown => Key::PageDown,
+        ChordKey::Home => Key::Home,
+        ChordKey::End => Key::End,
         other => panic!("the parity table has no key event for {other:?} yet"),
     };
     rune::KeyEvent { key, mods }
@@ -173,7 +177,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "complete.light", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

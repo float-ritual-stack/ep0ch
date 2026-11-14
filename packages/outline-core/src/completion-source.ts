@@ -91,6 +91,13 @@ export interface SourceRow {
    * type), with the declaring note it needs, for a client to draw beside the list; `inline` draws a glimpse after the label too.
    */
   example?: { use: string; note?: string; inline?: boolean };
+  /**
+   * How what it writes looks, when a primitive draws it (a schema value's `sample` and `shown`): `sample` one line
+   * high, drawn in the row beside its label; `shown` on an example, for the card of the lit row. A client draws both
+   * with the parts it draws a page with.
+   */
+  sample?: import("./primitive").Primitive;
+  shown?: import("./primitive").Primitive;
   /** The component (its schema id) the row writes: a client that draws its properties table finds it by this. */
   component?: string;
   /** What the row opens into (→): its variations and arguments, each a row of its own. */
@@ -280,6 +287,16 @@ export function completionSaid(all: readonly SaidAnswer[], shown: number, failed
   const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
   return { heading, message, truncated };
 }
+
+/**
+ * Whether a list asks again once a row of it is chosen, when the cursor is then in a token (a folder leaves
+ * `[file::notes/` open and its entries come next; a property's key its values). Not after words offered for a
+ * question, a filter's value (the cursor is still in its word, which would offer the same value again), or a
+ * component, unless what was chosen there is one of its properties. The one rule: the door's completer asks it with
+ * the token it then finds, and the service says the answer on each row of the text-and-cursor form (`next`).
+ */
+export const asksAgain = (kind: CompletionKind, row: Pick<SourceRow, "kind" | "querySuggestion">): boolean =>
+  !row.querySuggestion && kind !== "filter-value" && (kind !== "component" || row.kind === "property");
 
 /** What the Return rule reads of the lit row: what it would write, and what it says of itself. */
 export interface EnterRow { insertion: string; enter?: "new line" | "applies"; newPage?: unknown; querySuggestion?: unknown }

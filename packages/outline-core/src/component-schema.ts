@@ -33,7 +33,16 @@ export const PROP_PLACES = ["line", "note", "yaml"] as const;
 export type PropPlace = (typeof PROP_PLACES)[number];
 
 /** One allowed value and what it means; `declared`: the note that declares it (an outline's own style or type). */
-export interface PropValue { value: string; meaning: string; declared?: string }
+export interface PropValue {
+  value: string; meaning: string; declared?: string;
+  /**
+   * How the value looks, when a primitive draws it: `sample` small (one line: a completion row shows it beside the
+   * value's name), `shown` on an example (the card of the lit row). Data, so every client draws a value's look with
+   * the parts it draws a page with, and none knows which property has one.
+   */
+  sample?: import("./primitive").Primitive;
+  shown?: import("./primitive").Primitive;
+}
 
 /** One property of a component. */
 export interface PropSchema {
@@ -136,8 +145,15 @@ const STYLE_MEANING: Record<string, string> = {
   rule: "capitals between a frame's ruled lines",
   fade: "one row that fades in from both edges: made for a ---",
 };
+/** The heading an example band is drawn over: the schema's own example heading (`source.use`). */
+const BAND_EXAMPLE = "Your calls";
+/** A glyph track's look: one row of it small, and a band of it over the example heading. */
+const trackLook = (pattern: HeadingStyle["pattern"], style?: Pick<HeadingStyle, "align" | "row">): Pick<PropValue, "sample" | "shown"> => ({
+  sample: { type: "track", pattern },
+  shown: { type: "band", text: BAND_EXAMPLE, level: 2, pattern, ...(style ? { align: style.align, row: style.row } : {}) },
+});
 const styleValues = (styles: readonly HeadingStyle[]): PropValue[] =>
-  styles.map(s => ({ value: s.name, meaning: STYLE_MEANING[s.name] ?? `${s.pattern}, ${s.rows} row${s.rows === 1 ? "" : "s"}, ${s.align}, ${s.letters}`, ...(s.block ? { declared: s.block } : {}) }));
+  styles.map(s => ({ value: s.name, meaning: STYLE_MEANING[s.name] ?? `${s.pattern}, ${s.rows} row${s.rows === 1 ? "" : "s"}, ${s.align}, ${s.letters}`, ...(s.block ? { declared: s.block } : {}), ...trackLook(s.pattern, s) }));
 const calloutValues = (types: readonly CalloutType[]): PropValue[] =>
   types.map(t => ({ value: t.name, meaning: `${t.icon} ${t.title}, ${t.tone}${t.aliases.length ? `; also ${t.aliases.join(", ")}` : ""}`, ...(t.block ? { declared: t.block } : {}) }));
 const TONE_MEANING: Record<(typeof CALLOUT_TONES)[number], string> = {
@@ -154,7 +170,7 @@ const HEADING_STYLE: ComponentSchema = {
     { key: "heading", where: "line", type: "enum", meaning: "the style this heading is drawn with", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES) },
     { key: "rule", where: "line", type: "enum", meaning: "the style this `---` is drawn with: its band with no heading in it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES), use: "Before the break\n\n--- [rule::{{props.rule}}]\n\nAfter it" },
     { key: "heading-style", where: "note", type: "name", meaning: "declares a style by this name (a slug); the other heading-* properties on the same note describe it", samples: ["plot"] },
-    { key: "heading-pattern", where: "note", type: "enum", meaning: "the glyph track the band is drawn in", default: "stack", values: enumOf({ stack: "shades fading out from the edge into sparse dots", waffle: "a checkerboard of shades, every other column", uptime: "an uptime strip's bars", dots: "sparse dots, now and then a bright one", rule: "a frame's ruled line, doubled above and below the heading" }) },
+    { key: "heading-pattern", where: "note", type: "enum", meaning: "the glyph track the band is drawn in", default: "stack", values: enumOf({ stack: "shades fading out from the edge into sparse dots", waffle: "a checkerboard of shades, every other column", uptime: "an uptime strip's bars", dots: "sparse dots, now and then a bright one", rule: "a frame's ruled line, doubled above and below the heading" }).map(v => ({ ...v, ...trackLook(v.value as HeadingStyle["pattern"]) })) },
     { key: "heading-rows", where: "note", type: "int", meaning: "the band's height in rows", default: "3", min: 1, max: 3 },
     { key: "heading-align", where: "note", type: "enum", meaning: "where the heading sits across the band", default: "center", values: enumOf({ left: "at the left; the band fades out to the right", center: "in the middle; the band fades in from both edges", right: "at the right; the band fades out to the left" }) },
     { key: "heading-row", where: "note", type: "enum", meaning: "the band row the heading is on", default: "middle", values: enumOf({ top: "the first row", middle: "the middle row", bottom: "the last row" }) },
@@ -689,6 +705,9 @@ export interface PropertyCandidate {
   component: string;
   key: string;
   value?: string;
+  /** How the value looks, when its schema says (`PropValue.sample`, `.shown`). */
+  sample?: PropValue["sample"];
+  shown?: PropValue["shown"];
 }
 
 const rank = (name: string, q: string) => (!q ? 0 : name.startsWith(q) ? 0 : name.includes(q) ? 1 : -1);
@@ -724,9 +743,11 @@ export function valueCandidates(schemas: readonly ComponentSchema[], key: string
   const prefix = split ? query.slice(0, split).trimEnd() + " " : "";
   const q = query.slice(split).trim().toLowerCase();
   const meaning = new Map((p.values ?? []).map(v => [v.value, v.meaning]));
+  const looks = new Map((p.values ?? []).map(v => [v.value, v]));
   return axisValues(p).map(v => ({ v, r: rank(v.toLowerCase(), q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r).map(({ v }) => ({
     insertion: prefix + (close ? `${v}]` : v), label: v, component: owner.id, key, value: v,
     detail: meaning.get(v) ?? (p.default === v ? `the default · ${p.meaning}` : p.meaning),
+    ...(looks.get(v)?.sample ? { sample: looks.get(v)!.sample } : {}), ...(looks.get(v)?.shown ? { shown: looks.get(v)!.shown } : {}),
   }));
 }
 

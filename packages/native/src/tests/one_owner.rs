@@ -867,3 +867,40 @@ fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place
     assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
     for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
 }
+
+/// H5: what completes a word is one list with one row, hung by one surface; what a row is, what it has left to
+/// write and what choosing it leaves next are the service's words on the row; and nothing drawn over the window
+/// builds a list the way a page does.
+#[test]
+fn the_list_that_completes_a_word_is_the_one_list_and_reads_its_rows_as_served() {
+    let all = sources();
+    let text = |path: &str| all.iter().find(|(found, _)| found == path).unwrap_or_else(|| panic!("{path}")).1.clone();
+    // One row anatomy: the bar's rows and the completion list's are `list::line`, built nowhere else; the kit's own
+    // popup list (rows of its own, no foot, a fixed width) is named nowhere.
+    none("a list row laid out beside `list::line`", strays("list::line(", |path| path == "bar.rs" || path == "tiles/page.rs"));
+    assert!(text("bar.rs").contains("list::line(list::Line {") && text("tiles/page.rs").contains("list::line(list::Line {"), "the bar and the completion list draw the one row");
+    none("the kit's popup list beside the one list", ["PopupList", "PopupItem"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // Whatever is drawn over the window (a drawer's `over`) is in no scroll of the page's: every primitive built
+    // there is built as one under a row is (`in_row`), so a list in it is built whole and never as virtual rows,
+    // which Rune allows only in a scroll's own stack ("virtual stack must be inside a scroll viewport").
+    let page = text("tiles/page.rs");
+    let over = &page[page.find("\nfn over(").expect("the page drawer's overlay")..];
+    assert!(over.matches("PrimCx::of(cx)").count() >= 2 && over.matches("PrimCx::of(cx)").count() == over.matches("PrimCx::of(cx).in_row()").count(), "a primitive built over the window is built in_row");
+    none("rows built in view outside a scroll of their own in the overlay", over.lines().filter(|line| line.contains("list::rows(") || line.contains("list::bounded(")).map(str::to_string).collect());
+    // The window finds no token and measures no match: where the token starts, which letters matched, what is still
+    // to come, whether more follows and what is made first are fields of the served row and its answer.
+    none("a token looked for in the draft's words", ["rfind(\"[[\")", "rfind('[')", "strip_prefix(\"::\")", "find(\"::\")"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    none("letters matched here: the service says which", ["to_lowercase().find(", "fuzzy"].iter().flat_map(|word| strays(word, |path| path == "bar.rs")).collect());
+    for field in ["row.rest", "row.next", "row.makes", "row.slots"] { none(&format!("{field} read outside the draft's own actions and the model"), strays(field, |path| path == "actions/draft.rs" || path == "actions/app.rs")) }
+    // A choice is counted in one request, made where a row is written and where the person typed the row out.
+    none("a choice counted somewhere new", strays("\"completion.picked\"", |path| path == "actions/draft.rs" || path == "actions/app.rs"));
+    // One key, three layers, each a row of the table: Tab writes the lit row while the list is open, steps the
+    // stops while a skeleton is being filled in, and indents the line otherwise. Return and Escape the same way.
+    let bound = |chord: &str, layer: &str| crate::keys::table().iter().find(|bind| bind.spec == chord && bind.layer.map(crate::keys::Layer::name) == Some(layer)).map(|bind| bind.action);
+    assert_eq!((bound("tab", "complete"), bound("tab", "stops"), bound("tab", "draft")), (Some("complete.accept"), Some("snippet.next"), Some("draft.indent")));
+    assert_eq!((bound("shift+tab", "stops"), bound("shift+tab", "draft"), bound("enter", "complete")), (Some("snippet.previous"), Some("draft.outdent"), Some("complete.enter")));
+    assert_eq!((bound("escape", "said"), bound("escape", "stops"), bound("escape", "draft")), (Some("complete.dismiss"), Some("snippet.end"), Some("edit.close")));
+    // A heading style's cells are worked out in the model, once, and painted by the one builder of a band.
+    none("a glyph track's cells worked out beside `band.rs`", strays("band::cell(", |path| path == "band.rs"));
+    none("a track painted beside the band's builder", ["Ink::Shade", "Ink::Double", "band::Ink"].iter().flat_map(|word| strays(word, |path| path == "band.rs" || path == "tiles/band.rs")).collect());
+}

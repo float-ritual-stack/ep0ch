@@ -54,6 +54,9 @@ pub enum Layer {
     /// That list is open with nothing to choose from, only the service's word (no such page yet): Escape puts it
     /// away, and every other key is the draft's.
     Said,
+    /// A block is open for editing and a skeleton a completion wrote is being filled in: Tab and Shift+Tab step its
+    /// stops, Escape leaves them, and every other key is the draft's.
+    Stops,
     /// A block is open for editing: its source has them.
     Draft,
     /// A terminal tile's program has them: every key but this layer's own rows is sent to it.
@@ -66,14 +69,14 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Program => "program", Layer::Selection => "selection", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Stops => "stops", Layer::Draft => "draft", Layer::Program => "program", Layer::Selection => "selection", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "program" => Layer::Program, "selection" => Layer::Selection, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, draft, program, selection and tile") }
+        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "stops" => Layer::Stops, "draft" => Layer::Draft, "program" => Layer::Program, "selection" => Layer::Selection, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, stops, draft, program, selection and tile") }
     }
     /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
     /// hold, a list with rows has every key of one that only says something, and words picked in a reader leave
     /// the tile's own keys as they were.
-    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Moving => &[Layer::Moving], Layer::Draft => &[Layer::Draft], Layer::Program => &[Layer::Program], Layer::Selection => &[Layer::Selection, Layer::Tile], Layer::Tile => &[Layer::Tile] } }
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Stops => &[Layer::Stops, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Moving => &[Layer::Moving], Layer::Draft => &[Layer::Draft], Layer::Program => &[Layer::Program], Layer::Selection => &[Layer::Selection, Layer::Tile], Layer::Tile => &[Layer::Tile] } }
     /// The rows that hold everywhere hold here too. Not in a program: every key that is not its layer's own is the
     /// program's.
     fn open(self) -> bool { self != Layer::Program }
@@ -148,11 +151,12 @@ impl App {
         lines
     }
 
-    /// The layer the keys are in while a block is written in `tile`: its completion list while that is open, else
-    /// the draft's own. The list's own keys are for choosing: one with nothing to choose from keeps only the key
+    /// The layer the keys are in while a block is written in `tile`: its completion list while that is open with rows,
+    /// else the stops of a skeleton being filled in, else the draft's own. The list's own keys are for choosing: one with nothing to choose from keeps only the key
     /// that puts it away. `person` and the hint row under the block's field both read this.
     pub fn writing(&self, tile: &str) -> Layer {
-        match self.completing(tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, Some(_) => Layer::Said, None => Layer::Draft }
+        let stops = self.draft_on(tile).is_some_and(|draft| draft.stops.is_some());
+        match self.completing(tile) { Some(found) if !found.rows.is_empty() => Layer::Complete, _ if stops => Layer::Stops, Some(_) => Layer::Said, None => Layer::Draft }
     }
 }
 
@@ -231,7 +235,7 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Moving), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Program), Some(Layer::Selection), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Moving), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Stops), Some(Layer::Draft), Some(Layer::Program), Some(Layer::Selection), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
@@ -246,6 +250,15 @@ pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
     esc(layer).into_iter().chain(own(shown)).map(|bind| (bind.cap(), bind.does)).collect()
 }
 
+
+/// The keys a layer has of its own, as a hint line reads them: the keycap, what it does and the line it runs, in
+/// the table's order, the key that leaves the layer left out (whoever draws the line says that one first). A layer
+/// with none of its own lists the keys of the layer under it, which still hold.
+pub fn hinted(layer: Layer) -> Vec<(String, &'static str, &'static str)> {
+    let own = |layer: Layer| table().iter().filter(move |bind| bind.layer == Some(layer) && !bind.is_escape());
+    let shown = layer.stack().iter().copied().find(|layer| own(*layer).next().is_some()).unwrap_or(layer);
+    own(shown).map(|bind| (bind.cap(), bind.does, bind.line.as_str())).collect()
+}
 
 /// A key the open screen binds, as its spec writes it (outline-core's `KeyBinding`): the request it runs is
 /// already read, and never written as a line to be read again.
@@ -469,6 +482,11 @@ pub fn input(text: &Text, field: Field) -> TextInput {
     TextInput::new(&text.0).on_edit(move |s: &mut App| &mut s.field(&edits).0).on_change(move |s: &mut App, _| s.typed(&typed)).on_key(table_first(field, false))
 }
 
+/// The face a field of lines is set in, and the room between its frame and its words: what is hung at a place in
+/// its text (the list that completes a word, at the word's start) measures by these.
+pub fn area_style(k: &Kit) -> TextStyle { TextStyle { line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0, ..k.ty.ui } }
+pub const AREA_PAD: f32 = 8.0;
+
 /// A field of lines over a draft's text, on `tile`: the block's source, a comment, a reply. Its keys go through the
 /// table, and a paste into it is the window's to take (`App::pasted`), before the editor: the words go in with
 /// their line ends made plain, as one step. That is why it is Rune's own text field in the kit's text area's frame
@@ -480,7 +498,7 @@ pub fn area(text: &Text, tile: &str, named: (&str, &str), rows: usize, lit: &[st
     let c = &k.c;
     let field = Field::Draft(tile.to_string());
     let (edits, typed, pasted) = (field.clone(), field.clone(), tile.to_string());
-    let style = TextStyle { line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0, ..k.ty.ui };
+    let style = area_style(k);
     let mut input = text_input(&text.0, style)
         .key("input")
         .w_full()
@@ -494,7 +512,7 @@ pub fn area(text: &Text, tile: &str, named: (&str, &str), rows: usize, lit: &[st
         // A paste, however it was asked for (the platform's chord, the field's own menu): the window's, never the editor's.
         .on_input_paste(move |s: &mut App, content: &rune::ClipboardContent, _| { s.pasted(&pasted, content.text()); true });
     if !lit.is_empty() { input = input.spans(lit.iter().map(|range| Span { bg: Some(ground), ..Span::new(range.start, range.end) }).collect::<Vec<_>>()) }
-    let frame = col().role("textbox").padding(8.0).w_full().min_h((rows.max(1) as f32 * style.line_px() + 16.0).max(80.0)).child(input).radius(k.radius.md).fill(c.bg_base).token_motion(k.motion.control);
+    let frame = col().role("textbox").padding(AREA_PAD).w_full().min_h((rows.max(1) as f32 * style.line_px() + 16.0).max(80.0)).child(input).radius(k.radius.md).fill(c.bg_base).token_motion(k.motion.control);
     if text.0.focused { return frame.outline(1.0, -1.0, c.border_focus) }
     k.shadow_layers(k.elevation.input()).fold(frame, El::box_shadow).hover(c.hover)
 }

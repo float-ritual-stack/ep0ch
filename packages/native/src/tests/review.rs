@@ -503,12 +503,12 @@ fn the_hint_row_under_a_field_says_the_keys_of_where_the_person_is() {
     press(&mut rt, "tile/reader/edit");
     let hints = |rt: &Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter(|e| e.path.contains("tile/reader/editor-keys")).filter_map(|e| e.text).collect() };
     let said = hints(&rt);
-    assert!(said.iter().any(|does| does == "save") && said.iter().any(|does| does == "leave the editor, when everything is saved"), "{said:?}");
+    assert!(said.iter().any(|does| does == "save") && said.iter().any(|does| does == "done"), "{said:?}");
     chord(&mut rt, Key::Enter, Mods::default());
     typed(&mut rt, "See [[s");
     assert_eq!(rt.state.person().layer, Layer::Complete);
     let said = hints(&rt);
-    assert!(said.iter().any(|does| does == "write the lit row") && said.iter().any(|does| does == "put the list away") && !said.iter().any(|does| does == "leave the editor, when everything is saved"), "{said:?}");
+    assert!(said.iter().any(|does| does == "accept") && said.iter().any(|does| does == "close") && !said.iter().any(|does| does == "done"), "{said:?}");
     chord(&mut rt, Key::Escape, Mods::default());
     assert!(hints(&rt).iter().any(|does| does == "save"), "the list put away, the keys are the editor's again");
 }
