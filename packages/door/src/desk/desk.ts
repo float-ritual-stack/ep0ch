@@ -6,6 +6,7 @@ import { AGAIN_PART, LEAVE_PART, readerHeldParts, escFoot } from "../hint-parts"
 import type { Visit } from "../trail";
 import { openCause, opening, landed as openLanded } from "./open-event";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
+import { nextStop, tabStops } from "@ep0ch/outline-core/list-cursor";
 import { drawCompletionFloat } from "../surface/completion-float";
 import { hintKey, modeBinding, modeHint, Modes, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
@@ -5865,25 +5866,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   nextTile(sel: string | undefined, by: number): string {
-    const ids = this.zoom !== null ? [this.zoom] : this.tabStops(), i = ids.indexOf(this.tile(sel).id);
-    return this.nameOf(ids[((i + by) % ids.length + ids.length) % ids.length]!);
+    const ids = this.zoom !== null ? [this.zoom] : this.tabStops();
+    return this.nameOf(nextStop(ids, this.tile(sel).id, by)!);
   }
   /**
    * Where Tab stops, in reading order: each tile shown, then the floats; columns (the board's lanes) are one stop, the
    * tile last in them, and a dock is one stop, its first tile (its list, not the preview beside it).
    */
   private tabStops(): number[] {
-    const out: number[] = [], seen = new Set<string>();
-    for (const id of visible(this.root)) {
+    // Which tiles are one stop together is outline-core's rule (`tabStops`), which the native window asks too: this
+    // says what is shown and the set of columns or the dock each tile is in.
+    const shown = visible(this.root).map(id => {
       const c = chainOf(this.root, id).find(x => x.t === "columns" || x.t === "dock");
-      if (!c) { out.push(id); continue; }
-      const key = c.id ?? "";
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const at = c.t === "columns" ? this.lastIn.get(key) : undefined, ids = visible(c);
-      out.push(ids.includes(this.focus) ? this.focus : at !== undefined && ids.includes(at) ? at : ids[0]!);
-    }
-    return [...out, ...this.floats.map(f => f.id)];
+      return c ? { id, in: c.id ?? "", columns: c.t === "columns" } : { id };
+    });
+    return tabStops(shown, this.focus, key => this.lastIn.get(key), this.floats.map(f => f.id));
   }
 
   /** The tile the keys go back to (the spec's `home`: a tile, or the current tile of a container), if the screen has one. */

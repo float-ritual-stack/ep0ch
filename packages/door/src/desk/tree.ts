@@ -1,3 +1,4 @@
+import { parentRow } from "@ep0ch/outline-core/list-cursor";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { TREE_MOVE_KEYS } from "../surface/attached-keys";
@@ -427,7 +428,7 @@ export class TreePane implements Pane {
   }
 
   /** The row above `i` that it sits under, or -1. */
-  parentRow(i: number): number { const d = this.rows[i]?.depth ?? 0; return this.rows.findLastIndex((r, j) => j < i && r.depth < d); }
+  parentRow(i: number): number { return parentRow(this.rows.map(r => r.depth), i); }
 
   /** Open or fold a group row (Outlinks, Resources, Backlinks, or a backlink kind). */
   private foldGroup(r: TreeRow, open?: boolean) {
