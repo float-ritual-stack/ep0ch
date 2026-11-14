@@ -60,19 +60,74 @@ impl Told {
 }
 
 /// The list that completes what is being typed, as this draft holds it: the question asked (for the text and the
-/// caret it was asked at), the lit row, and whether the person moved it.
+/// caret it was asked at), the lit row, and whether the person chose it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Completing {
     pub ask: Option<Ask>,
     /// The change of the text and the caret the question was asked for.
     pub at: (u64, usize),
     pub lit: usize,
-    /// The person moved the lit row: Return is a choice, whatever the row says of it.
+    /// The person chose the list: moved the lit row, pressed one, or asked for the list by its key. Return is a
+    /// choice then, whatever the row says of it.
     pub moved: bool,
     /// The same question with the lit row named, once it is not the first: its answer carries what choosing that
     /// row makes, drawn (the list's own answer carries the first row's). The list is read from `ask` all the same,
     /// so it stays where it is while this one is on its way.
     pub shows: Option<Ask>,
+    /// The list as it was for the text before this change, shown while the answer for the text as it is now is on
+    /// its way: the list never blinks away between two letters of one word. Let go once the caret leaves the
+    /// line it was asked on.
+    pub held: Option<Held>,
+    /// The row the person had lit when the text changed, by what it writes: lit again in the list that answers the
+    /// text as it is now, when it is still one of its rows (a row is the same row wherever it sits). None: the first.
+    pub kept: Option<String>,
+    /// When the lit row was lit, on the window's clock: what the lit row says of itself is shown beside the list once
+    /// it has been lit a moment (`CARD_QUIET`), so moving down a list draws no card a row.
+    pub since: f64,
+}
+
+/// A list shown past the change of the text it was asked for: its question, and the row that was lit in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Held { pub ask: Ask, pub lit: usize }
+
+/// How long a row is lit before what it says of itself is drawn beside the list, in seconds.
+pub const CARD_QUIET: f64 = 0.3;
+
+/// The stops of what a completion wrote (a component's skeleton: each value of its example), as ranges of the
+/// draft's text in bytes, and the one the caret is in: outline-core's `SnippetSession`, ported once. Typing inside
+/// the stop the caret is in keeps the stops on their text; a change anywhere else ends them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stops { pub at: usize, pub spans: Vec<(usize, usize)> }
+
+impl Stops {
+    /// The stops of `spans` (bytes of what was written), in a text where that starts at `offset`.
+    pub fn new(spans: &[(usize, usize)], offset: usize) -> Option<Stops> {
+        (!spans.is_empty()).then(|| Stops { at: 0, spans: spans.iter().map(|(start, end)| (start + offset, end + offset)).collect() })
+    }
+    pub fn current(&self) -> (usize, usize) { self.spans[self.at] }
+    /// The stop `by` on (back, when negative, no further than the first). None: past the last, and the stops are done.
+    pub fn step(&mut self, by: isize) -> Option<(usize, usize)> {
+        let to = self.at as isize + by;
+        if to >= self.spans.len() as isize { return None }
+        self.at = to.max(0) as usize;
+        Some(self.current())
+    }
+    /// The text changed from `before` to `after`: true when the change is inside the stop the caret is in, whose
+    /// end and every later stop move with it; false when it is anywhere else (the stops are over).
+    pub fn update(&mut self, before: &str, after: &str) -> bool {
+        if before == after { return true }
+        let (b, a) = (before.as_bytes(), after.as_bytes());
+        let mut start = 0;
+        while start < b.len() && start < a.len() && b[start] == a[start] { start += 1 }
+        let (mut end, mut tail) = (b.len(), a.len());
+        while end > start && tail > start && b[end - 1] == a[tail - 1] { end -= 1; tail -= 1 }
+        let (from, to) = self.current();
+        if start < from || end > to { return false }
+        let delta = a.len() as isize - b.len() as isize;
+        self.spans[self.at].1 = (to as isize + delta) as usize;
+        for span in self.spans.iter_mut().skip(self.at + 1) { *span = ((span.0 as isize + delta) as usize, (span.1 as isize + delta) as usize) }
+        true
+    }
 }
 
 /// Words of a note a comment is on, and what whoever picked them knows of where they are. Where they are in the
@@ -248,6 +303,8 @@ pub struct DraftSession {
     /// again when the person types.
     pub quiet_at: u64,
     pub completing: Completing,
+    /// The stops of the skeleton a completion wrote, while it is being filled in, and the text they were last read in.
+    pub stops: Option<(Stops, String)>,
     /// The service is to be told the person typed, once the keys are quiet.
     pub touched: Option<Instant>,
     /// What the draft stood on before a patch the saved note also took, by patch: taken back, it stands there again.
@@ -391,7 +448,7 @@ pub fn map_cursor(offset: usize, spans: &[Placed]) -> usize {
 impl DraftSession {
     /// A draft of `note` on `tile`: `text` as the service holds it at `revision`, in a field the caller made.
     pub fn new(tile: Id, note: String, revision: u64, base: String, buf: Text) -> DraftSession {
-        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, stood: HashMap::new() }
+        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), stops: None, touched: None, stood: HashMap::new() }
     }
 
     /// The same session, writing something else than the block's own text (a comment, a reply).
@@ -409,8 +466,12 @@ impl DraftSession {
     /// The hold's id, while the service has granted one.
     pub fn hold_id(&self) -> Option<&str> { match &self.hold { Hold::Held { id, .. } => Some(id), _ => None } }
 
-    /// The text changed: what a patch lit is lit no longer, and what completes it is asked again.
-    pub fn changed(&mut self) { self.changes += 1 }
+    /// The text changed: what a patch lit is lit no longer, and what completes it is asked again. The stops of a
+    /// skeleton being filled in follow a change inside the one the caret is in, and end on any other.
+    pub fn changed(&mut self) {
+        self.changes += 1;
+        if let Some((mut stops, before)) = self.stops.take() && stops.update(&before, self.buf.words()) { self.stops = Some((stops, self.buf.words().to_string())) }
+    }
 
     /// The ranges somebody else's last patch wrote, while nothing has changed since.
     pub fn lit(&self) -> &[Range<usize>] { if self.lit_at == self.changes { &self.lit } else { &[] } }
@@ -418,27 +479,61 @@ impl DraftSession {
     /// The completion list is put away until the person types again.
     pub fn quiet(&mut self) { self.quiet_at = self.changes; self.completing = Completing::default() }
 
+    /// The completion list is asked for by its key, where the caret is, with nothing typed: it is open from now, and
+    /// asking for it is a choice (Return takes the lit row).
+    pub fn summon(&mut self) { self.quiet_at = u64::MAX; self.completing = Completing { moved: true, ..Completing::default() } }
+
+    /// A skeleton was written at `offset` with these stops (bytes of what was written): the first is selected, and
+    /// the next key that steps goes to the one after.
+    pub fn fill(&mut self, spans: &[(usize, usize)], offset: usize) {
+        self.stops = Stops::new(spans, offset).map(|stops| (stops, self.buf.words().to_string()));
+        if let Some((stops, _)) = &self.stops { let (from, to) = stops.current(); self.buf.select(from, to) }
+    }
+
+    /// The stop `by` on is selected. False: past the last one (the caret goes after it and the stops are done), or
+    /// no skeleton is being filled in.
+    pub fn stop(&mut self, by: isize) -> bool {
+        let Some((stops, _)) = self.stops.as_mut() else { return false };
+        match stops.step(by) {
+            Some((from, to)) => { self.buf.select(from, to); true }
+            None => { let end = stops.current().1; self.stops = None; self.buf.select(end, end); false }
+        }
+    }
+
     /// What the service is asked to complete now: the text and the caret, once the person has typed since the
-    /// list was last put away. Made again only when either moved.
-    pub fn complete(&mut self, at: &crate::store::OutlineAt) {
+    /// list was last put away. Made again only when either moved. `shown`: the list on screen until now (its
+    /// question, its lit row, and what that row writes when the person chose it): it stays on screen until the
+    /// answer for the text as it is now lands, while the caret is still on the line it was asked on, and the row
+    /// the person chose is lit again in the new list. `now`: the window's clock.
+    pub fn complete(&mut self, at: &crate::store::OutlineAt, shown: Option<(Held, Option<String>)>, now: f64) {
         let caret = self.buf.ends().1;
         if self.changes == self.quiet_at { self.completing = Completing::default(); return }
         if self.completing.ask.is_some() && self.completing.at == (self.changes, caret) { return }
-        self.completing = Completing { ask: Some(self.asks(at, None)), at: (self.changes, caret), lit: 0, moved: false, shows: None };
+        // The list before is held only along one line: the caret on another line is in another token.
+        let same_line = |held: &Held| held.ask.params["text"].as_str().zip(held.ask.params["cursor"].as_u64()).is_some_and(|(text, cursor)| {
+            let was = byte_of(text, cursor as usize).unwrap_or(text.len());
+            text[..was].matches('\n').count() == self.buf.words()[..caret].matches('\n').count()
+        });
+        let (held, kept) = match shown { Some((held, kept)) if same_line(&held) => (Some(held), kept), _ => (None, None) };
+        let moved = self.completing.moved && (kept.is_some() || self.quiet_at == u64::MAX);
+        self.completing = Completing { ask: Some(self.asks(at, None)), at: (self.changes, caret), lit: 0, moved, shows: None, held, kept, since: now };
     }
 
     /// `completion.rows` for the text and the caret as they are: the list, or (`lit`) the list with that row's drawn form.
     fn asks(&self, at: &crate::store::OutlineAt, lit: Option<usize>) -> Ask {
         let text = self.buf.words();
         let mut ask = json!({ "text": text, "cursor": utf16_of(text, self.buf.ends().1), "near": self.note });
-        if let Some(lit) = lit { ask["lit"] = json!(lit) }
+        if let Some(lit) = lit.filter(|lit| *lit > 0) { ask["lit"] = json!(lit) }
         Ask::read(at, "completion.rows", ask)
     }
 
-    /// Another row of the open list is lit, by the person: what choosing it makes is asked for, drawn.
-    pub fn light(&mut self, row: usize, at: &crate::store::OutlineAt) {
+    /// A row of the open list is lit: what choosing it makes is asked for, drawn. `chosen`: by the person's own
+    /// choice (a key that moves, a press), which makes Return take the row; a pointer passing over a row lights it
+    /// and chooses nothing. The list the answer landed in is the one on screen from now (nothing held, nothing kept).
+    pub fn light(&mut self, row: usize, chosen: bool, at: &crate::store::OutlineAt, now: f64) {
         let shows = (row > 0).then(|| self.asks(at, Some(row)));
-        self.completing = Completing { lit: row, moved: true, shows, ..std::mem::take(&mut self.completing) };
+        let was = std::mem::take(&mut self.completing);
+        self.completing = Completing { lit: row, moved: was.moved || chosen, shows, held: None, kept: None, since: if was.lit == row && was.kept.is_none() { was.since } else { now }, ..was };
     }
 
     /// The question whose answer carries the lit row's drawn form: the list's own while its first row is lit.

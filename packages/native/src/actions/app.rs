@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use super::{Actor, Step, About};
 use crate::client::{Link, PROTOCOL, Way};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
-use crate::draft::{DraftSession, Kept, Recovery};
+use crate::draft::{self, DraftSession, Held, Kept, Recovery};
 use crate::page::{Completion, CompletionRow, ListAnswer, ListRow, Page, Picture, SourceRow};
 use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
@@ -217,6 +217,10 @@ pub struct State {
     pub trashed: HashMap<String, String>,
     /// An element to bring into view on the next frame.
     pub reveal: Option<String>,
+    /// The window's clock, in seconds, as the last frame's poll read it: what the lit row of a completion list is timed by.
+    pub now: f64,
+    /// What the lit row says of itself is on screen beside the list (it had been lit long enough when the clock was last read).
+    pub carded: bool,
 }
 
 pub struct App {
@@ -324,6 +328,8 @@ impl App {
                 steps: Vec::new(),
                 trashed: HashMap::new(),
                 reveal: None,
+                now: 0.0,
+                carded: false,
             },
             store,
             ways: None,
@@ -659,20 +665,84 @@ impl App {
     /// A save is out.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
 
-    /// The list that completes what is being typed in a tile's draft, while it is open: the service's answer for the
-    /// text and the caret as they are now, when it found a token there and has rows or a word to say for it.
-    pub fn completing(&self, tile: &str) -> Option<&Completion> {
+    /// The list that completes what is being typed in a tile's draft, as the service answered it for the text and the
+    /// caret as they are now, when it found a token there and has rows or a word to say for it. What a choice is
+    /// written from: never a list for a text that has moved on.
+    pub fn completing_now(&self, tile: &str) -> Option<&Completion> {
         let draft = self.draft_on(tile)?;
         self.store.read::<Completion>(draft.completes()?).filter(|found| found.token.is_some() && (!found.rows.is_empty() || found.message.is_some()))
+    }
+
+    /// The list on screen over a tile's draft: the answer for the text as it is now, or, while that is on its way, the
+    /// list as it was before the last change (`Completing.held`), so it never blinks away between two letters.
+    pub fn completing(&self, tile: &str) -> Option<&Completion> {
+        let draft = self.draft_on(tile)?;
+        let ask = draft.completes()?;
+        if !self.store.waiting(ask) { return self.completing_now(tile) }
+        let held = draft.completing.held.as_ref()?;
+        self.store.read::<Completion>(&held.ask).filter(|found| found.token.is_some() && !found.rows.is_empty())
+    }
+
+    /// Which row of the list on screen is lit: the draft's own, or in a list held from before, the one lit then.
+    pub fn completing_at(&self, tile: &str) -> usize {
+        let Some(draft) = self.draft_on(tile) else { return 0 };
+        let waiting = draft.completes().is_none_or(|ask| self.store.waiting(ask));
+        match &draft.completing.held { Some(held) if waiting => held.lit, _ => draft.completing.lit }
     }
 
     /// The lit row of a tile's open completion list, as the list has it, and what choosing it makes when the
     /// service has drawn that (`CompletionRow.view`, on the answer asked with that row lit): what stands beside the list.
     pub fn completing_lit(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
-        let (draft, found) = (self.draft_on(tile)?, self.completing(tile)?);
+        let (draft, found) = (self.draft_on(tile)?, self.completing_now(tile)?);
         let row = found.rows.get(draft.completing.lit)?;
         let view = draft.shows().and_then(|ask| self.store.read::<Completion>(ask)).and_then(|shown| shown.rows.get(draft.completing.lit)).and_then(|row| row.view.as_ref());
         Some((row, view))
+    }
+
+    /// The lit row and its drawing, once it has been lit long enough for a card (`draft::CARD_QUIET`, on the window's
+    /// clock): what the popover draws beside its list. Moving down a list draws no card a row.
+    pub fn completing_card(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
+        let draft = self.draft_on(tile)?;
+        if self.now - draft.completing.since < draft::CARD_QUIET { return None }
+        self.completing_lit(tile).filter(|(row, view)| row.docs.is_some() || view.is_some())
+    }
+
+    /// The window's clock moved to `now` (the frame's poll). True when what is drawn changes with it: the lit row
+    /// has been lit long enough for its card. And how long until that, when a list is open and its card is not shown yet.
+    pub fn tick(&mut self, now: f64) -> (bool, Option<std::time::Duration>) {
+        self.st.now = now;
+        let focus = self.layout.focus.clone();
+        let open = self.completing_now(&focus).is_some();
+        let carded = self.completing_card(&focus).is_some();
+        let changed = carded != self.carded;
+        if changed { self.st.carded = carded }
+        let due = (open && !carded).then(|| self.draft_on(&focus).map(|draft| (draft.completing.since + draft::CARD_QUIET - now).max(0.0))).flatten();
+        (changed, due.map(|due| std::time::Duration::from_secs_f64(due + 0.01)))
+    }
+
+    /// The list on screen now, as the next question holds it while its own answer is on its way: its question and
+    /// lit row, and what that row writes when the person chose it (it is lit again in the list that answers).
+    fn completion_shown(&self, tile: &str) -> Option<(Held, Option<String>)> {
+        let draft = self.draft_on(tile)?;
+        let found = self.completing(tile)?;
+        let fresh = draft.completes().is_some_and(|ask| !self.store.waiting(ask));
+        let ask = if fresh { draft.completing.ask.clone()? } else { draft.completing.held.as_ref()?.ask.clone() };
+        let lit = self.completing_at(tile);
+        let kept = if fresh { draft.completing.moved.then(|| found.rows.get(lit).map(|row| row.insert.clone())).flatten() } else { draft.completing.kept.clone() };
+        Some((Held { ask, lit }, kept))
+    }
+
+    /// The answer to what completes a draft landed: the row the person had chosen is lit again where it now sits.
+    fn completed(&mut self, key: &AskKey) {
+        let (at, now) = (self.at.clone(), self.now);
+        for index in 0..self.drafts.len() {
+            let draft = &self.drafts[index];
+            if draft.completes().is_none_or(|ask| ask.key() != *key) { continue }
+            let Some(kept) = draft.completing.kept.clone() else { self.st.drafts[index].completing.held = None; continue };
+            let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.insert == kept)).unwrap_or(0);
+            self.st.drafts[index].light(row, false, &at, now);
+            self.pump();
+        }
     }
 
     // ── screens ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -734,6 +804,8 @@ impl App {
             wants.push(Want { tile: draft.tile.clone(), role: "complete", ask: ask.clone() });
             // And what choosing the lit row makes, once the person lit another than the first.
             if let Some(shows) = draft.shows().filter(|shows| *shows != ask) { wants.push(Want { tile: draft.tile.clone(), role: "completes", ask: shows.clone() }) }
+            // And the list as it was before the last change, read until the one for the text as it is now lands.
+            if let Some(held) = draft.completing.held.as_ref().filter(|held| held.ask != *ask) { wants.push(Want { tile: draft.tile.clone(), role: "completed", ask: held.ask.clone() }) }
         }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
         if self.online && !self.at.outline.is_empty() {
@@ -763,7 +835,8 @@ impl App {
         self.recover();
         // What completes the words being typed is asked for the text and the caret as they are now.
         let (at, focus) = (self.at.clone(), self.layout.focus.clone());
-        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == focus) { draft.complete(&at) }
+        let (shown, now) = (self.completion_shown(&focus), self.now);
+        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == focus) { draft.complete(&at, shown, now) }
         let wants = self.wants();
         self.store.want(wants);
     }
@@ -888,6 +961,7 @@ impl App {
 
     /// An answer landed in a slot. A reader's page in a shape this window can't read is said, not left blank.
     fn landed(&mut self, key: &AskKey) {
+        self.completed(key);
         for reader in self.shown_tiles() {
             if !self.reads_notes(&reader) { continue }
             let Some(note) = self.note_of(&reader) else { continue };
