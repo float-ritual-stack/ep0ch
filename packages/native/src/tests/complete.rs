@@ -85,15 +85,21 @@ fn near_the_window_s_edges_the_list_goes_above_the_line_and_the_card_to_the_othe
     assert!(list[1] + list[3] <= at[1] + 0.5, "no room below in a short window: the list is above the line ({list:?} over {at:?})");
     assert!(card[1] + card[3] <= at[1] + 0.5, "and the card with it, never over the line being typed: {card:?}");
     assert!((card[1] + card[3] - (list[1] + list[3])).abs() <= 1.5, "their bottoms level: {card:?} by {list:?}");
-    // The token far along its line, by the window's right edge: the list is kept inside the window (its other edge at
-    // the token's start), and the card is at its left, their tops level.
+    // The token far along its line: no room for the card at the list's right, so it is at its left, their tops level.
     let far = "Sow the early peas by the south wall and the late ones by the shed, then [h";
+    let (mut rt, _) = writing();
+    typed(&mut rt, far);
+    let (at, list, card) = (rect(&rt, "tile/reader/complete-at"), rect(&rt, "tile/reader/complete"), rect(&rt, "tile/reader/complete-docs"));
+    assert!((list[0] - at[0]).abs() <= 1.0 && 1180.0 - (list[0] + list[2]) < 340.0, "the list at the token, with less than a card's room at its right: {list:?}");
+    assert!(card[0] >= 7.0 && card[0] + card[2] <= list[0] + 1.0 && (card[1] - list[1]).abs() <= 1.5, "the card is at the list's left: {card:?} by {list:?}");
+    // By the window's right edge (a narrower window): the list is kept inside the window, under the line, and the
+    // card is inside it too, beside the list or under it, never over it.
     let (mut rt, _) = writing_in((940.0, 760.0));
     typed(&mut rt, far);
     let (at, list, card) = (rect(&rt, "tile/reader/complete-at"), rect(&rt, "tile/reader/complete"), rect(&rt, "tile/reader/complete-docs"));
     assert!(at[0] + list[2] > 940.0 && list[0] >= 8.0 && list[0] + list[2] <= 940.0 - 7.0 && list[1] >= at[1] + at[3], "inside the window, under the line: {list:?} by {at:?}");
-    assert!(card[0] >= 7.0 && card[0] + card[2] <= list[0] + 1.0 && (card[1] - list[1]).abs() <= 1.5, "the card is at the list's left: {card:?} by {list:?}");
-    // No room at either side (a narrower window): the card is under the list, inside the window.
+    assert!(card[0] >= 7.0 && card[0] + card[2] <= 940.0 - 7.0 && (card[0] + card[2] <= list[0] + 1.0 || card[1] >= list[1] + list[3]), "{card:?} by {list:?}");
+    // No room at either side (narrower still): the card is under the list, inside the window.
     let (mut rt, _) = writing_in((860.0, 760.0));
     typed(&mut rt, far);
     let (list, card) = (rect(&rt, "tile/reader/complete"), rect(&rt, "tile/reader/complete-docs"));

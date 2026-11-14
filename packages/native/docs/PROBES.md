@@ -847,6 +847,69 @@ focus that goes to a neighbour when the focused element leaves the tree, F6 betw
 `Tx::scroll_center`, `rune_kit::search::Fold` (search that folds case and width in every language),
 `rune::text::compare_names`, and `El::placeholder_font`.
 
+## 19. Completing (H5)
+
+**What ended the window at `::` is still what Rune asserts, the fix is still one call, and the test R0 wrote for
+it still goes red without it and green with it.** Checked again on this wave's popover, which is built from other
+parts than H1's was.
+
+Run: `cargo test a_lit_component_s_example` in the app, twice: with `PrimCx::of(cx).in_row()` on the card beside
+the completion list (exit 0), and with `.in_row()` taken out (exit 101: `runtime/commit/measure.rs:299`, "virtual
+stack must be inside a scroll viewport").
+
+- **What Rune asserts.** A stack that builds its rows only in view (`El::virtual_rows`, `.virtualize`) must be a
+  scroll viewport's own child: the viewport is what says which rows are in view. Anywhere else the measure pass
+  panics, and a panic in a frame ends the window.
+- **What the window does about it.** `list::rows` (the page's and a tile's rows, built in view) goes only where a
+  scroll of that list's own is: a tile's scroll, the page's scroll, the bar's bounded list, the completion list's
+  fitted one. Everything a drawer hangs over the window (`Drawer.over`: the card, a row's sample) builds its
+  primitives `in_row`, so a list inside one is built whole (`list::whole`), as a list under a row always was.
+  `one_owner.rs` holds it: every `PrimCx::of(cx)` in the page drawer's `over` is followed by `.in_row()`, and
+  nothing there calls `list::rows` or `list::bounded`.
+- **The other overlays, checked for the same fault:** a thread's card in the margin and a row's own view
+  (`tiles/list.rs:155`, already `in_row`), the picked words' buttons (no primitive), the bar's and the form's
+  dialogs (no primitive; the bar's rows are in a scroll of their own, `list::bounded`), a rendered tile's view (in
+  its tile's scroll). None builds a page's list outside a scroll.
+- **No rule about a draft found back.** With the card fixed, the saved draft that ended the window twice at launch
+  opens and stands (the report from the Mac it happened on; here, the test). Nothing was added to keep a recovered
+  draft from opening a list: that would be code for a failure that no longer exists.
+
+### What Rune's parts gave, and what they lacked
+
+Read first: the kit's README whole, Rune's README on anchored overlays, the key routing order, text measuring,
+`Latest`, virtual rows and headless scripts; `rune-kit/src/popup_list.rs`, `popover.rs`, `overlay.rs`,
+`combobox.rs`'s use of the list; `rune/src/el/anchor.rs`, `input/chord.rs`, `text/measure.rs`; the gallery's
+`popup-list` story (`examples/kit-gallery/src/stories.rs`: the list anchored to the whole composer, 320 wide). The
+other examples and Moonframe were not read for this wave.
+
+| Asked of Rune | Answer | What the window does |
+|---|---|---|
+| Hang a surface at a place in a field's text, flip it, keep it in the window | **Yes.** `El::anchored` / `popover::anchored` on a keyed mark (`el/anchor.rs:44`); `Cx::caret` gives the caret's rect; `rune::text::measure` gives the width of the words before the token | a 1-point mark at the token's start on the caret's line, the kit's anchored surface under it. Near the right edge Rune keeps it inside by aligning its other edge to the mark |
+| The kit's `PopupList` as the list | **Not as it is.** Its box holds its list and nothing else (`popup_list.rs:338`: no foot), a row's label is plain text (`:260`, `:263`: no ranges set apart), its width is a number given (`:335`), and `build_list` is the crate's own (`:234`), so it can't be put in another surface | the kit's popover parts it is itself built from (`popover::anchored`, `raised`, `fit_scroll`: "the building blocks apps use to draw their own anchored surfaces") around the window's one list, whose rows the bar's are too. To raise upstream: a footer slot, a label with emphasised ranges, and a width from the rows |
+| A row that scrolls into view when lit by a key | **Yes.** `Tx::scroll_into_view` by key reaches a virtual row | `keys::effects`, as the bar's lit row |
+| A card beside the list with its bottom level with the list's | **Yes, on `El::anchored`** (`Side::Right`, `Align::End`); the kit's `Placement` has `RightStart` alone (`overlay.rs:17-27`) | the card is the kit's `raised` surface with `El::anchored` |
+| A surface that takes a press on its frame without a handler | **Not found.** `El::hit` marks native overlay input and adds no handler; `inert` passes everything through | the box's own press runs an act that changes nothing (`complete.light` of the lit row), so a press on the foot never reaches the page under it |
+| Text shown at the caret that is not part of the field's words | **Three ways, one honest.** A preedit (`edit.rs:407`) is an input method's composition and a pill (`edit.rs:579`) is a character of the text: both would tell the editor it holds words it doesn't. An element at the caret's rect is neither | the rest of the lit row is a dim text at `Cx::caret`'s rect, shown only when nothing stands after the caret on its line. Not built: the same when words follow the caret (it would be drawn over them); Rune would need a decoration that takes room at an offset without being text |
+| `rune::Latest` for the completion's request | **Not behind the seam.** The store is a model module (no Rune), and it already keeps one slot an ask: an answer for words typed past is another slot and never shows under the new words | nothing; the session holds the list as it was until the answer for the text as it is lands |
+| Real keys headless | **Yes.** `--script` with `key` and `type` events, `--at` for the frame | the `complete-component` scene types Return, `::graph-met` and Tab |
+
+### Found on the way
+
+- **One ranker, two outlines.** The door listed `heading-rows, -tone, -letters, -padding` for `[h` where the
+  window listed `heading-pattern, heading-style, header, harness`, and their values in another order. Both ask
+  `completion.rows` and both order by outline-core's `mergeSourceAnswers`: what the notes carry, most used first,
+  then the keys a schema gives a meaning, a row picked before first among its equals. The door has no source of its
+  own for a key or a value. The two lists were asked of two outlines, with other notes and other picks. Run:
+  `bun test test/draft-place.test.ts` in the outliner ("the text-and-cursor form lists a token's rows in the order
+  the target form's answers merge to": equal before and after a pick, exit 0).
+- **No row matcher is ported to the window,** though this wave's brief took one to be: the list between two
+  letters is the list as it was (held), then the service's. Narrowing it here would be a second matcher.
+- **A hyphen is no matched letter:** typed `heading-pat`, the service marks ten letters of `heading-pattern`, not
+  eleven.
+- **An act line holds no line break,** so a scene can't type Return: `draft.paste` puts words on the caret's line.
+- Not run on a Mac: every key, the placement and the pictures are Linux's, headless. `ctrl+space` on a Mac with
+  more than one input source belongs to the input menu until that shortcut is turned off there.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**
