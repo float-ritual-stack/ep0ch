@@ -1190,7 +1190,7 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
 #[ignore = "starts an outline host with bun"]
 fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over_the_socket() {
     use crate::client::Socket;
-    use super::support::{press, rest, window};
+    use super::support::{open_row, rest, window};
     with_host("caret", |path, _| {
         let mut raw = Socket::connect(path);
         let mut n = 0;
@@ -1229,7 +1229,7 @@ fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over
         // The beds unfolded, as a press on its row does once it is the open note: the first press opens it and unfolds it.
         let folds = |rt: &rune::Runtime<App>, id: &str| rt.find(&format!("tile/tree/row/{id}/fold")).is_some();
         assert!(folds(&rt, &beds), "a note with notes under it has the mark");
-        press(&mut rt, &format!("tile/tree/row/{beds}"));
+        open_row(&mut rt, &format!("tile/tree/row/{beds}"));
         assert_eq!(rt.state.subject().as_deref(), Some(beds.as_str()));
         assert!(rt.state.ui(&tree).unfolded.contains(&beds), "{:?}", rt.state.ui(&tree).unfolded);
         let under = |rt: &rune::Runtime<App>, parent: &str| -> Vec<(String, usize, bool)> {
@@ -1242,17 +1242,17 @@ fn live_the_tree_s_folds_open_onto_notes_and_a_reader_told_no_note_is_empty_over
         assert_eq!([&north, &south, &east, &west].map(|id| folds(&rt, id)), [false, false, false, true]);
         // A press on a bed with only a comment under it opens it, and a second folds nothing: nothing is listed under it.
         for id in [&north, &south, &east] {
-            press(&mut rt, &format!("tile/tree/row/{id}"));
-            press(&mut rt, &format!("tile/tree/row/{id}"));
+            open_row(&mut rt, &format!("tile/tree/row/{id}"));
+            open_row(&mut rt, &format!("tile/tree/row/{id}"));
             assert_eq!(rt.state.subject().as_deref(), Some(id.as_str()));
             assert!(!rt.state.ui(&tree).unfolded.contains(id.as_str()) && under(&rt, id).is_empty());
         }
         // What is under the north bed is listed where comments are: its thread, with the reply.
-        press(&mut rt, &format!("tile/tree/row/{north}"));
+        open_row(&mut rt, &format!("tile/tree/row/{north}"));
         let threads = rt.state.rows_of(&rt.state.layout.named("threads").expect("the desk has the comments")).to_vec();
         assert_eq!(threads.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(), ["Too early for peas?"]);
         // The west bed's mark opens onto its one note, and not onto the comment or the proposal beside it.
-        press(&mut rt, &format!("tile/tree/row/{west}"));
+        open_row(&mut rt, &format!("tile/tree/row/{west}"));
         assert!(rt.state.ui(&tree).unfolded.contains(&west));
         assert_eq!(under(&rt, &west), [("First row".to_string(), 1, false)]);
         assert!(rt.find(&format!("tile/tree/row/{row}")).is_some() && !folds(&rt, &row), "its note is on screen under it");

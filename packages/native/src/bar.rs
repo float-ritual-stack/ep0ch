@@ -9,7 +9,7 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use rune::{El, col, el, row, text};
+use rune::{El, Tx, col, el, row, text};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, Keybind, Kit, glyphs};
 use serde_json::json;
 
@@ -214,7 +214,8 @@ fn row_el(row: &BarRow, lit: bool, k: &Kit) -> El {
     k.interactive(line.px(10.0).py(6.0).h(ROW).radius(k.radius.sm).fill(if lit { c.surface_hover } else { rune::Color::TRANSPARENT }))
         .key(row_key(row))
         .role("option")
-        .on_press(move |s: &mut App| { s.act(&pick, Actor::Person); })
+        // (Option or the shortcut modifier held is the row's other way: what it opens, it opens fresh.)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| { s.act(&format!("{pick}{}", if crate::press::fresh(keys::held_bits(tx), 0) { " alt=true" } else { "" }), Actor::Person); })
 }
 
 /// A button for an act line: its label is the action's, its keycap the key table's.

@@ -132,6 +132,8 @@ impl App {
         ctx.own = (!self.screen.is_nowhere()).then(|| (format!("the {} screen", self.screen.title), None, None));
         let spec = self.spec_now();
         ctx.lands = spec.as_ref().and_then(|spec| spec.lands()).map(str::to_string);
+        // The screen's own action for an open fresh, when its spec names one this window has.
+        ctx.fresh_action = spec.as_ref().and_then(|spec| spec.fresh()).filter(|action| super::find(action).is_some()).map(str::to_string);
         // Where the keys go back to when their tile goes: the screen's `home`, a tile by its name or the first tile
         // of the container keyed so (`Layout::lands` reads either word).
         ctx.home = self.home();
@@ -148,6 +150,10 @@ impl App {
         ctx.sprout = self.note_kind().map(|row| row.role().unwrap_or(row.kind.as_str()).to_string());
         ask(&ctx)
     }
+
+    /// Asks the layout's rules something for what is drawn, where nobody acts: as the person at the window, whose
+    /// view a title's words and `peek` are (where their open from a tile would land).
+    pub(super) fn asked_shown<T>(&self, ask: impl FnOnce(&Ctx) -> T) -> T { self.asked(&Actor::Person, ask) }
 
     /// Where the keys go back to when their tile goes, and on the last step back: the screen's `home`, a tile by its
     /// name or the first tile of the container keyed so (`Layout::lands` reads either word). The one reading: the
@@ -241,12 +247,37 @@ impl App {
         for draft in &mut self.st.drafts { draft.buf.give_keys(draft.tile == focus) }
     }
 
+    /// The arrangement as a screen saves it: the layout's own form, with what somebody set on a tile here written
+    /// on its leaf in the words a screen is written in (the door's): a reader's `mode: pinned`, a list's `subject`
+    /// (`follows`, or held) and the reader it was aimed at (`source: tile:<name>`). So a screen saved here opens
+    /// the same way in every door, and here again.
+    pub(super) fn saved_layout(&self) -> Value {
+        fn stamp(app: &App, node: &mut Value) {
+            if node["t"] == "leaf" {
+                let Some(tile) = node["name"].as_str().and_then(|name| app.layout.named(name)) else { return };
+                let ui = app.ui(&tile);
+                if let Some(pinned) = ui.pinned { node["mode"] = json!(if pinned { "pinned" } else { "held" }) }
+                if let Some(follows) = ui.follows { if follows { node["subject"] = json!("follows") } else if let Some(fields) = node.as_object_mut() { fields.remove("subject"); } }
+                if let Some(home) = ui.home.as_ref().filter(|home| app.layout.spec(home).is_some()) { node["source"] = json!(format!("tile:{}", app.layout.name(home))) }
+                return;
+            }
+            for key in ["kids", "tabs"] { for kid in node.get_mut(key).and_then(Value::as_array_mut).into_iter().flatten() { stamp(app, kid) } }
+            for key in ["kid", "a", "b"] { if let Some(kid) = node.get_mut(key).filter(|kid| kid.is_object()) { stamp(app, kid) } }
+        }
+        let mut saved = self.layout.save();
+        if let Some(root) = saved.get_mut("root") { stamp(self, root) }
+        for float in saved.get_mut("floats").and_then(Value::as_array_mut).into_iter().flatten() { if let Some(tile) = float.get_mut("tile").filter(|tile| tile.is_object()) { stamp(self, tile) } }
+        saved
+    }
+
     /// The arrangement and what each tile shows, written to the file they are kept in.
     pub(super) fn keep(&self) {
         let Some(path) = &self.kept_in else { return };
         // No screen yet is nothing to keep: the file is what a window opens as next time.
         if self.screen.is_nowhere() { return }
-        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject, "program": ui.program }))).collect();
+        let tiles: serde_json::Map<String, Value> = self.tiles.iter().filter(|(tile, _)| self.layout.spec(tile).is_some()).map(|(tile, ui)| (self.layout.name(tile), json!({ "note": ui.note, "unfolded": ui.unfolded, "narrowed": ui.narrowed, "chosen": ui.chosen, "subject": ui.subject, "program": ui.program,
+            // What opens where, as the person left it: a reader's pin and its way back, a list held or following, the reader it was aimed at.
+            "history": ui.history, "pinned": ui.pinned, "follows": ui.follows, "home": ui.home.as_ref().filter(|home| self.layout.spec(home).is_some()).map(|home| self.layout.name(home)), "trail": ui.trail, "deliberate": ui.deliberate }))).collect();
         let extension = match &self.screen.from { From::Extension(id) => Some(id.clone()), _ => None };
         // The screen is kept by its name and the revision of the note it was laid out from, never as a copy of its
         // spec: what a screen says of itself is the service's row for it, read when the window opens again.
@@ -281,6 +312,12 @@ impl App {
             slot.chosen = ui["chosen"].as_object().into_iter().flatten().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string()))).collect();
             slot.subject = ui["subject"].as_str().map(str::to_string);
             slot.program = ui["program"].as_str().map(str::to_string);
+            slot.history = ui["history"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+            slot.pinned = ui["pinned"].as_bool();
+            slot.follows = ui["follows"].as_bool();
+            slot.home = ui["home"].as_str().and_then(|home| layout.named(home));
+            slot.trail = ui["trail"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+            slot.deliberate = ui["deliberate"] == true;
         }
         self.st.layout = layout;
         for made in kept["started"].as_array().into_iter().flatten().filter_map(crate::pty::Made::read) { self.store.program_remember(made) }

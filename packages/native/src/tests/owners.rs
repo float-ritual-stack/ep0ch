@@ -269,12 +269,15 @@ fn three(more: Value) -> Garden {
 #[test]
 fn an_open_that_names_no_tile_lands_where_the_screen_says_whoever_asks() {
     let mut g = three(json!({ "lands": "seeds", "newNote": [{ "opens": "lands" }] }));
+    // The person's own, with the keys in the tree, goes as the tree's opens go: a tree hands its keys on and has no
+    // home, so with no wire it is the first reader not pinned, which takes the keys (the door's rule; `lands` is
+    // for an open from outside every tile).
     let opened = act(&mut g.app, "open id=shed");
-    assert_eq!((opened.ok, opened.answer["tile"].as_str()), (true, Some("seeds")), "the person's, from the tree that has the keys: {}", opened.said);
+    assert_eq!((opened.ok, opened.answer["tile"].as_str(), g.app.layout.name(&g.app.layout.focus).as_str()), (true, Some("bed"), "bed"), "the person's, from the tree that has the keys: {}", opened.said);
     let opened = g.app.act("open id=beans", agent());
     assert_eq!((opened.ok, opened.answer["tile"].as_str()), (true, Some("seeds")), "an agent's: {}", opened.said);
     assert!(act(&mut g.app, "note.new").ok);
-    assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "seeds").as_deref()), (None, Some("new")), "a new note lands there too, and the reader nothing was opened in shows none");
+    assert_eq!((note_in(&g.app, "bed").as_deref(), note_in(&g.app, "seeds").as_deref()), (Some("shed"), Some("new")), "a new note lands there too, and the reader the person's open went to keeps its note");
     assert_eq!(draft(&g.app).map(|d| g.app.layout.name(&d.tile)).as_deref(), Some("seeds"));
 }
 

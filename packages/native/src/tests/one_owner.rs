@@ -338,8 +338,9 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
     for gone in ["fn is(&self, kind", "fn saved(&self)", ".replaces.iter()"] { none(&format!("{gone}: which kind serves a name is the service's word (`serves`)"), strays(gone, |_| false)) }
     none("the kind an open makes, named in the layout: whoever asks says it (`Ctx.sprout`)", ["k == \"reader\"", "unwrap_or(\"reader\")"].iter().flat_map(|kind| strays(kind, |_| false)).collect());
 
-    // What a follower's subject is when unsaid: `follows` reads `subject` alone.
-    assert!(code("actions/app.rs").contains("pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, \"subject\").and_then(Value::as_str) == Some(\"follows\") }"), "a tile follows only when it says so");
+    // What a follower's subject is when unsaid: `follows` reads `subject` alone, under what somebody chose for the
+    // tile here (K2: `tile.hold`, an aim), and nothing else makes a tile follow.
+    assert!(code("actions/app.rs").contains("pub fn follows(&self, tile: &str) -> bool { self.ui(tile).follows.unwrap_or_else(|| self.field_of(tile, \"subject\").and_then(Value::as_str) == Some(\"follows\")) }"), "a tile follows only when it says so, or the person does");
 
     // What the bar lists, and what a facet pick adds to a question.
     none("a bar source found by how its row is drawn: a source says `bar` of itself", ["group.as_deref() == Some(\"bar\")", "mark.as_deref() == Some(\"main\")"].iter().flat_map(|mark| strays(mark, |_| false)).collect());
@@ -488,7 +489,9 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     // Which reader a list speaks for is that one function, whoever asks (its subject when it follows, the note it
     // marks as open, where its opens land, the reader a press in it acts in): the tile its source names and the
     // reader its selection feeds are read there and nowhere else, so no two of them can name different readers.
-    none("the reader a list's selection feeds read outside `App::home_of` (and the layout's own rule for a float)", calls("select_targets", |path| path == "actions/app.rs" || path.starts_with("layout")));
+    // (K2: a select wire is delivered in one place, `App::picked`, and said in one, `App::wire_words`: both in the
+    // file of what opens where, which reads where a tile's cursor shows and decides nothing about a reader.)
+    none("the reader a list's selection feeds read outside `App::home_of` (and the layout's own rule for a float)", calls("select_targets", |path| path == "actions/app.rs" || path == "actions/wires.rs" || path.starts_with("layout")));
     assert_eq!(code("actions/app.rs").matches(".select_targets(").count(), 1, "`App::home_of` is the one reader of where a list's selection goes");
     // (A source that is itself a list is another question, with its own one reader: whose question a list asks, `question_of`.)
     assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
@@ -805,7 +808,9 @@ fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
     for reading in ["\"\\n\\n\"", "starts_with(\"- \")", "starts_with('#')", "```"] { assert!(!code("tiles/prim.rs").contains(reading) && !code("tiles/page.rs").contains(reading), "a drawer reads Markdown itself for where a block ends (`{reading}`)") }
     // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
     // (The person brings a tab forward themselves by the tile's own action, `tab.select`: a press on a tab, a key.)
-    none("a tab brought forward outside the one action that shows a note's comments and the tile's own tab.select", strays("Op::Tab", |path| path == "actions/review.rs" || path == "actions/tile.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
+    // (K2: a preview that is there already is shown by `tile.preview`, and a list aimed at a note comes forward by
+    // `tile.aim`: both in the one file of what opens where, both by the layout's own step.)
+    none("a tab brought forward outside the one action that shows a note's comments and the tile's own tab.select", strays("Op::Tab", |path| path == "actions/review.rs" || path == "actions/tile.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path == "actions/wires.rs" || path.starts_with("layout"))).collect());
     assert_eq!(code("actions/tile.rs").matches("Op::Tab").count(), 1, "tab.select is the one place a tile's actions bring a tab forward");
     assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
     // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
@@ -911,5 +916,46 @@ fn a_cursor_a_reading_line_and_a_tab_stop_each_have_one_mover_and_the_hint_row_o
     // Escape's steps on a tile are rows on the layers `person` reports, in one order.
     for (layer, line) in [("noticed", "notice.dismiss"), ("zoomed", "tile.zoom on=false"), ("docked", "dock.toggle"), ("tile", "keys.home")] {
         assert!(crate::keys::table().iter().any(|bind| bind.layer.map(crate::keys::Layer::name) == Some(layer) && bind.spec == "escape" && bind.line == line), "Escape on {layer} is {line}");
+    }
+}
+
+/// K2, what opens where: each question has one owner, and the shell words none of it.
+#[test]
+fn a_press_a_select_a_wire_a_pin_and_a_held_list_each_have_one_owner() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(found, _)| found == path).map(|(_, text)| text.clone()).unwrap_or_else(|| panic!("{path} is a source"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // What a press on a row asks for: the one port of outline-core's `rowGesture`, pure, asked by `list.press` alone.
+    assert!(!code("press.rs").contains("rune") && !code("press.rs").contains("App"), "the press rule is pure: no renderer and no window");
+    none("what a press on a row is, asked outside `list.press`", strays(".presses.press(", |path| path == "actions/list.rs"));
+    none("whether a press opens fresh asked outside the words of a pressed line (`keys::pressed`) and the bar's row", strays("press::fresh(", |path| path == "keys.rs" || path == "bar.rs"));
+    none("a press's modifiers read outside `keys::held_bits`", strays("tx.mods()", |path| path == "keys.rs"));
+    assert!(code("tiles/list.rs").contains("list.press id=") && !code("tiles/list.rs").contains("list.pick id="), "a row's press says `list.press`: the drawer decides no gesture");
+    // The verb of an open fresh: held where a gesture becomes one, read by the one open.
+    none("the fresh verb held outside the acts that are one (`list.open`, `tree.pick`, `fresh`, `bar.pick alt=`)", strays("app.st.fresh", |path| ["actions/list.rs", "actions/nav.rs", "actions/bar.rs"].contains(&path)));
+    none("the fresh verb read outside the pick and the open", strays("app.fresh", |path| ["actions/list.rs", "actions/nav.rs"].contains(&path)));
+    // A select wire is delivered in one place, asked by the cursor's own actions (and a preview's first showing).
+    none("a select delivered outside the list's own actions and a preview made for it", calls("picked", |path| path == "actions/list.rs" || path == "actions/wires.rs"));
+    // A wire is the layout's: one action issues the step, and one mode picks its tile.
+    none("a wire changed outside `tile.link` (and the layout's own steps)", strays("Op::Link", |path| path == "actions/wires.rs" || path.starts_with("layout")));
+    none("the wire being set written outside `wire.pick` and `tile.link`", strays("st.linking", |path| path == "actions/wires.rs"));
+    // Where a tile's verbs land is said by one function over placement's own answer, asked in the open's own file.
+    none("where a wire lands worded outside `App::wire_words`", ["\"in place\".into()", "\"next column\".into()", "\"nowhere\".into()"].iter().flat_map(|words| strays(words, |path| path == "actions/wires.rs")).collect());
+    none("placement asked for a title's words outside `nav::planned`", calls("asked_shown", |path| path == "actions/nav.rs" || path == "actions/layout.rs"));
+    // What the person set on a tile: each written by its own action and read back from the arrangement's file.
+    for (field, owners) in [(".pinned = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".follows = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".home = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".trail", vec!["actions/wires.rs", "actions/layout.rs"]), (".arrived = ", vec!["actions/wires.rs", "actions/tile.rs"]), (".walk = ", vec!["actions/wires.rs", "actions/nav.rs"]), (".deliberate = ", vec!["actions/wires.rs", "actions/nav.rs", "actions/tile.rs", "actions/layout.rs"])] {
+        none(&format!("a tile's `{}` written somewhere new", field.trim()), strays(field, |path| owners.contains(&path) || path.starts_with("layout") || path.starts_with("pty")));
+    }
+    // What the layout's rules read of a pin, a held reader and a list that hands its keys on is said in `App::facts`.
+    for fact in ["pinned: self.pinned(tile)", "hands_keys", "deliberate: self.ui(tile).deliberate"] { assert!(code("actions/app.rs").contains(fact), "`App::facts` says {fact}") }
+    // The shell draws what the model says: the words on a title and over the tiles are `App`'s, and each control is an act line.
+    let shell = code("shell.rs");
+    for read in ["s.wire_words(", "s.held_on(", "s.pinned(", "s.arrival(", "s.link_offer(", "s.linking_said()"] { assert!(shell.contains(read), "the shell reads {read}") }
+    for line in ["wire.pick verb=", "wire.pick to=", "reader.pin tile=", "tile.hold tile="] { assert!(shell.contains(line), "the shell's control runs {line}") }
+    none("a wire's verb worded in the shell (the words are `App::wire_words`)", ["\"beside ", "\"tab of "].iter().flat_map(|words| strays(words, |path| path != "shell.rs")).collect());
+    // The keys of the mode are rows of the one action that picks, on its own layer.
+    assert!(crate::keys::table().iter().filter(|bind| bind.layer.map(crate::keys::Layer::name) == Some("linking")).all(|bind| bind.action == "wire.pick"));
+    for (layer, key, line) in [("rows", "alt+enter", "list.open where=new"), ("bar", "alt+enter", "bar.pick alt=true"), ("page", "p", "reader.pin"), ("page", "b", "tile.aim"), ("rows", "b", "tile.aim"), ("rows", "shift+b", "tile.hold"), ("tile", "shift+o", "tile.preview"), ("tile", "alt+l then o", "wire.pick verb=open")] {
+        assert!(crate::keys::table().iter().any(|bind| bind.layer.map(crate::keys::Layer::name) == Some(layer) && bind.spec == key && bind.line == line), "{key} on {layer} is {line}");
     }
 }

@@ -715,6 +715,17 @@ pub fn press(rt: &mut Runtime<App>, key: &str) {
     rest(rt);
 }
 
+/// Two presses on one place, the second at once: a double press, which opens a row of a list (one press selects it).
+pub fn open_row(rt: &mut Runtime<App>, key: &str) {
+    let (x, y) = rt.find(key).unwrap_or_else(|| panic!("nothing on screen is keyed {key}"));
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rest(rt);
+}
+
 /// The primary shortcut modifier as the platform reports it: Ctrl with `cmd` set off macOS.
 pub fn primary() -> Mods { Mods { cmd: true, ctrl: !cfg!(target_os = "macos"), logo: cfg!(target_os = "macos"), ..Mods::default() } }
 

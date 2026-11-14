@@ -53,7 +53,7 @@ fn a_tree_s_cursor_moves_by_letters_and_arrows_folds_climbs_and_opens_its_row() 
     key(&mut rt, Key::Right);
     assert!(rt.state.ui("tree").unfolded.contains("plot"), "the right arrow unfolded it");
     // On a row that folds nothing, h climbs to the row it is under.
-    run(&mut rt, "list.pick id=beans tile=tree");
+    run(&mut rt, "list.press id=beans tile=tree");
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("beans"));
     key(&mut rt, Key::Left);
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("plot"), "the left arrow went to the row beans is under");

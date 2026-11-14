@@ -9,9 +9,9 @@ use super::{Action, Actor, App, Outcome, About};
 use crate::actline::Args;
 use crate::cursor::{self, Step};
 
-static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1; neither, the row its cursor is on. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks; a row that only folds (a revision, a component) shows what is under it, or puts it away")
+static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1; neither, the row its cursor is on. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks, and a folder the person opens unfolds (list.open where=new opens a note fresh). A row that only folds (a revision, a component) shows what is under it, or puts it away")
     .args(&[("id", ArgSpec::text("the row's id, as the list gives it").optional()), ("n", ArgSpec::number("the row, from 1").optional())])
-    .keys(&[KeyRow::on("enter", "rows", "open the row the cursor is on"), KeyRow::via("a press on a row of a list")])
+    .keys(&[KeyRow::on("enter", "rows", "open the row the cursor is on"), KeyRow::via("a second press on a row soon after the first (list.press)")])
     .examples(&[Example { act: "list.pick n=1 tile=beds", does: "opens the first bed where the tile's opens land", safe: None }]);
 
 static STEP: ActionRow = ActionRow::new("list.step", Touches::Tile, "move a list tile's cursor (tile=, else the one with the keys) by= rows (1 the next, -1 the one before), as j and k do; page=true counts pages (the rows in view, less one); axis=column moves across a board's lanes to the same place in the next one, axis=group to the first row of the next group. The cursor is one row, kept by its id as the rows change under it; it is no pointer's hover, and a first step starts from the row of the note the list's reader shows. A cursor is the person's: an agent moves the one of a tile they are not on")
@@ -32,13 +32,24 @@ static STEP: ActionRow = ActionRow::new("list.step", Touches::Tile, "move a list
     ])
     .examples(&[Example { act: "list.step by=1 tile=beds", does: "moves the beds' cursor to the next row", safe: Some(true) }]);
 
-static SELECT: ActionRow = ActionRow::new("list.select", Touches::Tile, "put a list tile's cursor (tile=, else the one with the keys) on row n, counted as the rows are drawn: from 1, or from the end when negative (-1 the last). It opens nothing. A cursor is the person's: an agent moves the one of a tile they are not on")
+static SELECT: ActionRow = ActionRow::new("list.select", Touches::Tile, "put a list tile's cursor (tile=, else the one with the keys) on row n, counted as the rows are drawn: from 1, or from the end when negative (-1 the last). It opens nothing: the note the row opens shows in the tiles the list's select wires name (a pinned reader, one being written in and the one with the person's keys keep theirs), and with no select wire nowhere. A cursor is the person's: an agent moves the one of a tile they are not on")
     .args(&[("n", ArgSpec::number("the row, from 1; negative, from the end (-1 the last)"))])
     .keys(&[
         KeyRow::with("home", Some("rows"), "the first row", &[("n", Scalar::Whole(1))]),
         KeyRow::with("end", Some("rows"), "the last row", &[("n", Scalar::Whole(-1))]),
     ])
     .examples(&[Example { act: "list.select n=1 tile=beds", does: "puts the beds' cursor on their first row", safe: Some(true) }]);
+
+static OPEN: ActionRow = ActionRow::new("list.open", Touches::Nothing, "open a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1; neither, the row its cursor is on. where=home (default) is the list's own pick (list.pick); where=new opens fresh: a note the row opens lands beside what is shown, never over it (the tile's alt wire, else its container's rule, else beside the reader its opens land in)")
+    .args(&[("id", ArgSpec::text("the row's id, as the list gives it").optional()), ("n", ArgSpec::number("the row, from 1").optional()), ("where", ArgSpec::text("home (default): where the tile's opens land; new: fresh, beside what is shown").optional().choices(&["home", "new"]))])
+    .keys(&[KeyRow::with("alt+enter", Some("rows"), "open it fresh: beside what is shown", &[("where", Scalar::Text("new"))]), KeyRow::via("a press on a row with Option or the shortcut modifier held, or the middle button (list.press)")])
+    .examples(&[Example { act: "list.open n=1 where=new tile=beds", does: "opens the first bed fresh: in a reader beside the one the tile's opens land in", safe: None }]);
+
+static PRESS: ActionRow = ActionRow::new("list.press", Touches::Tile, "a press on a row of a list tile (tile=, else the one with the keys), as the pointer says it: id= the row, mods= the modifiers held (8 Option, 16 the shortcut modifier, 4 Shift; added together), button= 1 for the middle button. What it asks for is the one rule every door's lists answer a press with: the press that gives the tile the keys puts the cursor on the row and nothing else; a press selects (the cursor, and what the tile's select wires show, as list.select does); a second on the same row soon after opens (list.pick); Option or the shortcut modifier held, or the middle button, opens fresh (list.open where=new). A row that runs nothing and only folds is opened by a press at once. The person's: it is their pointer")
+    .person("a press is the person's pointer: an agent says what it wants of the row \u{b7} list.select n=, list.pick id=, list.open id= where=new")
+    .args(&[("id", ArgSpec::text("the row's id, as the list gives it")), ("mods", ArgSpec::number("the modifiers held, as bits: 4 Shift, 8 Option, 16 the shortcut modifier").optional()), ("button", ArgSpec::number("0 the primary button (default), 1 the middle").optional()), ("at", ArgSpec::number("when, in milliseconds of the window's clock: two presses on a row within 400 are a double press (default: now)").optional())])
+    .keys(&[KeyRow::via("a press on a row of a list: once to select, twice to open; with Option or the shortcut modifier held, or the middle button, to open fresh")])
+    .examples(&[Example { act: "list.press id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree", does: "selects that row, as one press on it does: the reader the tree's select wire names shows its note", safe: Some(true) }]);
 
 static SORT: ActionRow = ActionRow::new("list.sort", Touches::Nothing, "sort a list tile by a property: by= its name (or created, updated, title), order= asc or desc. An empty by= puts it back as its spec has it")
     .args(&[("by", ArgSpec::text("a property name, or created, updated, title; empty clears it").optional()), ("order", ArgSpec::text("asc or desc").optional().choices(&["asc", "desc"]))])
@@ -61,7 +72,7 @@ static NARROW: ActionRow = ActionRow::new("facets.set", Touches::Nothing, "narro
     .examples(&[Example { act: "facets.set key=stage value=sown tile=beds", does: "keeps the beds whose stage is sown", safe: Some(true) }]);
 
 // (The cursor's steps first: the hint row says a tile's keys in the order their rows are listed.)
-pub static ACTIONS: &[Action] = &[Action { row: &STEP, run: step, about: About::Lists }, Action { row: &PICK, run: pick, about: About::Lists }, Action { row: &SELECT, run: select, about: About::Lists }, Action { row: &SORT, run: sort, about: About::Lists }, Action { row: &GROUP, run: group, about: About::Lists }, Action { row: &LAYOUT, run: layout, about: About::Lists }, Action { row: &NARROW, run: narrow, about: About::Lists }];
+pub static ACTIONS: &[Action] = &[Action { row: &STEP, run: step, about: About::Lists }, Action { row: &PICK, run: pick, about: About::Lists }, Action { row: &SELECT, run: select, about: About::Lists }, Action { row: &OPEN, run: open, about: About::Lists }, Action { row: &PRESS, run: press, about: About::Lists }, Action { row: &SORT, run: sort, about: About::Lists }, Action { row: &GROUP, run: group, about: About::Lists }, Action { row: &LAYOUT, run: layout, about: About::Lists }, Action { row: &NARROW, run: narrow, about: About::Lists }];
 
 /// The list tile an act is about: the one the dispatcher found for it (`App::target`: the one aimed at, else the one
 /// with the keys when it lists, else the first that does).
@@ -72,8 +83,8 @@ fn unfolds(app: &App, tile: &str, row: &crate::page::ListRow) -> bool { row.fold
 
 /// The one pick of a row, whatever the list is of: a press on a row, `list.pick` and the door's name for it in a
 /// tree (`tree.pick`). It runs the row's own act line from the list's tile, as whoever picks. In a list whose
-/// folders unfold, the person's pick of the row already open folds or unfolds it instead, and a folder they open
-/// unfolds: that is the row's own word (`folds`), read here and nowhere else.
+/// folders unfold, a folder the person opens unfolds: that is the row's own word (`folds`), read here and nowhere
+/// else. (Folding one is `tree.fold`: its mark's press, and the keys.)
 pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
     let rows = app.rows_of(&tile);
@@ -93,15 +104,17 @@ pub(super) fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         fold(app, &tile, &row.id, None);
         return Outcome::answer(json!({ "tile": app.layout.name(&tile), "row": row.id, "open": app.ui(&tile).unfolded.contains(&row.id) }));
     };
+    // (A folder the person opens unfolds. Folding one is its mark's own press, or the keys that fold: a press on a
+    // row first shows its note where the tile's select wires say, so "the note already open" is no sign to fold by.)
     let folder = app.stands(by) && unfolds(app, &tile, &row);
-    if folder && app.home_note(&tile).as_deref() == Some(row.id.as_str()) {
-        fold(app, &tile, &row.id, None);
-        return Outcome::done();
-    }
     // The row's own act line, as the request it reads as, from this tile: where a note lands is the layout's to
     // say, and who may run it the dispatcher's.
     let request = match crate::actline::parse(&line) { Ok(request) => request, Err(why) => return Outcome::refused(format!("the row {} runs a line that doesn't read: {}", row.label, why.0)) };
+    // An open fresh is the verb of this pick: held while the row's line runs, and read by the one open.
+    let fresh = app.fresh || args.flag("fresh") == Some(true);
+    let outer = std::mem::replace(&mut app.st.fresh, fresh);
     let ran = app.act_from(request, &app.layout.name(&tile), by.clone());
+    app.st.fresh = outer;
     if ran.ok && folder { fold(app, &tile, &row.id, Some(true)) }
     Outcome { answer: json!({ "ran": line, "answer": ran.answer }), ..ran }
 }
@@ -112,6 +125,23 @@ pub(super) fn cursor_at(app: &App, tile: &str) -> Option<usize> {
     let rows = app.rows_of(tile);
     let at = |id: &str| rows.iter().position(|row| row.id == id);
     app.ui(tile).cursor.as_deref().and_then(at).or_else(|| app.home_note(tile).as_deref().and_then(at))
+}
+
+/// The note the row a list tile's cursor is on opens: its own act line, read (the service wrote it), when that line
+/// is the open. None: on no row, or a row that opens no note (a screen's, a program's).
+pub(super) fn cursor_note(app: &App, tile: &str) -> Option<String> {
+    let rows = app.rows_of(tile);
+    let row = app.ui(tile).cursor.as_deref().and_then(|id| rows.iter().find(|row| row.id == id))?;
+    let request = crate::actline::parse(row.act.as_deref()?).ok()?;
+    (request.action == super::nav::OPEN.id).then(|| request.args.get("id").and_then(serde_json::Value::as_str).map(str::to_string)).flatten()
+}
+
+/// The cursor moved: the note its row opens shows where the tile's select wires say (`App::picked`, the one
+/// delivery), and the answer names the tiles that took it.
+fn shown(app: &mut App, tile: &str, by: &Actor, mut moved: Outcome) -> Outcome {
+    if !moved.ok { return moved }
+    if let Some(note) = cursor_note(app, tile) { let took = app.picked(tile, &note, by); if !took.is_empty() { moved.answer["shows"] = json!(took) } }
+    moved
 }
 
 /// A list tile's cursor put on the row at `at`, and that row brought into view.
@@ -132,8 +162,14 @@ fn drawn(app: &App, tile: &str) -> Option<(bool, Vec<Vec<usize>>)> {
 /// The cursor of a list moved by rows or by pages of the rows its view shows (`cursor::stepped`, the rule every
 /// door's lists ask), across to the same place in the next lane, or to the next group's first row. It moves through
 /// the rows in the order they are drawn, and in lanes it stays in its lane: a lane is a list.
-fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+fn step(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
+    let moved = stepped(app, &tile, args);
+    shown(app, &tile, by, moved)
+}
+
+fn stepped(app: &mut App, tile: &str, args: &Args) -> Outcome {
+    let tile = tile.to_string();
     let Some((lanes, sections)) = drawn(app, &tile) else { return Outcome::refused(format!("{} lists nothing to move through", app.layout.name(&tile))) };
     let at = cursor_at(app, &tile);
     let by = args.number("by").map_or(1, |by| by as i64);
@@ -164,12 +200,58 @@ fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
 }
 
 /// The cursor put on a row by its number, as the rows are drawn: from 1, or from the end.
-fn select(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+fn select(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
     let Some(order) = drawn(app, &tile).map(|(_, sections)| sections.concat()) else { return Outcome::refused(format!("{} lists nothing to move through", app.layout.name(&tile))) };
     let n = args.number("n").unwrap_or(1.0) as i64;
     let at = if n < 0 { order.len() as i64 + n } else { n - 1 };
-    match usize::try_from(at).ok().and_then(|at| order.get(at)) { Some(row) => cursor_to(app, &tile, *row), None => Outcome::refused(format!("{} lists {} rows: there is no row {n}", app.layout.name(&tile), order.len())) }
+    let moved = match usize::try_from(at).ok().and_then(|at| order.get(at)) { Some(row) => cursor_to(app, &tile, *row), None => Outcome::refused(format!("{} lists {} rows: there is no row {n}", app.layout.name(&tile), order.len())) };
+    shown(app, &tile, by, moved)
+}
+
+/// A row opened by the door's name for it: the list's own pick, fresh when it says `where=new` (the verb is held
+/// while the pick runs, and the one open reads it).
+fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let fresh = app.fresh || args.text("where") == Some("new");
+    let outer = std::mem::replace(&mut app.st.fresh, fresh);
+    let ran = pick(app, args, by);
+    app.st.fresh = outer;
+    ran
+}
+
+/// A press on a row, by the pointer: the one place a gesture becomes a verb. The rule is the door's (`press::Presses`,
+/// outline-core's `rowGesture`, held by `core-contract.json`); each verb runs the list's own act for it, so the step
+/// it leaves is the one a key would.
+fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    use crate::press::{Gesture, Press};
+    let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(row) = args.text("id").map(str::to_string) else { return Outcome::refused("list.press names the row pressed: id=") };
+    let Some(listed) = app.rows_of(&tile).iter().find(|listed| listed.id == row).cloned() else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
+    // The press that gave the tile the keys: the tile had them not, when the pointer went down (`App::pressed_in`
+    // gives them before the line runs, and says so here).
+    let focusing = app.st.focusing.take().is_some_and(|(given, at)| given == tile && at.elapsed() < std::time::Duration::from_secs(1));
+    let now = args.number("at").map_or_else(|| app.began.elapsed().as_millis() as u64, |at| at.max(0.0) as u64);
+    let gesture = app.st.presses.press(&format!("{tile}/{row}"), Press { mods: args.number("mods").map_or(0, |mods| mods as u32), button: args.number("button").map_or(0, |button| button as u32), now, focusing, untimed: false });
+    let name = app.layout.name(&tile);
+    // A row that runs nothing and only folds (a revision's change, a component's example) is opened by a press at
+    // once, as a fold's own mark is: there is nothing to select it for.
+    let gesture = if listed.act.is_none() { Gesture::Open } else { gesture };
+    let ran = match gesture {
+        // The cursor on the row: alone for the press that brought the keys, else with what the select wires show.
+        Gesture::Focus | Gesture::Select => {
+            let Some(at) = app.rows_of(&tile).iter().position(|listed| listed.id == row) else { return Outcome::refused(format!("{name} lists no such row")) };
+            let moved = cursor_to(app, &tile, at);
+            if gesture == Gesture::Select { shown(app, &tile, by, moved) } else { moved }
+        }
+        // Opened, by the list's own act for it: the step it leaves is the one Return leaves.
+        Gesture::Open | Gesture::Fresh => {
+            let mut asked = serde_json::Map::new();
+            asked.insert("id".into(), json!(row));
+            if gesture == Gesture::Fresh { asked.insert("where".into(), json!("new")); }
+            app.act_request(crate::actline::Request { action: if gesture == Gesture::Fresh { OPEN.id } else { PICK.id }.to_string(), tile: Some(name), by: None, args: asked }, by.clone())
+        }
+    };
+    Outcome { answer: json!({ "gesture": gesture.word(), "answer": ran.answer }), ..ran }
 }
 
 /// A folder of a list opened (`open: true`), folded, or the other way: the tile's own state, asked of the service next.

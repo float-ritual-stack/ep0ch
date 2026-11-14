@@ -42,7 +42,11 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         // An extension's screen is saved under a name of the person's own first.
         ("screen.save", _) => vec!["screen.save name=Beds"],
         // A list's own actions run on a list tile: the garden's own screen has one, named as the examples name it.
-        ("list.pick" | "list.step" | "list.select" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
+        ("list.pick" | "list.step" | "list.select" | "list.open" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
+        // A press names a row the tree lists.
+        ("list.press", _) => vec!["tree.fold id=plot open=true"],
+        // A wire is picked on screen once one is being set: on a screen of readers, so every tile there takes it.
+        ("wire.pick", _) if on == Some("linking") => vec!["screen.open name=nine-readers", "wire.pick verb=open"],
         // An extension's settings are changed, and it is removed, once it is installed; a form's keys need the form.
         ("extensions.uninstall" | "extensions.configure", _) => vec!["extensions.install id=waiting"],
         ("form.save" | "form.close", _) => vec!["extensions.install id=waiting", "extensions.configure id=waiting"],
@@ -58,6 +62,8 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
     match on {
         // What the tile with the keys adds to them: a list's keys need a list with the keys and its cursor on a row,
         // a tree's the tree; what Escape steps back out of needs it open.
+        // (A list about a note is held and aimed where one is: the reader's backlinks.)
+        Some("rows") if matches!(action, "tile.hold" | "tile.aim") => lines.push("tile.focus tile=backlinks"),
         Some("rows") => lines.extend(["tile.focus tile=beds", "list.select n=1"]),
         Some("branches") => lines.extend(["tile.focus tile=tree", "list.select n=1"]),
         Some("zoomed") => lines.push("tile.zoom on=true"),
@@ -95,7 +101,10 @@ fn ready(case: &Case) -> Runtime<App> {
     let mut g = garden(ok());
     // The outline has a screen of its own, as the examples name it: a list of the beds beside a reader.
     screens_are(&mut g, serde_json::json!([screen_row("garden-work", serde_json::json!({ "focus": "reader", "root": { "t": "split", "dir": "row", "weights": [0.4, 0.6], "kids": [
-        { "t": "leaf", "kind": "screens.query", "role": "query", "name": "beds", "query": "type=chore", "wires": [{ "verb": "select", "to": "reader" }] }, { "t": "leaf", "kind": "screens.reader", "role": "reader", "name": "reader" }] } }), serde_json::json!([]))]));
+        { "t": "leaf", "kind": "screens.query", "role": "query", "name": "beds", "query": "type=chore", "wires": [{ "verb": "select", "to": "reader" }] }, { "t": "leaf", "kind": "screens.reader", "role": "reader", "name": "reader" }] } }), serde_json::json!([])),
+        // Nine readers, three rows of three, the keys in the middle one: a wire picked by a number or a side lands in a reader.
+        screen_row("nine-readers", serde_json::json!({ "focus": "r5", "root": { "t": "split", "dir": "col", "weights": [0.34, 0.33, 0.33], "kids": (0..3).map(|row| serde_json::json!({ "t": "split", "dir": "row", "weights": [0.34, 0.33, 0.33],
+            "kids": (1..=3).map(|n| serde_json::json!({ "t": "leaf", "kind": "screens.reader", "role": "reader", "name": format!("r{}", row * 3 + n) })).collect::<Vec<_>>() })).collect::<Vec<_>>() } }), serde_json::json!([]))]));
     // Its terminal tiles run a made-up shell: a program is the same every run.
     let mut app = g.app.running_on(Box::new(crate::pty::canned::Canned::read(&serde_json::json!({ "backend": "herdr-core", "keeps": true }))));
     for line in setup(case.action, &case.line, case.on) { assert!(act(&mut app, line).ok, "{line} sets up {}", case.line) }
@@ -188,7 +197,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "fresh", "note.untrash", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "list.press", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "tile.link", "reader.follow", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

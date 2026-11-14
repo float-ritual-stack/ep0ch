@@ -172,6 +172,7 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+l` | `bar.open scope=query` | everywhere | open the bar on a query |
 | `escape` | `bar.close` | bar | put the bar away |
 | `enter` | `bar.pick` | bar | pick the lit row |
+| `alt+enter` | `bar.pick alt=true` | bar | pick it the other way: a note opens fresh, beside what is shown |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
 | `l` | `tree.fold open=true` | branches | unfold the row |
@@ -194,6 +195,7 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `enter` | `list.pick` | rows | open the row the cursor is on |
 | `home` | `list.select n=1` | rows | the first row |
 | `end` | `list.select n=-1` | rows | the last row |
+| `alt+enter` | `list.open where=new` | rows | open it fresh: beside what is shown |
 | `escape` | `notice.dismiss` | noticed | dismiss the notice |
 | `alt+n` | `tab.select by=1` | tile | the next tab of this set |
 | `alt+p` | `tab.select by=-1` | tile | the tab before |
@@ -239,6 +241,38 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
 | `mod+shift+l` | `layout.lock` | everywhere | lock or unlock the arrangement |
+| `alt+l then o` | `wire.pick verb=open` | tile | choose where this tile's opens land |
+| `alt+l then s` | `wire.pick verb=select` | tile | choose where what its cursor is on shows |
+| `alt+l then a` | `wire.pick verb=alt` | tile | choose where its open fresh lands |
+| `escape` | `wire.pick on=false` | linking | lets go: no wire changes |
+| `q` | `wire.pick on=false` | linking | lets go: no wire changes |
+| `o` | `wire.pick verb=open` | linking | the wire for where an open lands |
+| `s` | `wire.pick verb=select` | linking | the wire for where a select shows |
+| `a` | `wire.pick verb=alt` | linking | the wire for where an open fresh lands |
+| `x` | `wire.pick unlink=true` | linking | unlink: take this wire away |
+| `h` | `wire.pick dir=left` | linking | link to the tile on the left |
+| `left` | `wire.pick dir=left` | linking | link to the tile on the left |
+| `l` | `wire.pick dir=right` | linking | link to the tile on the right |
+| `right` | `wire.pick dir=right` | linking | link to the tile on the right |
+| `k` | `wire.pick dir=up` | linking | link to the tile above |
+| `up` | `wire.pick dir=up` | linking | link to the tile above |
+| `j` | `wire.pick dir=down` | linking | link to the tile below |
+| `down` | `wire.pick dir=down` | linking | link to the tile below |
+| `1` | `wire.pick n=1` | linking | link to tile 1 |
+| `2` | `wire.pick n=2` | linking | link to tile 2 |
+| `3` | `wire.pick n=3` | linking | link to tile 3 |
+| `4` | `wire.pick n=4` | linking | link to tile 4 |
+| `5` | `wire.pick n=5` | linking | link to tile 5 |
+| `6` | `wire.pick n=6` | linking | link to tile 6 |
+| `7` | `wire.pick n=7` | linking | link to tile 7 |
+| `8` | `wire.pick n=8` | linking | link to tile 8 |
+| `9` | `wire.pick n=9` | linking | link to tile 9 |
+| `shift+o` | `tile.preview` | tile | a preview beside this tile, wired to it |
+| `alt+shift+o` | `tile.preview where=down` | tile | a preview below this tile, wired to it |
+| `p` | `reader.pin` | page | pin this reader on its note, or let it go |
+| `shift+b` | `tile.hold` | rows | hold this list on its note, or let it follow its reader |
+| `b` | `tile.aim` | page | aim the lists about a note at this reader's |
+| `b` | `tile.aim` | rows | aim this list at its reader's note again |
 | `escape` | `layout.drop cancel=true` | moving | lets go: the tile stays where it was |
 | `mod+shift+s` | `screen.save` | everywhere | save the arrangement as its screen |
 | `mod+shift+r` | `screen.reset` | everywhere | put the arrangement back as its screen has it |

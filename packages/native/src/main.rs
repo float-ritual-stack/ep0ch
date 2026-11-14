@@ -22,6 +22,7 @@ mod layout;
 mod list;
 mod page;
 mod parts;
+mod press;
 mod pty;
 mod query;
 mod screen;

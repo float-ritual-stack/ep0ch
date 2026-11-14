@@ -146,6 +146,8 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if same { for field in ["source", "subject"] { if let Some(value) = app.spec(&from).and_then(|s| s.fields.get(field)).cloned() { spec.fields.insert(field.into(), value); } } }
     let note = app.note_of(&from).filter(|_| reads(&kind) && same);
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
+    // A tile made by hand is one the person asked for: no open aimed elsewhere takes it for showing the note.
+    if outcome.ok && app.stands(by) && let Some(made) = app.layout.named(&name) { app.ui_mut(&made).deliberate = true }
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }
     outcome
 }
@@ -182,7 +184,14 @@ fn focus(app: &mut App, args: &Args, by: &Actor) -> Outcome {
         (None, Some(dir)) => match neighbour(&app.layout.rects(app.area, &|_| false), &app.layout.focus, dir) { Some(next) => next, None => return Outcome::refused(format!("there is no tile {} of this one", match dir { Dir::Left => "left", Dir::Right => "right", Dir::Up => "above", Dir::Down => "below" })) },
         (None, None) => return Outcome::refused("tile.focus names a tile (tile=), a direction (dir=) or stops on (by=)"),
     };
-    app.reshape(&Op::Focus { tile, quiet: false }, by)
+    // A tile named is what a press says (`keys::follow`, `App::pressed_in`): the tile it gave the keys is noted, so
+    // the press on a row that brought them only selects (`list.press`, the door's rule).
+    let given = app.aimed.is_some() && app.stands(by) && app.layout.focus != tile;
+    let done = app.reshape(&Op::Focus { tile: tile.clone(), quiet: false }, by);
+    if done.ok && given { app.st.focusing = Some((tile.clone(), std::time::Instant::now())) }
+    // The keys on a tile: what landed there has been seen.
+    if done.ok && app.stands(by) { app.ui_mut(&tile).arrived = None }
+    done
 }
 
 fn tab(app: &mut App, args: &Args, by: &Actor) -> Outcome { app.reshape(&Op::Tab { tile: target(app), by: Some(args.number("by").map_or(1, |by| by as i64)) }, by) }

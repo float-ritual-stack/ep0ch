@@ -560,3 +560,24 @@ fn tab_stops_where_outline_core_s_tab_stops_says() {
         assert_eq!((json!(next_stop(&stops, focus, 1)), json!(next_stop(&stops, focus, -1))), (case["next"].clone(), case["before"].clone()), "{name}: one on, one back");
     }
 }
+
+/// What a press on a list's row asks for is outline-core's `rowGesture` (the door's `RowPresses` asks it), asked of
+/// `press::Presses` a run of presses at a time: each press with what the one before left.
+#[test]
+fn a_press_on_a_row_asks_what_outline_core_s_row_gesture_says() {
+    use crate::press::{Press, Presses};
+    let rows = table("core-contract")["presses"].as_array().unwrap().clone();
+    assert!(rows.len() >= 15);
+    for case in &rows {
+        let mut presses = Presses::default();
+        let said: Vec<&str> = case["presses"].as_array().unwrap().iter().map(|press| {
+            let flag = |name: &str| press[name] == true;
+            // (`selected` is context the rule keeps and never decides by: the port takes none.)
+            presses.press(press["row"].as_str().unwrap(), Press { mods: press["mods"].as_u64().unwrap_or(0) as u32, button: press["button"].as_u64().unwrap_or(0) as u32, now: press["now"].as_u64().unwrap(), focusing: flag("focusing"), untimed: flag("untimed") }).word()
+        }).collect();
+        let theirs: Vec<&str> = case["gestures"].as_array().unwrap().iter().map(|gesture| gesture.as_str().unwrap()).collect();
+        assert_eq!(said, theirs, "{}", case["name"]);
+    }
+    // The bits a press is told in are the door's.
+    assert_eq!((crate::press::SHIFT, crate::press::ALT, crate::press::CTRL, crate::press::MIDDLE, crate::press::DOUBLE_MS), (4, 8, 16, 1, 400));
+}

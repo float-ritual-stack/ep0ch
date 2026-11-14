@@ -38,7 +38,7 @@ fn the_tiles_about_a_note_follow_the_reader_and_a_hidden_one_asks_nothing() {
     assert_eq!(rt.state.subject_of(&rt.state.layout.named("threads").unwrap()).as_deref(), Some("plot"));
     assert!(rt.find("tile/threads/row/thread-plot").is_some(), "{:?}", keyed(&rt, "tile/threads/"));
     // The reader moves on: the list is asked of the note it shows now, and the row is that note's.
-    press(&mut rt, "tile/tree/row/shed");
+    open_row(&mut rt, "tile/tree/row/shed");
     assert_eq!(lists_of(&asked, "threads").last().map(|a| a["of"].clone()), Some(json!("shed")));
     assert!(rt.find("tile/threads/row/thread-shed").is_some() && rt.find("tile/threads/row/thread-plot").is_none());
     // Another tab in front: now it asks, of the same note, and the comments ask no more.
@@ -46,7 +46,7 @@ fn the_tiles_about_a_note_follow_the_reader_and_a_hidden_one_asks_nothing() {
     assert_eq!(lists_of(&asked, "proposals").last().map(|a| a["of"].clone()), Some(json!("shed")));
     assert!(rt.find("tile/proposals/row/proposal-shed").is_some());
     let before = lists_of(&asked, "threads").len();
-    press(&mut rt, "tile/tree/row/plot");
+    open_row(&mut rt, "tile/tree/row/plot");
     assert_eq!(lists_of(&asked, "proposals").last().map(|a| a["of"].clone()), Some(json!("plot")));
     assert_eq!(lists_of(&asked, "threads").len(), before, "the comments are behind a tab now: nothing is asked for them");
     // What `peek` says of one: what it follows and the rows the service listed, each with its own presses.
@@ -421,7 +421,7 @@ fn the_keys_screen_is_a_list_made_from_the_rows_the_window_hands_over() {
     assert!(rt.find("tile/keys/columns").is_some() && rt.find(&format!("tile/keys/row/{}", rows[0].id)).is_some(), "{:?}", keyed(&rt, "tile/keys/").iter().take(8).collect::<Vec<_>>());
     // A pick runs the line, where the same line typed in the bar would.
     let back = rows.iter().find(|row| row.act.as_deref() == Some("bar.open")).expect("the bar's chord is listed");
-    press(&mut rt, &format!("tile/keys/row/{}", back.id));
+    open_row(&mut rt, &format!("tile/keys/row/{}", back.id));
     assert!(rt.state.bar.open);
 }
 
