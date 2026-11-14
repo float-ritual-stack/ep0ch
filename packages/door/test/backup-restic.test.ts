@@ -612,6 +612,8 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
     expect((await job(broken)).ok).toBe(false);
     expect(readdirSync(staged)).toContain(old.logId);
+    // (A copy of the old chain, to put back below as a quiet outline's leftover.)
+    cpSync(join(staged, old.logId), join(root, "bothy-aside", old.logId), { recursive: true });
     // The upload confirmed: the snapshot took every chain, and the old one goes from here, said with its size.
     const said: string[] = [];
     expect((await job(c, { say: l => said.push(l) })).ok).toBe(true);
@@ -620,8 +622,16 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
     expect(said.filter(l => l.includes("old log chain"))).toEqual([expect.stringMatching(new RegExp(`^✓ seeds: let go of 1 old log chain here \\(${old.logId.slice(0, 8)} [\\d.]+ [kM]?B\\); the repository holds it$`))]);
     expect(s.lastRun!.detail).toMatch(new RegExp(`let go seeds's ${old.logId.slice(0, 8)} [\\d.]+ [kM]?B here`));
-    // A quiet run has nothing more to let go.
+    // A quiet outline (its log didn't move) whose newest snapshot is confirmed lets go too, on a run that uploads nothing:
+    // float-2's first run after the deploy, for outlines nobody wrote to.
+    cpSync(join(root, "bothy-aside", old.logId), join(staged, old.logId), { recursive: true });
     const quiet: string[] = [];
+    expect((await job(c, { say: l => quiet.push(l) })).ok).toBe(true);
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([expect.stringContaining(`✓ seeds: let go of 1 old log chain here (${old.logId.slice(0, 8)} `)]);
+    expect(readBackupState(c.state).lastRun!.detail).toContain(`let go seeds's ${old.logId.slice(0, 8)} `);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    // Then there is nothing more to let go.
+    quiet.length = 0;
     await job(c, { say: l => quiet.push(l) });
     expect(quiet.filter(l => l.includes("old log chain"))).toEqual([]);
     // The old log's history is restic's now: its exact entry restores from the repository.

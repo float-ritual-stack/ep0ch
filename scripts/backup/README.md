@@ -56,7 +56,7 @@ answer means nothing is archived that run, said with the command that starts it.
    this machine is confirmed for the current log (no change waiting, no error: the check install's rollback points
    use), since that snapshot took the whole folder. A relay doesn't count: it sends only the current chain. The run
    says each chain and its size, and so does `lastRun` in its state. Their history is then the repository's, for as
-   long as retention keeps a snapshot taken before (12 weeks at most): `ep0ch backup restore <outline> --log <old id>
+   long as retention keeps a snapshot taken before (about 12 weeks for one that changes daily): `ep0ch backup restore <outline> --log <old id>
    --entry <n>` reads it from there (PIE-1806).
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the
