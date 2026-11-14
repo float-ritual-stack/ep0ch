@@ -585,6 +585,25 @@ fn a_window_an_outline_and_an_extension_each_have_one_owner() {
     // rendered tile is asked in one place.
     none("an extension changed outside its own actions", ["\"extensions.install\"", "\"extensions.uninstall\"", "\"extensions.configure\"", "\"extensions.act\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/ext.rs")).collect());
     none("a rendered tile asked from somewhere new", strays("\"tiles.view\"", |path| path == "actions/app.rs"));
+    // What the service answers an extension's action with is read where the action was asked, whole: a note to open
+    // goes through the open action's own row (never a line written for it), words for the clipboard are the
+    // window's hands' to copy, asked for by that answer alone.
+    let ext = &sources().into_iter().find(|(path, _)| path == "actions/ext.rs").expect("actions/ext.rs").1;
+    // (Everything such an answer may ask of a client is the service's list, written down with a real answer:
+    // outline-core's served-act.json, `asks`.)
+    let acted = ext.split("fn acted(").nth(1).expect("actions/ext.rs has `acted`");
+    for asks in super::support::served_act()["asks"].as_array().expect("the fixture lists what an answer may ask") { let key = format!("\"{}\"", asks.as_str().unwrap()); assert!(acted.contains(&key), "actions/ext.rs's `acted` reads no {key}: what an extension's action answers is done here or said not done") }
+    assert!(acted.contains("super::nav::OPEN.id"), "a note an extension's action asks to have opened goes through the open action's own row");
+    none("a second reader of what is written as a Resource ref (`ext::resource_ref`, held to outline-core's rows)", strays("\"resource:\"", |path| path == "ext.rs"));
+    none("the clipboard written outside the window's hands (`keys::effects`)", strays("tx.copy(", |path| path == "keys.rs"));
+    none("words put on the clipboard for somebody other than an extension's answer for the person", strays("st.copying =", |path| path == "actions/ext.rs"));
+    // A machine's name belongs to the machine that says it: whether the host asked may speak for an outline is one
+    // rule, asked before anybody is asked the way, and the launch that opens one from here is written once.
+    none("a second rule for whose a machine's name is", strays("fn vouched(", |path| path == "actions/outline.rs"));
+    let outline = &sources().into_iter().find(|(path, _)| path == "actions/outline.rs").expect("actions/outline.rs").1;
+    let switch = outline.split("fn switch(").nth(1).and_then(|rest| rest.split("\nfn ").next()).expect("the switch's run");
+    assert!(switch.find("vouched(").zip(switch.find("\"outlines.known\"")).is_some_and(|(rule, ask)| rule < ask), "outline.switch asks whose the machine's name is before it asks which outlines there are");
+    none("the window's launch line written somewhere new (`launch` in actions/outline.rs)", strays("ep0ch-native -- ", |path| path == "actions/outline.rs"));
     // Whose a script's act or a draft's ask is, the store is told by the action that knows; it reads no request to guess.
     none("the store told whose an event is from somewhere new", [".pressing(", ".holding("].iter().flat_map(|call| strays(call, |path| ["actions/script.rs", "actions/draft.rs", "store.rs"].contains(&path))).collect());
     let texts = sources();

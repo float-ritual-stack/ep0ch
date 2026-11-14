@@ -14,6 +14,11 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+/// Whether what an extension's action asks to have opened (`extensions.act`'s `open`) is written as a Resource ref
+/// and not a block's id: outline-core's `isResourceRef` by port, held to its rows (`core-contract.json`'s
+/// `resourceRefs`).
+pub fn resource_ref(open: &str) -> bool { ["file:", "web:", "resource:"].iter().any(|form| open.starts_with(form)) }
+
 /// `extensions.list`'s answer, as far as this window reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Extensions {
