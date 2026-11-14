@@ -58,8 +58,8 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
     match on {
         // What the tile with the keys adds to them: a list's keys need a list with the keys and its cursor on a row,
         // a tree's the tree; what Escape steps back out of needs it open.
-        Some("list") => lines.extend(["tile.focus tile=beds", "list.select n=1"]),
-        Some("tree") => lines.extend(["tile.focus tile=tree", "list.select n=1"]),
+        Some("rows") => lines.extend(["tile.focus tile=beds", "list.select n=1"]),
+        Some("branches") => lines.extend(["tile.focus tile=tree", "list.select n=1"]),
         Some("zoomed") => lines.push("tile.zoom on=true"),
         Some("docked") => lines.extend(["tile.dock edge=left tile=tree", "tile.focus tile=tree"]),
         Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), Some("program") if !lines.contains(&"terminal.open") => lines.push("terminal.open"),

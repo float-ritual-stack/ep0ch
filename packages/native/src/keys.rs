@@ -64,7 +64,8 @@ pub enum Layer {
     /// A tile has them, and nothing is typed anywhere.
     Tile,
     /// The tile with the keys lists rows and they are a tree's: the keys that fold and unfold the row the cursor
-    /// is on, over the list's own.
+    /// is on, over the list's own. (Named `branches`, as the next two are `rows` and `page`: a layer is named by
+    /// what is drawn there, never by a kind of tile a screen ships.)
     Tree,
     /// The tile with the keys lists rows: the keys that move its cursor and open the row it is on.
     List,
@@ -79,9 +80,9 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Program => "program", Layer::Selection => "selection", Layer::Tile => "tile", Layer::Tree => "tree", Layer::List => "list", Layer::Reader => "reader", Layer::Noticed => "noticed", Layer::Zoomed => "zoomed", Layer::Docked => "docked" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Program => "program", Layer::Selection => "selection", Layer::Tile => "tile", Layer::Tree => "branches", Layer::List => "rows", Layer::Reader => "page", Layer::Noticed => "noticed", Layer::Zoomed => "zoomed", Layer::Docked => "docked" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "program" => Layer::Program, "selection" => Layer::Selection, "tile" => Layer::Tile, "tree" => Layer::Tree, "list" => Layer::List, "reader" => Layer::Reader, "noticed" => Layer::Noticed, "zoomed" => Layer::Zoomed, "docked" => Layer::Docked, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, draft, program, selection, tree, list, reader, noticed, zoomed, docked and tile") }
+        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "program" => Layer::Program, "selection" => Layer::Selection, "tile" => Layer::Tile, "branches" => Layer::Tree, "rows" => Layer::List, "page" => Layer::Reader, "noticed" => Layer::Noticed, "zoomed" => Layer::Zoomed, "docked" => Layer::Docked, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, draft, program, selection, branches, rows, page, noticed, zoomed, docked and tile") }
     }
     /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
     /// hold, a list with rows has every key of one that only says something, and words picked in a reader leave

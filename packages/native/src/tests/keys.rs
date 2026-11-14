@@ -244,7 +244,7 @@ fn the_hint_row_says_the_keys_of_the_tile_that_has_them_from_the_table() {
     for row in ["the next row", "the row before", "unfold the row", "open the row the cursor is on", "step back: the keys to the screen's home tile"] { assert!(said.contains(&row), "{row} is said on a tree: {said:?}") }
     assert!(!said.contains(&"the next lane of a board"), "a tree's own h and l are said once, as the tree's: {said:?}");
     // The row is drawn under the tiles, each key as the table caps it.
-    let drawn: Vec<String> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("keys/"))).filter_map(|e| e.key).collect();
+    let drawn: Vec<String> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("hints/"))).filter_map(|e| e.key).collect();
     assert_eq!(drawn.len(), said.len(), "one line a hint: {drawn:?}");
     let first = rt.state.hinted().into_iter().find(|hint| hint.does == "the next row").unwrap();
     assert_eq!(first.caps.len(), 2, "j and the down arrow are one line: {:?}", first.caps);

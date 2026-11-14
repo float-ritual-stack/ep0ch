@@ -16,35 +16,35 @@ pub(super) static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open 
 static BACK: ActionRow = ActionRow::new("back", Touches::Tile, "go back to the note the reader showed before its last open (each reader keeps its own way back)")
     .args(&[("steps", ArgSpec::number("how many stops at once (default 1)").optional())])
     .typing()
-    .keys(&[KeyRow::keys("mod+[", "back"), KeyRow::on("alt+left backspace", "reader", "back to the note before")])
+    .keys(&[KeyRow::keys("mod+[", "back"), KeyRow::on("alt+left backspace", "page", "back to the note before")])
     .menu(&[MenuRow::new("Back", "Note", Some("mod+["))]);
 
 static FORWARD: ActionRow = ActionRow::new("forward", Touches::Tile, "go forward again to the note the reader went back from (each reader keeps its own way; a new open forgets it)")
     .args(&[("steps", ArgSpec::number("how many stops at once (default 1)").optional())])
     .typing()
-    .keys(&[KeyRow::on("alt+right", "reader", "forward again")])
+    .keys(&[KeyRow::on("alt+right", "page", "forward again")])
     .menu(&[MenuRow::new("Forward", "Note", Some("alt+right"))]);
 
 static UP: ActionRow = ActionRow::new("up", Touches::Tile, "open the note the reader's note is under, in that reader (the way back remembers where from)")
     .typing()
-    .keys(&[KeyRow::on("u", "reader", "the note this one is under")])
+    .keys(&[KeyRow::on("u", "page", "the note this one is under")])
     .menu(&[MenuRow::new("Up to its parent", "Note", Some("u"))]);
 
 static READING: ActionRow = ActionRow::new("reading.step", Touches::Tile, "move a reader's reading line (tile=, else the reader with the keys): by= parts of its page (1 the next, -1 the one before). The reading line is the part of the page the keys are on: it is shown beside the part, brought into view when it moves, and never moved by scrolling. The person's place: an agent moves the one of a reader they are not on")
     .args(&[("by", ArgSpec::number("1 the next part, -1 the one before (default 1)").optional())])
     .keys(&[
-        KeyRow::with("j down", Some("reader"), "the next part of the page", &[("by", Scalar::Whole(1))]),
-        KeyRow::with("k up", Some("reader"), "the part before", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("j down", Some("page"), "the next part of the page", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("k up", Some("page"), "the part before", &[("by", Scalar::Whole(-1))]),
     ])
     .examples(&[Example { act: "reading.step by=1 tile=reader", does: "moves the reader's reading line to the next part of its page", safe: Some(true) }]);
 
 static SCROLL: ActionRow = ActionRow::new("scroll", Touches::Tile, "scroll a reader's page (tile=, else the reader with the keys) without moving its reading line: by= pages (negative: up; a window scrolls by what its view shows, where the terminal door counts rows), or to= top or end")
     .args(&[("by", ArgSpec::number("pages to scroll down (negative: up)").optional()), ("to", ArgSpec::text("top or end").optional().choices(&["top", "end"]))])
     .keys(&[
-        KeyRow::with("pagedown space", Some("reader"), "a page down", &[("by", Scalar::Whole(1))]),
-        KeyRow::with("pageup", Some("reader"), "a page up", &[("by", Scalar::Whole(-1))]),
-        KeyRow::with("home", Some("reader"), "the top of the page", &[("to", Scalar::Text("top"))]),
-        KeyRow::with("end shift+g", Some("reader"), "the end of the page", &[("to", Scalar::Text("end"))]),
+        KeyRow::with("pagedown space", Some("page"), "a page down", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("pageup", Some("page"), "a page up", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("home", Some("page"), "the top of the page", &[("to", Scalar::Text("top"))]),
+        KeyRow::with("end shift+g", Some("page"), "the end of the page", &[("to", Scalar::Text("end"))]),
     ])
     .examples(&[Example { act: "scroll by=1 tile=reader", does: "scrolls the reader's page one page down", safe: Some(true) }]);
 

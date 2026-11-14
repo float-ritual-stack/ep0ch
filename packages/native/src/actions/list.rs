@@ -11,7 +11,7 @@ use crate::cursor::{self, Step};
 
 static PICK: ActionRow = ActionRow::new("list.pick", Touches::Nothing, "pick a row of a list tile (tile=, else the one with the keys): id= the row's id, or n= its number from 1; neither, the row its cursor is on. It runs the row's own act line (a note's row opens it where the tile's opens land, a screen's row opens the screen), as whoever picks; a row that only folds (a revision, a component) shows what is under it, or puts it away")
     .args(&[("id", ArgSpec::text("the row's id, as the list gives it").optional()), ("n", ArgSpec::number("the row, from 1").optional())])
-    .keys(&[KeyRow::on("enter", "list", "open the row the cursor is on"), KeyRow::via("a press on a row of a list")])
+    .keys(&[KeyRow::on("enter", "rows", "open the row the cursor is on"), KeyRow::via("a press on a row of a list")])
     .examples(&[Example { act: "list.pick n=1 tile=beds", does: "opens the first bed where the tile's opens land", safe: None }]);
 
 static STEP: ActionRow = ActionRow::new("list.step", Touches::Tile, "move a list tile's cursor (tile=, else the one with the keys) by= rows (1 the next, -1 the one before), as j and k do; page=true counts pages (the rows in view, less one); axis=column moves across a board's lanes to the same place in the next one, axis=group to the first row of the next group. The cursor is one row, kept by its id as the rows change under it; it is no pointer's hover, and a first step starts from the row of the note the list's reader shows. A cursor is the person's: an agent moves the one of a tile they are not on")
@@ -21,22 +21,22 @@ static STEP: ActionRow = ActionRow::new("list.step", Touches::Tile, "move a list
         ("page", ArgSpec::flag("by= counts pages, not rows: a page is the rows in view, less one").optional()),
     ])
     .keys(&[
-        KeyRow::with("j down", Some("list"), "the next row", &[("by", Scalar::Whole(1))]),
-        KeyRow::with("k up", Some("list"), "the row before", &[("by", Scalar::Whole(-1))]),
-        KeyRow::with("pagedown", Some("list"), "a page of rows down", &[("by", Scalar::Whole(1)), ("page", Scalar::Flag(true))]),
-        KeyRow::with("pageup", Some("list"), "a page of rows up", &[("by", Scalar::Whole(-1)), ("page", Scalar::Flag(true))]),
-        KeyRow::with("l right", Some("list"), "the next lane of a board", &[("axis", Scalar::Text("column")), ("by", Scalar::Whole(1))]),
-        KeyRow::with("h left", Some("list"), "the lane before", &[("axis", Scalar::Text("column")), ("by", Scalar::Whole(-1))]),
-        KeyRow::with("shift+l", Some("list"), "the next group", &[("axis", Scalar::Text("group")), ("by", Scalar::Whole(1))]),
-        KeyRow::with("shift+h", Some("list"), "the group before", &[("axis", Scalar::Text("group")), ("by", Scalar::Whole(-1))]),
+        KeyRow::with("j down", Some("rows"), "the next row", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("k up", Some("rows"), "the row before", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("pagedown", Some("rows"), "a page of rows down", &[("by", Scalar::Whole(1)), ("page", Scalar::Flag(true))]),
+        KeyRow::with("pageup", Some("rows"), "a page of rows up", &[("by", Scalar::Whole(-1)), ("page", Scalar::Flag(true))]),
+        KeyRow::with("l right", Some("rows"), "the next lane of a board", &[("axis", Scalar::Text("column")), ("by", Scalar::Whole(1))]),
+        KeyRow::with("h left", Some("rows"), "the lane before", &[("axis", Scalar::Text("column")), ("by", Scalar::Whole(-1))]),
+        KeyRow::with("shift+l", Some("rows"), "the next group", &[("axis", Scalar::Text("group")), ("by", Scalar::Whole(1))]),
+        KeyRow::with("shift+h", Some("rows"), "the group before", &[("axis", Scalar::Text("group")), ("by", Scalar::Whole(-1))]),
     ])
     .examples(&[Example { act: "list.step by=1 tile=beds", does: "moves the beds' cursor to the next row", safe: Some(true) }]);
 
 static SELECT: ActionRow = ActionRow::new("list.select", Touches::Tile, "put a list tile's cursor (tile=, else the one with the keys) on row n, counted as the rows are drawn: from 1, or from the end when negative (-1 the last). It opens nothing. A cursor is the person's: an agent moves the one of a tile they are not on")
     .args(&[("n", ArgSpec::number("the row, from 1; negative, from the end (-1 the last)"))])
     .keys(&[
-        KeyRow::with("home", Some("list"), "the first row", &[("n", Scalar::Whole(1))]),
-        KeyRow::with("end", Some("list"), "the last row", &[("n", Scalar::Whole(-1))]),
+        KeyRow::with("home", Some("rows"), "the first row", &[("n", Scalar::Whole(1))]),
+        KeyRow::with("end", Some("rows"), "the last row", &[("n", Scalar::Whole(-1))]),
     ])
     .examples(&[Example { act: "list.select n=1 tile=beds", does: "puts the beds' cursor on their first row", safe: Some(true) }]);
 

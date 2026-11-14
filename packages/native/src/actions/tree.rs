@@ -12,9 +12,9 @@ static PICK: ActionRow = ActionRow::new("tree.pick", Touches::Nothing, "pick a r
 static FOLD: ActionRow = ActionRow::new("tree.fold", Touches::Nothing, "open (open=true) or fold (open=false) a row of the outline tree, else the other way: id= the row, else the one the tree's cursor is on. Folding the cursor's row when it is folded already, or folds nothing, moves the cursor to the row it is under. An agent's never folds away the row of the note the person has open")
     .args(&[("id", ArgSpec::text("a block id: the row that stands for it (default: the row the cursor is on)").kind("note").optional()), ("open", ArgSpec::flag("true opens, false folds; left out, the other way").optional())])
     .keys(&[
-        KeyRow::with("l right", Some("tree"), "unfold the row", &[("open", Scalar::Flag(true))]),
-        KeyRow::with("h left", Some("tree"), "fold the row, or go to the row it is under", &[("open", Scalar::Flag(false))]),
-        KeyRow::on("space", "tree", "fold or unfold the row"),
+        KeyRow::with("l right", Some("branches"), "unfold the row", &[("open", Scalar::Flag(true))]),
+        KeyRow::with("h left", Some("branches"), "fold the row, or go to the row it is under", &[("open", Scalar::Flag(false))]),
+        KeyRow::on("space", "branches", "fold or unfold the row"),
         KeyRow::via("a press on the open note's row in the tree"),
     ])
     .examples(&[Example { act: "tree.fold id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 open=true", does: "shows the notes under that row", safe: Some(true) }]);

@@ -288,10 +288,10 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
 /// keeps its room while it has nothing to say, so the tiles never move when the keys do.
 fn foot(s: &App, k: &Kit) -> El {
     let c = &k.c;
-    let mut line = row().key("keys").role("status").label("Keys").w_full().h(FOOT).gap(14.0).center_y().px(10.0).clip_rounded(0.0);
+    let mut line = row().key("hints").role("status").label("What the keys do here").w_full().h(FOOT).gap(14.0).center_y().px(10.0).clip_rounded(0.0);
     for (i, hint) in s.hinted().into_iter().enumerate() {
         let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
-        line = line.child(row().key(format!("keys/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
+        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
     }
     line
 }

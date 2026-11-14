@@ -134,20 +134,20 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | Chord | Act line | Where | Does |
 |---|---|---|---|
 | `mod+[` | `back` | everywhere | back |
-| `alt+left` | `back` | reader | back to the note before |
-| `backspace` | `back` | reader | back to the note before |
-| `alt+right` | `forward` | reader | forward again |
-| `u` | `up` | reader | the note this one is under |
-| `j` | `reading.step by=1` | reader | the next part of the page |
-| `down` | `reading.step by=1` | reader | the next part of the page |
-| `k` | `reading.step by=-1` | reader | the part before |
-| `up` | `reading.step by=-1` | reader | the part before |
-| `pagedown` | `scroll by=1` | reader | a page down |
-| `space` | `scroll by=1` | reader | a page down |
-| `pageup` | `scroll by=-1` | reader | a page up |
-| `home` | `scroll to=top` | reader | the top of the page |
-| `end` | `scroll to=end` | reader | the end of the page |
-| `shift+g` | `scroll to=end` | reader | the end of the page |
+| `alt+left` | `back` | page | back to the note before |
+| `backspace` | `back` | page | back to the note before |
+| `alt+right` | `forward` | page | forward again |
+| `u` | `up` | page | the note this one is under |
+| `j` | `reading.step by=1` | page | the next part of the page |
+| `down` | `reading.step by=1` | page | the next part of the page |
+| `k` | `reading.step by=-1` | page | the part before |
+| `up` | `reading.step by=-1` | page | the part before |
+| `pagedown` | `scroll by=1` | page | a page down |
+| `space` | `scroll by=1` | page | a page down |
+| `pageup` | `scroll by=-1` | page | a page up |
+| `home` | `scroll to=top` | page | the top of the page |
+| `end` | `scroll to=end` | page | the end of the page |
+| `shift+g` | `scroll to=end` | page | the end of the page |
 | `mod+n` | `note.new` | everywhere | a new note under the open one |
 | `mod+backspace` | `note.trash` | tile | move the open note to the Trash |
 | `alt+up` | `note.move step=up` | tile | move the note up |
@@ -174,26 +174,26 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `enter` | `bar.pick` | bar | pick the lit row |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
-| `l` | `tree.fold open=true` | tree | unfold the row |
-| `right` | `tree.fold open=true` | tree | unfold the row |
-| `h` | `tree.fold open=false` | tree | fold the row, or go to the row it is under |
-| `left` | `tree.fold open=false` | tree | fold the row, or go to the row it is under |
-| `space` | `tree.fold` | tree | fold or unfold the row |
-| `enter` | `list.pick` | list | open the row the cursor is on |
-| `j` | `list.step by=1` | list | the next row |
-| `down` | `list.step by=1` | list | the next row |
-| `k` | `list.step by=-1` | list | the row before |
-| `up` | `list.step by=-1` | list | the row before |
-| `pagedown` | `list.step by=1 page=true` | list | a page of rows down |
-| `pageup` | `list.step by=-1 page=true` | list | a page of rows up |
-| `l` | `list.step axis=column by=1` | list | the next lane of a board |
-| `right` | `list.step axis=column by=1` | list | the next lane of a board |
-| `h` | `list.step axis=column by=-1` | list | the lane before |
-| `left` | `list.step axis=column by=-1` | list | the lane before |
-| `shift+l` | `list.step axis=group by=1` | list | the next group |
-| `shift+h` | `list.step axis=group by=-1` | list | the group before |
-| `home` | `list.select n=1` | list | the first row |
-| `end` | `list.select n=-1` | list | the last row |
+| `l` | `tree.fold open=true` | branches | unfold the row |
+| `right` | `tree.fold open=true` | branches | unfold the row |
+| `h` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `left` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `space` | `tree.fold` | branches | fold or unfold the row |
+| `j` | `list.step by=1` | rows | the next row |
+| `down` | `list.step by=1` | rows | the next row |
+| `k` | `list.step by=-1` | rows | the row before |
+| `up` | `list.step by=-1` | rows | the row before |
+| `pagedown` | `list.step by=1 page=true` | rows | a page of rows down |
+| `pageup` | `list.step by=-1 page=true` | rows | a page of rows up |
+| `l` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `right` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `h` | `list.step axis=column by=-1` | rows | the lane before |
+| `left` | `list.step axis=column by=-1` | rows | the lane before |
+| `shift+l` | `list.step axis=group by=1` | rows | the next group |
+| `shift+h` | `list.step axis=group by=-1` | rows | the group before |
+| `enter` | `list.pick` | rows | open the row the cursor is on |
+| `home` | `list.select n=1` | rows | the first row |
+| `end` | `list.select n=-1` | rows | the last row |
 | `escape` | `notice.dismiss` | noticed | dismiss the notice |
 | `alt+n` | `tab.select by=1` | tile | the next tab of this set |
 | `alt+p` | `tab.select by=-1` | tile | the tab before |
@@ -255,7 +255,7 @@ action as the person, in the tile it names, over the kinds of tile it says; the 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
 notice, a zoom, the dock the keys are in, and last the keys home). What the tile with the keys draws adds its
-own keys over `tile`'s, the nearest first: `tree` over `list`, or `reader`, then what Escape steps back out of
+own keys over `tile`'s, the nearest first: `branches` (a tree's) over `rows` (a list's), or `page` (a reader's), then what Escape steps back out of
 there (`noticed`, `zoomed`, `docked`). So `j` is the list's in a list and the reader's in a reader, and one chord
 never means two things where the keys are. `peek`'s whereabouts say the layers that hold (`layers`).
 

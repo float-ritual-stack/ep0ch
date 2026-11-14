@@ -1134,7 +1134,9 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         assert!(act(&mut app, "screen.open name=keys").ok, "{:?}", app.notice);
         let listed: Vec<(String, crate::actline::Request, String)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty())
             .map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap(), ListRow::cell(&row.cells[2]))).collect();
-        let table: Vec<(String, crate::actline::Request, String)> = crate::keys::table().iter().map(|bind| (bind.spec.clone(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", crate::keys::Layer::name).to_string())).collect();
+        // (The service lists a row's keys once, as the row wrote them: `j down` is one row there and two chords of the table.)
+        let mut table: Vec<(String, crate::actline::Request, String)> = crate::keys::table().iter().map(|bind| (bind.row.to_string(), crate::actline::parse(&bind.line).unwrap(), bind.layer.map_or("everywhere", crate::keys::Layer::name).to_string())).collect();
+        table.dedup();
         assert_eq!(listed, table, "the keys screen equals the rows: the service wrote each line from the row this window handed it");
         // An action no key reaches is listed too, under what does reach it.
         assert!(rows(&app, "keys").iter().any(|row| row.group.as_deref() == Some("no key") && ListRow::cell(&row.cells[1]) == "proposal.apply"));
@@ -1147,7 +1149,10 @@ fn live_a_note_is_commented_on_its_proposals_and_revisions_reviewed_and_the_keys
         for _ in 0..100 { app.settle(); if act(&mut app, "screen.open name=seed-list").ok { break } std::thread::sleep(Duration::from_millis(50)) }
         assert_eq!(app.screen.name, "seed-list", "{:?}", app.notice);
         let table = crate::keys::rows(&app);
-        let tabled: Vec<(String, crate::actline::Request)> = table.as_array().unwrap().iter().map(|row| (row["chord"].as_str().unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap())).collect();
+        // (A row's keys once, as the row wrote them; a screen's own key is its chord.)
+        let mut tabled: Vec<(String, crate::actline::Request, String)> = table.as_array().unwrap().iter().map(|row| (row["keys"].as_str().or(row["chord"].as_str()).unwrap().to_string(), crate::actline::parse(row["line"].as_str().unwrap()).unwrap(), row["layer"].as_str().unwrap().to_string())).collect();
+        tabled.dedup();
+        let tabled: Vec<(String, crate::actline::Request)> = tabled.into_iter().map(|(keys, request, _)| (keys, request)).collect();
         let listed: Vec<(String, crate::actline::Request)> = rows(&app, "keys").iter().filter(|row| !ListRow::cell(&row.cells[0]).is_empty()).map(|row| (ListRow::cell(&row.cells[0]), crate::actline::parse(&ListRow::cell(&row.cells[1])).unwrap())).collect();
         assert_eq!(listed, tabled, "a screen's own keys are the list's first rows and the table's");
         assert_eq!(tabled[1], ("K".to_string(), crate::actline::parse("tile.focus tile=keys").unwrap()));
