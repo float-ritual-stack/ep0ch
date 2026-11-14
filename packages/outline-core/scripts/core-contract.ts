@@ -24,12 +24,12 @@ import { sourceLines } from "../src/code-ranges";
 import { way, whyNot, whySaid, type Why } from "../src/way-out";
 import { indentText } from "../src/draft-indent";
 import { mapCursor, type PlacedSpan } from "../src/draft-patch-place";
-import { findQuoted, quoteRefusal, type QuotedPassage } from "../src/drawn-passage";
+import { findQuoted, quoteRefusal, spanIn, wholePassage, type QuotedPassage } from "../src/drawn-passage";
 import { noteMediaLines } from "../src/media-line";
 import { pagePicture, proseMarkdown } from "../src/note-page";
 import { isMiss } from "../src/passage";
 import { ALL_LINK_GROUPS, LINK_GROUP_LABELS, LINK_GROUPS, linkGroupsNamed } from "../src/link-blocks";
-import { listSections, type ListGroup, type ListRow } from "../src/list-row";
+import { actOf, listSections, type ListGroup, type ListRow } from "../src/list-row";
 import { selectionQuery, type Clause } from "../src/query-clauses";
 import { newNoteRule, readSpec, targetFilled, type ScreenSpec } from "../src/screen-spec";
 
@@ -203,15 +203,35 @@ const QUOTED_TEXT = [
   "[img::pictures/beds.svg]",
   "",
   "Water the beds at dusk, and again at dawn.",
+  "",
+  "[img::pictures/shed.svg]",
+  "",
+  "- Net the peas against pigeons.",
+  "- Stake the beans before the wind.",
 ].join("\n");
-const QUOTED_PARTS: { kind: "prose" | "picture"; from: number; to: number }[] = [{ kind: "prose", from: 1, to: 3 }, { kind: "picture", from: 5, to: 5 }, { kind: "prose", from: 7, to: 7 }];
+const QUOTED_PARTS: { kind: "prose" | "picture"; from: number; to: number }[] = [{ kind: "prose", from: 1, to: 3 }, { kind: "picture", from: 5, to: 5 }, { kind: "prose", from: 7, to: 7 }, { kind: "picture", from: 9, to: 9 }, { kind: "prose", from: 11, to: 12 }];
+/**
+ * A comment thread on words of the note (a made-up one, by the id the stand-in garden lists for it): the end of one
+ * paragraph and the whole of the next. Where its words are in each part's own text is `quotedNote.marked` (`spanIn`),
+ * which the outliner's test holds to what `notes.page` answers once that comment is there.
+ */
+const MARKED = { id: "thread-sowing", exact: "the last frost.\n\nWater the beds at dusk." };
 function quotedNote() {
   const lines = QUOTED_TEXT.split("\n"), offsets = sourceLines(QUOTED_TEXT), media = noteMediaLines(QUOTED_TEXT);
   const parts = QUOTED_PARTS.map(p => ({
     type: "part", kind: p.kind, block: "sowing", span: { start: offsets[p.from]!.start, end: offsets[p.to]!.contentEnd }, line: p.from,
     view: p.kind === "prose" ? { type: "markdown", text: proseMarkdown(lines.slice(p.from, p.to + 1).join("\n"), new Map()) } : { type: "picture", ...pagePicture(media.get(p.from)!) },
   }));
-  return { id: "sowing", title: "Sowing plan", revision: 3, text: QUOTED_TEXT, chips: [{ key: "type", value: "plan" }], parts };
+  // The made-up thread's passage, as each part it reaches into is marked (the service's `marks`, a part by its line).
+  const at = QUOTED_TEXT.indexOf(MARKED.exact), thread = { id: MARKED.id, start: at, end: at + MARKED.exact.length };
+  const marked = parts.flatMap(p => {
+    const start = Math.max(thread.start, p.span.start), end = Math.min(thread.end, p.span.end);
+    const rendered = p.view.type === "markdown" ? (p.view as { text: string }).text : undefined;
+    if (end <= start || rendered === undefined) return [];
+    const found = spanIn(QUOTED_TEXT.slice(p.span.start, p.span.end), { start: start - p.span.start, end: end - p.span.start }, rendered);
+    return [{ line: p.line, marks: [{ kind: "thread", id: thread.id, ...(found ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: thread.id } } }), from: "threads" }] }];
+  });
+  return { id: "sowing", title: "Sowing plan", revision: 3, text: QUOTED_TEXT, chips: [{ key: "type", value: "plan" }], parts, thread, marked };
 }
 /** The text every other note of the stand-in garden has, by its title. */
 const PLOT_TEXT = "Plot [type::chore]\nBefore the rain.";
@@ -227,9 +247,19 @@ const QUOTED: { name: string; text: string; passage: QuotedPassage }[] = [
   { name: "and nearest an offset among them", text: QUOTED_TEXT, passage: { quote: "Water the beds at dusk", near: QUOTED_TEXT.length } },
   { name: "an act's quote= of words as they read: not in the source as written, found as drawn", text: QUOTED_TEXT, passage: { quote: "Sow the early peas in March" } },
   { name: "a quote of the source as written", text: QUOTED_TEXT, passage: { quote: "**before** the last frost." } },
+  { name: "a selection that starts inside a word and ends inside one (a press past the middle of a first letter): found as it came, and whole it is the words", text: QUOTED_TEXT,
+    passage: { quote: "ow the early peas in Marc", drawn: true, within: within(0) } },
+  { name: "the same from the first letter of a list item, across the next item's marker, as a Markdown view copies two items", text: QUOTED_TEXT,
+    passage: { quote: "et the peas against pigeons.\n- Stake the bea", drawn: true, within: within(4) } },
+  { name: "a list item selected from its first letter to its last: whole as it came", text: QUOTED_TEXT, passage: { quote: "Net the peas against pigeons.", drawn: true, within: within(4) } },
+  { name: "those whole words, sent as the quote of a comment: the first", text: QUOTED_TEXT, passage: { quote: "Sow the early peas in March", drawn: true, within: within(0) } },
+  { name: "and the second, across the two items", text: QUOTED_TEXT, passage: { quote: "Net the peas against pigeons. Stake the beans", drawn: true, within: within(4) } },
+  { name: "a list selected whole, as a Markdown view copies it: each item after its marker", text: QUOTED_TEXT, passage: { quote: "- Net the peas against pigeons.\n- Stake the beans before the wind.", drawn: true, within: within(4) } },
   { name: "words that are not in the note: refused with the nearest there are", text: QUOTED_TEXT, passage: { quote: "Sow the late peas in May", drawn: true, within: within(0) } },
   { name: "the garden's other notes: words of the note", text: PLOT_TEXT, passage: { quote: "Before the rain." } },
+  { name: "the same words, picked as a reader drew them (an act's passage.select)", text: PLOT_TEXT, passage: { quote: "Before the rain.", drawn: true } },
   { name: "words nobody wrote", text: PLOT_TEXT, passage: { quote: "words nobody wrote" } },
+  { name: "and picked as drawn", text: PLOT_TEXT, passage: { quote: "Peas go in last.", drawn: true } },
   { name: "a stand-in page that draws more than its note's text holds: the words are not in the note", text: PLOT_TEXT,
     passage: { quote: "Before the rain. See the shed and seeds.", drawn: true, within: { start: 19, end: 35 } } },
 ];
@@ -243,7 +273,7 @@ function table(head: Record<string, unknown>, lists: Record<string, readonly unk
 
 export function coreContract(): string {
   return table({
-    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page). Made by calling each; never edited by hand.",
+    about: "What outline-core's own rules answer, for a client that can't run it: a request written as an act line (actionLine), a list's sections (listSections), which new-note rule of a screen applies (newNoteRule), a screen opened on a target (targetFilled), a question narrowed by picked values (selectionQuery), a links list's groups (linkGroupsNamed, with each group's glyph and label), where an offset of a draft is once a patch's placed spans are replaced (mapCursor), a draft's lines one level in or out and where its selection is after (indentText), whether a word is a key's one name, as a screen's keys name one (isKeyName), a refusal said from its reason and each way's own words (whySaid: said gives a door's words for each way, null where it hasn't the action), and where a quote sent with a comment is in a note's text, as written or as a reader drew it, or what it is refused with (findQuoted, quoteRefusal; quotedNote is the note most are about, as a page), with that passage as whole words (wholePassage: what passages.find answers; at is where it is in the text of the part it ends in, spanIn) and where a thread's passage is in each part's own text (spanIn: quotedNote.marked). Made by calling each; never edited by hand.",
     by: BY,
     linkGroups: { all: ALL_LINK_GROUPS, groups: LINK_GROUPS.map(g => ({ ...g, label: LINK_GROUP_LABELS[g.group] })) },
     quotedNote: quotedNote(),
@@ -262,7 +292,14 @@ export function coreContract(): string {
     quoted: QUOTED.map(c => {
       const found = findQuoted(c.text, c.passage), row = { name: c.name, ...(c.text === QUOTED_TEXT ? {} : { text: c.text }), passage: c.passage };
       if (isMiss(found)) { const refusal = quoteRefusal(found); return { ...row, refused: { kind: refusal.kind, error: refusal.message } }; }
-      return { ...row, found: { ...found, exact: c.text.slice(found.start, found.end) } };
+      // The same passage as whole words (`passages.find whole=words`): its span, and the quote to send in the asker's place.
+      const whole = wholePassage(c.text, found);
+      // Asked with the part its words end in (the part whose span a selection said it was `within`): where the
+      // passage is in the text that part's view is drawn from (`passages.find part=`, answered `at`).
+      const part = c.text === QUOTED_TEXT ? quotedNote().parts.find(p => p.span.end === c.passage.within?.end && p.view.type === "markdown") : undefined;
+      const at = part && spanIn(c.text.slice(part.span.start, part.span.end), { start: Math.max(whole.span.start, part.span.start) - part.span.start, end: Math.min(whole.span.end, part.span.end) - part.span.start }, (part.view as { text: string }).text);
+      return { ...row, found: { ...found, exact: c.text.slice(found.start, found.end) },
+        whole: { start: whole.span.start, end: whole.span.end, exact: c.text.slice(whole.span.start, whole.span.end), quote: whole.widened ? whole.words : c.passage.quote, widened: whole.widened, ...(at ? { at } : {}) } };
     }),
   });
 }

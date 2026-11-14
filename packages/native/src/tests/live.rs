@@ -711,7 +711,6 @@ fn live_waiting_is_installed_used_configured_and_removed_and_the_window_switches
 fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_lands_on_that_passage() {
     use super::support::{chord, draft, primary, rest, typed, window};
     use crate::client::Socket;
-    use crate::draft::Quoted;
     use rune::{Key, Mods, Runtime};
     with_host("quote", |path, root| {
         let mut raw = Socket::connect(path);
@@ -774,7 +773,10 @@ fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_l
             rest(&mut rt);
             assert_eq!(rt.selected_text().as_deref(), Some(*drawn), "{title}");
             let (start, end) = (head.encode_utf16().count(), head.encode_utf16().count() + body.encode_utf16().count());
-            assert_eq!(rt.state.ui("reader").passage, Some(Quoted::drawn(*drawn, Some((start, end)))), "{title}");
+            // (Where they are is asked as they are picked: the service's answer comes a moment later, and is the part whole.)
+            until(&mut rt, "where the words are", |s| s.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+            let picked = rt.state.ui("reader").passage.clone().unwrap();
+            assert_eq!((picked.words.as_str(), picked.drawn, picked.within, picked.found.clone()), (*drawn, true, Some((start, end)), Some(Ok((start, end)))), "{title}");
             chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
             assert!(draft(&rt.state).is_some_and(|draft| !draft.is_block()), "{title}: {:?}", rt.state.notice);
             typed(&mut rt, "Here.");
@@ -793,6 +795,147 @@ fn live_a_comment_on_words_selected_across_a_link_bold_text_and_two_paragraphs_l
         until(&mut rt, "the refusal", |s| s.notice.as_ref().is_some_and(|n| n.tone == Tone::Problem));
         assert!(rt.state.notice.as_ref().is_some_and(|n| n.said.starts_with("The comment wasn't sent: Comment quote or context was not found") && n.said.contains("nearest: \"Peas go in\"")), "{:?}", rt.state.notice);
         assert_eq!(words(&rt.state), "Too late.");
+    });
+}
+
+/// H4's sentence against a real outline host: words selected with the mouse from the first letter of a list item
+/// and of a paragraph, each press landing past the middle of that letter (so the selection Rune makes starts after
+/// it: what cost Evan's quotes their first character), are commented on where they are, and afterwards the page
+/// shows that those words carry a comment and what it says. The service finds the whole words as they are picked;
+/// the comment's field stands under the part they are in; the thread is anchored at the first letter; the page
+/// marks the passage from the service's own marks and the thread is beside it; the list of the note's comments is
+/// in front; and a comment somebody else writes meanwhile is marked and listed with no act in this window (the
+/// watches on `notes.page` and `lists.read` hear an annotation write). `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_words_selected_from_a_first_letter_are_commented_on_in_place_and_marked_on_the_page() {
+    use super::support::{chord, press, primary, rest, typed, window};
+    use crate::client::Socket;
+    use rune::{Key, Mods, Runtime};
+    with_host("margin", |path, root| {
+        let mut raw = Socket::connect(path);
+        let mut ask = |request: Value| asked(&mut raw, request).unwrap();
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&Runtime<App>) -> bool) {
+            for _ in 0..400 { if so(rt) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, steps {:?}", rt.state.notice, rt.state.steps.iter().rev().take(4).map(|step| (step.line(), step.ok, step.said.clone())).collect::<Vec<_>>());
+        }
+        fn line(rt: &mut Runtime<App>, line: &str) { let line = line.to_string(); rt.update(move |s, _| { let done = s.act(&line, crate::actions::Actor::Person); assert!(done.ok, "{line}: {}", done.said); }); rest(rt); }
+        /// A drag with the mouse, as a person selects: from a point to a point, let go there.
+        fn dragged(rt: &mut Runtime<App>, from: (f32, f32), to: (f32, f32)) {
+            rt.pointer_move(from.0, from.1);
+            rt.pointer_down(from.0, from.1);
+            rt.frame(1.0 / 60.0);
+            for step in 1..=8 { let t = step as f32 / 8.0; rt.pointer_move(from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t); rt.frame(1.0 / 60.0); }
+            rt.pointer_up(to.0, to.1);
+            rest(rt);
+        }
+        let text = ["Margin notes [type::guide]", "Read with a pen in hand.", "", "- Define looks the words up in the glossary.", "- Cite copies the passage with where it is from.", "", "Pages and web clippings are read the same way, and a later question in the thread resumes it."].join("\n");
+        let id = ask(json!({ "id": "n", "action": "create", "outline": "scratch", "parentId": null, "text": text, "author": "user" }))["id"].as_str().unwrap().to_string();
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
+        app.start();
+        opened(&mut app);
+        let mut rt = window(app);
+        line(&mut rt, &format!("open id={id}"));
+        until(&mut rt, "the note's page", |rt| rt.state.page().is_some_and(|page| page.title == "Margin notes"));
+        // The note's comments are behind another tab, as they were on Evan's screen.
+        press(&mut rt, "tile/threads/tab/revisions");
+        assert!(rt.find("tile/threads/title").is_none());
+        let drawn_at = |rt: &Runtime<App>, words: &str| rt.elements().into_iter().find(|e| e.role != "mark" && e.text.as_deref().is_some_and(|text| text.starts_with(words))).map(|e| e.rect).unwrap_or_else(|| panic!("no text drawn starts with {words}"));
+        let threads = |ask: &mut dyn FnMut(Value) -> Value, n: usize| ask(json!({ "id": format!("t{n}"), "action": "annotations.list", "outline": "scratch", "query": { "subject": { "kind": "block", "blockId": id } } }));
+        let marks = |rt: &Runtime<App>| rt.elements().into_iter().filter(|e| e.role == "mark").filter_map(|e| e.text).collect::<Vec<_>>();
+
+        // From the first letter of a list item, into the paragraph under the list. The press is on the letter, past
+        // its middle: the selection starts after it.
+        let (item, para) = (drawn_at(&rt, "Define looks"), drawn_at(&rt, "Pages and web"));
+        let lost = (4..=12).map(|dx| dx as f32).find(|dx| {
+            dragged(&mut rt, (item[0] + dx, item[1] + item[3] / 2.0), (para[0] + 150.0, para[1] + 8.0));
+            rt.selected_text().is_some_and(|said| said.starts_with("efine looks"))
+        }).expect("a press on the first letter, past its middle, starts the selection after it");
+        assert!(lost < 12.0);
+        let said = rt.selected_text().unwrap();
+        assert!(said.starts_with("efine looks the words up in the glossary.\n- Cite copies the passage with where it is from.\n\nPages and"), "the selection as Rune made it, a character short: {said:?}");
+        // Where those words are is asked as they are picked: the passage is the whole words, from the first letter.
+        until(&mut rt, "where the picked words are", |rt| rt.state.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+        let picked = rt.state.ui("reader").passage.clone().unwrap();
+        let (start, end) = picked.found.clone().unwrap().expect("the service found them");
+        assert_eq!(start, text.find("Define").unwrap(), "the passage starts at the first letter");
+        assert!(picked.words.starts_with("Define looks the words up in the glossary. Cite copies") && !text[end..].starts_with(char::is_alphanumeric), "whole words at both ends: {picked:?}");
+        // The actions of the picked words are by them; the comment opens in place, under the part they are in.
+        assert!(rt.find("tile/reader/picked/comment").is_some());
+        chord(&mut rt, Key::Command('m'), Mods { shift: true, ..primary() });
+        let on = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("tile/reader/on")).and_then(|e| e.text).unwrap_or_default();
+        assert!(on.starts_with("On “Define looks the words up in the glossary."), "{on}");
+        let rect = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| (e.rect, e.visible)).unwrap_or_else(|| panic!("nothing is keyed {key}"));
+        let ((part, part_seen), (field, field_seen)) = (rect(&rt, "tile/reader/part/0"), rect(&rt, "tile/reader/editor"));
+        assert!(field[1] >= part[1] + part[3] && part_seen[3] > 0.0 && field_seen[3] >= field[3] - 1.0, "the field is under its part, in view: {part:?} {field:?}");
+        typed(&mut rt, "Which glossary?");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the comment sent", |rt| rt.state.drafts.is_empty());
+        let listed = threads(&mut ask, 1);
+        let anchor = &listed[0]["originalTarget"]["anchor"];
+        assert_eq!((listed.as_array().map(Vec::len), anchor["start"].as_u64(), anchor["end"].as_u64()), (Some(1), Some(start as u64), Some(end as u64)), "anchored on the whole words: {listed}");
+        let thread = listed[0]["block"]["id"].as_str().unwrap().to_string();
+        // Afterwards the page shows it: the words are marked, a line a mark, and the thread is beside them.
+        until(&mut rt, "the passage marked", |rt| !marks(rt).is_empty());
+        assert_eq!(marks(&rt)[..2], ["Define looks the words up in the glossary.".to_string(), "Cite copies the passage with where it is from.".to_string()], "{:?}", marks(&rt));
+        until(&mut rt, "the thread beside its words", |rt| rt.find(&format!("tile/reader/card/{thread}")).is_some());
+        // And the list of the note's comments is in front, with it: the person's send brought it there.
+        assert!(rt.find("tile/threads/title").is_some() && rt.find(&format!("tile/threads/row/{thread}")).is_some(), "{:?}", rt.state.steps.iter().rev().take(3).map(|step| step.line()).collect::<Vec<_>>());
+        assert!(rt.state.steps.iter().any(|step| step.action == "threads" && step.by == crate::actions::Actor::Person && step.ok));
+        // A press on the marked words shows the thread whole: what was written, and its own presses.
+        let (x, y) = rt.find(&format!("tile/reader/mark/{thread}/1/0")).expect("the mark's words are found by its key");
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rest(&mut rt);
+        assert!(rt.state.ui("reader").unfolded.contains(&thread), "{:?}", rt.state.steps.last().map(|step| (step.line(), step.said.clone())));
+        let whole = rt.elements().into_iter().filter(|e| e.path.contains(&format!("tile/reader/card/{thread}"))).filter_map(|e| e.text).collect::<Vec<_>>();
+        assert!(whole.iter().any(|said| said == "Which glossary?") && whole.iter().any(|said| said == "Reply") && whole.iter().any(|said| said == "Resolve"), "{whole:?}");
+
+        // From the first letter of a paragraph, a few words along the line.
+        let para = drawn_at(&rt, "Pages and web");
+        (4..=12).map(|dx| dx as f32).find(|dx| {
+            dragged(&mut rt, (para[0] + dx, para[1] + 8.0), (para[0] + 150.0, para[1] + 8.0));
+            rt.selected_text().is_some_and(|said| said.starts_with("ages and"))
+        }).expect("a press on the paragraph's first letter starts the selection after it");
+        until(&mut rt, "where the picked words are", |rt| rt.state.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+        let picked = rt.state.ui("reader").passage.clone().unwrap();
+        assert!(picked.words.starts_with("Pages and web") && picked.found.clone().unwrap().is_ok_and(|(start, _)| start == text.find("Pages").unwrap()), "{picked:?}");
+        typed(&mut rt, "ac");
+        assert!(rt.state.draft_on("reader").is_some_and(|draft| !draft.is_block()), "the door's keys for a comment on picked words: {:?}", rt.state.notice);
+        typed(&mut rt, "And PDFs?");
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the second comment sent", |rt| rt.state.drafts.is_empty());
+        let listed = threads(&mut ask, 2);
+        assert!(listed.as_array().unwrap().iter().any(|thread| thread["originalTarget"]["anchor"]["start"].as_u64() == Some(text.find("Pages").unwrap() as u64)), "{listed}");
+        until(&mut rt, "both passages marked", |rt| marks(rt).iter().any(|said| said.starts_with("Pages and web")));
+
+        // Somebody else comments (another client): with no act in this window the page marks the words and the list
+        // has the thread, and no tab moved for it.
+        press(&mut rt, "tile/threads/tab/proposals");
+        let steps = rt.state.steps.len();
+        let now = ask(json!({ "id": "g", "action": "get", "outline": "scratch", "blockId": id }));
+        ask(json!({ "id": "c3", "action": "annotations.batch", "outline": "scratch", "requestId": "margin-live-3", "author": "agent", "provenance": { "actorId": "compost-agent" },
+            "operations": [{ "operationId": "1", "type": "block-comment", "input": { "blockId": id, "expectedRevision": now["revision"], "body": "A pencil will do.", "source": "agent", "passage": { "quote": "a pen in hand" } } }] }));
+        until(&mut rt, "the agent's passage marked", |rt| marks(rt).iter().any(|said| said == "a pen in hand"));
+        assert_eq!(rt.state.steps.len(), steps, "nothing was run here for it");
+        assert!(rt.find("tile/threads/title").is_none() && rt.find("tile/proposals/title").is_some(), "an agent's comment moves no tab");
+        line(&mut rt, "threads");
+        until(&mut rt, "the three threads listed", |rt| rt.state.rows_of(&rt.state.layout.named("threads").unwrap()).len() == 3);
+
+        // The whole note is one run of prose, so one part. Words of its first paragraph: the service is asked with
+        // the part as it was drawn and says where they are in that text, and the comment's field stands in the
+        // part, under that paragraph and over the list, not under everything the part holds.
+        let first = drawn_at(&rt, "Read with a pen");
+        dragged(&mut rt, (first[0] + 40.0, first[1] + 8.0), (first[0] + 95.0, first[1] + 8.0));
+        until(&mut rt, "where the words of the first paragraph are", |rt| rt.state.ui("reader").passage.as_ref().is_some_and(|quoted| quoted.found.is_some()));
+        let picked = rt.state.ui("reader").passage.clone().unwrap();
+        assert!(picked.at.as_ref().is_some_and(|at| at.part == 1 && at.range.is_some()) && text[picked.found.clone().unwrap().unwrap().1..].contains("\n\n- Define"), "{picked:?}");
+        typed(&mut rt, "ac");
+        assert!(rt.state.draft_on("reader").is_some_and(|draft| !draft.is_block()), "{:?}", rt.state.notice);
+        let (field, list, part) = (rect(&rt, "tile/reader/editor").0, drawn_at(&rt, "Define looks"), rect(&rt, "tile/reader/part/0").0);
+        assert!(field[1] > part[1] && field[1] + field[3] <= list[1] && list[1] < part[1] + part[3], "the field is in its part, over the list: field {field:?}, list {list:?}, part {part:?}");
     });
 }
 

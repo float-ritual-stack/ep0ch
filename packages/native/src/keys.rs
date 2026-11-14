@@ -5,7 +5,8 @@
 //!   and the line it runs. Nothing else binds a key; a keycap on a button or a bar row is the table read backwards.
 //! - **`App::person()` says where the person's keys are**: in the bar, in a draft (in its completion list while that
 //!   is open: `complete` with rows to choose from, `said` with only a word to say), in a terminal tile's program, or
-//!   on a tile. The table is asked with that layer first, then the layer under it (a completion list is
+//!   on a tile (`selection` while words of the note it reads are picked there: the keys that act on them, the
+//!   door's `a` then a letter, are that layer's, and the tile's own still hold under it). The table is asked with that layer first, then the layer under it (a completion list is
 //!   open over a draft), then the rows that hold everywhere.
 //! - **A program takes every key but its layer's own** (`program`: the chord that leaves it, a paste, the
 //!   scrollback). The rows that hold everywhere are not asked while the person is in one: `mod+k` is the program's
@@ -57,18 +58,22 @@ pub enum Layer {
     Draft,
     /// A terminal tile's program has them: every key but this layer's own rows is sent to it.
     Program,
+    /// A reader has them and words of its note are picked there: the keys that act on those words are this layer's,
+    /// over the tile's own.
+    Selection,
     /// A tile has them, and nothing is typed anywhere.
     Tile,
 }
 
 impl Layer {
-    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Program => "program", Layer::Tile => "tile" } }
+    pub fn name(self) -> &'static str { match self { Layer::Bar => "bar", Layer::Form => "form", Layer::Moving => "moving", Layer::Complete => "complete", Layer::Said => "said", Layer::Draft => "draft", Layer::Program => "program", Layer::Selection => "selection", Layer::Tile => "tile" } }
     fn named(name: &str) -> Layer {
-        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "program" => Layer::Program, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, draft, program and tile") }
+        match name { "bar" => Layer::Bar, "form" => Layer::Form, "moving" => Layer::Moving, "complete" => Layer::Complete, "said" => Layer::Said, "draft" => Layer::Draft, "program" => Layer::Program, "selection" => Layer::Selection, "tile" => Layer::Tile, other => panic!("a key row is on {other}: the layers are bar, form, moving, complete, said, draft, program, selection and tile") }
     }
     /// The layers a key is asked of, the person's own first: a completion list is open over a draft, whose keys still
-    /// hold, and a list with rows has every key of one that only says something.
-    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Moving => &[Layer::Moving], Layer::Draft => &[Layer::Draft], Layer::Program => &[Layer::Program], Layer::Tile => &[Layer::Tile] } }
+    /// hold, a list with rows has every key of one that only says something, and words picked in a reader leave
+    /// the tile's own keys as they were.
+    fn stack(self) -> &'static [Layer] { match self { Layer::Complete => &[Layer::Complete, Layer::Said, Layer::Draft], Layer::Said => &[Layer::Said, Layer::Draft], Layer::Bar => &[Layer::Bar], Layer::Form => &[Layer::Form], Layer::Moving => &[Layer::Moving], Layer::Draft => &[Layer::Draft], Layer::Program => &[Layer::Program], Layer::Selection => &[Layer::Selection, Layer::Tile], Layer::Tile => &[Layer::Tile] } }
     /// The rows that hold everywhere hold here too. Not in a program: every key that is not its layer's own is the
     /// program's.
     fn open(self) -> bool { self != Layer::Program }
@@ -126,8 +131,21 @@ impl App {
             // key is the program's, and the tile is where they type.
             Whereabouts { layer: Layer::Program, idle, why: Some(format!("the person is typing in {focus}")), typing_in: Some(focus.clone()), focus, busy: true, takes_keys: true }
         } else {
-            Whereabouts { layer: Layer::Tile, focus, idle, typing_in: None, busy: false, why: None, takes_keys: false }
+            // Words picked in the reader with the keys: the keys that act on them hold. Nothing is typed, and
+            // nothing of the person's is held: an agent's act is ruled as on any tile.
+            let layer = if self.ui(&self.layout.focus).passage.is_some() { Layer::Selection } else { Layer::Tile };
+            Whereabouts { layer, focus, idle, typing_in: None, busy: false, why: None, takes_keys: false }
         }
+    }
+
+    /// What is offered by press where words are picked in `tile`: the act lines the keys of that layer run (the
+    /// rows that say they are the keys of words picked in a reader), each once, in the table's order. None while
+    /// no words are picked there. The row of buttons by a selection reads this, and names no layer itself.
+    pub fn offered(&self, tile: &str) -> Vec<&'static str> {
+        let mut lines: Vec<&'static str> = Vec::new();
+        if self.ui(tile).passage.is_none() { return lines }
+        for bind in table().iter().filter(|bind| bind.layer == Some(Layer::Selection)) { if !lines.contains(&bind.line.as_str()) { lines.push(bind.line.as_str()) } }
+        lines
     }
 
     /// The layer the keys are in while a block is written in `tile`: its completion list while that is open, else
@@ -213,7 +231,7 @@ pub fn cap(line: &str) -> Option<String> { bind_of(line).map(Bind::cap) }
 
 /// What Esc closes, a step at a time: the rows bound to Escape, in the order their layers are tried.
 pub fn esc_steps() -> Vec<&'static Bind> {
-    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Moving), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Program), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
+    [Some(Layer::Bar), Some(Layer::Form), Some(Layer::Moving), Some(Layer::Complete), Some(Layer::Said), Some(Layer::Draft), Some(Layer::Program), Some(Layer::Selection), Some(Layer::Tile), None].into_iter().flat_map(|layer| table().iter().filter(move |bind| bind.is_escape() && bind.layer == layer)).collect()
 }
 
 /// What Esc does where the person is: the first step of the list their layer has, or a layer under it.
@@ -227,6 +245,7 @@ pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
     let shown = layer.stack().iter().copied().find(|layer| own(*layer).next().is_some()).unwrap_or(layer);
     esc(layer).into_iter().chain(own(shown)).map(|bind| (bind.cap(), bind.does)).collect()
 }
+
 
 /// A key the open screen binds, as its spec writes it (outline-core's `KeyBinding`): the request it runs is
 /// already read, and never written as a line to be read again.
@@ -319,7 +338,7 @@ pub fn press(s: &mut App, e: &KeyEvent, tx: &mut Tx) -> bool {
     let layer = s.person().layer;
     let mut seq = std::mem::take(&mut s.held().seq);
     // The open screen's own keys first, while a tile has the keys and no sequence is begun: on the kinds each says.
-    if layer == Layer::Tile && seq.is_empty() {
+    if matches!(layer, Layer::Tile | Layer::Selection) && seq.is_empty() {
         let kind = s.spec(&s.layout.focus).map(|spec| spec.kind.clone());
         if let Some(bind) = screen_binds(s).into_iter().find(|bind| bind.holds(kind.as_deref()) && bind.chord.as_ref().is_ok_and(|chord| chord.matches_tx(e, tx))) {
             s.act_request(bind.request, Actor::Person);
@@ -420,7 +439,7 @@ pub fn follow(s: &mut App, tx: &mut Tx) -> bool {
 /// shown, so it is asked again when they change), or nothing while a field has them.
 fn wanted(s: &mut App, names: &[String]) -> Option<Option<(String, Vec<String>)>> {
     // (A terminal's program is typed into through its tile: the tile holds Rune's focus while the person is in it.)
-    let want = matches!(s.person().layer, Layer::Tile | Layer::Program | Layer::Moving).then(|| (format!("tile/{}", s.layout.name(&s.layout.focus)), names.to_vec()));
+    let want = matches!(s.person().layer, Layer::Tile | Layer::Selection | Layer::Program | Layer::Moving).then(|| (format!("tile/{}", s.layout.name(&s.layout.focus)), names.to_vec()));
     (want != s.held().asked).then_some(want)
 }
 

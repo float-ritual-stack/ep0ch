@@ -13,13 +13,17 @@ import { isNoteUnder } from "@ep0ch/outline-core/derived";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { ListGroup, ListRow } from "@ep0ch/outline-core/list-row";
+import { actOf } from "@ep0ch/outline-core/list-row";
+import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { noteMediaLines, parsePictureFence } from "@ep0ch/outline-core/media-line";
 import { pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, withActs, type NotePage, type NoteRow, type PagePart, type PagePicture, type PagePrimitive } from "@ep0ch/outline-core/note-page";
+import { spanIn } from "@ep0ch/outline-core/drawn-passage";
+import type { PartMark } from "@ep0ch/outline-core/part-anchor";
 import type { Tone } from "@ep0ch/outline-core/primitive";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { USE_NAME, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { holds, produced, readFigure, readLinks, type LiveHost } from "./publish-live";
-import type { BacklinkCollection } from "./types";
+import type { AnnotationThread, BacklinkCollection } from "./types";
 
 /** Where the page was read: named in a figure's "the rest" command. */
 interface PageAddress { outline?: string | undefined; machine?: string }
@@ -41,7 +45,7 @@ export async function servedPage(
   if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
   const { host, listed } = reader(own);
   const [body, { records }, context, back] = await Promise.all([
-    noteParts(host, block, address),
+    marked(own, block).then(marks => noteParts(host, block, address, marks)),
     own.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [block.id] }),
     own.request<{ ancestors: { id: string }[] }>({ action: "blocks.context", blockId: block.id }),
     own.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: block.id, limit: 50 } }),
@@ -65,6 +69,23 @@ export async function servedPage(
     backlinks: back.sources.filter(s => s.blockId !== block.id).map(s => ({ id: s.blockId, title: s.title || "untitled", ...(s.parentContext ? { context: s.parentContext } : {}) })),
     updated: record.updated, author: record.actor ?? record.author,
   };
+}
+
+/** A thread's passage as the walk marks it: the thread, and where its words are in the note's text now. */
+interface Marked { id: string; start: number; end: number }
+
+/**
+ * The passages of `block` its comment threads are on now: each thread in the note's margin (open or kept) whose
+ * words are in the text where its anchor says. One whose words are gone, or on the whole note, marks nothing: the
+ * list of the note's threads has it (`lists.read from=threads`).
+ */
+async function marked(own: Own, block: { id: string; text: string }): Promise<Marked[]> {
+  const threads = await own.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: block.id } } });
+  return threads.flatMap((thread): Marked[] => {
+    const anchor = thread.resolvedTarget?.anchor;
+    if (!markCurrent(thread.lifecycle) || anchor?.kind !== "text-quote" || anchor.start === null || anchor.end === null || !anchor.exact.trim() || block.text.slice(anchor.start, anchor.end) !== anchor.exact) return [];
+    return [{ id: thread.block.id, start: anchor.start, end: anchor.end }];
+  }).sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 /** The service asking itself, as the walk asks: for a reader who sees every note, with one reading of every title (the lists'). */
@@ -103,7 +124,7 @@ const said = (error: unknown) => (error instanceof Error ? error.message : Strin
 const BUTTON_TONE: Record<string, Tone> = { primary: "accent", danger: "bad" };
 
 /** The body of `note` as parts, its components answered through `host`, and its header image when it has one. */
-async function noteParts(host: LiveHost, note: { id: string; text: string }, address: PageAddress): Promise<{ parts: PagePart[]; hero?: PagePicture }> {
+async function noteParts(host: LiveHost, note: { id: string; text: string }, address: PageAddress, marked: readonly Marked[] = []): Promise<{ parts: PagePart[]; hero?: PagePicture }> {
   const header = headerLine(note.text);
   const all = note.text.split("\n");
   // The body is every line after the header line; a component is found where it stands in the whole note, as a page finds it.
@@ -126,9 +147,23 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
   const fences = new Map(noteCodeFences(all).map(fence => [fence.start, fence]));
   let hero: PagePicture | undefined;
   const lines = (from: number, to: number) => all.slice(from, to + 1).join("\n");
+  /**
+   * What is attached to the words of a part written at `span` and drawn as `view` (outline-core's part-anchor.ts):
+   * each thread whose passage reaches into it, where those words are in the text the view is drawn from. A part
+   * drawn from more than words (a figure, a list), or whose view has the words another way, is marked whole. A box
+   * marks nothing itself: the parts written in it do.
+   */
+  const marksOf = (kind: PagePart["kind"], span: { start: number; end: number }, view: PagePrimitive): PartMark[] => kind === "box" ? [] : marked.flatMap((m): PartMark[] => {
+    const start = Math.max(m.start, span.start), end = Math.min(m.end, span.end);
+    if (end <= start) return [];
+    const at = kind === "prose" && view.type === "markdown" ? spanIn(note.text.slice(span.start, span.end), { start: start - span.start, end: end - span.start }, view.text, { title: id => titles.get(id) }) : null;
+    return [{ kind: "thread", id: m.id, ...(at ?? {}), act: actOf({ run: { action: "thread.toggle", args: { thread: m.id } } })!, from: "threads" }];
+  });
   /** A part written on lines `from` to `to` (inclusive). */
-  const part = (kind: PagePart["kind"], from: number, to: number, view: PagePrimitive, frame: Partial<PagePart> = {}): PagePart =>
-    ({ type: "part", kind, block: note.id, span: { start: offsets[from]?.start ?? note.text.length, end: offsets[to]?.contentEnd ?? note.text.length }, line: from, ...frame, view: withActs(view) });
+  const part = (kind: PagePart["kind"], from: number, to: number, view: PagePrimitive, frame: Partial<PagePart> = {}): PagePart => {
+    const span = { start: offsets[from]?.start ?? note.text.length, end: offsets[to]?.contentEnd ?? note.text.length }, marks = marksOf(kind, span, view);
+    return { type: "part", kind, block: note.id, span, line: from, ...frame, ...(marks.length ? { marks } : {}), view: withActs(view) };
+  };
   /** A row's id among its list's: the note it opens, when that is its alone; else its place. (What a client keys and presses it by.) */
   const keyed = <R extends { opens?: string | null }>(rows: readonly R[], place: (row: R, n: number) => string): string[] => {
     const seen = new Set<string>();

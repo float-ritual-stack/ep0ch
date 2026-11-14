@@ -472,7 +472,9 @@ fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_a
     none("the words selected written outside the action that hears them", strays(".passage = ", |path| path == "actions/review.rs" || path == "actions/app.rs"));
     // A press leaves a selection as it is in one place, the toolbar (its button that comments is pressed for the words
     // selected), and the words are let go without the reader saying so in one, the bar put away.
-    none("a press that keeps the selection outside the toolbar", strays("keeps_text_selection", |path| path == "shell.rs"));
+    // (Since H4, one more: the row of the picked words' own actions the page drawer puts by them. Each is one row.)
+    none("a press that keeps the selection outside the toolbar and the row of a selection's own actions", strays("keeps_text_selection", |path| path == "shell.rs" || path == "tiles/page.rs"));
+    assert_eq!((code("shell.rs").matches("keeps_text_selection").count(), code("tiles/page.rs").matches(".keeps_text_selection()").count()), (1, 1), "one row each keeps the selection through a press");
     none("the words selected let go outside the bar's own actions", calls("unselect", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
     // One name a send: made in one place, and a request is named by it in one.
     none("a send named outside the session and the action that sends", calls("send_name", |path| path == "draft.rs" || path == "actions/review.rs"));
@@ -537,8 +539,9 @@ fn where_a_drawn_passage_is_in_the_source_is_the_service_s_to_find() {
     let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
     // The passage a comment sends is the quote's own form of it, made in one place and sent from one.
     none("a comment's passage built outside the quote's own form (`Quoted::passage`)", ["[\"drawn\"]", "[\"within\"]", "\"within\":"].iter().flat_map(|key| strays(key, |path| path == "draft.rs")).collect());
-    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 1, "the passage is sent by the one action that sends a comment");
-    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()"));
+    // (Since H4 it is also asked about, once, by the action that hears words picked: `passages.find`.)
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 2, "the passage is sent by the one action that sends a comment, and asked about by the one that hears words picked");
+    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()") && code("actions/review.rs").contains("json!({ \"blockId\": note, \"passage\": quoted.passage() })"));
     // How the words were read is said by the two ways there are to name them: a selection in a reader (as drawn),
     // an act's `quote=` (as the note's text has them, which the service reads as drawn when they aren't there).
     none("how a quote was read said outside the action that hears a selection and the one that takes quote=", ["Quoted::drawn(", "Quoted::written("].iter().flat_map(|made| strays(made, |path| path == "actions/review.rs" || path == "draft.rs")).collect());
@@ -728,6 +731,56 @@ fn a_terminal_s_deciders_each_have_one_place() {
     // the rest. And it holds the programs where every window of a run finds them: in the store's hub.
     let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
     assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
+}
+
+/// H4, a comment in place: each of its questions has one answerer. Where picked words are, and that a passage is
+/// whole words, is the service's (`passages.find`, asked by the one action that hears words picked): the window
+/// widens no selection and reads no text for a word's end. What is attached to a note's words is the service's
+/// marks, read by the model's one reader (`parts::marks`), tinted by the one builder of prose and shown beside the
+/// words as the row of the list each mark names, drawn by the list drawer. Where what is written stands is asked of
+/// what is written and of the page's parts. And the note's comments come forward by one action, run for the person.
+#[test]
+fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
+    let texts = sources();
+    let code = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| panic!("{path} is there"));
+    let count = |needle: &str| texts.iter().map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains(needle)).count()).sum::<usize>();
+    // Asked in one place, of the service; its answer taken in one.
+    assert_eq!((count("\"passages.find\""), code("actions/review.rs").matches("\"passages.find\"").count()), (1, 1), "where picked words are is asked once, by the action that hears them");
+    assert_eq!(count(".found("), 1, "the service's passage is taken where its answer lands, and nowhere else");
+    // Nothing here widens a selection or looks for a word's end in what was picked or drawn.
+    for path in ["actions/review.rs", "tiles/page.rs", "tiles/prim.rs", "parts.rs"] {
+        for reading in ["is_alphanumeric", "is_alphabetic", "unicode_words", "split_word", "char_indices"] { assert!(!code(path).contains(reading), "{path} reads words itself (`{reading}`): a passage as whole words is the service's") }
+    }
+    assert!(!code("draft.rs").contains("is_alphanumeric"), "what shortens a quote for one line cuts at blanks: it reads no word");
+    // The marks: read by one reader, off the part; a range of them painted by one builder; nothing else names one.
+    none("a part's marks read outside the model's one reader (`parts::marks`)", strays("\"marks\")", |path| path == "parts.rs"));
+    none("a mark painted outside the one builder of prose", strays("Highlight::", |path| path == "tiles/prim.rs"));
+    none("a mark's range cut into lines outside the model", calls("lines_of", |path| path == "parts.rs" || path == "tiles/prim.rs"));
+    // What stands beside the words is the row of the list the mark names, asked in one place and drawn by the list
+    // drawer: the page builds no row of its own, and names no list.
+    none("the list a mark's thing is a row of asked outside the App's one ask", calls("beside_ask", |path| path == "actions/app.rs"));
+    assert_eq!(code("tiles/page.rs").matches("super::list::card(").count(), 1, "a card is the list drawer's row, built once");
+    for built in ["ListRow {", ".cells", "\"threads\"", "from=threads"] { assert!(!code("tiles/page.rs").contains(built) && !code("tiles/prim.rs").contains(built), "a drawer builds or names a thread's row itself (`{built}`)") }
+    // Where what is written stands: asked of what is written (`Writes::ends_at`, `Writes::answers`) and of the page's
+    // parts, by the drawer that shows it.
+    none("where a comment's field stands decided outside the page drawer", calls("part_holding", |path| path == "parts.rs" || path == "tiles/page.rs").into_iter().chain(calls("part_marked", |path| path == "parts.rs" || path == "tiles/page.rs")).collect());
+    // Inside a part (a run of prose is one part, however long): where the words are in the part's own text is the
+    // service's word, asked with the part by the one action that asks where words are and kept as an anchor; the
+    // page drawer hands what is written to the part's builder with that place, and the one builder of prose cuts
+    // its text where the renderer's own reading says two pieces are drawn as the whole is. Nothing reads Markdown
+    // for a block's end, and nothing looks for the words.
+    none("the part picked words end in named outside the action that asks where they are", calls("drawn_from", |path| path == "parts.rs" || path == "actions/review.rs"));
+    assert_eq!(count("quoted.at = "), 1, "where words are in a part's own text is taken where the service's answer lands");
+    none("something stood inside a part outside the page drawer and the builder of prose", calls("inset", |path| path == "tiles/page.rs" || path == "tiles/prim.rs").into_iter().chain(calls("stands_at", |path| path == "draft.rs" || path == "tiles/page.rs")).collect());
+    none("a part's text cut outside the one builder of prose", calls("cut_after", |path| path == "tiles/prim.rs"));
+    assert!(code("tiles/prim.rs").contains("head.iter().chain(rest.iter()).eq(whole.iter())"), "a cut is safe where the kit's own reading of the two pieces is its reading of the whole");
+    for reading in ["\"\\n\\n\"", "starts_with(\"- \")", "starts_with('#')", "```"] { assert!(!code("tiles/prim.rs").contains(reading) && !code("tiles/page.rs").contains(reading), "a drawer reads Markdown itself for where a block ends (`{reading}`)") }
+    // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
+    none("a tab brought forward outside the one action that shows a note's comments", strays("Op::Tab", |path| path == "actions/review.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
+    assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
+    // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
+    none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs"));
+    assert!(code("keys.rs").contains("if self.ui(&self.layout.focus).passage.is_some() { Layer::Selection }"), "the layer of picked words is said by `App::person`");
 }
 
 /// Wave H2: where a tile held by its title lands has one decider, the layout's drop rule (`layout/drop.rs`, the

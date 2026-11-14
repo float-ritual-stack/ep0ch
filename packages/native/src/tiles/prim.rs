@@ -12,6 +12,7 @@
 //! A type nobody has a builder for is drawn as its data, never hidden; nothing here panics on a shape it didn't
 //! expect: a missing field is an empty one.
 use rune::{El, SurfaceFit, TextStyle, col, el, row, text};
+use rune_kit::markdown::Highlight;
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Kit, Markdown};
 use serde_json::Value;
 
@@ -74,16 +75,41 @@ pub struct PrimCx<'a> {
     /// It is under a row of a list (what the row shows under itself): a list here is built whole, since rows built
     /// only in view can't hold rows built only in view.
     in_row: bool,
+    /// What stands inside the part being built here, at a place in its own text: handed to the part's own view.
+    inset: Option<&'a Inset<'a>>,
+}
+
+/// Something that stands inside a part of prose, at a place in the text its view is drawn from: a part is as long
+/// as its run of prose, so what is written about words in the middle of one stands under the block they end in,
+/// not a screen below. The page drawer asks whether it can (`inset`: where that text may be cut for the place) and
+/// hands it over with the part; the one builder of prose draws the text in two pieces with it between them.
+pub struct Inset<'a> {
+    /// Where the part's text is cut, in bytes: the start of a line.
+    cut: usize,
+    /// What stands there, built when the builder of prose reaches the place.
+    stands: &'a dyn Fn() -> Option<El>,
+}
+
+/// Something to stand inside `part` at `place` of the text its view is drawn from (where an anchor ends there,
+/// UTF-16, as the service said it). None: the part is drawn from no text, the place is in its last block (nothing
+/// of it would stand underneath), or nothing near says where a cut is safe. It then stands under the part whole.
+pub fn inset<'a>(part: &Value, place: usize, stands: &'a dyn Fn() -> Option<El>) -> Option<Inset<'a>> {
+    let view = &part["view"];
+    if parts::ty(view) != "markdown" { return None }
+    let source = parts::text(view, "text")?;
+    Some(Inset { cut: cut_after(source, crate::draft::byte_of(source, place)?)?, stands })
 }
 
 impl<'a> PrimCx<'a> {
-    pub fn of(tile: &'a TileCx<'a>) -> PrimCx<'a> { PrimCx { tile, key: String::new(), own: None, depth: 0, in_row: false } }
+    pub fn of(tile: &'a TileCx<'a>) -> PrimCx<'a> { PrimCx { tile, key: String::new(), own: None, depth: 0, in_row: false, inset: None } }
     /// The same place, under another key of the tile.
-    pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth, in_row: self.in_row } }
+    pub fn at(&self, key: impl Into<String>) -> PrimCx<'a> { PrimCx { tile: self.tile, key: key.into(), own: None, depth: self.depth, in_row: self.in_row, inset: None } }
     /// The same place, as what a list's row shows under itself.
     pub fn in_row(mut self) -> PrimCx<'a> { self.in_row = true; self }
-    fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1, in_row: self.in_row } }
-    fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1, in_row: self.in_row } }
+    /// The same place, with something to stand inside the part built there.
+    pub fn taking(mut self, inset: &'a Inset<'a>) -> PrimCx<'a> { self.inset = Some(inset); self }
+    fn under(&self, n: impl std::fmt::Display) -> PrimCx<'a> { PrimCx { tile: self.tile, key: format!("{}/{n}", self.key), own: None, depth: self.depth + 1, in_row: self.in_row, inset: None } }
+    fn view_of<'b>(&'b self, part: &'b Value) -> PrimCx<'b> where 'a: 'b { PrimCx { tile: self.tile, key: self.key.clone(), own: Some(part), depth: self.depth + 1, in_row: self.in_row, inset: self.inset } }
     /// The key of what is being built: a part's own view is `<part>/view`, under its frame; what it holds is keyed
     /// under the part (`sub`), so a row of a part's list is `part/<n>/<id>`.
     pub(super) fn key(&self) -> String { if self.own.is_some() { self.sub("view") } else { self.tile.key(&self.key) } }
@@ -95,7 +121,7 @@ impl<'a> PrimCx<'a> {
 pub fn build(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     if cx.depth > DEEPEST { return quiet("…", k) }
     let keyed;
-    let cx = match parts::text(prim, "key") { Some(key) => { keyed = PrimCx { own: cx.own, ..cx.at(key) }; &keyed } None => cx };
+    let cx = match parts::text(prim, "key") { Some(key) => { keyed = PrimCx { own: cx.own, inset: cx.inset, ..cx.at(key) }; &keyed } None => cx };
     match find(parts::ty(prim)) {
         Some(found) => (found.build)(prim, cx, k),
         None => col().key(cx.key()).w_full().gap(4.0)
@@ -125,11 +151,75 @@ fn pressable(shown: El, v: &Value, cx: &PrimCx, k: &Kit) -> El {
     }
 }
 
+/// A box `[x, y, w, h]` holds a point.
+fn holds(r: &[f32; 4], [x, y]: [f32; 2]) -> bool { x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3] }
+
+/// The key a mark's words are found under on a page: the thing, the part, and which of the lines it covers there.
+pub fn mark_key(tile: &TileCx, mark: &parts::Mark, line: usize) -> String { tile.key(format!("mark/{}/{}/{line}", mark.id, mark.at.part)) }
+
+/// The room between the pieces of a part cut in two, and what stands between them: the room between a page's parts.
+const BETWEEN: f32 = 14.0;
+/// How many lines past a place a safe cut is looked for: a block longer than this keeps what is written about it
+/// under the part.
+const CUT_LINES: usize = 32;
+
+/// Where a text of prose may be cut in two at or after byte `at`, so that the two pieces are drawn as the whole is:
+/// the start of the first line past `at` where the kit's own reading of the pieces, one after the other, is its
+/// reading of the whole (never inside a paragraph, a list, a quote or a table: nothing here reads Markdown to
+/// say so). None: `at` is in the last block, so nothing of the text would stand under the cut; or no such line is near.
+fn cut_after(source: &str, at: usize) -> Option<usize> {
+    use rune_kit::markdown::parse_cached;
+    let whole = parse_cached(source);
+    let mut from = at;
+    for _ in 0..CUT_LINES {
+        let line = from + source.get(from..)?.find('\n')? + 1;
+        if source[line..].trim().is_empty() { return None }
+        let (head, rest) = (parse_cached(&source[..line]), parse_cached(&source[line..]));
+        if !head.is_empty() && !rest.is_empty() && head.len() + rest.len() == whole.len() && head.iter().chain(rest.iter()).eq(whole.iter()) { return Some(line) }
+        from = line;
+    }
+    None
+}
+
 fn markdown(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
-    let tile = word(&cx.tile.name);
-    Markdown::new(parts::text(prim, "text").unwrap_or("")).selectable(true).tasks_read_only()
-        .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); })
-        .build(k).key(cx.key())
+    let source = parts::text(prim, "text").unwrap_or("");
+    // What is attached to these words (the marks of the part this is the view of): each range tinted where its
+    // words are drawn, a line of the text a mark of its own, the one whose thing is shown whole beside it stronger.
+    // The ranges are the service's, in this text: nothing here reads what the words were written as.
+    let marks: Vec<parts::Mark> = cx.own.map(parts::marks).unwrap_or_default().into_iter().filter(|mark| mark.at.range.is_some()).collect();
+    let mut lit: Vec<(std::ops::Range<usize>, Highlight)> = Vec::new();
+    let mut spots: Vec<(String, String)> = Vec::new();
+    for mark in &marks {
+        let open = cx.tile.ui.unfolded.contains(&mark.id);
+        for (n, line) in parts::lines_of(source, mark.at.range.unwrap_or_default()).into_iter().enumerate() {
+            let key = mark_key(cx.tile, mark, n);
+            if let Some(act) = &mark.act { spots.push((key.clone(), act.clone())) }
+            lit.push((line, if open { Highlight::current() } else { Highlight::new() }.key(key)));
+        }
+    }
+    // A press on marked words runs the mark's own act. A highlight is paint, with no press of its own: where the
+    // pointer is, is kept as it moves (nothing is drawn again for it), and a press is asked which mark's words, as
+    // they were last laid out, it is on. (A drag that selects is no press, and a link's press is the link's.)
+    let boxes: std::rc::Rc<Vec<([f32; 4], String)>> = std::rc::Rc::new(spots.into_iter().filter_map(|(key, act)| rune::memo::layout(&key).map(|at| (at, act))).collect());
+    let pointer = std::rc::Rc::new(std::cell::Cell::new([f32::MIN; 2]));
+    // One piece of the text, drawn: the whole of it, or what is over and under something that stands inside it.
+    let piece = |text: &str, lit: Vec<(std::ops::Range<usize>, Highlight)>, key: String| -> El {
+        let tile = word(&cx.tile.name);
+        let shown = Markdown::new(text).selectable(true).tasks_read_only()
+            .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); });
+        if lit.is_empty() { return shown.build(k).key(key) }
+        let (moved, at, boxes, from) = (pointer.clone(), pointer.clone(), boxes.clone(), cx.tile.name.clone());
+        shown.highlights(lit).build(k).key(key)
+            .on_pointer_move_any(move |pointer, tx| { moved.set([pointer.window_x, pointer.window_y]); tx.live_only(); })
+            .on_press(move |s: &mut App| if let Some((_, act)) = boxes.iter().find(|(r, _)| holds(r, at.get())) { s.act_in(act, &from, Actor::Person); })
+    };
+    // Something stands inside this part, at a place in this text (`Inset`): under the block that holds the place,
+    // with the rest of the text under it.
+    let stands = cx.inset.filter(|inset| inset.cut < source.len() && source.is_char_boundary(inset.cut)).and_then(|inset| Some((inset.cut, (inset.stands)()?)));
+    let Some((cut, standing)) = stands else { return piece(source, lit, cx.key()) };
+    let (over, under): (Vec<_>, Vec<_>) = lit.into_iter().partition(|(range, _)| range.start < cut);
+    let under = under.into_iter().map(|(range, lit)| (range.start - cut..range.end - cut, lit)).collect();
+    col().key(cx.key()).w_full().gap(BETWEEN).child(piece(&source[..cut], over, cx.sub("over"))).child(standing).child(piece(&source[cut..], under, cx.sub("rest")))
 }
 
 fn source(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
@@ -316,6 +406,9 @@ fn picture(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
 fn part(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let c = &k.c;
     let view = stood(&prim["view"], build(&prim["view"], &cx.view_of(prim), k));
+    // Something attached to the part whole (a thread on a figure's own lines): a rule around it, in the mark's tint.
+    let whole = parts::marks(prim).iter().any(|mark| mark.at.range.is_none());
+    let view = if whole { col().key(cx.sub("marked")).w_full().padding(6.0).radius(k.radius.md).border(1.0, k.alpha(c.warning.icon, 0.55)).child(view) } else { view };
     let Some(name) = parts::text(prim, "name") else { return view.key(cx.frame()) };
     let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name).variant(BadgeVariant::Accent).build(k));
     if let Some(title) = parts::text(prim, "title") { head = head.child(text(title.to_string()).font(k.ty.ui_medium).color(c.text_base)) }
