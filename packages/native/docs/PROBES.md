@@ -832,8 +832,10 @@ What is still a "no" at `a5360a6`, checked:
   headless on both pins with a Rune script (a block opened by `--act`, then Return and `::links` typed by
   `--script`; `::view` and `::fields` the same): the window without `in_row()` on that panel ends with exit 101
   and that panic on `cb0c118` and on `a5360a6`; with it, it draws the list and the panel, exit 0. Bare `::` lights
-  a row whose example holds no list on this outline, and draws either way. No test in `src/tests/` lights such a
-  row yet: this is the recipe for one.
+  a row whose example holds no list on this outline, and draws either way. A test lights such a row now
+  (`a_lit_component_s_example_that_lists_notes_is_drawn_beside_the_completion_list` in `src/tests/typing.rs`: red
+  with that panic without `in_row()`, on this pin), over a stand-in host whose `::` rows are two components, the
+  first with an example that lists a note.
 - **The kit's `TextArea` hands a paste to nobody, and its `Tree`, `Table` and `SplitView` panes take a field named
   at compile time** (§5, §12): those files are the same on both pins (`diff -rq` of `rune-kit/src`), bar a tree's
   right-to-left keys. `Dialog` is unchanged too (the bar still bounds its own list).
