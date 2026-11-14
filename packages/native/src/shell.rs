@@ -323,6 +323,16 @@ pub fn open(born: App, made: rune::AppSpec<App>) {
     rune::open_window(rune::WindowSpec::from_app(format!("window/{name}"), window));
 }
 
+/// The playground: Rune's storybook in the window (`App::playground`), with a story for each state of the window
+/// the recorder set up (`stories.rs`: a tile of each kind, the bar, a tile held, a thread's card, a note's card on a
+/// hover). A story's stage is this window's own view over a state of its own, made from a recording, so nothing a
+/// person does there reaches an outline; `poll` is what every window of the run does each turn. The scenes stay
+/// out of its list: a scene runs its act lines against whatever outline the window is on, and some of them write.
+pub fn playground(poll: fn(&mut App, f64, &mut Tx) -> bool) -> rune::Playground<App> {
+    let listed = rune::Playground::<App>::new().scenes(|_| false);
+    crate::stories::all().iter().fold(listed, |listed, story| listed.story(rune::Story::<App>::new(story.name, move || crate::stories::window(story), view).poll(poll).stage(rune::Stage::Fill)))
+}
+
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let dark = cx.system_dark();
     let k = Kit::neutral(dark);

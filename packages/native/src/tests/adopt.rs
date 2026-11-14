@@ -300,3 +300,63 @@ fn a_row_the_pointer_rests_on_shows_its_note_in_a_card_beside_it_and_opens_nothi
     assert!(rt.state.glance.is_none() && rect_of(&rt, "tile/tree/glance").is_none());
     assert!(!rt.state.act("glance row=beans tile=tree", agent()).ok, "the card follows the person's pointer");
 }
+
+/// Every story of the playground stands on its recording: a window opened over what a scratch host once answered
+/// (`stories/recorded.json`), with the story's lines run, asks nothing the recording has no answer for, and is in
+/// the state its name says. No host runs here.
+#[test]
+fn every_story_of_the_playground_stands_on_what_a_host_once_answered() {
+    let stories = crate::stories::all();
+    assert!(stories.len() >= 10, "the recording lists the stories: {}", stories.len());
+    let story = |name: &str| crate::stories::window(stories.iter().find(|story| story.name == name).unwrap_or_else(|| panic!("no story {name}: {:?}", stories.iter().map(|story| story.name).collect::<Vec<_>>())));
+    for told in stories {
+        let app = crate::stories::window(told);
+        assert!(app.online && !app.screen.is_nowhere(), "{} opens on a screen: {:?}", told.name, app.notice);
+        assert!(!told.about.is_empty(), "{} says what it shows", told.name);
+        assert!(app.steps.iter().all(|step| step.ok), "{}: every line of it ran: {:?}", told.name, app.steps.iter().filter(|step| !step.ok).map(|step| (step.line(), step.said.clone())).collect::<Vec<_>>());
+        assert!(!app.notice.as_ref().is_some_and(|notice| notice.said.contains("a recording answers")), "{} asked what nobody recorded: {:?}", told.name, app.notice);
+    }
+    // Each is in the state its name says.
+    assert_eq!(story("Tiles/Reader").shown().map(|page| page.title.clone()).as_deref(), Some("Seed list"));
+    assert!(story("Tiles/Tree").tree().iter().any(|row| row.label == "Water the beans" && row.depth == 1), "the folder is open in the tree");
+    assert!(story("Shell/A tile held by its title").moving.is_some());
+    let menu = story("Shell/A tile's menu");
+    assert!(menu.bar.open && menu.bar.scope == crate::bar::MENU && crate::bar::rows(&menu).iter().any(|row| row.line == "tile.close"));
+    assert!(story("Shell/A notice").notice.is_some(), "the refusal is the notice");
+    let card = story("Page/A thread's card");
+    assert!(card.reader().is_some_and(|reader| !card.ui(&reader).unfolded.is_empty()), "the thread is shown whole");
+    let glance = story("Page/A note's card on a hover");
+    assert_eq!(glance.glance.as_ref().and_then(|at| glance.glanced(&at.tile)).and_then(|(_, page)| page).map(|page| page.title.clone()).as_deref(), Some("Water the beans"));
+    let written = story("Page/A block being written");
+    assert!(written.reader().and_then(|reader| written.completing(&reader)).is_some_and(|list| !list.rows.is_empty() && list.heading.as_deref() == Some("pages")), "the list that completes a page's name is open, with the pages the host listed");
+}
+
+/// The playground, in the window (Rune's `App::playground`), run headless as `--playground <story>` would: a story
+/// opens on a stage of its own, drawn by the window's own view over the story's own state, and what is pressed
+/// there acts on that state alone. The window's real state is as it was.
+#[test]
+fn a_story_opens_in_the_playground_on_a_state_of_its_own_and_is_pressed_there() {
+    let mut rt = rune::App::new(crate::made(crate::nobody)).playground(crate::shell::playground(crate::poll)).headless_runtime((1400.0, 860.0), rune::Env { system_dark: true, scale: 1.0 });
+    rt.frame(0.0);
+    let real = rt.state.steps.len();
+    rt.open_playground("Page/A thread's card", None);
+    for _ in 0..30 { rt.frame(1.0 / 60.0); }
+    let stage = rt.playground_state::<App>().expect("the story has a state of its own");
+    assert_eq!(stage.shown().map(|page| page.title.clone()).as_deref(), Some("Seed list"));
+    let thread = stage.reader().and_then(|reader| stage.ui(&reader).unfolded.iter().next().cloned()).expect("its thread is open");
+    assert!(rt.playground_element(&format!("tile/reader/card/{thread}")).is_some(), "the thread's card is drawn on the stage");
+    assert!(rt.playground_element("toolbar").is_some(), "the stage is the window's own view");
+    // A press on the stage acts on the story's state: the tree's first row opens there.
+    let stage_steps = rt.playground_state::<App>().unwrap().steps.len();
+    let row = rt.playground_state::<App>().unwrap().tree().first().map(|row| format!("tile/tree/row/{}", row.id)).expect("the tree lists the garden");
+    let at = rt.playground_element(&row).map(|e| (e.rect[0] + e.rect[2] / 2.0, e.rect[1] + e.rect[3] / 2.0)).expect("the row is on the stage");
+    rt.pointer_down(at.0, at.1);
+    rt.pointer_up(at.0, at.1);
+    for _ in 0..30 { rt.frame(1.0 / 60.0); }
+    assert!(rt.playground_state::<App>().unwrap().steps.len() > stage_steps, "the press ran in the story");
+    assert_eq!(rt.state.steps.len(), real, "the window's own state is untouched");
+    // Another story, another state: the list that completes a page's name hangs in a block being written.
+    rt.open_playground("Page/A block being written", None);
+    for _ in 0..30 { rt.frame(1.0 / 60.0); }
+    assert!(rt.playground_element("tile/reader/source").is_some(), "the block's field is on the stage");
+}
