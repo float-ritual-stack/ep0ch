@@ -130,6 +130,12 @@ fn made(init: fn() -> App) -> AppSpec<App> {
 }
 
 fn main() {
+    // First, as Rune's README asks ("Launch fast"): on a Mac the adapter, the device and the pipeline are made on a
+    // thread while AppKit starts, and the first window takes them. Elsewhere it does nothing.
+    rune::prewarm_gpu();
+    // A quit drops what the run holds and comes back from `run`: the control socket leaves its folder as it is
+    // dropped (`control::Control`). Rune's own default ends the process at the quit's last hook and drops nothing.
+    rune::orderly_exit();
     let window = rune::App::new(made(init)).on_close(control::gone);
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.
