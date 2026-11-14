@@ -1416,3 +1416,90 @@ fn live_a_block_is_written_as_in_the_door_a_paste_keeps_its_lines_tab_indents_an
         assert!(words(&rt.state).ends_with(&format!("[heading-pattern::{}]", found.rows[1].label)), "{}", words(&rt.state));
     });
 }
+
+/// K3, the sentence, on a real host: Evan writes in a block and the keys do what an editor's do. A list goes on by
+/// Return and ends on an empty item, Tab moves an item and never the paragraph he is in the middle of, a line moves
+/// by key, a step is ticked, a bracket comes with its closer and the service's completion writes none again, and
+/// what is saved is what the service then serves.
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_block_is_written_with_an_editor_s_keys_and_saved_as_typed() {
+    use super::support::{chord, draft, press, primary, rest, typed, window};
+    use crate::client::Socket;
+    use crate::draft::Hold;
+    use rune::{Key, Mods, Runtime};
+    with_host("editor", |path, root| {
+        let mut raw = Socket::connect(path);
+        asked(&mut raw, json!({ "id": "a", "action": "create", "outline": "scratch", "parentId": null, "text": "Shed [page::shed] [type::place]\nWhere the tools live.", "author": "user" })).unwrap();
+        let saved = "Spring beds [type::plan]\nWhat goes where.";
+        let note = asked(&mut raw, json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": saved, "author": "user" })).unwrap();
+        let id = note["id"].as_str().unwrap().to_string();
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&App) -> bool) {
+            for _ in 0..400 { if so(&rt.state) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); rt.update(|s, _| { s.beat(); }); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, draft {:?}", rt.state.notice, draft(&rt.state).map(|d| d.buf.words().to_string()));
+        }
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
+        app.start();
+        opened(&mut app);
+        act(&mut app, &format!("open id={id}"));
+        let mut rt = window(app);
+        until(&mut rt, "the note's page", |s| s.page().is_some_and(|page| page.title == "Spring beds"));
+        press(&mut rt, "tile/reader/edit");
+        until(&mut rt, "the hold", |s| draft(s).is_some_and(|d| matches!(d.hold, Hold::Held { .. })));
+        let (plain, shift, alt) = (Mods::default(), Mods { shift: true, ..Mods::default() }, Mods { alt: true, ..Mods::default() });
+
+        // Tab at the end of a sentence: nothing moves, and the keys stay in the block.
+        chord(&mut rt, Key::Tab, plain);
+        assert_eq!((words(&rt.state), rt.state.person().focus.as_str()), (saved, "reader"));
+        // A list, written as a list is: Return begins the next item, and Tab puts one under the one above.
+        chord(&mut rt, Key::Enter, plain);
+        typed(&mut rt, "- north bed");
+        chord(&mut rt, Key::Enter, plain);
+        typed(&mut rt, "peas");
+        chord(&mut rt, Key::Tab, plain);
+        chord(&mut rt, Key::Enter, plain);
+        typed(&mut rt, "beans");
+        assert_eq!(words(&rt.state), format!("{saved}\n- north bed\n  - peas\n  - beans"));
+        // The beans before the peas: the line moves by key. Then the peas are sown: the step is ticked.
+        chord(&mut rt, Key::Up, alt);
+        chord(&mut rt, Key::Down, plain);
+        chord(&mut rt, Key::Command('u'), Mods { shift: true, ..primary() });
+        chord(&mut rt, Key::Command('u'), Mods { shift: true, ..primary() });
+        assert_eq!(words(&rt.state), format!("{saved}\n- north bed\n  - beans\n  - [x] peas"));
+        // Return on a step begins an open one; on the empty one it goes up a level, and again ends the list.
+        chord(&mut rt, Key::End, plain);
+        chord(&mut rt, Key::Enter, plain);
+        assert!(words(&rt.state).ends_with("  - [x] peas\n  - [ ] "), "{}", words(&rt.state));
+        chord(&mut rt, Key::Enter, plain);
+        assert!(words(&rt.state).ends_with("  - [x] peas\n- [ ] "), "up to its parent's level: {}", words(&rt.state));
+        chord(&mut rt, Key::Enter, plain);
+        assert!(words(&rt.state).ends_with("  - [x] peas\n"), "and the list is over: {}", words(&rt.state));
+        // A link begun: the brackets come with their closers, the service finds the page with the closers there, and
+        // its row is written over them, never beside them.
+        typed(&mut rt, "Tools are in the [[she");
+        assert!(words(&rt.state).ends_with("Tools are in the [[she]]"), "{}", words(&rt.state));
+        until(&mut rt, "the completion list", |s| s.completing("reader").is_some_and(|found| !found.rows.is_empty()));
+        chord(&mut rt, Key::Enter, plain);
+        let written = format!("{saved}\n- north bed\n  - beans\n  - [x] peas\nTools are in the [[shed]]");
+        assert_eq!(words(&rt.state), written, "one pair of closers");
+        // A word wrapped a key at a time, and Shift+Return for a bare break.
+        typed(&mut rt, " now");
+        chord(&mut rt, Key::Command('w'), Mods { shift: true, ..primary() });
+        typed(&mut rt, "*");
+        chord(&mut rt, Key::End, plain);
+        chord(&mut rt, Key::Enter, shift);
+        let written = format!("{written} *now*\n");
+        assert_eq!(words(&rt.state), written);
+        // An undo takes the break back and no more; it is put back, and the block is saved as typed.
+        chord(&mut rt, Key::Command('z'), primary());
+        assert_eq!(words(&rt.state), written.trim_end());
+        chord(&mut rt, Key::Command('z'), Mods { shift: true, ..primary() });
+        chord(&mut rt, Key::Command('s'), primary());
+        until(&mut rt, "the save", |s| draft(s).is_some_and(|d| !d.unsaved()));
+        let page = asked(&mut raw, json!({ "id": "c", "action": "notes.page", "outline": "scratch", "blockId": id })).unwrap();
+        assert_eq!(page["text"], written.as_str(), "what the service holds is what the keys wrote");
+        // Escape with nothing selected and nothing unsaved leaves the editor.
+        chord(&mut rt, Key::Escape, plain);
+        assert!(draft(&rt.state).is_none());
+    });
+}

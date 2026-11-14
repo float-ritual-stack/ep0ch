@@ -84,7 +84,7 @@ fn a_block_is_typed_in_completed_from_the_service_s_list_and_saved() {
     typed(&mut rt, " [[zz");
     assert_eq!(rt.state.completing("reader").and_then(|found| found.message.clone()).as_deref(), Some("no page by that name yet"));
     chord(&mut rt, Key::Enter, Mods::default());
-    assert!(words(&rt.state).ends_with("[[zz\n"));
+    assert!(words(&rt.state).ends_with("[[zz\n]]"));
     // Saved as typed, the reference that names nothing included.
     chord(&mut rt, Key::Command('s'), primary());
     let saved = sent(&asked, "update").expect("the save chord saved");
