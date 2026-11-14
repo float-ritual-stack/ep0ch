@@ -207,8 +207,8 @@ fn acted(app: &mut App, reply: Reply) {
     let (mut said, mut left) = (Vec::new(), false);
     said.extend(result["message"].as_str().or(result["answer"].as_str()).map(str::to_string));
     match result["open"].as_str() {
-        // (A Resource is named by what it is, outline-core's resource-ref.ts: `file:`, `web:`, `resource:`.)
-        Some(resource) if ["file:", "web:", "resource:"].iter().any(|form| resource.starts_with(form)) => { left = true; said.push(format!("it asks for {resource} to be opened, and this window opens notes only")) }
+        // (A Resource is named by what it is: outline-core's rule, `ext::resource_ref`.)
+        Some(resource) if crate::ext::resource_ref(resource) => { left = true; said.push(format!("it asks for {resource} to be opened, and this window opens notes only")) }
         Some(note) => {
             let opened = app.act_request(actline::Request { action: super::nav::OPEN.id.to_string(), tile: None, by: None, args: Map::from_iter([("id".to_string(), json!(note))]) }, reply.by.clone());
             if !opened.ok { left = true; said.push(format!("the note it asks to have opened was not: {}", opened.said)) }

@@ -594,6 +594,7 @@ fn a_window_an_outline_and_an_extension_each_have_one_owner() {
     let acted = ext.split("fn acted(").nth(1).expect("actions/ext.rs has `acted`");
     for asks in super::support::served_act()["asks"].as_array().expect("the fixture lists what an answer may ask") { let key = format!("\"{}\"", asks.as_str().unwrap()); assert!(acted.contains(&key), "actions/ext.rs's `acted` reads no {key}: what an extension's action answers is done here or said not done") }
     assert!(acted.contains("super::nav::OPEN.id"), "a note an extension's action asks to have opened goes through the open action's own row");
+    none("a second reader of what is written as a Resource ref (`ext::resource_ref`, held to outline-core's rows)", strays("\"resource:\"", |path| path == "ext.rs"));
     none("the clipboard written outside the window's hands (`keys::effects`)", strays("tx.copy(", |path| path == "keys.rs"));
     none("words put on the clipboard for somebody other than an extension's answer for the person", strays("st.copying =", |path| path == "actions/ext.rs"));
     // A machine's name belongs to the machine that says it: whether the host asked may speak for an outline is one
