@@ -51,7 +51,7 @@ fn tab_and_shift_tab_move_a_list_s_line_a_level_each_as_one_step_and_the_keys_st
     assert_eq!((words(&rt.state), rt.state.person().layer, rt.state.person().focus.as_str()), (flat.as_str(), Layer::Draft, "reader"));
     // The hint row under the field says both keys, from their rows.
     let hints: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
-    assert!(["indent the line, or the selected lines", "outdent the line, or the selected lines"].iter().all(|does| hints.iter().any(|said| said == does)), "{hints:?}");
+    assert!(["indent the item, or the selected lines", "outdent the item, or the selected lines"].iter().all(|does| hints.iter().any(|said| said == does)), "{hints:?}");
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     assert!(texts(&rt).iter().any(|said| said == "pages 2/3"));
     assert_eq!(rt.state.completing("reader").unwrap().rows.len(), 3);
     let lit = sent(&asked, "completion.rows").unwrap();
-    assert_eq!((lit["lit"].as_u64(), lit["text"].as_str(), lit["near"].as_str()), (Some(1), Some(format!("{PLOT}\nSee [[s").as_str()), Some("plot")));
+    assert_eq!((lit["lit"].as_u64(), lit["text"].as_str(), lit["near"].as_str()), (Some(1), Some(format!("{PLOT}\nSee [[s]]").as_str()), Some("plot")));
     assert_eq!((peek(&rt)["lit"].clone(), peek(&rt)["shows"]["children"][0]["children"][0]["text"].clone()), (json!(2), json!("[[shed]]")));
     assert!(texts(&rt).iter().any(|said| said == "[[shed]]") && !texts(&rt).iter().any(|said| said == "[[seed-list]]"));
     assert_eq!(rt.state.person().layer, Layer::Complete, "the keys are still the list's");

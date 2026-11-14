@@ -255,9 +255,11 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     // end), the comment it answers; and, when the service says those words are no passage of the note, why.
     let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
     let unfound = draft.writes.quoted().and_then(|quoted| quoted.refused()).map(|why| text(why.to_string()).key(cx.key("on-problem")).font(k.ty.small).color(c.danger.fg).wrap());
+    // What holds where they write, for the rows that are offered only then (a row's own `when`): something selected.
+    let holds: &[&str] = if draft.buf.ends().0 != draft.buf.ends().1 { &["selection"] } else { &[] };
     // What the keys do where they are now, from the table: the save that keeps you here, then the draft's own (the
     // Esc that leaves), or the list's while one is open over the block (the Esc that puts it away, the keys that choose).
-    let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(cx.app.writing(cx.id))).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
+    let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints_when(cx.app.writing(cx.id), holds)).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
         line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
     });
     let framed = if draft.is_block() { col().key(cx.key("editor")).w_full().gap(8.0) } else { col().key(cx.key("editor")).w_full().gap(8.0).padding(12.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_focus) };

@@ -109,7 +109,7 @@ fn offset_in(lines: &[String], (row, col): (usize, usize)) -> usize { lines[..ro
 
 fn made(lines: &[String], anchor: (usize, usize), caret: (usize, usize)) -> Change { Change { text: lines.join("\n"), anchor: offset_in(lines, anchor), caret: offset_in(lines, caret) } }
 
-fn lines_of(text: &str) -> Vec<String> { text.split('\n').map(str::to_string).collect() }
+fn split_lines(text: &str) -> Vec<String> { text.split('\n').map(str::to_string).collect() }
 
 /// Return at the caret (`newlineText`; a selection goes first). On a list item the words after the caret go to a
 /// new item: the same indent, the next marker, the same gap and a fresh box. On an empty item it goes up to its
@@ -118,7 +118,7 @@ fn lines_of(text: &str) -> Vec<String> { text.split('\n').map(str::to_string).co
 /// `plain`: just the break.
 pub fn newline(text: &str, anchor: usize, caret: usize, plain: bool) -> Change {
     let (from, to) = (anchor.min(caret), anchor.max(caret));
-    let mut lines = lines_of(&format!("{}{}", &text[..from], &text[to..]));
+    let mut lines = split_lines(&format!("{}{}", &text[..from], &text[to..]));
     let (row, col) = place(&lines, from);
     let line = lines[row].clone();
     let at = |lines: &[String], row: usize, col: usize| made(lines, (row, col), (row, col));
@@ -169,7 +169,7 @@ pub const LINE_OPS: [&str; 5] = ["up", "down", "copy-up", "copy-down", "delete"]
 /// at the text's edge), written again above (`copy-up`: the caret stays on the upper) or below (`copy-down`: it goes
 /// to the copy), or taken out (`delete`). None: `op` is none of those.
 pub fn line_op(text: &str, anchor: usize, caret: usize, op: &str) -> Option<Change> {
-    let mut lines = lines_of(text);
+    let mut lines = split_lines(text);
     let (a, c) = (place(&lines, anchor), place(&lines, caret));
     let (first, last) = whole(a, c);
     let n = last - first + 1;
@@ -263,7 +263,7 @@ fn word_in(line: &str, offset: usize) -> (usize, usize) {
 /// The word the caret is on, its line (with whole lines already selected: the next line too) or the whole text
 /// (`selectText`): the selection's two ends, the caret at its end. None: `what` is none of `word`, `line`, `all`.
 pub fn select(text: &str, anchor: usize, caret: usize, what: &str) -> Option<(usize, usize)> {
-    let lines = lines_of(text);
+    let lines = split_lines(text);
     let (a, c) = (place(&lines, anchor), place(&lines, caret));
     let start = |row: usize| offset_in(&lines, (row, 0));
     Some(match what {
@@ -305,7 +305,7 @@ pub fn erase(text: &str, anchor: usize, caret: usize, to: &str) -> Option<Change
 /// done, a step in any other state is open again, a list item with no box gets an open one, any other line becomes
 /// an item with one. Several lines all go where the first goes, and blank lines among them stay.
 pub fn check(text: &str, anchor: usize, caret: usize) -> Change {
-    let mut lines = lines_of(text);
+    let mut lines = split_lines(text);
     let (mut a, mut c) = (place(&lines, anchor), place(&lines, caret));
     let (first, last) = whole(a, c);
     let open = lead(&lines[first]).is_some_and(|item| item.boxed.starts_with("[ ]"));

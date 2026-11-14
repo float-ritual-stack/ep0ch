@@ -47,7 +47,7 @@ fn a_block_is_typed_in_completed_from_the_service_s_list_and_saved() {
     typed(&mut rt, "See [[s");
     let typed_so_far = format!("{PLOT}\nSee [[s");
     let ask = sent(&asked, "completion.rows").expect("the service is asked what completes the words");
-    assert_eq!((ask["text"].as_str(), ask["cursor"].as_u64(), ask["near"].as_str(), ask.get("target")), (Some(typed_so_far.as_str()), Some(typed_so_far.encode_utf16().count() as u64), Some("plot"), None), "the text and the caret, never a token found here");
+    assert_eq!((ask["text"].as_str(), ask["cursor"].as_u64(), ask["near"].as_str(), ask.get("target")), (Some(format!("{typed_so_far}]]").as_str()), Some(typed_so_far.encode_utf16().count() as u64), Some("plot"), None), "the text and the caret (the brackets came with their closers, the caret inside), never a token found here");
     // Its list is open over the block, the service's rows as it merged them, and the keys are the list's.
     let found = rt.state.completing("reader").expect("the list is open").clone();
     assert_eq!(found.rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(), ["Seed list", "Shed", "Sowing calendar"]);
@@ -75,7 +75,7 @@ fn a_block_is_typed_in_completed_from_the_service_s_list_and_saved() {
     typed(&mut rt, " And [[so");
     assert_eq!(rt.state.person().layer, Layer::Complete);
     chord(&mut rt, Key::Escape, Mods::default());
-    assert_eq!((rt.state.person().layer, draft(&rt.state).is_some(), words(&rt.state).ends_with("And [[so")), (Layer::Draft, true, true));
+    assert_eq!((rt.state.person().layer, draft(&rt.state).is_some(), words(&rt.state).ends_with("And [[so]]")), (Layer::Draft, true, true));
     typed(&mut rt, "w");
     assert_eq!(rt.state.completing("reader").map(|found| found.rows.len()), Some(1));
     press(&mut rt, "tile/reader/complete-option-1");
@@ -344,8 +344,10 @@ fn the_field_s_own_undo_takes_an_agent_s_patch_back_as_one_step() {
     chord(&mut rt, Key::Command('z'), primary());
     assert_eq!(at(&rt), ("Plot [type::chore]\nBefore the rain. One".to_string(), 39), "the patch is gone, whole, and the caret is where it was before it");
     chord(&mut rt, Key::Command('z'), primary());
-    assert_eq!(at(&rt).0, PLOT, "then the typing before it");
-    for _ in 0..2 { chord(&mut rt, Key::Command('z'), Mods { shift: true, ..primary() }) }
+    assert_eq!(at(&rt).0, format!("{PLOT} "), "then the word typed before it");
+    chord(&mut rt, Key::Command('z'), primary());
+    assert_eq!(at(&rt).0, PLOT, "then the space before the word: a step ends where a word begins");
+    for _ in 0..3 { chord(&mut rt, Key::Command('z'), Mods { shift: true, ..primary() }) }
     assert_eq!(at(&rt), ("Plot [type::chore]\nBefore the frost. One".to_string(), 40), "and redo puts both back");
 }
 
@@ -369,7 +371,7 @@ fn an_agent_s_patch_never_opens_the_list_the_person_put_away() {
     assert_eq!(answered(&asked, "r1")["answer"]["applied"], true);
     assert_eq!((rt.state.person().layer, rt.state.completing("reader").is_none()), (Layer::Draft, true), "the patch landed above, and the list is still away");
     chord(&mut rt, Key::Enter, Mods::default());
-    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the frost.\nSee [[s\n", "Return is a line, as it was before the patch");
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the frost.\nSee [[s\n]]", "Return is a line, as it was before the patch (the closers that came with the brackets go down with it)");
     // What the person types opens it again, as ever.
     chord(&mut rt, Key::Backspace, Mods::default());
     typed(&mut rt, "h");

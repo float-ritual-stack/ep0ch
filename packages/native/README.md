@@ -142,15 +142,50 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+e` | `edit` | everywhere | edit the open note |
 | `mod+s` | `edit.save` | everywhere | save |
 | `mod+enter` | `edit.save` | draft | save, from the note's source |
-| `escape` | `edit.close` | draft | leave the editor, when everything is saved |
+| `escape` | `edit.close` | draft | let go of a selection; then leave the editor, when everything is saved |
 | `mod+v` | `draft.paste` | draft | paste the clipboard |
-| `tab` | `draft.indent` | draft | indent the line, or the selected lines |
-| `shift+tab` | `draft.outdent` | draft | outdent the line, or the selected lines |
+| `tab` | `draft.indent` | draft | indent the item, or the selected lines |
+| `shift+tab` | `draft.outdent` | draft | outdent the item, or the selected lines |
 | `tab` | `complete.accept` | complete | write the lit row |
 | `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
 | `down` | `complete.move by=1` | complete | the next row |
 | `up` | `complete.move by=-1` | complete | the row before |
 | `escape` | `complete.dismiss` | said | put the list away |
+| `enter` | `draft.newline` | draft | a new line; a list goes on, and ends on an empty item |
+| `shift+enter` | `draft.newline plain=true` | draft | a plain line break: no marker, no indent |
+| `alt+enter` | `draft.newline plain=true` | draft | a plain line break, the same |
+| `home` | `draft.go to=line-start` | draft | to the line's start |
+| `end` | `draft.go to=line-end` | draft | to the line's end |
+| `shift+home` | `draft.go extend=true to=line-start` | draft | select to the line's start |
+| `shift+end` | `draft.go extend=true to=line-end` | draft | select to the line's end |
+| `mod+up` | `draft.go to=doc-start` | draft | to the start of the text |
+| `mod+down` | `draft.go to=doc-end` | draft | to the end of the text |
+| `mod+shift+up` | `draft.go extend=true to=doc-start` | draft | select to the start of the text |
+| `mod+shift+down` | `draft.go extend=true to=doc-end` | draft | select to the end of the text |
+| `word+left` | `draft.go to=word-back` | draft | back a word |
+| `word+right` | `draft.go to=word-forward` | draft | forward a word |
+| `word+shift+left` | `draft.go extend=true to=word-back` | draft | select back a word |
+| `word+shift+right` | `draft.go extend=true to=word-forward` | draft | select forward a word |
+| `line+left` | `draft.go to=line-start` | draft | to the start of the row as drawn (the field's own: a wrapped line has several) |
+| `line+right` | `draft.go to=line-end` | draft | to the end of the row as drawn |
+| `mod+shift+a` | `draft.select what=line` | draft | select the line; again takes in the next |
+| `mod+shift+w` | `draft.select what=word` | draft | select the word |
+| `mod+a` | `draft.select what=all` | draft | select the whole text |
+| `alt+up` | `draft.line op=up` | draft | move the line up |
+| `alt+down` | `draft.line op=down` | draft | move the line down |
+| `alt+shift+up` | `draft.line op=copy-up` | draft | copy the line above itself |
+| `alt+shift+down` | `draft.line op=copy-down` | draft | copy the line below itself |
+| `mod+shift+k` | `draft.line op=delete` | draft | delete the line |
+| `ctrl+u` | `draft.erase to=line-start` | draft | erase to the line's start |
+| `line+delete` | `draft.erase to=line-end` | draft | erase to the line's end |
+| `line+backspace` | `draft.erase to=line-start` | draft | erase to the line's start |
+| `word+backspace` | `draft.erase to=word-back` | draft | erase the word before the caret |
+| `word+delete` | `draft.erase to=word-forward` | draft | erase the word after the caret |
+| `mod+shift+u` | `draft.check` | draft | tick the step, or make the line one |
+| `mod+z` | `draft.undo` | draft | undo |
+| `mod+shift+z` | `draft.redo` | draft | redo |
+| `mod+c` | `draft.copy` | draft | copy |
+| `mod+x` | `draft.cut` | draft | cut |
 | `mod+shift+m` | `comment` | everywhere | comment on the selected words, or on the note |
 | `a then c` | `comment` | selection | comment on the selected words |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |

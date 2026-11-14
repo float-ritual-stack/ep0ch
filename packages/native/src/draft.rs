@@ -250,6 +250,11 @@ pub struct DraftSession {
     pub completing: Completing,
     /// The service is to be told the person typed, once the keys are quiet.
     pub touched: Option<Instant>,
+    /// A selection the window filled in for typing over (what a chosen completion says to select: an example value),
+    /// while it is still the selection: a wrap character typed there replaces it, as any character does.
+    pub filled: Option<(usize, usize)>,
+    /// When a character was last typed here: a pause before the next one ends a step of the field's way back.
+    pub typed_at: Option<Instant>,
     /// What the draft stood on before a patch the saved note also took, by patch: taken back, it stands there again.
     stood: HashMap<String, (u64, String)>,
 }
@@ -376,7 +381,7 @@ pub fn map_cursor(offset: usize, spans: &[Placed]) -> usize {
 impl DraftSession {
     /// A draft of `note` on `tile`: `text` as the service holds it at `revision`, in a field the caller made.
     pub fn new(tile: Id, note: String, revision: u64, base: String, buf: Text) -> DraftSession {
-        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, stood: HashMap::new() }
+        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, filled: None, typed_at: None, stood: HashMap::new() }
     }
 
     /// The same session, writing something else than the block's own text (a comment, a reply).

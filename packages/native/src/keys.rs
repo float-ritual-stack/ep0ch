@@ -18,6 +18,13 @@
 //! - **A field asks the table first** (`input`, `area`): a chord the table knows runs its line and the editor never
 //!   sees it; anything else is text for the editor; what the editor leaves goes up to the window, which asks the
 //!   same table.
+//! - **The field's own keys are rows too, listed and never bound** (`KeyRow.own`, `Bind.own`): a motion by word
+//!   needs the field's layout and an undo its history, so those chords stay the editor's, and their rows give them
+//!   a keycap, a line on the keys screen and an action an act line runs (which hands the editor the key: `Sent`,
+//!   sent by `effects`). A chord named `word+…` or `line+…` is the platform's own for a word and for a line's edge
+//!   (`platform`): Option and Command on a Mac; Control for a word elsewhere, and no key for a line's edge there.
+//! - **In a field of lines, a typed character is asked of the editor's rules before it is typed** (`table_first`,
+//!   `App::types`): a bracket that wraps or pairs, a marker that takes an item's place, where the undo's step ends.
 //! - **A field's text is `Text`**: the kit's editor behind a type of this file's, so the window's state holds what
 //!   is typed (its words, its caret, its selection, its way back) and names no renderer.
 //! - **Rune's focus follows the layout's** (`follow`, the one caller of `Tx::focus`): a press inside a tile gives it
@@ -167,13 +174,22 @@ pub struct Bind {
     pub action: &'static str,
     /// What these keys do, in the row's words.
     pub does: &'static str,
-    /// Where the binding came from: an action's row. (A screen's own are `ScreenBind`s; the person's own file isn't read yet.)
+    /// Where the binding came from: an action's row (`row`), or one that lists a key the field's own editor answers
+    /// (`field`). (A screen's own are `ScreenBind`s; the person's own file isn't read yet.)
     pub from: &'static str,
+    /// The field's own: listed, with its keycap, and never run by the table.
+    pub own: bool,
+    /// Left out of the hint row.
+    pub quiet: bool,
+    /// What must hold for the hint row to offer it.
+    pub when: Option<&'static str>,
 }
 
 impl Bind {
     /// How the chord reads here: `⌘K` on a Mac, `Ctrl+K` elsewhere.
     pub fn cap(&self) -> String { self.chords.iter().map(Chord::label).collect::<Vec<_>>().join(" ") }
+    /// No key here is this row's (a line's edge by Command, off a Mac): it is listed and never pressed.
+    pub fn keyless(&self) -> bool { self.chords.is_empty() }
     fn is_escape(&self) -> bool { self.chords.len() == 1 && self.chords[0].key() == ChordKey::Escape }
 }
 
@@ -184,7 +200,7 @@ static TABLE: LazyLock<Vec<Bind>> = LazyLock::new(|| {
     let mut table = Vec::new();
     for action in actions::all() {
         for row in action.row.key_rows() {
-            let KeyRow::Keys { keys, on, args, does, .. } = row else { continue };
+            let KeyRow::Keys { keys, on, args, does, own, quiet, when, .. } = row else { continue };
             let line = std::iter::once(action.row.id.to_string()).chain(args.iter().map(|(k, v)| format!("{k}={}", word(&v.word())))).collect::<Vec<_>>().join(" ");
             // Alternatives are words; `g then d` is one sequence.
             let words: Vec<&str> = keys.split_whitespace().collect();
@@ -196,13 +212,24 @@ static TABLE: LazyLock<Vec<Bind>> = LazyLock::new(|| {
                 joins = false;
             }
             for spec in specs.into_iter().filter(|spec| !spec.iter().any(|w| MOUSE.contains(w))) {
-                let chords = spec.iter().map(|c| Chord::parse(c).unwrap_or_else(|e| panic!("{}'s key {c:?} doesn't read as a chord: {e}", action.row.id))).collect();
-                table.push(Bind { chords, spec: spec.join(" then "), layer: on.map(Layer::named), line: line.clone(), action: action.row.id, does, from: "row" });
+                // (A chord with no key on this platform leaves the row with none: listed, never pressed.)
+                let chords = spec.iter().map(|c| platform(c).map(|c| Chord::parse(&c).unwrap_or_else(|e| panic!("{}'s key {c:?} doesn't read as a chord: {e}", action.row.id)))).collect::<Option<Vec<_>>>().unwrap_or_default();
+                table.push(Bind { chords, spec: spec.join(" then "), layer: on.map(Layer::named), line: line.clone(), action: action.row.id, does, from: if own.is_some() { "field" } else { "row" }, own: own.is_some(), quiet: *quiet, when: *when });
             }
         }
     }
     table
 });
+
+/// A chord as a row names it, as it is on this platform. `word+` is the key that moves by a word (Option on a Mac,
+/// Control elsewhere) and `line+` the one that goes to a line's edge (Command on a Mac; elsewhere Home and End do
+/// that and no modifier does: None).
+fn platform(chord: &str) -> Option<String> {
+    let mac = cfg!(target_os = "macos");
+    if let Some(rest) = chord.strip_prefix("word+") { return Some(format!("{}+{rest}", if mac { "alt" } else { "ctrl" })) }
+    if let Some(rest) = chord.strip_prefix("line+") { return mac.then(|| format!("mod+{rest}")) }
+    Some(chord.to_string())
+}
 
 /// The whole table, in the order the actions list their keys.
 pub fn table() -> &'static [Bind] { &TABLE }
@@ -240,8 +267,12 @@ pub fn esc(layer: Layer) -> Option<&'static Bind> { esc_steps().into_iter().find
 /// The keys that are a layer's own, with what each does: the hint row under the bar, a form and the editor. What
 /// Esc closes there comes first. A layer with no key of its own but the one that leaves it (a completion list
 /// with nothing to choose from) lists the keys of the layer under it, which still hold.
-pub fn hints(layer: Layer) -> Vec<(String, &'static str)> {
-    let own = |layer: Layer| table().iter().filter(move |bind| bind.layer == Some(layer) && !bind.is_escape());
+pub fn hints(layer: Layer) -> Vec<(String, &'static str)> { hints_when(layer, &[]) }
+
+/// The same, where `holds` says what holds there now (`selection`: something is selected where the person writes):
+/// a row that names a condition is offered only while it holds, and a quiet row never (the keys screen has it).
+pub fn hints_when(layer: Layer, holds: &[&str]) -> Vec<(String, &'static str)> {
+    let own = |layer: Layer| table().iter().filter(move |bind| bind.layer == Some(layer) && !bind.is_escape() && !bind.quiet && !bind.keyless() && bind.when.is_none_or(|when| holds.contains(&when)));
     let shown = layer.stack().iter().copied().find(|layer| own(*layer).next().is_some()).unwrap_or(layer);
     esc(layer).into_iter().chain(own(shown)).map(|bind| (bind.cap(), bind.does)).collect()
 }
@@ -298,7 +329,11 @@ pub fn rows(s: &App) -> Value {
         if let Err(why) = &bind.chord { row["problem"] = json!(why) }
         row
     });
-    json!(screen.chain(table().iter().map(|bind| json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from }))).collect::<Vec<_>>())
+    json!(screen.chain(table().iter().map(|bind| {
+        let mut row = json!({ "chord": bind.spec, "line": bind.line, "layer": bind.layer.map_or("any", Layer::name), "from": bind.from });
+        if bind.keyless() { row["problem"] = json!(format!("{} is no key here", bind.spec)) }
+        row
+    })).collect::<Vec<_>>())
 }
 
 /// What this file remembers between events, and nothing else reads: the chords of a sequence pressed so far,
@@ -319,7 +354,8 @@ enum Found {
 }
 
 fn find(layer: Layer, seq: &[KeyEvent], tx: &Tx) -> Found {
-    let fits = |bind: &&Bind| bind.chords.len() >= seq.len() && bind.chords.iter().zip(seq).all(|(chord, e)| chord.matches_tx(e, tx));
+    // (A row that lists the field's own key is not the table's to run, and one with no key here fits nothing.)
+    let fits = |bind: &&Bind| !bind.own && !bind.keyless() && bind.chords.len() >= seq.len() && bind.chords.iter().zip(seq).all(|(chord, e)| chord.matches_tx(e, tx));
     // The layer's own rows first, then the layer's under it, then the rows that hold everywhere (where they do).
     let mut waits = false;
     for scope in layer.stack().iter().copied().map(Some).chain(layer.open().then_some(None)) {
@@ -449,17 +485,21 @@ fn ask(s: &mut App, asked: Option<(String, Vec<String>)>, tx: &mut Tx) -> bool {
     false
 }
 
-/// The adapter every field's keys go through: the table first; then, in a block's source, plain Return types a line
-/// (the kit's editor would submit instead); anything else is the editor's, and what it leaves goes up.
+/// The adapter every field's keys go through: the table first; then, in a field of lines (a block's source, a
+/// comment, a reply), a character about to be typed is asked of the editor's rules (`App::types`: it may wrap, pair
+/// or take a marker's place), and a plain Return the table left (the field has Rune's focus and the layout's is
+/// elsewhere for a frame) breaks the line by the same rule the row runs; anything else is the editor's, and what it
+/// leaves goes up.
 fn table_first(field: Field, lines: bool) -> impl Fn(&mut App, &KeyEvent, &mut Tx) -> bool {
     move |s, e, tx| {
         if press(s, e, tx) { return true }
-        if lines && e.key == Key::Enter && e.mods == Mods::default() {
-            s.field(&field).insert("\n");
-            s.typed(&field);
-            return true;
+        let Field::Draft(tile) = &field else { return false };
+        if !lines { return false }
+        match &e.key {
+            Key::Enter if e.mods == Mods::default() => { s.break_line(tile, false); true }
+            Key::Text(text) if !e.mods.cmd && !e.mods.ctrl => { let mut chars = text.chars(); match (chars.next(), chars.next()) { (Some(ch), None) => s.types(tile, ch), _ => false } }
+            _ => false,
         }
-        false
     }
 }
 
@@ -524,6 +564,20 @@ impl Text {
     pub fn ends(&self) -> (usize, usize) { let len = self.0.text.len(); (self.0.anchor.min(len), self.0.focus.min(len)) }
     /// The caret, and the selection's other end, put here.
     pub fn select(&mut self, anchor: usize, caret: usize) { self.0.set_selection(anchor, caret) }
+    /// The last step of the field's way back is taken back, or put back: the editor's own undo and redo.
+    pub fn undo(&mut self) { self.0.undo() }
+    pub fn redo(&mut self) { self.0.redo() }
+    /// What is typed next starts a step of its own in the field's way back (the editor's rule alone makes a whole
+    /// run of typing one step: `edit/history.rs`).
+    pub fn rest(&mut self) { self.0.break_history_group() }
+    /// Ranges of the words replaced (apart, in order) by the person's own key, as one step of the field's way back:
+    /// the selection's two ends go where the rule that made the change says.
+    pub fn put(&mut self, edits: &[(usize, usize, &str)], anchor: usize, caret: usize) {
+        self.0.undo_group(|edit| {
+            for (start, end, with) in edits.iter().rev() { edit.set_selection(*start, *end); edit.insert(with); }
+            edit.set_selection(anchor, caret);
+        });
+    }
     /// Ranges of the words replaced (apart, in order), as one step of the field's own way back, by somebody who is not
     /// typing in it: the caret and the selection's other end go where `moved` says each is after, and nothing else
     /// of the editor's (whether it takes the keys, what is being composed) is touched.
@@ -537,11 +591,39 @@ impl Text {
     }
 }
 
+/// A key handed to the field's own editor, for an action that is the editor's to do (it has the layout a motion by
+/// word needs): what an act line, a menu row or a press runs where the person would press the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sent {
+    /// The caret a word back or forward; `extend` takes the selection with it.
+    Word { forward: bool, extend: bool },
+    /// The word before or after the caret erased.
+    EraseWord { forward: bool },
+    /// What is selected copied to the clipboard, or cut to it: the editor's own, which writes the clipboard itself.
+    Copy,
+    Cut,
+}
+
+impl Sent {
+    /// The key as the editor reads it on every platform: Alt is its word modifier everywhere (`edit/input.rs`).
+    fn event(self) -> KeyEvent {
+        let word = |shift: bool| Mods { alt: true, shift, ..Mods::default() };
+        match self {
+            Sent::Word { forward, extend } => KeyEvent { key: if forward { Key::Right } else { Key::Left }, mods: word(extend) },
+            Sent::EraseWord { forward } => KeyEvent { key: if forward { Key::Delete } else { Key::Backspace }, mods: word(false) },
+            // The platform's own command key, as the platform reports it: Control with `cmd` set off a Mac.
+            Sent::Copy | Sent::Cut => KeyEvent { key: Key::Command(if self == Sent::Copy { 'c' } else { 'x' }), mods: Mods { cmd: true, ctrl: !cfg!(target_os = "macos"), logo: cfg!(target_os = "macos"), ..Mods::default() } },
+        }
+    }
+}
+
 /// What an act asked of the next frame, done: an element brought into view, the window closed, the clipboard read
 /// for a paste into a program or into a block being written, and written with the words an extension's action
 /// handed back for it. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if s.closing { tx.close_window() }
+    // Keys an action handed to the field's own editor (a motion by word, a word erased): sent as if typed, in order.
+    for sent in s.sending() { tx.send_key(sent.event()) }
     // A paste asked for with no words of its own is the clipboard's: read here, where the window's hands are, and
     // handed to the tile the person was in when they asked (its program, or the block being written there).
     if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| s.pasted(&tile, content.text())) }

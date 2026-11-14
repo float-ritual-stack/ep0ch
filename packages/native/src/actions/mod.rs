@@ -14,6 +14,7 @@ mod app;
 mod bar;
 mod carry;
 mod draft;
+mod editor;
 mod ext;
 mod layout;
 mod list;
@@ -131,7 +132,7 @@ pub struct Action {
     pub about: About,
 }
 
-static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, carry::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
+static NOUNS: &[&[Action]] = &[nav::ACTIONS, note::ACTIONS, draft::ACTIONS, editor::ACTIONS, review::ACTIONS, bar::ACTIONS, tree::ACTIONS, list::ACTIONS, shell::ACTIONS, tile::ACTIONS, terminal::ACTIONS, layout::ACTIONS, carry::ACTIONS, screen::ACTIONS, script::ACTIONS, ext::ACTIONS, outline::ACTIONS, window::ACTIONS];
 
 /// Every action there is, in the order its noun lists it.
 pub fn all() -> impl Iterator<Item = &'static Action> { NOUNS.iter().flat_map(|noun| noun.iter()) }
