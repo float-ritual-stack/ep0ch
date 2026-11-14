@@ -255,10 +255,13 @@ fn toolbar(s: &App, lead: f32, k: &Kit) -> El {
         let line = format!("outline.switch name={} machine={}", word(&at.outline), word(&at.machine));
         bar = bar.child(k.interactive(Badge::new(at.outline.clone()).variant(BadgeVariant::Subtle).build(k)).key(format!("parked/{}", at.outline)).role("button").label(actions::label(&line)).on_press(act(line)));
     }
-    // What an agent last did here, said where the person sees it. A toolbar full of buttons cuts it short, so the
-    // whole of it is what a pointer resting on it reads.
-    if let Some(said) = &s.agent_said { bar = bar.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate().help(said.clone())) }
-    bar = bar.child(el().grow(1.0));
+    // What an agent last did here, said where the person sees it: in the room the row has left between the names and
+    // the screen's buttons, and none of theirs (as one more word beside them it shrank with them, and the outline's
+    // short name was cut to "…" for as long as the line was up). A toolbar full of buttons cuts it short, so the whole
+    // of it is what a pointer resting on it reads.
+    let mut free = row().grow(1.0).min_w(0.0).center_y();
+    if let Some(said) = &s.agent_said { free = free.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate().help(said.clone())) }
+    bar = bar.child(free);
     // The screen's own toolbar, as the service lists it now: a screen note changed since the window opened is followed.
     for line in s.spec_now().map(|spec| spec.toolbar()).unwrap_or_default() { bar = bar.child(button(&line, ButtonVariant::Ghost).build(k).key(format!("tool/{line}"))) }
     // The arrangement's lock: lit while its shape is fixed, a press the other way.

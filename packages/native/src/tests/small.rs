@@ -57,6 +57,32 @@ fn a_status_line_the_toolbar_cuts_short_says_its_whole_words_on_a_hover() {
     assert_eq!(line.help.as_deref(), Some(said.as_str()), "the whole of it, however little of it the toolbar has room for");
 }
 
+/// Seen in the same window: while the status line was up the outline's name beside it was cut to "…", and the
+/// machine's too, so for as long as an agent's act was news the window did not say which outline it was. The status
+/// line has the room the toolbar has left between the names and the screen's buttons, and takes none of theirs: with
+/// it up, everything else on the row is where it was and as wide.
+#[test]
+fn the_status_line_has_the_toolbar_s_free_room_and_takes_none_of_the_names() {
+    for width in [1180.0, 760.0] {
+        let g = garden(ok());
+        let mut rt = rune::Runtime::new(g.app, crate::shell::view, (width, 760.0), rune::Env { system_dark: true, scale: 1.0 });
+        rt.poll = Some(|s, _, tx| { let landed = s.take() | s.ran(); crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
+        for _ in 0..4 { rt.frame(0.0); }
+        rest(&mut rt);
+        let row = |rt: &rune::Runtime<crate::actions::App>| rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key == "outline-name" || key == "screen-name" || key.starts_with("tool/"))).map(|e| (e.key.unwrap(), e.rect)).collect::<Vec<_>>();
+        let before = row(&rt);
+        assert!(before.len() >= 3, "the names and the screen's buttons are on the row: {before:?}");
+        rt.update(|s, _| { s.act("screen.open name=no-such-bench", agent()); });
+        rest(&mut rt);
+        let status = rect_of(&rt, "status").expect("the status line is on the toolbar");
+        assert_eq!(row(&rt), before, "at {width} points wide, with the status line up at {status:?}");
+        // It starts after the names and ends before the screen's first button.
+        let (names, tools): (Vec<_>, Vec<_>) = before.iter().partition(|(key, _)| !key.starts_with("tool/"));
+        let (left, right) = (names.iter().map(|(_, r)| r[0] + r[2]).fold(0.0, f32::max), tools.iter().map(|(_, r)| r[0]).fold(width, f32::min));
+        assert!(status[0] >= left && status[0] + status[2] <= right + 0.5, "the status line at {status:?} is between {left} and {right}");
+    }
+}
+
 /// A refusal's notice answers what the person did then. Once it has been up long enough to read, their next act
 /// puts it away; one that says something of its own leaves that in its place. The clock alone takes no notice away:
 /// the window keeps no log to find it in.
