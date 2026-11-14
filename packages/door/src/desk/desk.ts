@@ -7417,7 +7417,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ask: ListPicker<{ label: string; run: () => unknown }, Desk> = new ListPicker<{ label: string; run: () => unknown }, Desk>({   // a question, not a mode: no gathering card beside it; ^W leaves it for its chord
       name: "gather", items: () => rows, clickChooses: true, row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)], choose: it => void it.run(),
       keys: (k, d) => { if (k.kind !== "char" || !k.ctrl || k.ch !== "w") return false; ask.close(d, "esc"); d.key(k, d.ctx); return true; },
-      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 3), title: "gather into a group", tail: [`${fg(C.dark)}⏎ takes the lit row · ↑↓ moves`] }),   // what ⏎ picks, at any width (PIE-1792)
+      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 3), title: "gather into a group", tail: [fg(C.dark) + modeHint(ask.bindings.flatMap(r => r.key === "enter" ? [{ ...r, label: "takes the lit row" }] : r.key === "up" || r.key === "down" ? [{ ...r, label: "moves" }] : []), () => undefined)] }),   // what ⏎ picks, at any width (PIE-1792), from the picker's own keys
     }); this.overlay(ask);
     return { ...this.tileAnswer(t.id), asked: true, ...(whole && up ? { spill: true } : {}) };
   }

@@ -147,7 +147,7 @@ export const marks: Record<string, string[]> = {
   "margin-replies": ["Greenhouse plan for the spring", "question · ", "Recent replies"],
   // Three generated regions in prose (PIE-956): a script's table, a ::= sentence, a written output region, each behind a mark.
   "output-regions": ["Regions in prose", "Sam sows beans"],
-  projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
+  projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "couldn't fetch: Jira has no ACME-30, or you can't see it", "checked again hourly"],
   // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
   extensions: ["Omens for the allotment week", "extensions"],
   // The gallery extension's cards with their covers, and pic::'s one picture (PIE-827); no Kitty graphics here, so captions.
