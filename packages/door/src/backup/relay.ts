@@ -7,14 +7,15 @@
 //             over ssh to `ep0ch backup receive` in a login shell; no scp: it travels on the ssh command's stdin
 //   receiver  `ep0ch backup receive --machine <m> --outline <n> --sha256 H` with the ranges on stdin: into a private
 //             incoming folder, checked (sha256, one log, meeting the archive), appended to `<state>/log/<m>/<n>/`, then
-//             the upload (restic with `--host <m>`, then retention)
+//             the upload (restic with `--host <m>`, then retention); once it's uploaded, the hub's other chains of
+//             that outline (an earlier log) leave its archive here (PIE-1806)
 //
 // Secrets stay on each machine: the hub uses its own keys for the upload; nothing here reads or prints them.
 import type { DrillTimes } from "./jobs";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { appendToArchive, archivedRanges } from "@ep0ch/outliner/log-archive";
+import { appendToArchive, archivedRanges, letGoOtherChains } from "@ep0ch/outliner/log-archive";
 import { lastJson, ssh } from "../mcp-netmail";
 import { type BackupConfig, MACHINE_NAME } from "./config";
 import { archiveRoot, ensureRepo, waitForLock } from "./jobs";
@@ -29,6 +30,8 @@ export interface Received {
   snapshot?: string;
   uploadError?: string;
   error?: string;
+  /** The hub's older chains of this outline it let go once its snapshot held them (PIE-1806), each with its size. */
+  trimmed?: { chain: string; bytes: number }[];
 }
 
 /** Why a repository can't be reached, asked quickly (no answer from its host within `timeoutMs`), or null. Only s3: repositories are probed. */
@@ -102,9 +105,11 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     if (problem) return { ok: true, lsn, uploadError: problem };
     const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId);
     if ("error" in up) return { ok: true, lsn, uploadError: up.error };
+    // Uploaded: that snapshot took the whole folder, so the chains of the machine's earlier logs are the repository's.
+    const trimmed = letGoOtherChains(root, o.outline, ranges[0]!.logId);
     // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
     await forget(c, repo, { host: o.machine, wait: "30s" });
-    return { ok: true, lsn, snapshot: up.id };
+    return { ok: true, lsn, snapshot: up.id, ...(trimmed.length ? { trimmed } : {}) };
   } finally { release(); }
 }
 

@@ -27,6 +27,19 @@ export const moment = (t: string | number) => {
 /** The command to give for a failure: the VPN is a person's to turn off, the run is the job's. */
 export const RUN = "ep0ch backup run";
 
+/** A size as a person reads it: `812 B`, `40.2 kB`, `1.1 GB`. */
+export const sized = (bytes: number) => {
+  const [n, unit] = bytes < 1e3 ? [bytes, "B"] : bytes < 1e6 ? [bytes / 1e3, "kB"] : bytes < 1e9 ? [bytes / 1e6, "MB"] : [bytes / 1e9, "GB"];
+  return `${unit === "B" ? n : n.toFixed(1)} ${unit}`;
+};
+
+/** The chains a run let go of an outline's local archive (PIE-1806), each with its size: `698ead42 1.1 GB`. */
+export const chainsLine = (chains: readonly { chain: string; bytes: number }[]) => chains.map(c => `${c.chain.slice(0, 8)}${c.chain.includes("~") ? ` (kept aside at ${c.chain.split("~")[1]})` : ""} ${sized(c.bytes)}`).join(", ");
+
+/** The progress line for chains let go here once the repository holds them. */
+export const letGoLine = (name: string, chains: readonly { chain: string; bytes: number }[]) =>
+  `✓ ${name}: let go of ${chains.length} old log chain${chains.length === 1 ? "" : "s"} here (${chainsLine(chains)}); the repository holds ${chains.length === 1 ? "it" : "them"}`;
+
 /** The plain progress line for an outline the run could not back up (what the run says, not what status shows). */
 export function failedLine(name: string, error: string, o: { repo?: string; hub?: string | null } = {}): string {
   return `✗ ${name}: not backed up: ${plainFailure(error, o)}. Next: ${hintFor(error)}`;

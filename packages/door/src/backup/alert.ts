@@ -45,6 +45,18 @@ export interface OutlineState {
   relayed?: { via: string; at: string; why: string; uploaded: boolean; uploadError?: string };
 }
 
+/**
+ * How the repository holds an outline's archive, confirmed (Codex on #1502): `direct`, a snapshot from here that took
+ * the whole archive folder, every chain in it; `relayed`, the hub's upload of what it was sent, the current chain only;
+ * else null (a change still waiting, a failure, a relay the hub couldn't upload). The one place that decides it, for
+ * install's rollback points and the job's trim of old chains (PIE-1806).
+ */
+export function uploadedAs(o: Pick<OutlineState, "snapshot" | "pendingSince" | "error"> & { relayed?: { uploaded?: boolean } } | undefined): "direct" | "relayed" | null {
+  if (!o || o.pendingSince || o.error) return null;
+  if (o.relayed) return o.relayed.uploaded === true ? "relayed" : null;
+  return o.snapshot ? "direct" : null;
+}
+
 export interface ForgetState { at: string; ok: boolean; failures: number; since?: string; error?: string; cleared?: string }
 
 /** Forget failing this many runs in a row is an incident: one failure is a live lock the next run waits out. */

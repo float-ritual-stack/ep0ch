@@ -34,7 +34,7 @@ const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" }
 
 export { backupDatabase } from "@ep0ch/outliner/snapshot-database";
 import { backupDatabase } from "@ep0ch/outliner/snapshot-database";
-import { type BackupState, drillStandsIn, readBackupState } from "../backup/alert";
+import { type BackupState, drillStandsIn, readBackupState, uploadedAs } from "../backup/alert";
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
   const lines = [`ep0ch install · ${f.platform} · ${apply ? "applying" : "dry run: nothing changes; ep0ch install --apply runs the → steps"}`, ""];
@@ -149,7 +149,7 @@ export function rollbackPoints(state: (Pick<BackupState, "drill"> & { outlines: 
   const points: { name: string; seq: number; logId: string; where: string }[] = [], short: string[] = [];
   for (const name of names) {
     const o = state.outlines[name];
-    const uploaded = !!o && !o.pendingSince && !o.error && (o.relayed ? o.relayed.uploaded === true : !!o.snapshot);
+    const uploaded = uploadedAs(o) !== null;
     if (!o || !uploaded || typeof o.seq !== "number" || !o.logId) { short.push(`${name} (${!o ? "not archived" : o.error ? o.error.slice(0, 80) : o.pendingSince ? "changes not uploaded" : o.relayed && !o.relayed.uploaded ? `relayed to ${o.relayed.via}, not uploaded` : "no snapshot holds it"})`); continue; }
     points.push({ name, seq: o.seq, logId: o.logId, where: o.relayed ? `uploaded through ${o.relayed.via}` : `snapshot ${o.snapshot!.slice(0, 8)}` });
   }

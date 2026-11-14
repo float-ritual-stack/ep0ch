@@ -17,13 +17,13 @@ import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { archivedCursor, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
+import { archivedCursor, letGoOtherChains, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
-import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, writeAlert, writeBackupState } from "./alert";
+import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, uploadedAs, writeAlert, writeBackupState } from "./alert";
 import { type BackupConfig, RUN_LIMIT_MS } from "./config";
 import { plainReason, repoHost } from "./plain";
-import { failedLine, moment, relayedLine } from "./verdict";
+import { chainsLine, failedLine, letGoLine, moment, relayedLine } from "./verdict";
 import { backupFolder, complaint, forget, LOCKED, lockHolder, NO_REPO, prune, type Ran, restoreArchive, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
@@ -116,8 +116,10 @@ export async function newRanges(c: Pick<BackupConfig, "host" | "state" | "machin
  * repository can't be reached (a probe of its host fails, or restic's upload does) and a hub is named (EP0CH_MCP_HUB),
  * the new entries go to the hub instead, over ssh: it archives them and uploads them on this machine's behalf
  * (relay.ts). A relayed outline is `relayed`, not `failed`: its log is off this machine and checked.
+ * Then each outline whose newest snapshot from here is confirmed (`uploadedAs` direct: it took the whole archive folder)
+ * lets go of the chains here other than its current log (PIE-1806); `trimmed` says which, with their sizes.
  */
-export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ uploaded: string[]; failed: string[]; relayed: string[] }> {
+export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<Snapshotted> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [], relayed: string[] = [];
@@ -142,10 +144,14 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   o.step?.(`archiving the log of ${outlines.length} outline${outlines.length === 1 ? "" : "s"}`);
   // Each outline's new entries into its archive, here, first: what is archived is kept whatever the upload does.
   const changed: { name: string; logId: string; lsn: number; schema: number; ranges: LogRange[] }[] = [];
+  // Each outline's current log, as its host said it this run: the chain the trim keeps.
+  const current = new Map<string, string>();
+  const done = () => trimmed(c, s, current, say, { uploaded, failed, relayed });
   for (const x of outlines) {
     const st = s.outlines[x.name] ??= {};
     try {
       const got = await newRanges(c, x.name);
+      current.set(x.name, got.logId);
       writeSegment(archiveRoot(c, c.machine), x.name, got.ranges);
       const lsn = got.ranges.flatMap(r => r.entries).at(-1)?.lsn ?? got.held;
       // Moved: entries the repository doesn't hold yet (this run's, or an earlier run's whose upload failed).
@@ -154,7 +160,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       else { delete st.pendingSince; delete st.error; note(`${x.name}: unchanged since entry ${st.seq ?? "?"}${st.at ? ` (${moment(st.at)})` : ""}, nothing to send`); }
     } catch (e) { st.pendingSince ??= new Date(now()).toISOString(); st.error = `archiving ${x.name}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); }
   }
-  if (!changed.length) { if (!failed.length) say(`no outline's log moved since its newest upload (${outlines.map(x => x.name).join(", ") || "none here"})`); return { uploaded, failed, relayed }; }
+  if (!changed.length) { if (!failed.length) say(`no outline's log moved since its newest upload (${outlines.map(x => x.name).join(", ") || "none here"})`); return done(); }
   // The repository, or why not: a quick look at its host first when there's a hub to relay through (restic itself waits minutes).
   let direct: string | null = (c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null) ?? null;
   if (!direct) direct = await ensureRepo(c, repo, say);
@@ -191,6 +197,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
         delete st.snapshot; delete st.pendingSince; delete st.error;
         relayed.push(x.name);
         say(relayedLine(x.name, x.lsn, c.hub, why!, !!r.snapshot, { repo, ...(r.uploadError ? { uploadError: r.uploadError } : {}) }));
+        if (r.trimmed?.length) say(`· ${c.hub} let go of ${x.name}'s older log chains there (${chainsLine(r.trimmed)}); the repository holds them`);
         continue;
       }
       st.error = `${why}; relaying through ${c.hub} failed: ${r.error ?? "?"}`;
@@ -198,7 +205,28 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     failed.push(x.name);
     say(failedLine(x.name, st.error!, { repo, hub: c.hub }));
   }
-  return { uploaded, failed, relayed };
+  return done();
+}
+
+/** What a snapshot did: the outlines uploaded, failed and relayed, and the old chains let go here, when any were. */
+export interface Snapshotted { uploaded: string[]; failed: string[]; relayed: string[]; trimmed?: { outline: string; chains: { chain: string; bytes: number }[] }[] }
+
+/**
+ * The chains here other than each outline's current log, let go once the repository holds them (PIE-1806): only after
+ * a snapshot from here confirmed for that log (a relay sent the hub the current chain only, so it confirms nothing
+ * else), so an upload that failed or still waits keeps them. Said, with their sizes.
+ */
+function trimmed(c: BackupConfig, s: BackupState, current: ReadonlyMap<string, string>, say: Say, r: Snapshotted): Snapshotted {
+  const out: NonNullable<Snapshotted["trimmed"]> = [];
+  for (const [name, logId] of current) {
+    const st = s.outlines[name];
+    if (uploadedAs(st) !== "direct" || st!.logId !== logId) continue;
+    const chains = letGoOtherChains(archiveRoot(c, c.machine), name, logId);
+    if (!chains.length) continue;
+    out.push({ outline: name, chains });
+    say(letGoLine(name, chains));
+  }
+  return out.length ? { ...r, trimmed: out } : r;
 }
 
 /** What a run stopped before its forget or prune returned (systemd's limit, a reboot, a deploy) leaves on record. */
@@ -424,7 +452,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     // The followers' word on their copies, for the alert (a copy that stopped following is an incident).
     s.follows = followedCopies(c.mirrorsDir, c.following);
     // Each part stands alone: one failing never stops the others.
-    const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
+    const snap: Snapshotted = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
     writeBackupState(c.state, s);
     // The remote MCP gateway's queued writes: those held here for other machines, and this machine's own pull (PIE-615).
     const { netmailStep } = await import("./netmail");
@@ -460,7 +488,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
       s.route = { via: c.hub!, since: s.route?.since ?? new Date(now()).toISOString(), why };
     } else if (snap.uploaded.length) delete s.route;
     const ok = !snap.failed.length;
-    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [...(snap.failed.length ? [`failed: ${snap.failed.join(", ")}`] : []), ...(snap.uploaded.length ? [`uploaded ${snap.uploaded.join(", ")}`] : []), ...(snap.relayed.length ? [`relayed ${snap.relayed.join(", ")} via ${c.hub}`] : []), ...(!snap.failed.length && !snap.uploaded.length && !snap.relayed.length ? ["nothing changed"] : [])].join("; ") };
+    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [...(snap.failed.length ? [`failed: ${snap.failed.join(", ")}`] : []), ...(snap.uploaded.length ? [`uploaded ${snap.uploaded.join(", ")}`] : []), ...(snap.relayed.length ? [`relayed ${snap.relayed.join(", ")} via ${c.hub}`] : []), ...(snap.trimmed?.length ? [`let go ${snap.trimmed.map(t => `${t.outline}'s ${chainsLine(t.chains)}`).join(", ")} here`] : []), ...(!snap.failed.length && !snap.uploaded.length && !snap.relayed.length ? ["nothing changed"] : [])].join("; ") };
     writeBackupState(c.state, s);
     o.step?.("checking what's stale");
     const alert = await watch(c, s, { now, announce: o.announce });

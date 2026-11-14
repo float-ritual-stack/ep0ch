@@ -2,11 +2,11 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, COMPACT_FACTOR, compactionRoom, compactLog, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, writeGenesis, type LogRange } from "../src/change-log";
-import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
+import { appendToArchive, archivedCursor, letGoOtherChains, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { importOutline } from "../src/outline-import";
@@ -445,6 +445,23 @@ test("an archive keeps what follows its newest genesis here, and still replays t
   home.close();
   replayArchive(archive, "home", join(dir, "restored.sqlite"));
   expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+});
+
+test("an archive lets go of every chain but its current log's, and of none while that one holds nothing (PIE-1806)", () => {
+  const archive = join(root(), "archive");
+  const chain = (name: string, bytes: number) => {
+    mkdirSync(join(archive, "home", name), { recursive: true });
+    writeFileSync(join(archive, "home", name, "0000000000000001-0000000000000002.jsonl"), JSON.stringify({ entries: [], pad: "x".repeat(bytes) }) + "\n");
+  };
+  chain("an-earlier-log", 400);
+  chain("the-current-log~120", 200);
+  // The current log has no chain yet (its first segment wasn't written): nothing goes.
+  expect(letGoOtherChains(archive, "home", "the-current-log")).toEqual([]);
+  chain("the-current-log", 10);
+  const gone = letGoOtherChains(archive, "home", "the-current-log");
+  expect(gone.map(g => g.chain).sort()).toEqual(["an-earlier-log", "the-current-log~120"]);
+  expect(gone.every(g => g.bytes > 200)).toBe(true);
+  expect(readdirSync(join(archive, "home"))).toEqual(["the-current-log"]);
 });
 
 test("an archive refuses ranges that skip entries between them, and a relay from a trimmed sender restarts at its genesis", () => {

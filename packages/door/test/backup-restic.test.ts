@@ -82,7 +82,7 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
  * were most of its time, more or less of it with the load each repository happened to be made under (PIE-1804; the
  * fixture's README says how it was made). The first test's other repository is left to its first run, which makes it.
  */
-const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault", "bothy"];
 const EMPTY_REPO = join(import.meta.dir, "fixtures", "restic-repo");
 beforeAll(async () => {
   if (!RESTIC) return;
@@ -596,6 +596,44 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     expect(r.ok).toBe(true);
     expect(said.filter(l => /✓ damsons \(log entry/.test(l))).toHaveLength(1);
     expect(said.some(l => l.startsWith("cleared a stale restic lock"))).toBe(true);
+  }, 120_000);
+
+  test("a log begun again: once a snapshot holds the old chain, it leaves local staging; restic still restores it, and the drill passes (PIE-1806)", async () => {
+    const c = await served(machine("bothy"));
+    await write(c, "seeds", ["Sort the seed packets", "Label the trays"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.seeds!;
+    const old = { logId: was.logId!, seq: was.seq! };
+    // Made again (as a migration or an import begins a new log): a new log id, its old chain still staged here.
+    await hostRequest(c.host, "outlines.delete", { name: "seeds" });
+    await write(c, "seeds", ["Sow the chard"]);
+    const staged = join(archiveRoot(c, c.machine), "seeds");
+    // An upload that fails confirms nothing: the old chain stays.
+    const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
+    expect((await job(broken)).ok).toBe(false);
+    expect(readdirSync(staged)).toContain(old.logId);
+    // The upload confirmed: the snapshot took every chain, and the old one goes from here, said with its size.
+    const said: string[] = [];
+    expect((await job(c, { say: l => said.push(l) })).ok).toBe(true);
+    const s = readBackupState(c.state);
+    expect(s.outlines.seeds!.logId).not.toBe(old.logId);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    expect(said.filter(l => l.includes("old log chain"))).toEqual([expect.stringMatching(new RegExp(`^✓ seeds: let go of 1 old log chain here \\(${old.logId.slice(0, 8)} [\\d.]+ [kM]?B\\); the repository holds it$`))]);
+    expect(s.lastRun!.detail).toMatch(new RegExp(`let go seeds's ${old.logId.slice(0, 8)} [\\d.]+ [kM]?B here`));
+    // A quiet run has nothing more to let go.
+    const quiet: string[] = [];
+    await job(c, { say: l => quiet.push(l) });
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([]);
+    // The old log's history is restic's now: its exact entry restores from the repository.
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const to = join(root, "bothy-restored", "seeds.sqlite");
+    expect(await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(old.seq), "--to", to], io, c.env)).toBe(0);
+    expect(holds(to, "Label the trays")).toBe(true);
+    expect(holds(to, "Sow the chard")).toBe(false);
+    // And the served drill still passes on the current chain.
+    expect(await backupCommand(["backup", "drill", "--serve"], io, c.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/seeds ok \(\d+ blocks.*served by a scratch host/);
   }, 120_000);
 
   test("a prune that finishes is once a day; two failed in a row is an incident", async () => {

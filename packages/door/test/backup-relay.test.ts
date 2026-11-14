@@ -171,6 +171,31 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(s.outlines.garden!.relayed).toBeUndefined();
   }, 120_000);
 
+  test("a log begun again: the hub lets go of its older chain once it uploads; the laptop keeps its own until a direct upload holds it (PIE-1806)", async () => {
+    await write(laptop.host, "potting", ["Wash the pots"]);
+    const s = readBackupState(laptop.state);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("potting");
+    const old = s.outlines.potting!.logId!;
+    // Made again (a migration or an import begins a new log), and relayed: the hub's snapshot holds both chains, and
+    // its old one goes; the laptop sent only its current chain, so its own old one stays.
+    await hostRequest(laptop.host, "outlines.delete", { name: "potting" });
+    await write(laptop.host, "potting", ["Sieve the compost"]);
+    const said: string[] = [];
+    expect((await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN })).relayed).toContain("potting");
+    const now = s.outlines.potting!.logId!;
+    expect(now).not.toBe(old);
+    expect(readdirSync(join(archiveRoot(hub, "laptop"), "potting"))).toEqual([now]);
+    expect(said.filter(l => l.includes("older log chains"))).toEqual([expect.stringMatching(new RegExp(`^· hub-box let go of potting's older log chains there \\(${old.slice(0, 8)} [\\d.]+ [kM]?B\\)`))]);
+    expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting")).sort()).toEqual([old, now].sort());
+    // Off the VPN, the next change goes straight to the repository, whose snapshot takes the whole folder: the laptop's goes too.
+    await write(laptop.host, "potting", ["Label the seedlings"]);
+    const direct = await snapshot(laptop, s, { say, probe: REACHABLE });
+    expect(direct.uploaded).toContain("potting");
+    expect(direct.trimmed?.find(t => t.outline === "potting")).toEqual({ outline: "potting", chains: [{ chain: old, bytes: expect.any(Number) }] });
+    expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting"))).toEqual([now]);
+    writeBackupState(laptop.state, s);
+  }, 120_000);
+
   test("the hub unreachable too: the outline fails, with both reasons, and the hub holds nothing of it", async () => {
     await write(laptop.host, "pantry", ["Flour"]);
     const down = laptopWith({ FAKE_SSH_DOWN: "1" });

@@ -199,3 +199,21 @@ export function trimArchive(root: string, outline: string, logId: string): numbe
   for (const s of segs.slice(0, newest.i)) rmSync(s.file);
   return newest.i;
 }
+
+/**
+ * The chains in an outline's archive other than its current log `logId`, removed from this machine (PIE-1806): an
+ * earlier log (a migration or an import begins a new one), and a chain kept aside at a gap (`<id>~<lsn>`). Called only
+ * once a snapshot that took the whole folder is confirmed, so the repository holds each one: a restore of that log
+ * reads it from there (`backup restore --log <id>`). The current chain stays, and nothing goes while it holds no
+ * segment. Returns each chain let go, with its size.
+ */
+export function letGoOtherChains(root: string, outline: string, logId: string): { chain: string; bytes: number }[] {
+  if (!archivedCursor(root, outline, logId)) return [];
+  const base = join(root, outline);
+  return readdirSync(base, { withFileTypes: true }).filter(e => e.isDirectory() && e.name !== logId).map(e => {
+    const dir = join(base, e.name);
+    const bytes = readdirSync(dir).reduce((n, f) => n + statSync(join(dir, f)).size, 0);
+    rmSync(dir, { recursive: true, force: true });
+    return { chain: e.name, bytes };
+  });
+}
