@@ -3,9 +3,11 @@
 // test run turns it off). A private tmux socket, never a real outline or door; made-up notes only.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { ask } from "../src/jsonl";
 import { SocketBoard } from "../src/socket";
+import { parseActArgs } from "../src/surface/actions";
 import { expect } from "bun:test";
-import { Scratch, until } from "./scratch";
+import { Scratch, until, untilAsync } from "./scratch";
 
 export type Pane = Awaited<ReturnType<TallyDoors["pane"]>>;
 
@@ -71,6 +73,16 @@ export class TallyDoors {
         const r = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), "act", ...args, "--as", "walker"], { env, stdout: "pipe", stderr: "pipe" });
         return { ok: r.exitCode === 0, out: r.stdout.toString() + r.stderr.toString() };
       },
+      /**
+       * An agent's read of this door (`walker`; layout.get, view.get): the request `ep0ch act` sends, asked over the
+       * pane's control socket from this process, so a poll costs a round trip and not a `bun` start (PIE-1804: a walk's
+       * dozens of layout.get polls were most of its time). What the agent does to the door stays `act`, the CLI.
+       */
+      read: async (...args: string[]) => {
+        const r = await ask(env.EP0CH_CONTROL, { cmd: "act", ...(await parseActArgs(args)), as: "walker" }, 10_000);
+        if (!r?.ok) throw new Error(r?.error ?? `no door answered at ${env.EP0CH_CONTROL}`);
+        return r.result;
+      },
       /** Every byte the door writes from now, appended to `file` (tmux pipe-pane): a frame shorter than a capture's poll shows there. */
       record: (file: string) => { tmux("pipe-pane", "-t", "door", "-o", `cat >> ${JSON.stringify(file)}`); },
       close: () => { tmux("kill-session", "-t", "door"); },
@@ -98,7 +110,14 @@ export function cellOf(frame: string, text: string): { col: number; row: number 
   return null;
 }
 
-/** Each tile on the screen with its width, as layout.get has them (`drawer`: the drawer's layer instead). */
+/** A tile and a layer as layout.get has them. */
+export type Tile = { tile: string; name: string; kind: string; focused: boolean; rect?: { cols: number }; showing?: { title: string } };
+export type Layer = { drawer: boolean; screen: string; tiles: Tile[] };
+/** The door's layers now, read in this process (`Pane.read`): what a walk polls. */
+export const layersOf = async (p: Pane) => (await p.read("layout.get")).layers as Layer[];
+/** `widths`, read in this process: what a walk polls. */
+export const widthsNow = async (p: Pane, drawer = false) => ((await layersOf(p)).find(l => l.drawer === drawer)?.tiles ?? []).map(t => `${t.name} ${t.rect?.cols}`);
+/** Each tile on the screen with its width, as layout.get has them (`drawer`: the drawer's layer instead), through the CLI. */
 export const widths = (p: Pane, drawer = false) => ((JSON.parse(p.act("layout.get").out).layers as { drawer: boolean; tiles: { name: string; rect?: { cols: number } }[] }[]).find(l => l.drawer === drawer)?.tiles ?? []).map(t => `${t.name} ${t.rect?.cols}`);
 /** Tile `name`'s width on the screen (0 when it isn't there). */
 export const cols = (p: Pane, name: string) => Number(widths(p).find(w => w.startsWith(`${name} `))?.split(" ")[1] ?? 0);
@@ -114,16 +133,16 @@ export async function beanDesk(doors: TallyDoors) {
   await until(() => p.capture().includes("editing"), "the edit");
   await doors.ask(p, "@tally the stakes");
   // Opened while he types, they land beside.
-  for (const [n, note] of [[3, marrow], [4, runner]] as const) { expect(p.act("open", `id=${note}`).ok).toBe(true); await until(() => widths(p).length === n, `tile ${n} open`); }
+  for (const [n, note] of [[3, marrow], [4, runner]] as const) { expect(p.act("open", `id=${note}`).ok).toBe(true); await untilAsync(async () => (await widthsNow(p)).length === n, `tile ${n} open`, 5000); }
   // Saved, so an agent may lay the desk out (it never resizes the tile the person types in); with no room for four at
   // 177 some folded to spines, opened again here. Then back into the edit.
   p.keys("C-s");
   await until(() => !p.capture().includes("editing"), "saved");
   const quarter = () => { for (const a of [["layout.even"], ["layout.resize", "split=s1", "border=0", "share=0.25"]]) expect([a.join(" "), p.act(...a).ok]).toEqual([a.join(" "), true]); };
   quarter();
-  for (const w of widths(p)) if (Number(w.split(" ")[1]) < 10) expect(p.act("tile.expand", `tile=${w.split(" ")[0]}`).ok).toBe(true);
+  for (const w of await widthsNow(p)) if (Number(w.split(" ")[1]) < 10) expect(p.act("tile.expand", `tile=${w.split(" ")[0]}`).ok).toBe(true);
   quarter();
-  await until(() => widths(p).join() === "detail 44,answer 44,detail2 44,detail3 45", "the 44/44/44/45 desk", 5000).catch(e => { throw new Error(`${e.message}: ${widths(p).join()}`); });
+  await untilAsync(async () => (await widthsNow(p)).join() === "detail 44,answer 44,detail2 44,detail3 45", "the 44/44/44/45 desk", 5000).catch(async e => { throw new Error(`${e.message}: ${(await widthsNow(p)).join()}`); });
   p.keys("e");
   await until(() => p.capture().includes("editing"), "the edit again");
   return p;
