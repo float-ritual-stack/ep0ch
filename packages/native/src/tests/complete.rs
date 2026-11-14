@@ -115,7 +115,7 @@ fn a_row_shows_its_kind_its_matched_letters_its_look_and_one_detail_and_the_card
     // Tab takes the key and its values open at once: each with its look in the row, a primitive built by the registry.
     chord(&mut rt, Key::Tab, Mods::default());
     assert_eq!(labels(&rt), ["dots", "uptime", "waffle", "stack", "rule"]);
-    for n in 0..5 { assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some(&format!("tile/reader/complete/sample/{n}"))), "row {n} draws its sample") }
+    for n in 0..5 { let (sample, row) = (rect(&rt, &format!("tile/reader/complete/sample/{n}")), rect(&rt, &format!("tile/reader/complete/row/{n}"))); assert!(sample[2] >= 60.0 && sample[3] >= 8.0 && sample[1] >= row[1] && sample[1] + sample[3] <= row[1] + row[3], "row {n} draws its sample in the row: {sample:?} in {row:?}") }
     // The card: the lit value's own words, and its look on an example heading, drawn (a band, never "as drawn" over words).
     let card = within(&rt, "tile/reader/complete-docs");
     assert!(card.iter().any(|said| said == "sparse dots, now and then a bright one") && card.iter().any(|said| said == "Your calls") && !card.iter().any(|said| said == "As drawn"), "{card:?}");
@@ -164,7 +164,7 @@ fn return_is_the_field_s_until_a_row_is_chosen_or_the_list_is_asked_for() {
     typed(&mut rt, "[");
     assert_eq!((rt.state.person().layer, labels(&rt).len()), (Layer::Complete, 6));
     let foot = |rt: &Runtime<App>| within(rt, "tile/reader/complete/foot");
-    assert_eq!(foot(&rt), ["1 of 6 · properties", "Tab accept", "Enter new line", "Esc close the list"], "the foot, from the table and the row");
+    assert_eq!(foot(&rt), ["1 of 6 · properties", "Tab accept", "Enter new line", "Esc close"], "the foot, from the table and the row");
     chord(&mut rt, Key::Enter, Mods::default());
     assert_eq!(words(&rt.state), format!("{PLOT}\n[\n"), "nothing was chosen: Return typed a line");
     // A row moved to is a choice: the foot says Return accepts now, and it does.
@@ -355,7 +355,7 @@ fn the_pointer_lights_a_row_the_wheel_scrolls_the_list_and_a_press_accepts() {
 fn a_page_nobody_has_written_is_offered_and_made_when_its_row_is_chosen() {
     let (mut rt, asked) = writing();
     typed(&mut rt, "[[zz");
-    assert_eq!((rt.state.person().layer, within(&rt, "tile/reader/complete")), (Layer::Said, vec!["no page by that name yet".to_string(), "pages".into(), "Esc close the list".into()]));
+    assert_eq!((rt.state.person().layer, within(&rt, "tile/reader/complete")), (Layer::Said, vec!["no page by that name yet".to_string(), "pages".into(), "Esc close".into()]));
     typed(&mut rt, "zz");
     assert_eq!(labels(&rt), ["+ new page [[zzzz]]"]);
     chord(&mut rt, Key::Tab, Mods::default());

@@ -55,7 +55,7 @@ fn a_block_is_typed_in_completed_from_the_service_s_list_and_saved() {
     // The hint row under the block's field says the keys of the layer they are in: the list's, while it is open.
     assert!(rt.find("tile/reader/editor-keys").is_some());
     let hints: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
-    assert!(["close the list", "accept"].iter().all(|does| hints.iter().any(|said| said == does)) && !hints.iter().any(|said| said == "done"), "the list's keys, not the draft's: {hints:?}");
+    assert!(["close", "accept"].iter().all(|does| hints.iter().any(|said| said == does)) && !hints.iter().any(|said| said == "done"), "the list's keys, not the draft's: {hints:?}");
     for n in 0..3 { assert!(rt.find(&format!("tile/reader/complete/row/{n}")).is_some(), "row {} of the list is drawn", n + 1) }
     // One more letter narrows it: asked again for what is there now.
     typed(&mut rt, "h");
@@ -456,7 +456,7 @@ fn a_list_with_nothing_to_choose_from_keeps_only_escape() {
     assert_eq!(rt.state.person().layer, Layer::Said);
     chord(&mut rt, Key::Escape, Mods::default());
     assert_eq!((rt.state.person().layer, rt.state.completing("reader").is_none(), draft(&rt.state).is_some()), (Layer::Draft, true, true), "Escape puts the list away and leaves the block");
-    assert_eq!(crate::keys::hints(Layer::Said).first().map(|(_, does)| *does), Some("close the list"), "a list with only a word to say: Escape is its own");
+    assert_eq!(crate::keys::hints(Layer::Said).first().map(|(_, does)| *does), Some("close"), "a list with only a word to say: Escape is its own");
     assert_eq!(crate::keys::hints(Layer::Said)[1..], crate::keys::hints(Layer::Draft)[1..], "and every other key is the draft's still");
     typed(&mut rt, "z");
     assert_eq!(rt.state.person().layer, Layer::Said, "typed on, it says so again");

@@ -80,7 +80,8 @@ fn init() -> App {
     if headless { app.settle(); }
     if let Some(file) = flag("--act") {
         match std::fs::read_to_string(&file) {
-            Ok(lines) => { app.script(&lines); }
+            // (A headless render draws one frame: its clock is stepped past the moment a lit row waits for its card.)
+            Ok(lines) => { app.script(&lines); if headless { let quiet = app.now + 2.0 * draft::CARD_QUIET; app.tick(quiet); } }
             Err(e) => eprintln!("ep0ch-native: can't read {file}: {e}"),
         }
     }

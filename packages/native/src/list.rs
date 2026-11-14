@@ -96,7 +96,7 @@ pub fn line(line: Line, lit: bool, k: &Kit) -> El {
     let tag = line.tag.map(|(tag, whole)| el().w(TAG).min_w(TAG).center().child(text(tag).font(k.ty.small).color(c.text_faint)).help(whole));
     let label = marked(&line.label, &line.marks, if line.tall { k.ty.ui_medium } else { k.ty.ui_compact }, k);
     let detail = line.detail.filter(|detail| !detail.is_empty()).map(|detail| text(detail).font(k.ty.small).color(c.text_faint).truncate());
-    let sample = line.sample.map(|sample| el().w(SAMPLE).min_w(SAMPLE).center_y().clip_soft(0.0).child(sample));
+    let sample = line.sample.map(|sample| row().w(SAMPLE).min_w(SAMPLE).center_y().clip_soft(0.0).child(sample));
     let cap = line.keycap.map(|cap| Keybind::new(&[cap.as_str()]).build(k));
     let fill = if lit { c.surface_hover } else { rune::Color::TRANSPARENT };
     if line.tall {

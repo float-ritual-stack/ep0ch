@@ -1,0 +1,7 @@
+# A component chosen from the list (scenes/parts.seed.ts writes the note into a scratch outline): run with
+# `--script scenes/complete-component.keys.json` after it, which types Return, `::graph-met` and Tab by real keys.
+# The skeleton is written from the component's own schema with its first stop selected, and the line under the
+# field says which Tab this is now: the one that steps the stops.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit

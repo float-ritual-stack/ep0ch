@@ -508,7 +508,7 @@ fn the_hint_row_under_a_field_says_the_keys_of_where_the_person_is() {
     typed(&mut rt, "See [[s");
     assert_eq!(rt.state.person().layer, Layer::Complete);
     let said = hints(&rt);
-    assert!(said.iter().any(|does| does == "accept") && said.iter().any(|does| does == "close the list") && !said.iter().any(|does| does == "done"), "{said:?}");
+    assert!(said.iter().any(|does| does == "accept") && said.iter().any(|does| does == "close") && !said.iter().any(|does| does == "done"), "{said:?}");
     chord(&mut rt, Key::Escape, Mods::default());
     assert!(hints(&rt).iter().any(|does| does == "save"), "the list put away, the keys are the editor's again");
 }

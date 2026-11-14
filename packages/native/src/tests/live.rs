@@ -1417,3 +1417,79 @@ fn live_a_block_is_written_as_in_the_door_a_paste_keeps_its_lines_tab_indents_an
         assert!(words(&rt.state).ends_with(&format!("[heading-pattern::{}]", found.rows[1].label)), "{}", words(&rt.state));
     });
 }
+
+/// H5's sentence against a real outline host: a key, its value and a component are completed in a chain, by keys.
+/// A property's name begun shows the rest of the lit row after the caret; Tab takes the key and its values open
+/// at once, each row with its look as the service serves it; Tab takes a value, closes its bracket and puts the
+/// list away; `::` on a new line lists the components, and Tab writes the chosen one's skeleton from its own
+/// schema with the first stop selected, which Tab then steps. Each choice is counted on the host: asked again, the
+/// key chosen comes first among its equals. `cargo test -- --ignored live` (it needs bun).
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_a_key_its_value_and_a_component_are_completed_in_a_chain_by_keys() {
+    use super::support::{chord, draft, press, rest, typed, window, words};
+    use crate::client::Socket;
+    use crate::keys::Layer;
+    use rune::{Key, Mods, Runtime};
+    with_host("completing", |path, root| {
+        let mut raw = Socket::connect(path);
+        let note = asked(&mut raw, json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "text": "Seed tray [type::tray]\nWhat came up this week.", "author": "user" })).unwrap();
+        let id = note["id"].as_str().unwrap().to_string();
+        fn until(rt: &mut Runtime<App>, what: &str, so: impl Fn(&App) -> bool) {
+            for _ in 0..400 { if so(&rt.state) { rest(rt); return } std::thread::sleep(Duration::from_millis(25)); rt.update(|s, _| { s.beat(); }); for _ in 0..3 { rt.frame(1.0 / 60.0); } }
+            panic!("{what} never came: notice {:?}, draft {:?}, list {:?}", rt.state.notice, draft(&rt.state).map(|d| d.buf.words().to_string()), rt.state.completing("reader").map(|found| found.rows.iter().map(|row| row.label.clone()).collect::<Vec<_>>()));
+        }
+        let mut app = App::new(Box::new(Socket::connect(path)), "scratch").arranged_in(root.join("state/native-scratch.layout.json"));
+        app.start();
+        opened(&mut app);
+        act(&mut app, &format!("open id={id}"));
+        let mut rt = window(app);
+        until(&mut rt, "the note's page", |s| s.page().is_some_and(|page| page.title == "Seed tray"));
+        press(&mut rt, "tile/reader/edit");
+        until(&mut rt, "the editor", |s| draft(s).is_some());
+        let first = |s: &App| s.completing_now("reader").and_then(|found| found.rows.first().cloned());
+
+        // A key begun: the service's rows, the first lit, and what of it is still to come after the caret.
+        chord(&mut rt, Key::Enter, Mods::default());
+        typed(&mut rt, "[heading-pat");
+        until(&mut rt, "the key", |s| first(s).is_some_and(|row| row.label == "heading-pattern"));
+        let key = first(&rt.state).unwrap();
+        assert_eq!((key.insert.as_str(), key.rest.as_deref(), key.next, key.matches.first()), ("[heading-pattern::", Some("tern::"), true, Some(&0)), "{key:?}");
+        assert!(rt.elements().into_iter().any(|e| e.key.as_deref() == Some("tile/reader/complete-rest") && e.text.as_deref() == Some("tern::")), "the rest is shown after the caret");
+        // Tab: the key is written, and its values are listed at once, each with its look.
+        chord(&mut rt, Key::Tab, Mods::default());
+        assert!(words(&rt.state).ends_with("\n[heading-pattern::"), "{}", words(&rt.state));
+        until(&mut rt, "the values", |s| s.completing_now("reader").is_some_and(|found| found.rows.len() == 5 && found.token.as_ref().is_some_and(|token| token.kind == "value")));
+        let values = rt.state.completing("reader").unwrap().clone();
+        assert!(values.rows.iter().all(|row| row.sample.as_ref().is_some_and(|sample| sample["type"] == "track" && sample["pattern"] == row.label.as_str())), "{values:?}");
+        for n in 0..5 { assert!(rt.elements().into_iter().any(|e| e.key.as_deref() == Some(&format!("tile/reader/complete/sample/{n}")) && e.rect[2] > 40.0), "row {n}'s sample is drawn") }
+        assert_eq!(rt.state.person().layer, Layer::Complete);
+        // Tab: the value, its bracket, the caret after it; the list is put away.
+        chord(&mut rt, Key::Tab, Mods::default());
+        let valued = format!("[heading-pattern::{}]", values.rows[0].label);
+        assert!(words(&rt.state).ends_with(&valued) && draft(&rt.state).unwrap().buf.ends().1 == words(&rt.state).len(), "{}", words(&rt.state));
+        until(&mut rt, "the list put away", |s| s.completing("reader").is_none());
+        assert_eq!(rt.state.person().layer, Layer::Draft);
+
+        // A component: its skeleton from its own schema, the first stop selected, Tab stepping the stops.
+        chord(&mut rt, Key::Enter, Mods::default());
+        typed(&mut rt, "::graph-met");
+        until(&mut rt, "the component", |s| first(s).is_some_and(|row| row.insert.starts_with("::graph-meter") && !row.slots.is_empty()));
+        let meter = first(&rt.state).unwrap();
+        chord(&mut rt, Key::Tab, Mods::default());
+        let text = words(&rt.state).to_string();
+        assert!(text.ends_with(&meter.insert), "{text}");
+        let start = text.len() - meter.insert.len();
+        let (from, to) = draft(&rt.state).unwrap().buf.ends();
+        assert_eq!((from - start, to - start, rt.state.person().layer), (meter.slots[0].start, meter.slots[0].end, Layer::Stops), "the first stop is selected (the skeleton is plain letters: its offsets are its bytes)");
+        chord(&mut rt, Key::Tab, Mods::default());
+        if meter.slots.len() > 1 { assert_eq!(draft(&rt.state).unwrap().buf.ends(), (start + meter.slots[1].start, start + meter.slots[1].end)) }
+        for _ in 1..meter.slots.len() { chord(&mut rt, Key::Tab, Mods::default()); }
+        assert_eq!(rt.state.person().layer, Layer::Draft, "past the last stop the keys are the draft's");
+
+        // The choices were counted on the host: asked again of nobody's draft, the key chosen leads its equals.
+        let again = asked(&mut raw, json!({ "id": "c", "action": "completion.rows", "outline": "scratch", "text": "[heading-", "cursor": 9 })).unwrap();
+        let labels: Vec<&str> = again["rows"].as_array().unwrap().iter().filter_map(|row| row["label"].as_str()).collect();
+        assert_eq!(labels.first(), Some(&"heading-pattern"), "{labels:?}");
+    });
+}

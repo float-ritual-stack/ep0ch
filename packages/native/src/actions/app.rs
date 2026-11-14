@@ -756,13 +756,14 @@ impl App {
     /// The window's clock moved to `now` (the frame's poll). True when what is drawn changes with it: the lit row
     /// has been lit long enough for its card. And how long until that, when a list is open and its card is not shown yet.
     pub fn tick(&mut self, now: f64) -> (bool, Option<std::time::Duration>) {
-        self.st.now = now;
+        // (The clock never goes back: a headless render is stepped past the quiet once, before its one frame.)
+        self.st.now = self.st.now.max(now);
         let focus = self.layout.focus.clone();
         let open = self.completing_now(&focus).is_some();
         let carded = self.completing_card(&focus).is_some();
         let changed = carded != self.carded;
         if changed { self.st.carded = carded }
-        let due = (open && !carded).then(|| self.draft_on(&focus).map(|draft| (draft.completing.since + draft::CARD_QUIET - now).max(0.0))).flatten();
+        let due = (open && !carded).then(|| self.draft_on(&focus).map(|draft| (draft.completing.since + draft::CARD_QUIET - self.now).max(0.0))).flatten();
         (changed, due.map(|due| std::time::Duration::from_secs_f64(due + 0.01)))
     }
 

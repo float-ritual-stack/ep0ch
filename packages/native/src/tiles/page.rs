@@ -340,6 +340,12 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
     }
     let tagged = found.rows.iter().any(|row| row.kind.is_some());
     let width = found.rows.iter().map(|row| list::line_width(tagged, &row.label, row.sample.is_some(), row.detail.as_deref(), k)).fold(LIST_LEAST, f32::max).min(LIST_MOST);
+    // What the foot says, and the box no narrower than that: its count and its keys both read whole.
+    // (Measured with its last row lit, the widest it says: the box keeps its width as the lit row moves.)
+    let (said, keyed) = foot_words(cx, found, lit);
+    let small = |words: &str| rune::text::measure(words, &[], k.ty.small, None).0;
+    let widest = foot_words(cx, found, found.rows.len().saturating_sub(1)).0;
+    let width = width.max(20.0 + small(&widest) + 12.0 + keyed.iter().map(|hint| small(hint) + 10.0).sum::<f32>() + 20.0).min(LIST_MOST);
     let surface = cx.key("complete");
     let mut body = col().w_full().min_h(0.0);
     if found.rows.is_empty() {
@@ -366,7 +372,7 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
                 }
             })));
     }
-    body = body.child(foot(cx, found, lit, k));
+    body = body.child(foot(cx, said, keyed, k));
     // A press on the box that is on no row goes no further (never to the page under it): it lights the row already lit.
     let (stays, stays_in, stays_too, stays_there) = (format!("complete.light n={}", lit + 1), cx.name.clone(), format!("complete.light n={}", lit + 1), cx.name.clone());
     let content = col().key(surface.clone()).role("group").label(found.heading.clone().unwrap_or_default()).preserve_focus_on_press(true).w(width).min_h(0.0).padding(4.0).child(body)
@@ -407,24 +413,29 @@ fn card_place(list: Option<[f32; 4]>, caret: Option<[f32; 4]>, width: f32, windo
     }
 }
 
-/// The list's foot, inside its box: which row of how many is lit and what it is a list of (the service's word),
-/// then what the keys do here, each read from the key table: the key that writes the lit row, Return (the row's
-/// own word for it while Return is still the field's), and the key that closes the list.
-fn foot(cx: &TileCx, found: &crate::page::Completion, lit: usize, k: &Kit) -> El {
-    let c = &k.c;
+/// What the list's foot says: which row of how many is lit and what it is a list of (the service's word), then what
+/// the keys do here, each read from the key table: the key that writes the lit row, Return (the row's own word for
+/// it while Return is still the field's), and the key that closes the list.
+fn foot_words(cx: &TileCx, found: &crate::page::Completion, lit: usize) -> (String, Vec<String>) {
     let count = (!found.rows.is_empty()).then(|| format!("{} of {}", lit + 1, found.rows.len()));
     let said = count.into_iter().chain(found.heading.clone().filter(|heading| !heading.is_empty())).collect::<Vec<_>>().join(" · ");
     let enters = found.rows.get(lit).and_then(|row| row.enter.as_deref()).filter(|_| cx.app.enter_fields(cx.id));
-    let mut keys: Vec<(String, String)> = Vec::new();
+    let mut keys: Vec<String> = Vec::new();
     if !found.rows.is_empty() {
-        keys.extend(keys::bind_of("complete.accept").map(|bind| (bind.cap(), bind.does.to_string())));
-        keys.extend(keys::bind_of("complete.enter").map(|bind| (bind.cap(), enters.map_or(bind.does.to_string(), str::to_string))));
+        keys.extend(keys::bind_of("complete.accept").map(|bind| format!("{} {}", bind.cap(), bind.does)));
+        keys.extend(keys::bind_of("complete.enter").map(|bind| format!("{} {}", bind.cap(), enters.unwrap_or(bind.does))));
     }
-    keys.extend(keys::esc(cx.app.writing(cx.id)).map(|bind| (bind.cap(), bind.does.to_string())));
-    let hints = keys.into_iter().fold(row().key(cx.key("complete/keys")).gap(10.0).center_y(), |line, (cap, does)| line.child(text(format!("{cap} {does}")).font(k.ty.small).color(c.text_faint)));
+    keys.extend(keys::esc(cx.app.writing(cx.id)).map(|bind| format!("{} {}", bind.cap(), bind.does)));
+    (said, keys)
+}
+
+/// The list's foot, inside its box, under a rule: what it says at the left, the keys at the right.
+fn foot(cx: &TileCx, said: String, keys: Vec<String>, k: &Kit) -> El {
+    let c = &k.c;
+    let hints = keys.into_iter().fold(row().key(cx.key("complete/keys")).gap(10.0).center_y().shrink().min_w(0.0).clip_soft(0.0), |line, hint| line.child(text(hint).font(k.ty.small).color(c.text_faint)));
     let line = row().w_full().h(24.0).px(10.0).gap(12.0).center_y()
-        .child(text(said).key(cx.key("complete/count")).font(k.ty.small).color(c.text_weak).truncate())
-        .child(el().grow(1.0).min_w(4.0))
+        .child(text(said).key(cx.key("complete/count")).font(k.ty.small).color(c.text_weak))
+        .child(el().grow(1.0).min_w(0.0))
         .child(hints);
     col().key(cx.key("complete/foot")).w_full().child(el().w_full().h(1.0).fill(c.border_muted)).child(line)
 }

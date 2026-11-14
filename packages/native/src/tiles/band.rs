@@ -45,7 +45,7 @@ fn across(key: &str, guess: usize) -> usize { rune::memo::layout_with(key, |at| 
 pub fn track(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let pattern = prim["pattern"].as_str().unwrap_or("rule");
     let room = across(&cx.key(), 16);
-    side(band::strip(pattern, 1, 0, room.min(MOST), room, 2, band::seed_of(pattern)), false, k).key(cx.key()).w_full().grow(0.0).role("img").label(pattern.to_string())
+    side(band::strip(pattern, 1, 0, room.min(MOST), room, 2, band::seed_of(pattern)), false, k).key(cx.key()).w_full().role("img").label(pattern.to_string())
 }
 
 /// A band: a heading on a row of its pattern's rows. Centred, the words stand in the middle with a track fading in

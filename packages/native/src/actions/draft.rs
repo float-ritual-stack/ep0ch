@@ -113,7 +113,7 @@ static ASK: ActionRow = ActionRow::new("complete.ask", Touches::Draft, "open the
 
 static DISMISS: ActionRow = ActionRow::new("complete.dismiss", Touches::Draft, "close the open completion list, leaving what's typed as it is: it opens again when more is typed")
     .person(THEIRS)
-    .keys(&[KeyRow::on("escape", "said", "close the list")]);
+    .keys(&[KeyRow::on("escape", "said", "close")]);
 
 static STOP_NEXT: ActionRow = ActionRow::new("snippet.next", Touches::Draft, "select the next stop of the skeleton a completion wrote; after the last, the caret goes past it and the stops are done")
     .person(THEIRS)
