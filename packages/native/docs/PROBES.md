@@ -26,7 +26,7 @@ carried a block editor ([12](#12-the-block-editor-w5)). W7 answered the one abou
 ([13](#13-several-windows-w7)). W6 added what a selection in drawn text gives a window, and what a list inside a
 list's row does ([14](#14-selections-and-what-else-w6-met)). W8 added what herdr-core gives a terminal tile, read
 and spoken to a stand-in but never run ([15](#15-herdr-core-w8)). H3 added what a Mac's title bar takes of the toolbar, read from Rune and run on
-a headless runtime, not on a Mac ([16](#16-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)).
+a headless runtime, not on a Mac ([17](#17-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)).
 
 ## How to run
 
@@ -720,7 +720,30 @@ both put right:
   window that returned with every terminal detached listed nothing and refused the jump to what the core kept.
   The first read asks now (`a_window_that_returns_with_no_terminal_tile_lists_what_herdr_core_kept`).
 
-## 16. A Mac's title bar, and what else the first run by hand met (H3)
+## 16. A comment in place (H4)
+
+Evan ran the window by hand and commented on a selection in a long note. Run: `src/tests/margin.rs`, and
+`live_words_selected_from_a_first_letter_are_commented_on_in_place_and_marked_on_the_page` in `src/tests/live.rs`.
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Why did his quote lose its first letter ("ction Define", "DF and web pages")? | **Rune starts a selection at the caret place nearest the press.** A press on a first letter, past its middle, starts after it; and a press in the gutter left of a line starts no selection at all (a selection begins on selectable text), so the letter itself is what a hand aims at. Measured on a paragraph whose first glyph is 9 points wide: a press 0 to 4 points in keeps the letter, 5 and on loses it, 2 points left of the text selects nothing. The words told to the window, shown over the comment and **sent** were all the short ones: the thread anchored a character late. | the live test: its drag begins on the letter and `selected_text` starts `efine looks`; red without the fix at "where the picked words are", with `passage.select quote="efine looks …"` in its steps |
+| Can the window widen a selection to whole words itself? | **No, and it shouldn't.** A `SelectedText` says its range, its length and the selected bytes, never the text around them, and `Tx::select_text` sets one text only. The window holds no reading of the note either. The service is asked where the picked words are as they are picked (`passages.find`, `whole: words`), and what the comment shows and sends is the quote it answers. | `words_picked_from_inside_a_word_are_the_whole_words_the_service_found`; `packages/outliner/test/comment-as-drawn.test.ts` |
+| Can words drawn by the kit's Markdown be marked without the window reading Blockdown? | **Yes.** `Markdown::highlights` takes byte ranges of the Markdown it was handed and paints them where the words are drawn, across inline marks, with no layout change. The service says the ranges in that text (`PagePart.marks`, UTF-16), found through the one reading of text as drawn (`spanIn`). A range across two paragraphs or two list items is handed over a line at a time, so each line is a mark with a key of its own. | `the_words_a_thread_is_on_are_marked_and_a_press_on_them_shows_the_thread_beside_them` |
+| Can a mark be pressed? | **Not by itself: a highlight is paint.** It is no layout node, `Tx::element_at` picks none, and a press handler is told no point. What works: the Markdown's root hears the pointer move (`on_pointer_move_any`, with `Tx::live_only`, so nothing is drawn again) and its press is asked which mark's box, as last laid out (`rune::memo::layout(key)`), the pointer is in. A drag that selects is no press, and a link's press stays the link's. A mark's box is the union of its lines, so the unmarked start of a marked line that wraps is inside it. Reading the boxes makes the tile draw again while a page with marks scrolls (the boxes move); a page with none reads none. | the same test (`rt.find(<mark's key>)` gives a point on the words) |
+| Does a headless test's press say where the pointer is? | **Only if the pointer was moved there first.** `Runtime::pointer_down` alone leaves the last move's point; a hand's press is a move, then down and up. | `pressed` in `margin.rs` |
+| Beside the words or under them: can flex decide? | **Not without squeezing the text.** A wrapping row needs a least width on the part to wrap at, and the part then never gets narrower than that: in a tile narrower than it the words ran under the tile's edge. The tile's own width is read instead (`rune::memo::layout_with`, drawn again only when it crosses the line): a margin beside the measure when there is room for both, else the cards under their part at the tile's width. | `in_a_narrow_reader_the_thread_is_under_its_part`; `docs/margin-dark.png` at 1760 points |
+| Is "under the part its words are in" where the words are? | **Only in a note cut up by components.** A run of prose (headings, paragraphs, lists) is one part however long: on a made-up note of 75 lines with no component, a comment on a list item of its second section opened under the last section, six sections and more than a screen away, as far from the words as the top had been. The window can't cut the part itself: it has the Markdown the service wrote and no place in it (a passage is found in the note's source). So `passages.find` is asked with the part the selection ended in, as drawn, and answers where the passage is in that text (`at`, by `spanIn`); and the part's Markdown is cut at the first line past that place where the kit's own parse of the two pieces, one after the other, equals its parse of the whole (`rune_kit::markdown::parse_cached`; a `Block` compares), so never inside a paragraph, a list or a table, and with no reading of Markdown here. The two pieces are two `Markdown`s under the part's key with the field between; a mark's lines keep their keys on both sides. | `a_comment_on_words_in_the_middle_of_a_part_is_written_under_the_block_they_end_in` (red with the place known and the part uncut); the live test's last step; `comment-as-drawn.test.ts` |
+| Is a selection still there when its own button is pressed? | **With `keeps_text_selection` on the row, as on the toolbar.** | `the_keys_of_picked_words_are_the_door_s_and_are_offered_by_the_words` |
+| Does a comment written elsewhere reach the page and the list with no act here? | **Yes.** A comment is a block under its note: `notes.page` and `lists.read` are evaluated again on that change, and both answers move (the page's marks, the list's rows). | the live test's last step: an agent's comment over another connection |
+| Does `--size` give a headless render a wider window? | **From the second frame.** The tiles' area is measured on the first frame, so one frame at another size draws the tiles in the default area: `--at 0.5`. | `docs/margin-dark.png` |
+
+Not reproduced here: the notice's text and the tree's labels cut at the window's **left** edge in a narrow window on a
+Mac (the tree showing the ends of its rows). Drawn headless on Linux at 760 and 620 points wide, the toolbar is cut on
+the right and nothing on the left; a list's row already keeps its start and cuts its end (`truncate`). Both are the
+shell's root, which this wave did not touch.
+
+## 17. A Mac's title bar, and what else the first run by hand met (H3)
 
 **Read from Rune's source and run on a headless runtime here; not run on a Mac.**
 

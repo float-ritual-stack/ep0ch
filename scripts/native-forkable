@@ -35,6 +35,7 @@ const ALLOWED: { file: string; word: string; why: string }[] = [
   { file: "actions/bar.rs", word: "outlines", why: "the list source the bar's own menu row opens on (`lists.read from=outlines`)" },
   { file: "actions/bar.rs", word: "programs", why: "the list source the bar's own menu row opens on (`lists.read from=programs`)" },
   { file: "actions/app.rs", word: "programs", why: "the list request's parameter for the asker's own programs (`ListsRequest.programs`)" },
+  { file: "actions/review.rs", word: "threads", why: "the list source a note's comment threads are read from (`lists.read from=threads`), and the door's own name for the action that shows them (`threads`): the tile it brings forward is found by that source, whatever kind it is" },
   { file: "actions/outline.rs", word: "outlines", why: "the answer's own field: the outlines `outlines.known` lists" },
   { file: "bar.rs", word: "query", why: "the list request's parameter for its words (`ListsRequest.query`), which the bar's line fills" },
   { file: "tiles/prim.rs", word: "query", why: "a part's own field: the question its component asks (`PagePart.query`), and the element that shows it" },

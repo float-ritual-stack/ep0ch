@@ -1,0 +1,10 @@
+# A comment written where its words are, inside a part (scenes/about.seed.ts writes the note into a scratch outline):
+# the compost heap's prose is one part, a paragraph, a list and a paragraph, and words of the list's last item are
+# picked a press late at each end ("urn the cooking bay when it stops steamin"). The service finds the whole words
+# and where they are in the part's own text, and the comment's field stands in the part, under the list and over
+# the last paragraph, with the words its threads are on still marked on both sides. `from` and `to` are the part's
+# span of the note's text as the seed writes it (a selection says them itself). Draw it wide: `--size 1760x900 --at 0.5`.
+bar.open scope=search query="Compost heap"
+bar.pick n=1
+passage.select quote="urn the cooking bay when it stops steamin" from=43 to=395
+comment

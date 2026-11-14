@@ -32,8 +32,9 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 test("each list main kept is now one column of the table", () => {
   // screens.list and screens.save are answered by their own module, which asks the service for what it reads and writes;
-  // so are lists.read, tiles.view (a rendered tile's view) and outlines.known (the host's listing, else the module's).
-  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read", "tiles.view", "outlines.known"]));
+  // so are lists.read, tiles.view (a rendered tile's view), outlines.known (the host's listing, else the module's) and
+  // passages.find (where a quoted passage is, before a comment is written on it).
+  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read", "tiles.view", "outlines.known", "passages.find"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
   expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", "properties.patch", ...MARKS.writes]));
   expect(sorted(DECLARED.events)).toEqual(sorted([...MAIN.events, ...MARKS.writes]));
@@ -43,7 +44,7 @@ test("each list main kept is now one column of the table", () => {
   // outlines.backup: the host's copy of an outline, so nothing else opens its file (PIE-1750).
   expect(sorted(DECLARED.host)).toEqual(sorted([...MAIN.host, "outlines.backup"]));
   // log.range: a follower answers its home's log onward (ADR 0009).
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "log.range", "screens.list", "lists.read", "tiles.view", "outlines.known", "notes.page", ...MARKS.reads]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", "log.range", "screens.list", "lists.read", "tiles.view", "outlines.known", "passages.find", "notes.page", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "properties.patch", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",
@@ -51,7 +52,8 @@ test("each list main kept is now one column of the table", () => {
     "query.suggest", "screens.list", "lists.read",
     // Plain reads as those two are: what a script renders for a tile, and the names of the outlines there are.
     // A note as parts is a read like them: a read-only copy answers it, and an extension may ask it.
-    "tiles.view", "outlines.known", "notes.page"]));
+    // Where a passage is in a note's text is a read as they are.
+    "tiles.view", "outlines.known", "passages.find", "notes.page"]));
 });
 
 test("a read a module answers and keeps watched says so on its row, and is listed with the rest", () => {

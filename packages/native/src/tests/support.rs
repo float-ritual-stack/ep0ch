@@ -46,7 +46,31 @@ pub fn quotes() -> Value { serde_json::from_str(include_str!("../../../outline-c
 pub const SOWING: &str = "sowing";
 fn sowing() -> Value {
     let note = quotes()["quotedNote"].clone();
-    json!({ "blockId": note["id"], "revision": note["revision"], "title": note["title"], "text": note["text"], "chips": note["chips"], "ancestors": [], "parts": note["parts"], "children": [] })
+    // Its one thread (the stand-in garden lists `thread-sowing` for it) is on words of it: each part those words
+    // reach into carries the mark the service answers (`quotedNote.marked`, made by outline-core's `spanIn`).
+    let mut parts = note["parts"].clone();
+    for marked in note["marked"].as_array().into_iter().flatten() {
+        if let Some(part) = parts.as_array_mut().into_iter().flatten().find(|part| part["line"] == marked["line"]) { part["marks"] = marked["marks"].clone() }
+    }
+    json!({ "blockId": note["id"], "revision": note["revision"], "title": note["title"], "text": note["text"], "chips": note["chips"], "ancestors": [], "parts": parts, "children": [] })
+}
+
+/// Where the service finds `passage` in a note whose text is `text` (`passages.find`), as whole words when asked:
+/// what it answered for that quote of that text (`quoted`'s rows), or its refusal. A quote no row has is refused in
+/// the stand-in's own words, as a comment on it is.
+pub fn located(note: &str, text: &str, passage: &Value, whole: bool) -> Result<Value, (&'static str, String)> {
+    let table = quotes();
+    let row = table["quoted"].as_array().into_iter().flatten().find(|row| row.get("text").unwrap_or(&table["quotedNote"]["text"]) == text && &row["passage"] == passage);
+    match row {
+        Some(row) if row["found"].is_object() => {
+            let mut found = if whole { row["whole"].clone() } else { json!({ "start": row["found"]["start"], "end": row["found"]["end"], "exact": row["found"]["exact"], "quote": passage["quote"], "widened": false }) };
+            found["blockId"] = json!(note);
+            found["revision"] = json!(3);
+            Ok(found)
+        }
+        Some(row) => Err((if row["refused"]["kind"] == "ambiguous" { "ambiguous" } else { "not-found" }, row["refused"]["error"].as_str().unwrap_or_default().to_string())),
+        None => Err(("failed", format!("the stand-in host has no answer on record for this quote of this text: add it to QUOTED in packages/outline-core/scripts/core-contract.ts and write the table again (passage {passage}, text {text:?})"))),
+    }
 }
 
 /// What the service does with `passage` of a note whose text is `text`: the thread, or its refusal. A quote no row
@@ -478,6 +502,12 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.
             // (A comment on words is answered as the service answered that quote of that text: `quoted`.)
+            // Where a passage is, asked before a comment is written on it: as the service answered that quote.
+            "passages.find" => {
+                let text = if note == SOWING { sowing()["text"].as_str().unwrap_or_default().to_string() } else { texts.borrow().get(&note).map(|(_, text)| text.clone()).unwrap_or_else(|| format!("{} [type::chore]\nBefore the rain.", titled(&note))) };
+                // (Where it is in a part's own text is said only of the part the asker named.)
+                located(&note, &text, &ask["passage"], ask["whole"] == "words").map(|mut found| { if ask["part"].is_null() && let Some(found) = found.as_object_mut() { found.remove("at"); } found })
+            }
             "annotations.batch" => {
                 let input = &ask["operations"][0]["input"];
                 let on = input["blockId"].as_str().unwrap_or("").to_string();
