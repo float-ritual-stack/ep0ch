@@ -82,10 +82,14 @@ describe.skipIf(!outliner)("what changed", () => {
   });
 
   test("a click on +N new opens the list in the drawer, the person's looking clears the count, the rows keep their mark", async () => {
-    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "new")!;
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number; to?: number }[] }).items.find(i => i.id === "new")!;
     expect(at).not.toBeNull();
     key({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 39 });
-    await until(() => app.whatChanged.count() === 0, "seen once the person looked");
+    // Red once in the nightly's parallel run and never again alone or under load (PIE-1805): a timeout says where the
+    // click went and what the bar and the drawer were showing.
+    await until(() => app.whatChanged.count() === 0, "seen once the person looked").catch(e => {
+      throw new Error(`${e.message}: clicked ${at.from! + 1},39 for the new item at ${at.from}-${at.to}; count ${app.whatChanged.count()}; drawer open ${app.drawer.open}, tabs ${app.drawer.tabs().map(t => t.kind).join(",")}; the bar: ${bar()}`);
+    });
     expect(app.drawer.open).toBe(true);
     const tab = app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
     expect(tab).toBeDefined();

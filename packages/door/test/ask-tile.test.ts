@@ -59,7 +59,8 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the answer tile follows the as
       await close();
       const show = cellOf(p.capture(), "show ▸")!;
       p.click(show);
-      await until(() => p.capture().includes("┌─"), "the tile back");
+      // Red once in the nightly's parallel run and never again alone or under load (PIE-1805): a timeout shows the pane.
+      await until(() => p.capture().includes("┌─"), "the tile back").catch(e => { throw new Error(`${e.message} (clicked ${JSON.stringify(show)})\n${p.capture()}`); });
       await close();
       p.click(show);
       await until(() => p.capture().includes("┌─ @tally the hoes"), "the tile back by the quick second click", 1500).catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
