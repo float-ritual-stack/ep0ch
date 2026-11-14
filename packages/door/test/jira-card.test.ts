@@ -40,8 +40,10 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an open Jira card follows its 
   test("the Resource note open on screen shows the ticket's new read within one poll, with no reopen and no placeholder frame", async () => {
     const p = await bulleted();
     try {
-      const at = cellOf(p.capture(), "jira::PC-1")!;
-      p.click(at); await Bun.sleep(300); p.click(at);
+      // The reader's first frame draws the token as written ("[jira::PC-1]"); the chip a click opens is drawn once the
+      // note's properties are in. A click before that is a click on text, and a second one a double click that selects it.
+      await until(() => p.capture().includes("∙ jira::PC-1"), "the ticket's chip drawn", 10_000).catch(e => { throw new Error(`${e.message}\n${p.capture().split("\n").slice(0, 12).join("\n")}`); });
+      p.click(cellOf(p.capture(), "jira::PC-1")!);
       await until(() => tiles(p).some(t => t.showing?.id.startsWith("resource:")), "the ticket's Resource note open", 8000);
       await until(() => p.capture().includes("status In Review"), "its fields");
       const raw = join(doors.scratch.root, "card.raw"); p.record(raw);
@@ -51,7 +53,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("an open Jira card follows its 
       expect(p.capture()).toContain("second depot");
       // Every byte the door wrote meanwhile: no placeholder text was ever drawn on the way.
       const written = readFileSync(raw, "utf8").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, " ");
-      for (const placeholder of ["fetching…", "can't fetch", "isn't there", "Waiting", "not fetched"]) expect([placeholder, written.includes(placeholder)]).toEqual([placeholder, false]);
+      for (const placeholder of ["fetching…", "couldn't fetch", "isn't there", "Waiting", "not fetched"]) expect([placeholder, written.includes(placeholder)]).toEqual([placeholder, false]);
     } finally { p.close(); }
   }, 90_000);
 

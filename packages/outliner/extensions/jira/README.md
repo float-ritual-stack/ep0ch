@@ -79,7 +79,8 @@ Done in Jira, not here [type::virtual-branch] [query::child:jira.status=Done NOT
   - A sprint closing or a person renamed changes a ticket without moving its `updated`: the new read replaces the stored copy.
   - If Jira refuses a `key in` search for a deleted key, that batch is answered from one project search.
   - A search that fails keeps its window, so the next poll looks back far enough.
-- **A read that fails** keeps the last copy on the card: "kept the copy from 20m ago · couldn't fetch: … · the next poll tries again, R now". The next poll or `R` tries again; the card's own redraws don't.
+- **A read that fails** keeps the last copy on the card: "kept the copy from 20m ago · couldn't fetch: … · the next poll tries again, R now".
+  - The next poll or `R` tries again; the card's own redraws don't.
 - **A ticket that never fetched** says why the same way, and the next poll fetches that ticket again, by itself, while a note names it.
 - **A 404** reads "couldn't fetch: Jira has no PC-9, or you can't see it · checked again hourly, R now": Jira answers 404 for a ticket you can't view too, so the poll and an open ask again after an hour, and `R` at once.
 - **Credentials refused (401, 403, or none):** automatic fetches pause for 15 minutes.
