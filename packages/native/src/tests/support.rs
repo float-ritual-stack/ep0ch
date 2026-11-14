@@ -641,6 +641,11 @@ pub fn window(app: App) -> Runtime<App> {
     rt
 }
 
+/// A drawn text's words: an element's text as Rune reports it, less the marks that draw nothing. The kit's Markdown
+/// lays a word joined by a symbol (`Friday's`, a path, a flag) out as a left-to-right isolate (UAX #9: LRI before
+/// it, PDI after) and writes the two marks into the text it reports; a copy leaves them out, and so does this.
+pub fn plain(text: &str) -> String { text.chars().filter(|c| !matches!(c, '\u{2066}'..='\u{2069}')).collect() }
+
 /// Frames until what left has finished leaving.
 pub fn rest(rt: &mut Runtime<App>) { for _ in 0..90 { rt.frame(1.0 / 60.0); } }
 
