@@ -628,7 +628,7 @@ rule between two, each comment anchored to the source they were drawn from, and 
 the comment kept; an agent's proposed edit applied and another dismissed; an earlier text opened and put back; the
 keys screen equal to the key table, row for row; a component's example drawn), and W7's (on a scratch outline the
 bundled Waiting extension installed from the bar's own row, its screen used, its setting changed in its form,
-removed by an agent's act; then a switch to a second outline of the same host and back), H1's (two lines pasted with a carriage return between them saved as two lines and served as two picture parts, Tab on the second, and the five values a heading's pattern has listed with each one's own words, the lit one's drawing and the count), and the tree's folds (beds
+removed by an agent's act; then a switch to a second outline of the same host and back), RW's (the default-on what-changed extension's `change` run about the reader's note: the note the service asks for opened by the open action as the person and as an agent, and the comparison said not drawn), H1's (two lines pasted with a carriage return between them saved as two lines and served as two picture parts, Tab on the second, and the five values a heading's pattern has listed with each one's own words, the lit one's drawing and the count), and the tree's folds (beds
 with only a comment, only a proposed edit and both under them drawn with no mark, the one with a note among them
 unfolded onto it, and the window's reader empty until a note is opened). `cargo test --release measure_a_long_block -- --ignored --nocapture`
 prints what a key costs in a long block (PROBES.md §12).
@@ -693,6 +693,8 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 
 ![A close the layout refuses: the notice names the way out by this window's own key](docs/ways-dark.png)
 
+![An extension's action answered more than words: the note it asked for is opened, and the comparison this window doesn't draw is said in the notice, not claimed](docs/acted-dark.png)
+
 ![A tile held by its title: every tile shows the places it would take it in, the one under the pointer lit, the held tile dimmed, and the foot says what is held, where it would land and the key that lets go](docs/drag-dark.png)
 
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
@@ -716,7 +718,7 @@ pictures it draws into the folder, an svg fence and a mermaid fence), and `quote
 words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
 and one begun on words picked as a selection says them), and `margin` (a note the same seed writes with two comment
 threads on words of it: the passages marked, the first thread opened beside its words; draw it wide, `--size 1760x900 --at 0.5`,
-for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list). `--act <file>` runs any file of them before the
+for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list), and `acted` (the same seed's note in the kitchen's reader, and the default-on what-changed extension's `change` run about it by a line: the notice says its words and what of its answer is not done here). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),

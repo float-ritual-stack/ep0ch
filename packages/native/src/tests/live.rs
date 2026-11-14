@@ -567,6 +567,72 @@ fn days_ago(days: u64) -> String {
     format!("{:04}-{m:02}-{d:02} {:02}:{:02}", yoe + era * 400 + i64::from(m <= 2), (secs % 86_400) / 3_600, (secs % 3_600) / 60)
 }
 
+/// RW, against a real outline host: an extension's action that answers more than words is done as answered. The
+/// default-on what-changed extension's `change` asks for the note it was about to be opened with its last change
+/// beside it; the window read its words alone and said them as done. Now the note is opened by the open action, as
+/// whoever asked, and what this window doesn't draw (the comparison) is said. `cargo test -- --ignored live`.
+#[test]
+#[ignore = "starts an outline host with bun"]
+fn live_what_an_extension_s_action_answers_is_done_as_the_service_answered_it() {
+    use crate::actions::Actor;
+    use crate::client::Socket;
+    use std::process::{Command, Stdio};
+    let root = std::env::temp_dir().join(format!("ep0ch-native-live-acted-{}", std::process::id()));
+    let outlines = root.join("o");
+    std::fs::create_dir_all(&outlines).unwrap();
+    let outliner = concat!(env!("CARGO_MANIFEST_DIR"), "/../outliner");
+    let mut host = Command::new("bun").arg("src/host-main.ts").current_dir(outliner)
+        .env("EP0CH_OUTLINES", &outlines).env("EP0CH_DEFAULT_WS", "scratch").env("XDG_CONFIG_HOME", root.join("config")).env("OUTLINER_EXTENSIONS_DIR", root.join("user-extensions"))
+        .env_remove("EP0CH_SOCKET").env_remove("EP0CH_WS").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("bun starts the host");
+    let socket = outlines.join(".host/host.sock");
+    let path = socket.to_str().unwrap().to_string();
+    let result = std::panic::catch_unwind(|| {
+        for _ in 0..200 { if socket.exists() { break } std::thread::sleep(Duration::from_millis(50)) }
+        let asking = |raw: &mut Socket, request: Value| -> Value {
+            raw.send(&request);
+            raw.wait(request["id"].as_str().unwrap(), Duration::from_secs(30));
+            let line = raw.take().into_iter().find(|l| l["id"] == request["id"]).expect("the host answers");
+            assert_eq!(line["ok"], true, "{line}");
+            line["result"].clone()
+        };
+        asking(&mut Socket::connect(&path), json!({ "id": "a", "action": "outlines.attach", "name": "scratch", "create": true }));
+        let mut raw = Socket::connect(&path);
+        let bed = asking(&mut raw, json!({ "id": "b", "action": "create", "outline": "scratch", "parentId": null, "author": "user", "text": "North bed [type::bed]\nPeas along the fence." }));
+        let shed = asking(&mut raw, json!({ "id": "c", "action": "create", "outline": "scratch", "parentId": null, "author": "user", "text": "Shed [type::place]\nWhere the tools live." }));
+        let (bed, shed) = (bed["id"].as_str().unwrap().to_string(), shed["id"].as_str().unwrap().to_string());
+
+        let mut app = App::new(Box::new(Socket::connect(&path)), "scratch").blocking(true);
+        app.start();
+        app.settle();
+        opened(&mut app);
+        let until = |app: &mut App, what: &str, so: &dyn Fn(&App) -> bool| {
+            for _ in 0..400 { app.settle(); if so(app) { return } std::thread::sleep(Duration::from_millis(50)); }
+            panic!("{what}: {:?}", app.notice);
+        };
+        until(&mut app, "what-changed is installed (a host installs its default-on extensions as it starts)", &|app| app.extensions().is_some_and(|listed| listed.entry("what-changed").is_some()));
+        let steps = |app: &App| crate::control::peek(app)["screen"]["steps"].as_array().unwrap().iter().map(|step| (step["line"].as_str().unwrap_or("").to_string(), step["by"].as_str().unwrap_or("").to_string(), step["ok"] == true)).collect::<Vec<_>>();
+
+        // The person, with the bed in the reader: the service answers `{message, open: <the bed>, compare: true}`.
+        assert!(act(&mut app, &format!("open id={bed}")).ok);
+        assert!(act(&mut app, "extensions.act id=what-changed action=change").ok);
+        until(&mut app, "the action was answered", &|app| app.notice.as_ref().is_some_and(|n| n.said.contains("the change, beside the note")));
+        let notice = app.notice.clone().unwrap();
+        eprintln!("answered: {}", notice.said);
+        assert!(notice.tone == Tone::Info && notice.said.ends_with("the change, beside the note · the note is opened without its last change beside it: this window draws no such comparison"), "{}", notice.said);
+        assert_eq!(steps(&app).last(), Some(&(format!("open id={bed}"), "person".to_string(), true)), "the note it asked for was opened by the open action, as the person");
+        assert_eq!(app.subject().as_deref(), Some(bed.as_str()));
+
+        // An agent, about the note the reader shows then: its open is the agent's, and lands by the layout's rule for one.
+        assert!(act(&mut app, &format!("open id={shed}")).ok);
+        assert!(app.act("extensions.act id=what-changed action=change", Actor::Agent("tidy-agent".into())).ok);
+        until(&mut app, "the agent's action was answered and its open made", &|app| steps(app).last() == Some(&(format!("open id={shed}"), "agent:tidy-agent".to_string(), true)));
+    });
+    let _ = host.kill();
+    let _ = host.wait();
+    let _ = std::fs::remove_dir_all(&root);
+    if let Err(panic) = result { std::panic::resume_unwind(panic) }
+}
+
 /// W7's sentence against a real outline host: on a scratch outline the bundled Waiting extension is installed from
 /// the bar's own row, its screen opened and a row of its tile picked, its setting changed in the form its schema
 /// makes, and removed by an agent's act; then the window switches to another outline of the same host and back.
