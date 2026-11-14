@@ -195,3 +195,19 @@ test("a quote that starts with what looks like a line's marker keeps it when the
   expect(findQuoted(text, { quote: "2026. Then it rained", drawn: true })).toEqual({ start: text.indexOf("2026."), end: text.indexOf("2026.") + 20 });
   expect(findQuoted(text, { quote: "2026.  Then it *rained*" })).toEqual({ start: text.indexOf("2026."), end: text.indexOf("2026.") + 20 });
 });
+
+// A rule that names a style is a rule to every reader (the door draws its style, a page that draws none is served
+// `---`: heading-styles.ts's `unstyledLines`), so its dashes are no words: read as words, a selection made across the
+// rule was nowhere in the note, and what was marked after it was looked for four characters on.
+test("a rule that names a style is a rule: its dashes are drawn by no reader", () => {
+  const text = "- Beans in May\n\n--- [rule::fade]\n\nPaths of bark. Rake, rake, rake.";
+  expect(drawnText(text).text).toBe("Beans in May Paths of bark. Rake, rake, rake.");
+  expect(at(text, "Beans in May\n\nPaths of bark")).toBe("Beans in May\n\n--- [rule::fade]\n\nPaths of bark");
+  // Any `style.*` on it leaves with the rule, as on a rule that names none.
+  expect(drawnText("Sow.\n\n*** [style.rule.tone::amber]\n\nReap.").text).toBe("Sow. Reap.");
+  // Dashes with words after them are words, as Markdown reads them; a property that says something is a token, not drawn.
+  expect(drawnText("Sow.\n\n--- then [rule::fade]\n\nReap.").text).toBe("Sow. --- then Reap.");
+  // Right under a line of prose, dashes that name a style are no rule to any reader (the page is served them as
+  // written, and draws them): they stay words.
+  expect(drawnText("Sow the peas.\n--- [rule::fade]\n\nRake, rake.").text).toBe("Sow the peas. --- Rake, rake.");
+});

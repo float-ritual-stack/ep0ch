@@ -20,9 +20,9 @@
 //   read as any words are (a page draws the title through Markdown: its code ticks and emphasis are marks);
 // - a callout's `[!type]`: its icon (and the type's own title when the line gives none), as `proseMarkdown` leads it;
 // - emphasis marks, code ticks, a backslash that escapes a mark, a line's list, quote or heading marker, a code
-//   fence's own two lines, a table's pipes and its separator row, a rule (`---`) and the line of dashes or equals
-//   signs under a heading: not drawn (a reader that shows such a line as written, in a code fence, has it in the
-//   quote, where it is read the same way);
+//   fence's own two lines, a table's pipes and its separator row, a rule (`---`, with the style it names or none)
+//   and the line of dashes or equals signs under a heading: not drawn (a reader that shows such a line as written,
+//   in a code fence, has it in the quote, where it is read the same way);
 // - any run of blanks, a line break among them: one space.
 //
 // **A quote may start mid-line.** What a line starts with says what it is (`2026. ` a list's number, `- ` its dash,
@@ -35,6 +35,7 @@
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, calloutLead, quoteDepth, type CalloutRegistry } from "./callouts";
 import { STEP_BOX } from "./checklist-marks";
 import { noteCodeFences } from "./component-block";
+import { styledLine, underlinesLineAbove } from "./heading-styles";
 import { blockReferenceOccurrences, fragmentAnchorMatch, MARKDOWN_LINK_SOURCE, pageAddressReferences } from "./link-syntax";
 import { findPassage, isMiss, missMessage, quotePlaces, type FindOptions, type PassageMiss } from "./passage";
 import { propertyTokenMatches } from "./property-grammar";
@@ -123,9 +124,12 @@ export function drawnText(source: string, reads: DrawnReads = {}): DrawnText {
     const lead = calloutLead(callout, registry);
     spans.push({ start: from, end: from + close, words: callout.title ? lead.slice(0, lead.length - callout.title.length) : lead });
   }
-  // Each line's marker and anchor; a rule's line whole.
+  // Each line's marker and anchor; a rule's line whole, one that names a style too (`--- [rule::fade]`: heading-styles.ts
+  // says which lines those are, and a page that draws no style is served it as `---`). Dashes with a style right under
+  // a line of prose are no rule to any reader (`underlinesLineAbove`, the question `unstyledLines` asks): they stay
+  // words, as they are served.
   lines.forEach((line, i) => {
-    if (RULE_LINE.test(line)) return void whole(i);
+    if (RULE_LINE.test(line) || (styledLine(line)?.kind === "rule" && !underlinesLineAbove(line, i ? lines[i - 1]! : ""))) return void whole(i);
     const marker = LINE_MARKER.exec(line);
     if (marker) spans.push({ start: starts[i]!, end: starts[i]! + marker[0].length });
     const anchor = fragmentAnchorMatch(line);
