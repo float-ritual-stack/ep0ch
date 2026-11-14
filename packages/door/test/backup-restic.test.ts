@@ -6,7 +6,7 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
@@ -76,16 +76,26 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
 }
 
 /**
- * The repositories the tests below back up to, made together before them (PIE-1762): restic's init is about 3 s of
- * one core each, and fourteen in turn were 41 s of this file. laptop's own is left to its first run, which makes it.
+ * The repositories the tests below back up to, there before them: copies of `fixtures/restic-repo`, an empty
+ * repository restic made, whose key costs 0.04 s of a core to open. One restic makes on a quiet machine costs 0.5 s for
+ * every command, by design (its key is tuned to the machine at init), and 3 s to make: the 130 commands of this file
+ * were most of its time, more or less of it with the load each repository happened to be made under (PIE-1804; the
+ * fixture's README says how it was made). The first test's other repository is left to its first run, which makes it.
  */
-const MADE_AHEAD = ["shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+const EMPTY_REPO = join(import.meta.dir, "fixtures", "restic-repo");
 beforeAll(async () => {
   if (!RESTIC) return;
-  const repos = MADE_AHEAD.map(name => { const c = machine(name); return [c, c.repoOf(name)] as const; });
-  repos.push([machine("laptop"), join(root, "repos-other", "laptop")]);   // the first test's other repository
-  const made = await Promise.all(repos.map(([c, repo]) => ensureRepo(c, repo, () => {})));
-  expect(made.filter(Boolean)).toEqual([]);
+  for (const name of MADE_AHEAD) {
+    const repo = machine(name).repoOf(name);
+    for (const dir of ["data", "index", "keys", "locks", "snapshots"]) mkdirSync(join(repo, dir), { recursive: true });
+    cpSync(join(EMPTY_REPO, "config"), join(repo, "config"));
+    cpSync(join(EMPTY_REPO, "keys"), join(repo, "keys"), { recursive: true });
+  }
+  // Each is a repository restic opens with the tests' password: nothing is made again.
+  const said: string[] = [];
+  const made = await Promise.all(MADE_AHEAD.map(name => { const c = machine(name); return ensureRepo(c, c.repoOf(name), l => said.push(l)); }));
+  expect([made.filter(Boolean), said]).toEqual([[], []]);
 }, 120_000);
 
 describe("settings", () => {
@@ -222,9 +232,10 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     // The archive is the log, as segments of whole ranges, in the job's state.
     expect(existsSync(join(archiveRoot(laptop, "laptop"), "garden", s.outlines.garden!.logId!))).toBe(true);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [], relayed: [] });
-    // Another repository starts every outline over: nothing counts as backed up there.
+    // Another repository starts every outline over: nothing counts as backed up there. Nobody made this one: the run does.
     const elsewhere = { ...laptop, repoOf: (m: string) => join(root, "repos-other", m) };
     expect((await snapshot(elsewhere, { ...s, outlines: { ...s.outlines } }, { say })).uploaded).toEqual(["garden", "pantry"]);
+    expect(said.filter(l => l.startsWith("made the repository"))).toEqual([`made the repository ${join(root, "repos-other", "laptop")}`]);
     await write(laptop, "garden", ["Stake the peas"]);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden"], failed: [], relayed: [] });
     expect(s.outlines.garden!.seq).toBeGreaterThan(first);
@@ -253,12 +264,13 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
   test("a snapshot asked to wait waits for a backup already running, says so, and stops only when it outlasts the wait (PIE-1800)", async () => {
     const out: string[] = [];
     const io = { out: (l: string) => out.push(l), err: (l: string) => out.push(l) };
-    // The scheduled run holds the job's lock (as the timer's would while install deploys).
+    // The scheduled run holds the job's lock (as the timer's would while install deploys), and lets go once the
+    // snapshot has said it waits.
     let release = takeLock(laptop) as () => void;
     expect(typeof release).toBe("function");
-    setTimeout(() => release(), 700);
-    expect(await backupCommand(["backup", "snapshot", "--wait", "10"], io, laptop.env)).toBe(0);
-    expect(out.join("\n")).toMatch(/waiting for another backup command \(pid \d+\) to finish, up to 10 s/);
+    const waited = { out: (l: string) => { out.push(l); if (l.includes("waiting for another backup command")) release(); }, err: io.err };
+    expect(await backupCommand(["backup", "snapshot", "--wait", "2"], waited, laptop.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/waiting for another backup command \(pid \d+\) to finish, up to 2 s/);
     // One that outlasts the wait: stopped, saying it was still running.
     out.length = 0;
     release = takeLock(laptop) as () => void;
