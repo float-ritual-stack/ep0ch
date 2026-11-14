@@ -32,6 +32,8 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A note's figures, a box and two buttons, one pressed and saying what it ran, dark](docs/parts-dark.png)
 ![A note's links on its page and in the links tile beside it: one list, drawn once, dark](docs/links-dark.png)
 ![A block written in place: an agent's edit lit above the caret and said on the tile, and the list that completes a note's name, dark](docs/draft-dark.png)
+
+![The editor's keys: a list written by Return, a step ticked, a line moved, a word selected and wrapped, and the hint row offering what is done with a selection](docs/editor-dark.png)
 ![The list that completes a property's value: the lit row's own words and what choosing it makes beside it, and the lit row of how many under it, dark](docs/complete-dark.png)
 ![The kitchen screen, with the bar on the extensions and a name typed: open its page, its settings, install, remove, dark](docs/extensions-dark.png)
 ![An extension's own screen, its tile drawn from what its script answered, and the form its settings schema makes, dark](docs/settings-dark.png)
@@ -461,6 +463,23 @@ src/ (Rust, Rune)                                      the outline host
 - **A change is drawn as served** (`tiles/diff.rs`, the `diff` primitive). The service finds what changed between
   two texts (the outliner's `text-diff.ts`) and answers the lines, each saying what it is; the window draws them and
   compares nothing.
+- **The keys of the editor are an editor's** (`edit.rs`, `actions/editor.rs`; K3). Return on a list item begins
+  the next one (the same marker, the next number, an open box), on an empty item goes up a level, and at the top
+  ends the list; Shift+Return is only the break. Tab indents a list item from any column, several selected lines,
+  or any other line from its start: in the middle of a paragraph it moves nothing. Alt+Up and Alt+Down move the
+  line, with Shift they copy it, `mod+shift+k` deletes it; `mod+shift+u` ticks a step or makes the line one;
+  `mod+shift+a` selects the line and `mod+shift+w` the word; a bracket typed over a selection wraps it, typed
+  alone it brings its closer, and the closer typed where it stands is typed over; Home and End are the line's;
+  Escape lets go of a selection before it leaves; an undo takes back a word. Each is an action with its key rows
+  (`draft.newline`, `draft.go`, `draft.select`, `draft.line`, `draft.erase`, `draft.wrap`, `draft.check`,
+  `draft.undo`, `draft.redo`, `draft.copy`, `draft.cut`), so the keys screen lists it, the hint row under the
+  field offers it and `act` runs it. Every rule is outline-core's (`draft-keys.ts`, the door's `Draft` asks the
+  same functions), ported once and held row for row by `fixtures/core-contract.json`. What Rune's own editor does
+  (a motion by word, undo, copy) stays its own and is a row all the same: listed with its keycap (`from: field` in
+  `peek`), never bound, and run as an act by handing the editor the key. A chord a row names `word+…` or `line+…`
+  is the platform's own for a word and a line's edge: Option and Command on a Mac; elsewhere Control for a word,
+  and no key for a line's edge (the row says so). [PROBES.md §19](docs/PROBES.md#19-the-editors-keys-k3) has what
+  Rune's editor gave and lacked.
 - **A draft says what it writes** (`draft.rs`, `Writes`): a block's own text, a comment on a note, a reply in a
   thread. One session type, one field (the page drawer's), the same list that completes a word, the same file that
   keeps what is typed, and the same actions: `edit.save` saves a block and sends a comment, `edit.close` leaves
@@ -771,6 +790,7 @@ target/debug/ep0ch-native --snap out.png -- --ws scratch --screen garden-work   
 A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `find`, `query`, `screens` (each opens the
 outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
+`editor` (a block of `parts.seed.ts`'s being written by an editor's keys, each by its act: a list by Return, a step ticked, a line moved up, a word selected and wrapped, the hint row offering copy and cut while something is selected),
 `complete` (a block of `parts.seed.ts`'s being written with a property's value begun and the second row lit: its words and what it makes beside the list, the count under it),
 `terminal` (a shell and an agent beside `parts.seed.ts`'s note, their programs a made-up shell: run it with `--programs scenes/terminal.programs.json` after the second `--`, the script a scripted host plays, since a headless render has no pty to wait on),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
@@ -806,6 +826,13 @@ toolbar button is
 `bar/facet/<key>/<value>`.
 
 ## Not here yet
+
+- The editor: an undo is the field's own, so its steps have no names, it goes straight past a save, and a person's
+  undo takes back an agent's patch (the door's history does all three; [PROBES.md §19](docs/PROBES.md#19-the-editors-keys-k3) says what it would take). Return does not close a
+  component its line opens or title a page (both read the note's components, which only outline-core scans; a
+  completion writes a component with its closer). No link opened from the source (`edit.follow`), no insert picker,
+  preview, reload or `$EDITOR`, no big-paste notice, no keymap of the person's own. A wrapped list item is not hung
+  under its text. None of the Mac-only keys (`line+…`, Home and End against Rune's own) has been pressed on a Mac.
 
 - Tiles: four drawers (`page`, `list`, `view`, `pty`). The terminal is behind the `pty` feature, and what it
   leaves out is under [The terminal](#the-terminal). A tile's own level for agents (`tile.agent`) has no chip on its title,

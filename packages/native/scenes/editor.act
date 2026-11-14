@@ -1,0 +1,18 @@
+# The editor's keys (K3; scenes/parts.seed.ts writes the note into a scratch outline): a block opened to be written,
+# and what an editor's keys make of it, each by the act its key runs. Return begins a list's next item, a step is
+# ticked, a line is moved over the one above, and a word is selected and wrapped: with something selected the hint
+# row under the field offers what is done with it, beside the keys that are always there.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit
+draft.newline
+draft.paste text="- fleece from the shed"
+draft.newline
+draft.paste text="pegs"
+draft.check
+draft.check
+draft.newline
+draft.paste text="bricks for the corners"
+draft.line op=up
+draft.select what=word
+draft.wrap with=**
