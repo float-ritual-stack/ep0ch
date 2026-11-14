@@ -15,7 +15,7 @@ import type { DrillTimes } from "./jobs";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { appendToArchive, archivedRanges, letGoOtherChains } from "@ep0ch/outliner/log-archive";
+import { appendToArchive, archivedRanges, letGoOtherChains, otherChains } from "@ep0ch/outliner/log-archive";
 import { lastJson, ssh } from "../mcp-netmail";
 import { type BackupConfig, MACHINE_NAME } from "./config";
 import { archiveRoot, ensureRepo, waitForLock } from "./jobs";
@@ -103,10 +103,11 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     const repo = c.repoOf(o.machine);
     const problem = await ensureRepo(c, repo, () => {});
     if (problem) return { ok: true, lsn, uploadError: problem };
-    const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId);
+    // The machine's older chains of it, named in the snapshot's tags to their newest entries, then let go once it lands.
+    const held = otherChains(root, o.outline, ranges[0]!.logId);
+    const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId, held);
     if ("error" in up) return { ok: true, lsn, uploadError: up.error };
-    // Uploaded: that snapshot took the whole folder, so the chains of the machine's earlier logs are the repository's.
-    const trimmed = letGoOtherChains(root, o.outline, ranges[0]!.logId);
+    const trimmed = letGoOtherChains(root, o.outline, ranges[0]!.logId, held);
     // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
     await forget(c, repo, { host: o.machine, wait: "30s" });
     return { ok: true, lsn, snapshot: up.id, ...(trimmed.length ? { trimmed } : {}) };

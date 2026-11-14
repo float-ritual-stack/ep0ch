@@ -225,14 +225,15 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const skipped: string[] = [];
       try {
         for (const candidate of [...list].reverse()) {
-          // An exact entry: only a snapshot of that log that reaches it.
-          if (entry !== undefined && (candidate.logId !== logId || (candidate.seq ?? 0) < entry)) continue;
+          // An exact entry: only a snapshot that reaches it in that log, its own or an older chain it holds (PIE-1806).
+          if (entry !== undefined && (candidate.logId === logId ? candidate.seq ?? 0 : candidate.chains?.[logId!] ?? 0) < entry) continue;
           const tmp = join(stage, `${candidate.id}.sqlite`);
           const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
           if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; skipped.push(why); continue; }
-          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(entry !== undefined ? { through: entry } : {}), ...(candidate.logId ? { logId: candidate.logId } : {}) }); snap = candidate; }
+          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(entry !== undefined ? { through: entry } : {}), ...(logId ?? candidate.logId ? { logId: logId ?? candidate.logId } : {}) }); snap = candidate; }
           catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; skipped.push(why); continue; }
-          if (entry !== undefined && replayed.lsn !== entry) { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} ends at entry ${replayed.lsn}, not ${entry}; nothing written`); return 1; }
+          // Short of it (a transaction the entry is in ran on past it in this snapshot): an older one may end there exactly.
+          if (entry !== undefined && replayed.lsn !== entry) { why = `the replay of ${candidate.id.slice(0, 8)} ends at entry ${replayed.lsn}, not ${entry}`; replayed = null; continue; }
           const verdict = integrity(tmp);
           if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
           try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }

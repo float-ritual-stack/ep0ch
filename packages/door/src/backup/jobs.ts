@@ -17,10 +17,10 @@ import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { archivedCursor, letGoOtherChains, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
+import { archivedCursor, letGoOtherChains, otherChains, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
-import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, uploadedAs, writeAlert, writeBackupState } from "./alert";
+import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, writeAlert, writeBackupState } from "./alert";
 import { type BackupConfig, RUN_LIMIT_MS } from "./config";
 import { plainReason, repoHost } from "./plain";
 import { chainsLine, failedLine, letGoLine, moment, relayedLine } from "./verdict";
@@ -116,8 +116,10 @@ export async function newRanges(c: Pick<BackupConfig, "host" | "state" | "machin
  * repository can't be reached (a probe of its host fails, or restic's upload does) and a hub is named (EP0CH_MCP_HUB),
  * the new entries go to the hub instead, over ssh: it archives them and uploads them on this machine's behalf
  * (relay.ts). A relayed outline is `relayed`, not `failed`: its log is off this machine and checked.
- * Then each outline whose newest snapshot from here is confirmed (`uploadedAs` direct: it took the whole archive folder)
- * lets go of the chains here other than its current log (PIE-1806); `trimmed` says which, with their sizes.
+ * An outline whose folder still holds an older chain (an earlier log, PIE-1806) is uploaded whatever its log did, with
+ * each such chain named in the snapshot's tags (to its newest entry here), and once that upload lands the chains it
+ * names leave this machine: a restore of that log finds them there. A relay doesn't: it sends the current chain only.
+ * `trimmed` says which went, with their sizes.
  */
 export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<Snapshotted> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
@@ -144,18 +146,18 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   o.step?.(`archiving the log of ${outlines.length} outline${outlines.length === 1 ? "" : "s"}`);
   // Each outline's new entries into its archive, here, first: what is archived is kept whatever the upload does.
   const changed: { name: string; logId: string; lsn: number; schema: number; ranges: LogRange[] }[] = [];
-  // Each outline's current log, as its host said it this run: the chain the trim keeps.
-  const current = new Map<string, string>();
-  const done = () => trimmed(c, s, current, say, { uploaded, failed, relayed });
+  const trimmed: NonNullable<Snapshotted["trimmed"]> = [];
+  const done = (): Snapshotted => ({ uploaded, failed, relayed, ...(trimmed.length ? { trimmed } : {}) });
   for (const x of outlines) {
     const st = s.outlines[x.name] ??= {};
     try {
       const got = await newRanges(c, x.name);
-      current.set(x.name, got.logId);
       writeSegment(archiveRoot(c, c.machine), x.name, got.ranges);
       const lsn = got.ranges.flatMap(r => r.entries).at(-1)?.lsn ?? got.held;
       // Moved: entries the repository doesn't hold yet (this run's, or an earlier run's whose upload failed).
-      const moved = o.force || st.relayed?.uploaded === false || st.logId !== got.logId || st.seq !== lsn || st.schema !== got.schema;
+      // An older chain still here is uploaded once more, named, so it can go (not while relaying: the hub gets the current chain only).
+      const leftover = !st.relayed && otherChains(archiveRoot(c, c.machine), x.name, got.logId).length > 0;
+      const moved = o.force || leftover || st.relayed?.uploaded === false || st.logId !== got.logId || st.seq !== lsn || st.schema !== got.schema;
       if (moved) { st.pendingSince ??= new Date(now()).toISOString(); changed.push({ name: x.name, logId: got.logId, lsn, schema: got.schema, ranges: got.ranges }); }
       else { delete st.pendingSince; delete st.error; note(`${x.name}: unchanged since entry ${st.seq ?? "?"}${st.at ? ` (${moment(st.at)})` : ""}, nothing to send`); }
     } catch (e) { st.pendingSince ??= new Date(now()).toISOString(); st.error = `archiving ${x.name}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); }
@@ -172,13 +174,17 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     if (!why) {
       o.step?.(`${x.name}: uploading its archive to restic`);
       const began = Date.now();
-      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema, c.machine, x.logId);
+      // The older chains as they are now: the snapshot names each to its newest entry, and only those go after it lands.
+      const held = otherChains(archiveRoot(c, c.machine), x.name, x.logId);
+      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema, c.machine, x.logId, held);
       if ("error" in r) { why = direct = r.error; note(`${x.name}: direct upload to ${repoHost(repo)} failed after ${((Date.now() - began) / 1000).toFixed(1)}s: ${r.error}`); }
       else {
         if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
         Object.assign(st, { seq: x.lsn, logId: x.logId, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
         // Uploaded: what came before the newest genesis is in the repository's earlier snapshots, and goes from here.
         trimArchive(archiveRoot(c, c.machine), x.name, x.logId);
+        const gone = letGoOtherChains(archiveRoot(c, c.machine), x.name, x.logId, held);
+        if (gone.length) { trimmed.push({ outline: x.name, chains: gone }); say(letGoLine(x.name, gone)); }
         delete st.pendingSince; delete st.error; delete st.relayed;
         uploaded.push(x.name);
         note(`${x.name}: sent direct to ${repoHost(repo)} in ${((Date.now() - began) / 1000).toFixed(1)}s`);
@@ -210,24 +216,6 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
 
 /** What a snapshot did: the outlines uploaded, failed and relayed, and the old chains let go here, when any were. */
 export interface Snapshotted { uploaded: string[]; failed: string[]; relayed: string[]; trimmed?: { outline: string; chains: { chain: string; bytes: number }[] }[] }
-
-/**
- * The chains here other than each outline's current log, let go once the repository holds them (PIE-1806): only after
- * a snapshot from here confirmed for that log (a relay sent the hub the current chain only, so it confirms nothing
- * else), so an upload that failed or still waits keeps them. Said, with their sizes.
- */
-function trimmed(c: BackupConfig, s: BackupState, current: ReadonlyMap<string, string>, say: Say, r: Snapshotted): Snapshotted {
-  const out: NonNullable<Snapshotted["trimmed"]> = [];
-  for (const [name, logId] of current) {
-    const st = s.outlines[name];
-    if (uploadedAs(st) !== "direct" || st!.logId !== logId) continue;
-    const chains = letGoOtherChains(archiveRoot(c, c.machine), name, logId);
-    if (!chains.length) continue;
-    out.push({ outline: name, chains });
-    say(letGoLine(name, chains));
-  }
-  return out.length ? { ...r, trimmed: out } : r;
-}
 
 /** What a run stopped before its forget or prune returned (systemd's limit, a reboot, a deploy) leaves on record. */
 export const INTERRUPTED = "stopped before it finished (the run's time limit, a reboot or a deploy)";

@@ -12,8 +12,9 @@ import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopi
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
+import { archivedCursor } from "@ep0ch/outliner/log-archive";
 import { canonicalDump } from "@ep0ch/outliner/change-log";
-import { forget, parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
+import { forget, HELD_CHAINS, KEEP, parseSnapshots, resticArgv, snapshots, summaryId } from "../src/backup/restic";
 import { verdict } from "../src/backup/verdict";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -604,12 +605,17 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     expect((await job(c)).ok).toBe(true);
     const was = readBackupState(c.state).outlines.seeds!;
     const old = { logId: was.logId!, seq: was.seq! };
-    // Made again (as a migration or an import begins a new log): a new log id, its old chain still staged here.
+    // Archived here past its last upload (that upload failed), then made again (as a migration or an import begins a
+    // new log): a new log id, and the old chain's last entries are only here and in the snapshot that holds it next.
+    const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "seeds", ["Water the trays"]);
+    expect((await job(broken)).ok).toBe(false);
+    const tail = archivedCursor(archiveRoot(c, c.machine), "seeds", old.logId)!.lsn;
+    expect(tail).toBeGreaterThan(old.seq);
     await hostRequest(c.host, "outlines.delete", { name: "seeds" });
     await write(c, "seeds", ["Sow the chard"]);
     const staged = join(archiveRoot(c, c.machine), "seeds");
     // An upload that fails confirms nothing: the old chain stays.
-    const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
     expect((await job(broken)).ok).toBe(false);
     expect(readdirSync(staged)).toContain(old.logId);
     // (A copy of the old chain, to put back below as a quiet outline's leftover.)
@@ -638,9 +644,20 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     const out: string[] = [], err: string[] = [];
     const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
     const to = join(root, "bothy-restored", "seeds.sqlite");
-    expect(await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(old.seq), "--to", to], io, c.env)).toBe(0);
+    const code = await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(old.seq), "--to", to], io, c.env);
+    expect([code, err]).toEqual([0, []]);
     expect(holds(to, "Label the trays")).toBe(true);
+    expect(holds(to, "Water the trays")).toBe(false);
     expect(holds(to, "Sow the chard")).toBe(false);
+    // The snapshot that let it go names the chain to its last entry, and retention keeps every such snapshot for good.
+    const list = await snapshots(c, c.repoOf(c.machine), { all: true, outline: "seeds" });
+    expect("error" in list ? list : list.filter(x => x.chains?.[old.logId] === tail).length).toBeGreaterThan(0);
+    expect(KEEP.slice(-2)).toEqual(["--keep-tag", HELD_CHAINS]);
+    // Its last entries, which only the new log's snapshot holds (CodeRabbit on #1522): that snapshot names the chain.
+    const last = join(root, "bothy-restored", "seeds-tail.sqlite");
+    expect(await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(tail), "--to", last], io, c.env)).toBe(0);
+    expect(holds(last, "Water the trays")).toBe(true);
+    expect(holds(last, "Sow the chard")).toBe(false);
     // And the served drill still passes on the current chain.
     expect(await backupCommand(["backup", "drill", "--serve"], io, c.env)).toBe(0);
     expect(out.join("\n")).toMatch(/seeds ok \(\d+ blocks.*served by a scratch host/);

@@ -36,9 +36,10 @@ answer means nothing is archived that run, said with the command that starts it.
    yet is made (`restic init`).
 3. **Retention**, decided every run on its own (after an upload, after a failed forget, or 6 hours since the last; not
    while the repository is out of reach): `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, never with `--prune`: every snapshot of the 48 hours before the newest,
-   and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that changes rarely
-   keeps older history, since only hours and days with a snapshot count). forget takes the repository exclusively, so a
+   --keep-daily 30 --keep-weekly 12 --keep-tag ep0ch-held-chains`, never with `--prune`: every snapshot of the 48 hours
+   before the newest, and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that
+   changes rarely keeps older history, since only hours and days with a snapshot count), and every snapshot that holds
+   an older chain this machine let go (below), for good. forget takes the repository exclusively, so a
    lock left by a run killed mid-upload refuses it while uploads still land (PIE-1755): when forget is refused a lock
    (restic's exit 11), the job runs `restic unlock` (stale locks only, never `--remove-all`) and tries once more with
    `--retry-lock 5m` (30s for a relayed upload, whose sender waits on ssh). Forget failing two runs in a row is an incident (`forget:<machine>`), with the lock's holder.
@@ -52,20 +53,20 @@ answer means nothing is archived that run, said with the command that starts it.
    Here, the archive keeps the segments from the one holding the newest genesis on (a compaction writes one when the
    log outgrows the outline 4 times), so it stays about one outline and its recent changes in size; the earlier
    segments are in the repository's earlier snapshots. An outline's other chains (an earlier log, since a migration or
-   an import began a new one, and a chain kept aside at a gap, `<log id>~<entry>`) leave here once a snapshot from
-   this machine is confirmed for the current log (no change waiting, no error: the check install's rollback points
-   use), since that snapshot took the whole folder. A relay doesn't count: it sends only the current chain. The run
-   says each chain and its size, and so does `lastRun` in its state. Their history is then the repository's, for as
-   long as retention keeps a snapshot taken before (about 12 weeks for one that changes daily): `ep0ch backup restore <outline> --log <old id>
-   --entry <n>` reads it from there (PIE-1806).
+   an import began a new one, and a chain kept aside at a gap, `<log id>~<entry>`) go too (PIE-1806): while the folder
+   holds one, the outline is uploaded whatever its log did, the snapshot tagged `ep0ch-held-chains` and
+   `chain=<folder>:<newest entry>` for each, and once that upload lands each chain it names leaves here. Retention
+   keeps that snapshot for good, and `ep0ch backup restore <outline> --log <old id> --entry <n> --to <new file>` finds
+   the chain in it. A relay doesn't let one go: it sends only the current chain. The run says each chain and its size,
+   and so does `lastRun` in its state.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the
    outline's archived log goes to the hub instead. It travels on the stdin of an ssh command, the path the netmail pull
    uses, to `ep0ch backup receive` in the hub's login shell, which checks its sha256 and that it is one log meeting the
    hub's own archive of that outline (a log that differs is refused), adds what it lacks to
    `~/.local/state/ep0ch-door/backup/log/<machine>/<outline>/` and uploads it to `<machine>`'s repository with that
-   machine's host name, using the hub's own keys; once that upload lands, the hub's chains of that outline other than
-   the one it was sent leave its archive (PIE-1806). A relayed outline counts as backed up. `ep0ch backup status` and
+   machine's host name, using the hub's own keys; that snapshot names the hub's other chains of the outline the same
+   way, and once it lands they leave its archive (PIE-1806). A relayed outline counts as backed up. `ep0ch backup status` and
    doctor say `relayed via <hub>` with the repository's failure; the door's status bar shows a quiet `→ backup`.
 5. **Drill**, monthly: every outline's newest archive restored into a temp folder, replayed into a new file and
    checked (`integrity_check`, its blocks counted, the replay ending at the entry the archive was taken at).

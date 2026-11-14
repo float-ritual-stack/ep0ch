@@ -201,19 +201,32 @@ export function trimArchive(root: string, outline: string, logId: string): numbe
 }
 
 /**
- * The chains in an outline's archive other than its current log `logId`, removed from this machine (PIE-1806): an
- * earlier log (a migration or an import begins a new one), and a chain kept aside at a gap (`<id>~<lsn>`). Called only
- * once a snapshot that took the whole folder is confirmed, so the repository holds each one: a restore of that log
- * reads it from there (`backup restore --log <id>`). The current chain stays, and nothing goes while it holds no
- * segment. Returns each chain let go, with its size.
+ * The chains in an outline's archive other than its current log `logId` (PIE-1806): an earlier log (a migration or an
+ * import begins a new one), and a chain kept aside at a gap (`<id>~<lsn>`), each with the newest entry it holds here.
+ * What an upload of the folder names in its snapshot's tags, so a restore of that log finds them there.
  */
-export function letGoOtherChains(root: string, outline: string, logId: string): { chain: string; bytes: number }[] {
-  if (!archivedCursor(root, outline, logId)) return [];
+export function otherChains(root: string, outline: string, logId: string): { chain: string; lsn: number }[] {
   const base = join(root, outline);
-  return readdirSync(base, { withFileTypes: true }).filter(e => e.isDirectory() && e.name !== logId).map(e => {
-    const dir = join(base, e.name);
+  if (!existsSync(base)) return [];
+  return readdirSync(base, { withFileTypes: true }).filter(e => e.isDirectory() && e.name !== logId).flatMap(e => {
+    const last = segments(join(base, e.name)).at(-1);
+    return last ? [{ chain: e.name, lsn: last.last }] : [];
+  }).sort((a, b) => a.chain.localeCompare(b.chain));
+}
+
+/**
+ * The other chains `held` names (each with the newest entry a snapshot restore can reach holds of it: `otherChains`, as
+ * the upload that just landed tagged them), removed from this machine: a restore of that log reads it from the
+ * repository (`backup restore --log <id>`). A chain holding entries past what `held` says stays, and so does the
+ * current chain; nothing goes while that one holds no segment. Returns each chain let go, with its size.
+ */
+export function letGoOtherChains(root: string, outline: string, logId: string, held: readonly { chain: string; lsn: number }[]): { chain: string; bytes: number }[] {
+  if (!archivedCursor(root, outline, logId)) return [];
+  const reached = new Map(held.map(h => [h.chain, h.lsn]));
+  return otherChains(root, outline, logId).filter(o => o.lsn <= (reached.get(o.chain) ?? -1)).map(o => {
+    const dir = join(root, outline, o.chain);
     const bytes = readdirSync(dir).reduce((n, f) => n + statSync(join(dir, f)).size, 0);
     rmSync(dir, { recursive: true, force: true });
-    return { chain: e.name, bytes };
+    return { chain: o.chain, bytes };
   });
 }

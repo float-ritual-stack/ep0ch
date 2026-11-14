@@ -1,7 +1,8 @@
 // restic, run for the backups: through `with-secrets <groups> --` unless its password is already in the environment
 // (a test's local repository), so the keys reach only restic and are never printed. One snapshot per outline and run:
 // `restic backup` of the outline's archive folder (its change log as segments, outliner log-archive.ts, ADR 0009),
-// tagged ep0ch-outline, outline=<name>, seq=<the newest entry archived>, schema=<its schema>.
+// tagged ep0ch-outline, outline=<name>, seq=<the newest entry archived>, schema=<its schema>, log=<its log id>, and,
+// while the folder still holds an older chain, chain=<its folder>:<its newest entry> for each and HELD_CHAINS (PIE-1806).
 import { dirname, join } from "node:path";
 import { OUTLINE_TAG, type BackupConfig } from "./config";
 
@@ -50,7 +51,15 @@ export const complaint = (r: Ran) => {
 export const OUTLINE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const safeName = (n: string) => OUTLINE_NAME.test(n) && !n.includes("..");
 
-export interface OutlineSnapshot { id: string; time: string; outline: string; /** The newest log entry it holds. */ seq: number | null; /** The outline's schema version when it was archived. */ schema?: number | null; host: string; /** The archive folder it took, as an absolute path on the machine that took it. */ path: string; /** The log it holds (ADR 0009). */ logId?: string }
+export interface OutlineSnapshot { id: string; time: string; outline: string; /** The newest log entry it holds. */ seq: number | null; /** The outline's schema version when it was archived. */ schema?: number | null; host: string; /** The archive folder it took, as an absolute path on the machine that took it. */ path: string; /** The log it holds (ADR 0009). */ logId?: string; /** The older chains it holds whole, each to its newest entry (PIE-1806): a restore of that log can read it here. */ chains?: Record<string, number> }
+
+/** A snapshot's tag for an older chain its folder holds: `chain=<its folder>:<its newest entry>`. */
+const CHAIN_TAG = /^chain=([0-9A-Za-z-]+(?:~\d+)?):(\d+)$/;
+/**
+ * The tag of a snapshot that holds older chains (PIE-1806): the job lets them go here once it lands, so retention keeps
+ * it (KEEP's `--keep-tag`) and a restore of those logs always has it.
+ */
+export const HELD_CHAINS = "ep0ch-held-chains";
 
 /** `restic snapshots --json`'s answer, as outline snapshots (others are left out). */
 export function parseSnapshots(json: string): OutlineSnapshot[] | { error: string } {
@@ -66,7 +75,8 @@ export function parseSnapshots(json: string): OutlineSnapshot[] | { error: strin
     const seq = tags.find(t => t.startsWith("seq="))?.slice(4);
     const schema = tags.find(t => t.startsWith("schema="))?.slice(7);
     const logId = tags.find(t => t.startsWith("log="))?.slice(4);
-    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, schema: schema && /^\d+$/.test(schema) ? Number(schema) : null, host: r.hostname ?? "", path: r.paths[0], ...(logId ? { logId } : {}) }];
+    const chains = Object.fromEntries(tags.flatMap(t => { const m = CHAIN_TAG.exec(t); return m ? [[m[1]!, Number(m[2])]] : []; }));
+    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, schema: schema && /^\d+$/.test(schema) ? Number(schema) : null, host: r.hostname ?? "", path: r.paths[0], ...(logId ? { logId } : {}), ...(Object.keys(chains).length ? { chains } : {}) }];
   });
 }
 
@@ -88,12 +98,14 @@ export function summaryId(out: string): string | null {
 
 /**
  * An outline's archive folder, uploaded as it is (only new segments upload; `host`: the machine it belongs to, when
- * another uploads it: a relay), tagged with its log's id so a restore replays that log.
+ * another uploads it: a relay), tagged with its log's id so a restore replays that log, and with each older chain it
+ * holds (`chains`, log-archive.ts `otherChains`) so a restore of one of those finds it here too.
  */
-export async function backupFolder(c: BackupConfig, repo: string, folder: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine, logId?: string): Promise<{ id: string; cleared?: string } | { error: string; code: number }> {
+export async function backupFolder(c: BackupConfig, repo: string, folder: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine, logId?: string, chains: readonly { chain: string; lsn: number }[] = []): Promise<{ id: string; cleared?: string } | { error: string; code: number }> {
   // An exclusive lock a hard-killed prune left (an OOM, a reboot) refuses uploads too: cleared like forget's.
   const r = await clearingStale(c, repo, ["backup", "--json", folder, "--host", host,
-    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : []), ...(logId ? ["--tag", `log=${logId}`] : [])], { timeoutMs: 600_000, wait: "2m" });
+    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : []), ...(logId ? ["--tag", `log=${logId}`] : []),
+    ...(chains.length ? ["--tag", HELD_CHAINS, ...chains.flatMap(h => ["--tag", `chain=${h.chain}:${h.lsn}`])] : [])], { timeoutMs: 600_000, wait: "2m" });
   if (r.code !== 0) return { error: r.code === LOCKED ? lockHolder(r) : complaint(r), code: r.code };
   return { id: summaryId(r.out) ?? "?", ...(r.cleared ? { cleared: r.cleared } : {}) };
 }
@@ -109,8 +121,11 @@ export async function restoreArchive(c: BackupConfig, repo: string, s: Pick<Outl
   return { root: join(target, dirname(s.path)) };
 }
 
-/** The retention PIE-607 set: every snapshot of two days, then hourly for three, daily for a month, weekly for 12. */
-export const KEEP = ["--keep-within", "48h", "--keep-hourly", "72", "--keep-daily", "30", "--keep-weekly", "12"];
+/**
+ * The retention PIE-607 set: every snapshot of two days, then hourly for three, daily for a month, weekly for 12; and
+ * every snapshot that holds a chain this machine let go (HELD_CHAINS, PIE-1806), the one place that chain is now.
+ */
+export const KEEP = ["--keep-within", "48h", "--keep-hourly", "72", "--keep-daily", "30", "--keep-weekly", "12", "--keep-tag", HELD_CHAINS];
 
 /**
  * Who holds the lock restic couldn't take, as it says it ("repository is already locked by PID 41 on garden by evan …,
