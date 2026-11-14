@@ -30,7 +30,7 @@ import { fencePicture, fencePictureOf, pictureLinks, pictureLinkTarget, pictureR
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
-import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutStylingTokens, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, underlinesLineAbove, withoutStylingTokens, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { BORDER_BOXES, borderGlyphs, stringFrame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
@@ -1038,7 +1038,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // A heading or a rule with a style (PIE-599): its band or track, else as written without the style's property.
     // A `---` under a paragraph line is that line's setext underline, never a rule; `***` and `___` always are rules.
     const prev = i ? src[i - 1]! : "";
-    const setext = /^ {0,3}-/.test(line) && !!prev.trim() && !HEADING.test(prev);
+    const setext = underlinesLineAbove(line, prev);
     const declared = lit(i) ? null : styleDeclaration(line, W);
     if (declared) { out.push(...declared); continue; }
     const styled = headingRows(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);

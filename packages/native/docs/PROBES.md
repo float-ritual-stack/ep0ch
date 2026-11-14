@@ -25,7 +25,8 @@ Three more things turned up, two of them bugs in the spike. They are reported an
 carried a block editor ([12](#12-the-block-editor-w5)). W7 answered the one about several windows the same way
 ([13](#13-several-windows-w7)). W6 added what a selection in drawn text gives a window, and what a list inside a
 list's row does ([14](#14-selections-and-what-else-w6-met)). W8 added what herdr-core gives a terminal tile, read
-and spoken to a stand-in but never run ([15](#15-herdr-core-w8)).
+and spoken to a stand-in but never run ([15](#15-herdr-core-w8)). H3 added what a Mac's title bar takes of the toolbar, read from Rune and run on
+a headless runtime, not on a Mac ([17](#17-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)).
 
 ## How to run
 
@@ -741,6 +742,24 @@ Not reproduced here: the notice's text and the tree's labels cut at the window's
 Mac (the tree showing the ends of its rows). Drawn headless on Linux at 760 and 620 points wide, the toolbar is cut on
 the right and nothing on the left; a list's row already keeps its start and cuts its end (`truncate`). Both are the
 shell's root, which this wave did not touch.
+
+## 17. A Mac's title bar, and what else the first run by hand met (H3)
+
+**Read from Rune's source and run on a headless runtime here; not run on a Mac.**
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Why was the outline's name under the traffic lights? | **Rune's default frame on macOS fills the window with the content under a clear title bar** (`Chrome::DEFAULT.full_size_content`). Nothing in the window asked how far the buttons reach. | Rune `tooling.rs` (`Chrome`), `window/mac.rs` (`titlebar_inset`) |
+| How does an app learn the inset? | **`Cx::titlebar_inset()`**: points from the window's leading edge to the zoom button's trailing edge, 0 in full screen, in a titled window and on other platforms; the view runs again when it changes. | Rune `runtime/cx.rs`; `the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it` |
+| Can that be run without a Mac? | **By telling the runtime:** `Runtime::set_titlebar_inset` is what the macOS window calls. 67 points is what a Mac's default buttons report (7, three on a 23 point pitch, the last 14 wide: `Chrome::titlebar_inset`). | the same test |
+| What does a headless render report? | **The frame's own answer on every platform**, so with Rune's default every snapshot would have shown a Mac's inset with no buttons drawn. The frame says `full_size_content` only on macOS (`shell::frame`), and a render here reports none. | `shell::frame`; the test's last line |
+
+- **Not run on a Mac:** the name's place beside real traffic lights, full screen and back, a window torn out, and
+  whether AppKit's title bar band takes a press meant for a toolbar button (Rune has `Chrome::drag_regions` and
+  `El::window_drag` for an app that draws its own bar; not used).
+- **The other thing a first run met that the probes had not:** a headless frame is one moment. What time does (a
+  status line that should go, a notice that should not) is asked of the state with a clock handed in
+  (`App::fade(now)`), never waited for.
 
 ## The contract tables
 

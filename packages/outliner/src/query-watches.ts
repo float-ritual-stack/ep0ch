@@ -25,6 +25,9 @@
 //   once a second did). One pass runs at a time; what changes meanwhile is evaluated by the next. A question watched
 //   on several connections (two doors on one page) is answered once a pass. Its changes are told at the pass's end, or
 //   every TELL_EVERY_MS while a long one goes on.
+// - An answer that is awaited (`askLater`: a note's page, a list, a rendered tile) holds no pass: the pass starts it and
+//   goes on, and its watches are told when it lands. One is on its way a question at a time; a pass that wants it again
+//   meanwhile has it asked once more when it lands, so the answer kept is never older than one already told.
 //
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (their `watch` row in actions.ts).
@@ -57,7 +60,7 @@ interface Watch {
   minute?: true;
   /** The question leaves machinery out: a stamped note's change reaches it only through these notes. */
   blind?: ReadonlySet<string>;
-  /** Its answer takes a turn (`askLater`): a pass awaits it instead of asking `answer`. */
+  /** Its answer takes a turn (`askLater`): a pass starts it (`landing`) instead of asking `answer`, and waits for none. */
   later?: (request: Request) => Promise<OutlinerResponse>;
 }
 
@@ -175,6 +178,10 @@ export class QueryWatches {
   get size(): number { return this.all.size; }
   /** The newest ask under each slot whose answer is still on its way (`askLater`). */
   private readonly asking = new Map<string, number>();
+  /** The awaited answers a pass started, one a question: the watches each is for, and the ones a later pass wants asked again. */
+  private readonly landing = new Map<string, { readonly pass: number; readonly watches: Set<Watch>; readonly again: Set<Watch> }>();
+  /** Names a pass, so the watches of one pass share an awaited answer and a later pass's ask for it again. */
+  private pass = 0;
 
   private id(connection: WatchConnection): number {
     let id = this.connections.get(connection);
@@ -320,15 +327,12 @@ export class QueryWatches {
   /** Evaluate the selected watches: at once, or (with `turn`) a watch a turn, after any pass still going. */
   private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, plain: boolean): void {
     if (!this.options.turn) {
-      const started = performance.now();
+      const started = performance.now(), pass = ++this.pass;
       const changes = new Map<WatchConnection, QueryChange[]>();
-      for (const [slot, watch] of this.all) {
+      for (const watch of this.all.values()) {
         if (watch.later) {
-          // Its answer is awaited; told by itself when it comes, if the watch is still the one that asked.
-          if (this.wanted(watch, select, touched, all, plain)) void watch.later({ ...watch.request, id: "watch" } as Request).then(response => {
-            const change = this.all.get(slot) === watch && this.update(watch, response);
-            if (change) this.send(watch.connection, [change]);
-          }, () => {});
+          // Its answer is awaited: told by itself when it lands.
+          if (this.wanted(watch, select, touched, all, plain)) this.land(watch, pass);
           continue;
         }
         const change = this.wanted(watch, select, touched, all, plain) && this.update(watch, this.options.answer({ ...watch.request, id: "watch" } as Request));
@@ -369,19 +373,27 @@ export class QueryWatches {
       toldAt = performance.now();
     };
     const current = (slot: string, watch: Watch) => this.all.get(slot) === watch && !watch.connection.destroyed;
+    const pass = ++this.pass;
     for (const [slot, watch] of [...this.all]) {
       if (!current(slot, watch) || !this.wanted(watch, select, touched, all, plain)) continue;
+      // An awaited answer is started, never waited for: everybody else's news goes out meanwhile.
+      if (watch.later) {
+        if (!this.landing.has(watch.signature)) {
+          await this.options.turn!(String(watch.request.action));
+          if (!current(slot, watch)) continue;
+        }
+        this.land(watch, pass);
+        continue;
+      }
       let response = answered.get(watch.signature);
       if (!response) {
         await this.options.turn!(String(watch.request.action));
         // Replaced, dropped or closed while it waited.
         if (!current(slot, watch)) continue;
         const started = performance.now();
-        try { response = watch.later ? await watch.later({ ...watch.request, id: "watch" } as Request) : this.options.answer({ ...watch.request, id: "watch" } as Request); }
+        try { response = this.options.answer({ ...watch.request, id: "watch" } as Request); }
         catch (error) { response = refusalEnvelope("watch", error, this.options.sequence()); }
         this.options.timed?.(performance.now() - started, 1);
-        // Replaced, dropped or closed while its answer was awaited.
-        if (!current(slot, watch)) continue;
         answered.set(watch.signature, response);
       }
       const change = this.update(watch, response);
@@ -389,6 +401,36 @@ export class QueryWatches {
       if (told.size && performance.now() - toldAt > TELL_EVERY_MS) tell();
     }
     tell();
+  }
+
+  /**
+   * Start an awaited watch's answer, or join the one on its way for the same question: a question two windows watch is
+   * asked once a pass. Each watch it was started for is told when it lands, if it is still the watch that asked. A watch
+   * a later pass wants while one is on its way is asked again once that one has landed, so no watch is given an answer
+   * older than the one it holds, and steady writes ask one copy at a time.
+   */
+  private land(watch: Watch, pass: number): void {
+    const flying = this.landing.get(watch.signature);
+    if (flying) { (flying.pass === pass ? flying.watches : flying.again).add(watch); return; }
+    const flight = { pass, watches: new Set([watch]), again: new Set<Watch>() };
+    this.landing.set(watch.signature, flight);
+    const started = performance.now();
+    let asked: Promise<OutlinerResponse>;
+    try { asked = watch.later!({ ...watch.request, id: "watch" } as Request); } catch (error) { asked = Promise.reject(error); }
+    void asked.catch(error => refusalEnvelope("watch", error, this.options.sequence())).then(response => {
+      this.landing.delete(watch.signature);
+      this.options.timed?.(performance.now() - started, 1);
+      const kept = new Set(this.all.values());
+      const here = (held: Watch) => kept.has(held) && !held.connection.destroyed;
+      const changes = new Map<WatchConnection, QueryChange[]>();
+      for (const held of flight.watches) {
+        const change = here(held) && this.update(held, response);
+        if (change) changes.set(held.connection, [...(changes.get(held.connection) ?? []), change]);
+      }
+      for (const [connection, list] of changes) this.send(connection, list);
+      const next = ++this.pass;
+      for (const held of flight.again) if (here(held)) this.land(held, next);
+    });
   }
 
   private wanted(watch: Watch, select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, plain: boolean): boolean {

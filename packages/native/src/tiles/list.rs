@@ -33,6 +33,8 @@ static DOT: Icon = Icon { name: "ep0ch-dot", view: 16.0, body: r#"<circle cx="8"
 const LINE: f32 = 28.0;
 const TWO: f32 = 44.0;
 const HEAD: f32 = 26.0;
+/// The room between a list tile's strip (its title, chips and column header) and the line its rows scroll under.
+const HEAD_ROOM: f32 = 4.0;
 /// The most facet values a list's header offers as chips; the rest are the facets list's own.
 const FACETS: usize = 12;
 
@@ -350,7 +352,9 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
     let at = Place::tile(cx);
     let view = Rc::new(answer.list.clone());
     let mut body = col().w_full().h_full().min_h(0.0);
-    if let Some(head) = header(cx, &at, answer, k) { body = body.child(head) }
+    // The strip stays where it is while the rows scroll: a line and a little room under it say where they go, so a
+    // row passing a table's column header is seen to leave and never read as words under the header's own.
+    if let Some(head) = header(cx, &at, answer, k) { body = body.child(head.pb(HEAD_ROOM)).child(el().key(cx.key("head/edge")).w_full().h(1.0).fill(k.c.border_muted)) }
     if view.rows.is_empty() {
         return body.child(said(cx, view.empty.as_deref().unwrap_or("Nothing is listed."), k));
     }

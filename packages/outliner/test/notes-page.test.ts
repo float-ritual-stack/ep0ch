@@ -284,3 +284,46 @@ test("pictures: a media line where it stands, an svg fence as its own text, and 
   // An artifact line isn't a picture: it stays in the prose as written.
   expect(p.parts[4]).toMatchObject({ kind: "prose", view: { type: "markdown", text: expect.stringContaining("[artifact::rota.html]") } });
 });
+
+// A property that styles the line it is on is no content (outline-core's heading-styles.ts, the one rule every reader
+// has): a heading's own style, a line that declares one, a rule's, a `style.*`. A page that draws no style still
+// leaves them out. (The style a heading or a rule names is not served yet: a client draws a plain heading.)
+test("a heading is served without the properties that style it; what says something stays", async () => {
+  const { create, page } = await setup();
+  const note = await create([
+    "Plot plan",
+    "## Beds [heading-style::plot] [heading-pattern::dots]",
+    "## Sowing [heading::plot] [heading-tone::amber]",
+    "The peas go in first. [due::friday]",
+    "### Paths [who::sam]",
+    "- Sweep them [style.list.zebra::on]",
+    "",
+    "--- [rule::fade]",
+    "",
+    "Dashes under a line of prose are no rule:",
+    "--- [rule::band]",
+    "```",
+    "## Kept as written [heading::plot]",
+    "```",
+  ].join("\n"));
+  const prose = (await page(note.id)).parts.filter(p => p.kind === "prose").map(p => view(p, "markdown").text).join("\n");
+  expect(prose).toContain("## Beds");
+  expect(prose).toContain("## Sowing");
+  expect(prose).not.toContain("heading-style");
+  expect(prose).not.toContain("heading-pattern");
+  expect(prose).not.toContain("[heading::plot] [heading-tone");
+  // (Line for line: each styled heading is its mark and its words, with nothing after them.)
+  const lines = prose.split("\n").map(line => line.trimEnd());
+  expect(lines).toContain("## Beds");
+  expect(lines).toContain("## Sowing");
+  expect(lines).toContain("- Sweep them");
+  expect(lines.filter(line => line.includes("heading-tone") || line.includes("heading::"))).toEqual(["## Kept as written [heading::plot]"]);
+  expect(prose).not.toContain("style.list.zebra");
+  expect(prose).not.toContain("[rule::fade]");
+  expect(prose).toMatch(/^---\s*$/m);
+  expect(prose).toContain("--- [rule::band]");
+  // A property that says something is the note's words still, and code is as written.
+  expect(prose).toContain("[due::friday]");
+  expect(prose).toContain("### Paths [who::sam]");
+  expect(prose).toContain("## Kept as written [heading::plot]");
+});
