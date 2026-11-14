@@ -578,6 +578,14 @@ export const PLACE_CASES: PlaceCase[] = [
   { name: "a reader behind another tab: an agent's open never hides the tab the person has", scene: shed(), by: AGENT, request: { from: "beds", note: "south-bed", to: "tools" } },
   { name: "a reader in a shut dock takes the open, and its dock slides out", scene: { layout: { focus: "beds", root: row([T("tree", "beds"), T("activity", "log"), dock(T("reader", "bed"), "right", false, { id: "d2" })], [0.3, 0.4, 0.3], { id: "s1" }) }, tiles: { beds: { lists: true } } }, request: { from: "beds", note: "south-bed" } },
   { name: "a follower takes a wired open without the keys", scene: { layout: { focus: "beds", root: row([T("tree", "beds", { wires: [{ verb: "open", to: "card" }] }), T("preview", "card", { source: "tile:beds" })], undefined, { id: "s1" }) }, tiles: { beds: { lists: true } } }, request: { from: "beds", note: "south-bed" } },
+  // who gets the keys: a list that hands its keys on (the outline tree), an open handed in (the bar, `ep0ch open`)
+  { name: "a list that hands its keys on: an open nothing routes gives the reader the keys", scene: garden({ tiles: { beds: { lists: true, handsKeys: true } } }), person: { focus: "beds" }, request: { from: "beds", note: "south-bed" } },
+  { name: "a list that hands its keys on keeps them when its open is routed by a wire", scene: garden({ beds: { wires: [{ verb: "open", to: "bed" }] }, tiles: { beds: { lists: true, handsKeys: true } } }), person: { focus: "beds" }, request: { from: "beds", note: "south-bed" } },
+  { name: "a list that hands its keys on keeps them for an open fresh", scene: garden({ tiles: { beds: { lists: true, handsKeys: true } } }), person: { focus: "beds" }, request: { from: "beds", note: "south-bed", fresh: true } },
+  { name: "a list that hands its keys on, while the person types elsewhere: the keys stay", scene: garden({ tiles: { beds: { lists: true, handsKeys: true } } }), person: { focus: "beds", busy: true }, request: { from: "beds", note: "south-bed" } },
+  { name: "a list that hands no keys on keeps them: its open lands in the reader", scene: garden(), person: { focus: "seeds" }, request: { from: "seeds", note: "south-bed" } },
+  { name: "an open handed in from a list (the bar's pick) gives its reader the keys", scene: garden(), person: { focus: "seeds" }, request: { from: "seeds", note: "south-bed", handsKeys: true } },
+  { name: "an agent's open from a list that hands its keys on takes none", scene: garden({ tiles: { beds: { lists: true, handsKeys: true } } }), person: { focus: "beds" }, by: AGENT, request: { from: "beds", note: "south-bed" } },
 ];
 
 // ── act lines ──
