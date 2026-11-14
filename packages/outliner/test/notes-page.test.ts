@@ -312,6 +312,12 @@ test("a heading is served without the properties that style it; what says someth
   expect(prose).not.toContain("heading-style");
   expect(prose).not.toContain("heading-pattern");
   expect(prose).not.toContain("[heading::plot] [heading-tone");
+  // (Line for line: each styled heading is its mark and its words, with nothing after them.)
+  const lines = prose.split("\n").map(line => line.trimEnd());
+  expect(lines).toContain("## Beds");
+  expect(lines).toContain("## Sowing");
+  expect(lines).toContain("- Sweep them");
+  expect(lines.filter(line => line.includes("heading-tone") || line.includes("heading::"))).toEqual(["## Kept as written [heading::plot]"]);
   expect(prose).not.toContain("style.list.zebra");
   expect(prose).not.toContain("[rule::fade]");
   expect(prose).toMatch(/^---\s*$/m);
