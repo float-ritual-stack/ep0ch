@@ -3,7 +3,7 @@
 // machine's behalf. Scratch outlines (fictional notes), local restic repositories, and the outliner's fake ssh (the hub is
 // a scratch HOME) in a temp folder only: no bucket, no real backup, no ~/outlines. Skipped where restic isn't installed.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
@@ -187,6 +187,20 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(readdirSync(join(archiveRoot(hub, "laptop"), "potting"))).toEqual([now]);
     expect(said.filter(l => l.includes("older log chains"))).toEqual([expect.stringMatching(new RegExp(`^· hub-box let go of potting's older log chains there \\(${old.slice(0, 8)} [\\d.]+ [kM]?B\\)`))]);
     expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting")).sort()).toEqual([old, now].sort());
+    // A sender whose code doesn't keep held snapshots yet (a staggered deploy: its own forget would drop them) gets
+    // its relay uploaded, and the hub keeps its older chains, saying why there and in its status (Codex on #1522).
+    const hubRoot = archiveRoot(hub, "laptop");
+    cpSync(join(hubRoot, "potting", now), join(hubRoot, "potting", `${now}~1`), { recursive: true });
+    const part = join(dir, "older-sender.jsonl");
+    writeFileSync(part, archivedRanges(archiveRoot(laptop, "laptop"), "potting", now).map(r => JSON.stringify(r)).join("\n") + "\n");
+    const waits = await receive(hub, { machine: "laptop", outline: "potting", part, lockWaitMs: 5_000 });
+    expect(waits).toMatchObject({ ok: true, snapshot: expect.any(String), chainsWait: expect.stringContaining("laptop's ep0ch doesn't keep") });
+    expect(readdirSync(join(hubRoot, "potting")).sort()).toEqual([now, `${now}~1`].sort());
+    expect(statusLines(hub).join("\n")).toContain("kept laptop's older chains of potting here");
+    // The same relay from code that keeps them: the chain goes, and so does the note.
+    expect(await receive(hub, { machine: "laptop", outline: "potting", part, lockWaitMs: 5_000, keepsHeld: true })).toMatchObject({ ok: true, trimmed: [{ chain: `${now}~1` }] });
+    expect(readdirSync(join(hubRoot, "potting"))).toEqual([now]);
+    expect(statusLines(hub).join("\n")).not.toContain("kept laptop's older chains");
     // Off the VPN, the next change goes straight to the repository, whose snapshot takes the whole folder: the laptop's goes too.
     await write(laptop.host, "potting", ["Label the seedlings"]);
     const direct = await snapshot(laptop, s, { say, probe: REACHABLE });

@@ -117,7 +117,7 @@ function columns(rows: string[][], visible: (s: string) => number): string[] {
 /** The status page: verdict, the command, this machine's outlines, then history. `age` is alert.ts's. */
 export function renderStatus(o: {
   s: BackupState; a: Alert | null; now: number; machine: string; repo: string; hub?: string | null; machineNote: string;
-  age: (ms: number) => string; tint: Tint; visible: (s: string) => number; verbose?: boolean; netmail: string[];
+  age: (ms: number) => string; tint: Tint; visible: (s: string) => number; verbose?: boolean; netmail: string[]; /** Other lines of how things stand here (a relayed outline's chains kept, PIE-1806). */ notes?: string[];
 }): string[] {
   const { s, now, tint } = o;
   const v = verdict(s, o.a, now, { machine: o.machine, repo: o.repo, hub: o.hub });
@@ -153,7 +153,7 @@ export function renderStatus(o: {
     const n = (s.drill.detail.match(/ ok \(/g) ?? []).length, total = n + (s.drill.detail.match(/ FAILED:/g) ?? []).length;
     hist.push(total ? `restore drill ${moment(s.drill.at)}: ${n} of ${total} restored ok${n === total ? "" : " (ep0ch backup drill)"}` : `restore drill ${moment(s.drill.at)}: ${s.drill.ok ? "ok" : "failed"}`);
   }
-  hist.push(...o.netmail);
+  hist.push(...o.netmail, ...(o.notes ?? []));
   if (hist.length) { out.push("", tint("dim", "history")); out.push(...hist.map(h => `  ${h}`)); }
   if (o.verbose) {
     out.push("", tint("dim", "raw"));

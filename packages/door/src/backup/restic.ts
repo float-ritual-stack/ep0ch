@@ -61,6 +61,17 @@ const CHAIN_TAG = /^chain=([0-9A-Za-z-]+(?:~\d+)?):(\d+)$/;
  */
 export const HELD_CHAINS = "ep0ch-held-chains";
 
+/**
+ * Which folder of a snapshot holds entry `n` of the log `logId` (PIE-1806): its own log's, or an older chain it names,
+ * that log's whole or a part set aside at a gap (`<logId>~<lsn>`); of those reaching `n`, the one that ends first. Null
+ * when it holds none that reaches it.
+ */
+export function folderFor(s: Pick<OutlineSnapshot, "logId" | "seq" | "chains">, logId: string, n: number): string | null {
+  const ends: [string, number][] = [...(s.logId === logId && s.seq !== null ? [[logId, s.seq] as [string, number]] : []),
+    ...Object.entries(s.chains ?? {}).filter(([k]) => k === logId || k.startsWith(`${logId}~`))];
+  return ends.filter(([, last]) => last >= n).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
+}
+
 /** `restic snapshots --json`'s answer, as outline snapshots (others are left out). */
 export function parseSnapshots(json: string): OutlineSnapshot[] | { error: string } {
   let rows: { id?: string; time?: string; paths?: string[]; tags?: string[]; hostname?: string }[];

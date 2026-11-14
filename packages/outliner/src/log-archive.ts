@@ -107,6 +107,10 @@ export interface Replayed { logId: string; lsn: number; at: string | null; rows:
  * one written to last), replayed from
  * its newest genesis at this build's schema up to `until` (an entry's time; default all of it) into `out`, a new file.
  * The result is an outline of its own: a new log id, recorded as forked from the old at the last entry it holds.
+ * `logId` names the folder: a log's own, or a part of it set aside at a gap (`<logId>~<lsn>`), which replays as that log.
+ * `through` is an exact entry: when it ends one of the archive's segments (a point an archive was taken at, so the
+ * outline once stood there), the replay stops there even inside a transaction that ran on past it; `until` keeps whole
+ * transactions.
  */
 export function replayArchive(root: string, outline: string, out: string, o: { until?: number; logId?: string; through?: number } = {}): Replayed {
   if (existsSync(out)) throw new Error(`${out} already exists; not overwritten`);
@@ -114,7 +118,10 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   const logs = logsOf(root, outline);
   const log = o.logId ? logs.find(l => l.logId === o.logId) : logs[0];
   if (!log) throw new Error(`the archive at ${join(root, outline)} holds no log ${o.logId ? `${o.logId} ` : ""}of ${outline}`);
-  const ranges = segments(log.dir).flatMap(s => readSegment(s.file));
+  const segs = segments(log.dir);
+  const ranges = segs.flatMap(s => readSegment(s.file));
+  // The log the folder holds: a chain set aside at a gap is still that log (its folder only says where it stopped).
+  const identity = log.logId.replace(/~\d+$/, "");
   const all: LogEntry[] = ranges.flatMap(r => r.entries);
   const until = o.until ?? Number.POSITIVE_INFINITY;
   // `through`: no entry past that lsn (an exact rollback point, Codex on #1502), as `until` is no entry past a time.
@@ -124,24 +131,27 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   if (!start) throw new Error(`the archive of ${outline} holds no genesis at schema ${SCHEMA_VERSION}${o.until !== undefined ? ` before ${new Date(until).toISOString()}` : ""}; restore it with the build that wrote it`);
   const entries = upTo.slice(start.i);
   checkChain(ranges, entries);
-  // Whole transactions only: a cut inside one leaves it out.
-  const lastTxn = entries.at(-1)!.txn, cut = all.some(e => e.txn === lastTxn && (Date.parse(e.at) > until || e.lsn > through));
+  // Whole transactions only: a cut inside one leaves it out. Except an exact entry the archive was taken at: the log's
+  // transaction ids can run on across the host's writes (a write that ends none), and the outline stood at that entry.
+  const lastTxn = entries.at(-1)!.txn;
+  const taken = o.through !== undefined && entries.at(-1)!.lsn === o.through && segs.some(s => s.last === o.through);
+  const cut = all.some(e => e.txn === lastTxn && (Date.parse(e.at) > until || (e.lsn > through && !taken)));
   const kept = cut ? entries.filter(e => e.txn !== lastTxn) : entries;
   const temp = `${out}.${process.pid}.part`;
   rmSync(temp, { force: true });
   const db = new Database(temp, { create: true });
   try {
     db.exec("PRAGMA journal_mode = DELETE;");
-    openFollowerSchema(db, log.logId);
+    openFollowerSchema(db, identity);
     const lsn = applyEntries(db, kept, SCHEMA_VERSION);
     const last = kept.at(-1)!;
     // An outline of its own now: its own log, written from here on, forked from the one it came from.
-    db.query("UPDATE log_state SET role = 'home', log_id = ?, forked_from = ? WHERE id = 1").run(randomUUID(), JSON.stringify({ logId: log.logId, lsn }));
+    db.query("UPDATE log_state SET role = 'home', log_id = ?, forked_from = ? WHERE id = 1").run(randomUUID(), JSON.stringify({ logId: identity, lsn }));
     db.transaction(() => endLogTransaction(db)).immediate();
     const rows = rowCounts(db);
     db.close();
     renameSync(temp, out);
-    return { logId: log.logId, lsn, at: last.at, rows };
+    return { logId: identity, lsn, at: last.at, rows };
   } catch (e) {
     db.close();
     rmSync(temp, { force: true });

@@ -6,15 +6,15 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
-import { archivedCursor } from "@ep0ch/outliner/log-archive";
+import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { canonicalDump } from "@ep0ch/outliner/change-log";
-import { forget, HELD_CHAINS, KEEP, parseSnapshots, resticArgv, snapshots, summaryId } from "../src/backup/restic";
+import { forget, HELD_CHAINS, KEEP, parseSnapshots, resticArgv, runRestic, snapshots, summaryId } from "../src/backup/restic";
 import { verdict } from "../src/backup/verdict";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -83,7 +83,7 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
  * were most of its time, more or less of it with the load each repository happened to be made under (PIE-1804; the
  * fixture's README says how it was made). The first test's other repository is left to its first run, which makes it.
  */
-const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault", "bothy"];
+const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault", "bothy", "croft"];
 const EMPTY_REPO = join(import.meta.dir, "fixtures", "restic-repo");
 beforeAll(async () => {
   if (!RESTIC) return;
@@ -661,6 +661,48 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     // And the served drill still passes on the current chain.
     expect(await backupCommand(["backup", "drill", "--serve"], io, c.env)).toBe(0);
     expect(out.join("\n")).toMatch(/seeds ok \(\d+ blocks.*served by a scratch host/);
+  }, 120_000);
+
+  test("every rollback point of an old log restores from the snapshot that let it go: a chain set aside at a gap, an entry inside a transaction that ran on (Codex on #1522)", async () => {
+    const c = await served(machine("croft"));
+    await write(c, "beds", ["Dig the beds", "Rake the beds"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.beds!;
+    const point = { logId: was.logId!, seq: was.seq! };
+    // Archived past that point by a run whose upload failed.
+    const broken = machine("croft", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "beds", ["Edge the beds"]);
+    expect((await job(broken)).ok).toBe(false);
+    const root0 = archiveRoot(c, c.machine), staged = join(root0, "beds");
+    const entries = archivedRanges(root0, "beds", point.logId).flatMap(r => r.entries);
+    const tail = entries.at(-1)!.lsn;
+    // The point's transaction ran on into the next write (the log's txn ids, as the host writes them): a replay that
+    // keeps whole transactions alone would stop short of it.
+    const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
+    expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
+    // Set aside at a gap (`<log>~<entry>`, as the job names a chain the host compacted past), then a new log begun.
+    renameSync(join(staged, point.logId), join(staged, `${point.logId}~${tail}`));
+    await hostRequest(c.host, "outlines.delete", { name: "beds" });
+    await write(c, "beds", ["Sow the leeks"]);
+    expect((await job(c)).ok).toBe(true);
+    expect(readdirSync(staged)).toEqual([readBackupState(c.state).outlines.beds!.logId!]);
+    // Retention let the old log's own snapshots go: the one that let the chain go is all there is of it.
+    const repo = c.repoOf(c.machine);
+    const list = await snapshots(c, repo, { all: true, outline: "beds" });
+    if ("error" in list) throw new Error(list.error);
+    for (const x of list.filter(x => x.logId === point.logId)) expect((await runRestic(c, repo, ["forget", x.id])).code).toBe(0);
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const restore = (entry: number, file: string) => backupCommand(["backup", "restore", "beds", "--log", point.logId, "--entry", String(entry), "--to", join(root, "croft-restored", file)], io, c.env);
+    expect([await restore(tail, "tail.sqlite"), err]).toEqual([0, []]);
+    expect(holds(join(root, "croft-restored", "tail.sqlite"), "Edge the beds")).toBe(true);
+    expect([await restore(point.seq, "point.sqlite"), err]).toEqual([0, []]);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Rake the beds")).toBe(true);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Edge the beds")).toBe(false);
+    // The restored outline is forked from the old log under its own id, not the folder's set-aside name.
+    const db = new Database(join(root, "croft-restored", "point.sqlite"), { readonly: true });
+    try { expect(JSON.parse((db.query("SELECT forked_from FROM log_state").get() as { forked_from: string }).forked_from).logId).toBe(point.logId); } finally { db.close(); }
   }, 120_000);
 
   test("a prune that finishes is once a day; two failed in a row is an incident", async () => {

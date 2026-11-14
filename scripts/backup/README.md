@@ -57,7 +57,8 @@ answer means nothing is archived that run, said with the command that starts it.
    holds one, the outline is uploaded whatever its log did, the snapshot tagged `ep0ch-held-chains` and
    `chain=<folder>:<newest entry>` for each, and once that upload lands each chain it names leaves here. Retention
    keeps that snapshot for good, and `ep0ch backup restore <outline> --log <old id> --entry <n> --to <new file>` finds
-   the chain in it. A relay doesn't let one go: it sends only the current chain. The run says each chain and its size,
+   the chain in it (a part set aside at a gap too, which restores as that log). An exact entry the archive was taken at
+   (a segment's last: install's rollback points) replays to that entry even when the log's transaction ran on past it. A relay doesn't let one go: it sends only the current chain. The run says each chain and its size,
    and so does `lastRun` in its state.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the
@@ -66,7 +67,9 @@ answer means nothing is archived that run, said with the command that starts it.
    hub's own archive of that outline (a log that differs is refused), adds what it lacks to
    `~/.local/state/ep0ch-door/backup/log/<machine>/<outline>/` and uploads it to `<machine>`'s repository with that
    machine's host name, using the hub's own keys; that snapshot names the hub's other chains of the outline the same
-   way, and once it lands they leave its archive (PIE-1806). A relayed outline counts as backed up. `ep0ch backup status` and
+   way, and once it lands they leave its archive (PIE-1806). Both machines forget that repository, so the hub does this
+   only for a sender that says its own retention keeps those snapshots (`EP0CH_BACKUP_KEEPS_HELD=1` on the ssh
+   command, which a hub not updated yet ignores); for an older one it keeps them, and its `ep0ch backup status` says so. A relayed outline counts as backed up. `ep0ch backup status` and
    doctor say `relayed via <hub>` with the repository's failure; the door's status bar shows a quiet `→ backup`.
 5. **Drill**, monthly: every outline's newest archive restored into a temp folder, replayed into a new file and
    checked (`integrity_check`, its blocks counted, the replay ending at the entry the archive was taken at).

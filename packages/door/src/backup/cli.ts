@@ -10,7 +10,7 @@ import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./confi
 import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock, waitForLock } from "./jobs";
 import { replayArchive, type Replayed } from "@ep0ch/outliner/log-archive";
 import { hostUnitCommands } from "@ep0ch/outliner/schema";
-import { restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
+import { folderFor, restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
 import { programStatusEmitter } from "@ep0ch/outliner/program-status-emit";
@@ -48,7 +48,8 @@ export function statusLines(c: BackupConfig, now = Date.now(), o: { verbose?: bo
   if (s.netmail?.pull) { const p = s.netmail.pull; netmail.push(`netmail from ${p.hub}: pulled ${moment(p.at)}, ${p.ok ? "ok" : `failed: ${plainReason(p.detail, { hub: p.hub })}`}`); }
   else if (c.hub) netmail.push(`netmail from ${c.hub}: not pulled yet (ep0ch mcp pull)`);
   const note = c.machineFrom === "hostname" ? `from the host name; set EP0CH_BACKUP_MACHINE in ${c.file} to change it` : c.machineFrom === "file" ? c.file : "EP0CH_BACKUP_MACHINE";
-  return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail });
+  const notes = Object.values(s.chainsWait ?? {}).map(w => `· ${w.why} (since ${moment(w.since)})`);
+  return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail, notes });
 }
 
 async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
@@ -226,11 +227,12 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       try {
         for (const candidate of [...list].reverse()) {
           // An exact entry: only a snapshot that reaches it in that log, its own or an older chain it holds (PIE-1806).
-          if (entry !== undefined && (candidate.logId === logId ? candidate.seq ?? 0 : candidate.chains?.[logId!] ?? 0) < entry) continue;
+          const folder = entry !== undefined ? folderFor(candidate, logId!, entry) : candidate.logId;
+          if (entry !== undefined && !folder) continue;
           const tmp = join(stage, `${candidate.id}.sqlite`);
           const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
           if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; skipped.push(why); continue; }
-          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(entry !== undefined ? { through: entry } : {}), ...(logId ?? candidate.logId ? { logId: logId ?? candidate.logId } : {}) }); snap = candidate; }
+          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(entry !== undefined ? { through: entry } : {}), ...(folder ? { logId: folder } : {}) }); snap = candidate; }
           catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; skipped.push(why); continue; }
           // Short of it (a transaction the entry is in ran on past it in this snapshot): an older one may end there exactly.
           if (entry !== undefined && replayed.lsn !== entry) { why = `the replay of ${candidate.id.slice(0, 8)} ends at entry ${replayed.lsn}, not ${entry}`; replayed = null; continue; }
