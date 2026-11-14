@@ -395,6 +395,7 @@ fn completion(text: &str, cursor: usize, lit: usize) -> Value {
     let units: Vec<u16> = text.encode_utf16().collect();
     let before = String::from_utf16_lossy(&units[..cursor.min(units.len())]);
     let line = before.rsplit('\n').next().unwrap_or("");
+    if let Some(query) = line.strip_prefix("::") { return components_begun(query, cursor - line.encode_utf16().count(), cursor, lit) }
     let Some(open) = line.rfind("[[").filter(|open| !line[*open..].contains("]]")) else { return json!({ "answers": [], "picks": {}, "token": null, "rows": [] }) };
     let query = &line[open + 2..];
     let start = cursor - line[open..].encode_utf16().count();
@@ -413,6 +414,22 @@ fn completion(text: &str, cursor: usize, lit: usize) -> Value {
     }).collect();
     let message = if rows.is_empty() { json!("no page by that name yet") } else { Value::Null };
     json!({ "answers": [], "picks": {}, "token": { "kind": "page", "start": start, "end": end, "query": query }, "rows": rows, "heading": "pages", "message": message, "pickKey": "[[" })
+}
+
+/// `completion.rows` for a `::` at a line's start, a component begun: the stand-in's two, each with what it says of
+/// itself, and the one lit with its example as written and as drawn. The first's example lists notes, as a
+/// component that lists notes does on a real host: a list drawn beside the completion list.
+fn components_begun(query: &str, start: usize, end: usize, lit: usize) -> Value {
+    let all = [("links", "Links", "The notes a question finds, as a list."), ("graph-stat", "Stat tiles", "A row of numbers, each over its label.")];
+    let rows: Vec<Value> = all.iter().filter(|(name, _, _)| name.contains(&query.to_lowercase())).enumerate().map(|(n, (name, label, docs))| {
+        let mut row = json!({ "id": name, "label": label, "detail": format!("`::{name}` on a line of its own"), "kind": "component", "from": "components", "insert": format!("::{name}\n::"), "pick": format!("pick-{name}"), "docs": docs });
+        let drawn = if *name == "links" { part("plot", "links", 1, json!({ "name": "links", "title": "The beds" }), json!({ "type": "list", "rows": [{ "id": "beans", "label": "Water the beans", "act": opens("beans") }] })) }
+            else { part("plot", "figure", 1, json!({ "name": "graph-stat", "figure": "stat" }), json!({ "type": "row", "children": [{ "type": "stat", "label": "beds", "value": "4" }] })) };
+        if n == lit { row["view"] = json!({ "type": "box", "children": [{ "type": "box", "title": "As written", "children": [{ "type": "source", "text": format!("::{name}\n::") }] }, { "type": "box", "title": "As drawn", "children": [drawn] }] }) }
+        row
+    }).collect();
+    let message = if rows.is_empty() { json!("no component by that name") } else { Value::Null };
+    json!({ "answers": [], "picks": {}, "token": { "kind": "component", "start": start, "end": end, "query": query }, "rows": rows, "heading": "components", "message": message, "pickKey": "::" })
 }
 
 /// The garden, with the plot opened in the reader the screen's opens land in, as the person would open it first (a
@@ -681,6 +698,11 @@ pub fn window(app: App) -> Runtime<App> {
     for _ in 0..3 { rt.frame(0.0); }
     rt
 }
+
+/// A drawn text's words: an element's text as Rune reports it, less the marks that draw nothing. The kit's Markdown
+/// lays a word joined by a symbol (`Friday's`, a path, a flag) out as a left-to-right isolate (UAX #9: LRI before
+/// it, PDI after) and writes the two marks into the text it reports; a copy leaves them out, and so does this.
+pub fn plain(text: &str) -> String { text.chars().filter(|c| !matches!(c, '\u{2066}'..='\u{2069}')).collect() }
 
 /// Frames until what left has finished leaving.
 pub fn rest(rt: &mut Runtime<App>) { for _ in 0..90 { rt.frame(1.0 / 60.0); } }

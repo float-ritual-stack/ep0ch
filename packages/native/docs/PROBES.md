@@ -26,7 +26,9 @@ carried a block editor ([12](#12-the-block-editor-w5)). W7 answered the one abou
 ([13](#13-several-windows-w7)). W6 added what a selection in drawn text gives a window, and what a list inside a
 list's row does ([14](#14-selections-and-what-else-w6-met)). W8 added what herdr-core gives a terminal tile, read
 and spoken to a stand-in but never run ([15](#15-herdr-core-w8)). H3 added what a Mac's title bar takes of the toolbar, read from Rune and run on
-a headless runtime, not on a Mac ([17](#17-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)).
+a headless runtime, not on a Mac ([17](#17-a-macs-title-bar-and-what-else-the-first-run-by-hand-met-h3)). R0 moved
+the Rune pin from `cb0c118` to `a5360a6` and ran every probe again on it: the answers above hold, and what changed
+for the window is in [18](#18-rune-at-a5360a6-r0).
 
 ## How to run
 
@@ -312,6 +314,13 @@ build took 6 to 9 ms for the same.
 - **Not measured:** a real GPU, a program that prints faster than frames are drawn (the emulator's thread drains
   what waits and publishes one screen), and input latency through a real pty.
 
+**Since R0, Rune has this part.** At `a5360a6` `rune::grid(cols, cell_w, cell_h, rows)` is a terminal's screen as
+one element: a row's narrow cells as one shaped line, wide cells pinned to their columns, grounds and selection as
+runs, a row shaped once while the app hands back the same `Rc<GridRow>`, and a screen reader's caret
+(`El::grid_caret`). That is the split way above, made by Rune (its changelog gives 200 by 60 at 2.5 ms a full
+redraw and 0.4 ms for one row changed, headless). Read, not run here: `tiles/pty.rs` still builds rows cut at wide
+cells, and moving it onto `grid` is a wave of its own.
+
 ## 8. The door's pty host
 
 **The protocol has one client by design: the daemon. A second hello takes the host from the first.**
@@ -484,7 +493,7 @@ adds the adapter of §2, one type that hides the editor from the model (`keys::T
 | IME | **Worked, with one thing to work around.** Marked text is not part of `text` until committed, Return mid-composition never reaches the adapter, and a commit lands at the caret. But replacing text under an open composition cancels it. | `a_patch_waits_while_an_input_method_is_composing` |
 | A list at the caret | **Worked.** `Cx::caret(key)` gives the caret's rect in the window, and the kit's `PopupList` takes no focus, so typing stays in the field while the list is open. | `a_block_is_typed_in_completed_…_and_saved`; `docs/draft-dark.png` |
 | Lit ranges | **Worked.** `spans` on a field paints byte ranges over the text without touching the model: what a patch wrote is lit until the text changes. | `docs/draft-dark.png` |
-| Long text | **Works to a few hundred lines; slow past a thousand.** | the table below |
+| Long text | **Works to a few hundred lines; slow past a thousand.** Since R0's pin a typed key costs its own paragraph: a thousand lines type inside a frame. | the tables below |
 
 What had to be worked around:
 
@@ -520,6 +529,24 @@ What could not be done:
   millisecond. The rest is Rune laying the whole field out again: 35 to 70 µs a line. A note of a few hundred lines
   types inside a frame; one of a thousand does not. Nothing here virtualizes a field's lines, and splitting a block's
   source over several fields would break selection and undo across them. Not attempted.
+
+  **Since R0 this "no" is a "yes": a typed key no longer lays the whole field out.** At `a5360a6` a plain field
+  keeps the layout of the paragraphs an edit did not touch (Rune's changelog, "a keystroke in a long draft costs
+  its own paragraph"). The same measurement on both pins, the same window (the branch as R0 found it), the same
+  machine and hour:
+
+  | Lines | A typed key and its frame, `cb0c118` | The same, `a5360a6` | An arrow key and its frame, `a5360a6` | An idle frame, `a5360a6` |
+  |---|---|---|---|---|
+  | 100 | 7.0 ms | 3.3 ms | 2.7 ms | 1.0 ms |
+  | 300 | 13.6 ms | 4.0 ms | 3.4 ms | 1.6 ms |
+  | 1,000 | 38.1 ms | 6.7 ms | 6.2 ms | 4.2 ms |
+  | 3,000 | 113.2 ms | 13.0 ms | 13.6 ms | 11.8 ms |
+
+  (The old pin's arrow key and idle frame are within half a millisecond of the new pin's.) A typed key now costs
+  what an arrow key costs: the frame, not the field. A block of a thousand lines types
+  inside a frame. The frame itself has grown since W5 on both pins alike (an idle frame at 3,000 lines was 2.0 ms
+  in the table above and is 11.6 ms on the old pin today): that is the window's, not Rune's, and was not looked
+  into here.
 - **The editor's own keys have no rows.** Undo, redo, select all, word motion and paste are the kit's, handled
   after the table: they have no keycap to show and `act` can't run them. Only what the table binds (save, close,
   the list's keys) and `draft.paste` are act lines.
@@ -760,6 +787,65 @@ shell's root, which this wave did not touch.
 - **The other thing a first run met that the probes had not:** a headless frame is one moment. What time does (a
   status line that should go, a notice that should not) is asked of the state with a clock handed in
   (`App::fade(now)`), never waited for.
+
+## 18. Rune at a5360a6 (R0)
+
+**The pin moved from `cb0c118` (Nov 11) to `a5360a6` (Nov 13): 209 changelog entries. Every probe passes on it as
+it was written, and five of Rune's changes reached the window.** The crate now also has the patch table Rune's
+README asks an app for ("Depending on Rune"): `winit`, `parley_engine`, `wgpu-hal` and `accesskit_windows` from
+the Rune repository at the pin's rev. Before R0 the window was built on the stock four.
+
+Run: `cargo test` here in `probes/` on the new pin (63 tests, the doctests among them, exit 0), and the app's
+`cargo test`, `cargo test --features pty` and `cargo test -- --ignored live`.
+
+| Rune changed | What it did here | What the window does |
+|---|---|---|
+| `Ime::Preedit` carries the composition's clauses as a third field | one test stopped compiling | the test feeds none, as an input method that marks none does |
+| The kit's Markdown lays a word joined by a symbol (`Friday's`, a path, a flag) out as a left-to-right isolate, and writes its two marks (U+2066, U+2069) into the text an element reports | one test compared an element's text with the words and went red | the tests read drawn words through `plain`, which leaves the marks out. A copy and a selection leave them out too (they are `uncopied` ranges), so a comment's quote carries none: the live comment tests are green |
+| A Rune app ends at its quit's last hook and drops nothing, unless it asks for `rune::orderly_exit()`. Code after `run` no longer runs | the control socket's file, removed when `Control` is dropped after `run`, would stay in its folder after a quit | `main` asks for the orderly exit. Not run on a display: a headless run serves no socket |
+| A release build links the headless tooling (`--snap`, `--tree`, `--script`) only with Rune's `tooling` feature | a release binary given a headless flag now refuses | nothing: every recipe in the README is a debug build's, and the README says so. Run: `target/release/ep0ch-native --list-scenes` ends with exit 1, saying the build has no agent tooling and naming the feature |
+| Off macOS, a face that carries TrueType hints runs them vertically (`text/windfoil.rs`, `Hinting::Vertical`) | every headless picture changed at the edges of its letters, and nowhere else | the pictures in `docs/` were not drawn again (below) |
+
+![The same line of a note at six times its size: on the old pin above, its rows spread over two pixel rows; on the new pin below, on whole pixels](probes-text-rows.png)
+
+- **What the pictures lost and kept.** All 34 scenes were drawn by the same window on both pins, on one scratch
+  outline: between 0.6% and 3.8% of a picture's pixels differ, all on letters. The element trees of five of them
+  (`plan`, `keys`, `board`, `about`, `complete`: 235 to 474 elements) are equal box for box and word for word, bar
+  the isolate marks. The change is Linux's and Windows': the branch is `cfg!(not(target_os = "macos"))`.
+- **Why they were not drawn again.** Each picture in `docs/` was shot on its wave's own scratch outline, and
+  those were not kept: drawn on one outline that holds every seed, the board has a fifth lane and the tree other
+  rows, which changes a picture more than the pin did. A wave that changes what a picture shows draws it again.
+- **A commit no input caused lands at once** (Rune's "motion has a cause"): rows a poll brings mount without the
+  entrance fade. §7's rule (commit a terminal's frame instantly) is now what Rune does for such a commit by itself;
+  the grid still says `instant_changes`. No test moved for it.
+
+Where a "no" above became a "yes":
+
+- **§7, the terminal:** Rune has the grid as one element (`rune::grid`), wide cells pinned. Read, not run.
+- **§12, long text:** see the note under that section's table.
+
+What is still a "no" at `a5360a6`, checked:
+
+- **A virtual stack outside a scroll viewport still panics** (§14; `runtime/commit/measure.rs:299`, the same
+  words as on the old pin). That is what ended the window at `::` typed at a line's start: the completion's docs
+  panel is a popover with no scroll, and an example that holds a list was built as the page's virtual rows. Run
+  headless on both pins with a Rune script (a block opened by `--act`, then Return and `::links` typed by
+  `--script`; `::view` and `::fields` the same): the window without `in_row()` on that panel ends with exit 101
+  and that panic on `cb0c118` and on `a5360a6`; with it, it draws the list and the panel, exit 0. Bare `::` lights
+  a row whose example holds no list on this outline, and draws either way. A test lights such a row now
+  (`a_lit_component_s_example_that_lists_notes_is_drawn_beside_the_completion_list` in `src/tests/typing.rs`: red
+  with that panic without `in_row()`, on this pin), over a stand-in host whose `::` rows are two components, the
+  first with an example that lists a note.
+- **The kit's `TextArea` hands a paste to nobody, and its `Tree`, `Table` and `SplitView` panes take a field named
+  at compile time** (§5, §12): those files are the same on both pins (`diff -rq` of `rune-kit/src`), bar a tree's
+  right-to-left keys. `Dialog` is unchanged too (the bar still bounds its own list).
+- **SVG text** is still not drawn (Rune's README: resvg is given no fonts).
+
+Rune has gained, and the window does not use yet (each from its changelog, none run here): `El::on_middle_press`,
+focus that goes to a neighbour when the focused element leaves the tree, F6 between landmarks, `Tx::announce` and
+`El::labelled_by` for a screen reader, `rune::Tracked` and `rune::region`, `Latest::request_if_changed`,
+`Tx::scroll_center`, `rune_kit::search::Fold` (search that folds case and width in every language),
+`rune::text::compare_names`, and `El::placeholder_font`.
 
 ## The contract tables
 

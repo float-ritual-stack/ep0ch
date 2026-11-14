@@ -194,3 +194,31 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     assert_eq!(rt.state.person().layer, Layer::Said);
     assert!(rt.find("tile/reader/complete-count").is_none() && rt.find("tile/reader/complete-docs").is_none());
 }
+
+/// `::` typed at a line's start ended the window, and the kept draft ended it again at every launch: the first
+/// component lit has an example that lists notes, the panel beside the completion list is a popover with no scroll
+/// of its own, and the example's list was built there as a page's rows are (built only in view, which Rune allows
+/// in a scroll's own stack alone: "virtual stack must be inside a scroll viewport"). Beside the list an example's
+/// list is built whole, as one under a list's row is.
+#[test]
+fn a_lit_component_s_example_that_lists_notes_is_drawn_beside_the_completion_list() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    press(&mut rt, "tile/reader/edit");
+    chord(&mut rt, Key::Enter, Mods::default());
+    typed(&mut rt, "::");
+    let beside = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter(|e| e.path.contains("tile/reader/complete-docs")).filter_map(|e| e.text).collect() };
+    let texts = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter_map(|e| e.text).collect() };
+    assert_eq!(rt.state.person().layer, Layer::Complete, "the list is open, with rows to choose from");
+    assert!(texts(&rt).iter().any(|said| said == "components 1/2"), "{:?}", texts(&rt));
+    // The lit row's example lists a note: its row is drawn in the panel, and the window is still here to ask.
+    assert!(rt.find("tile/reader/complete-docs").is_some());
+    assert!(beside(&rt).iter().any(|said| said == "Water the beans") && beside(&rt).iter().any(|said| said == "As drawn"), "{:?}", beside(&rt));
+    // Down to a row whose example lists nothing, and back up to the one that does: drawn again each time.
+    chord(&mut rt, Key::Down, Mods::default());
+    assert!(beside(&rt).iter().any(|said| said == "beds") && !beside(&rt).iter().any(|said| said == "Water the beans"), "{:?}", beside(&rt));
+    chord(&mut rt, Key::Up, Mods::default());
+    assert!(beside(&rt).iter().any(|said| said == "Water the beans"), "{:?}", beside(&rt));
+    // The words typed are still the block's: nothing was chosen, and the keys are the list's.
+    assert_eq!((words(&rt.state), rt.state.person().layer), (format!("{PLOT}\n::").as_str(), Layer::Complete));
+}

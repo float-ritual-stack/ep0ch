@@ -66,6 +66,14 @@ never reads it itself.
 Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU draws through lavapipe
 (`mesa-vulkan-drivers`, `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`).
 
+Rune is pre-release, so `Cargo.toml` pins one rev of its `dev` branch (`a5360a6`, Nov 13) for `rune` and
+`rune-kit`, and patches the four crates Rune patches (`winit`, `parley_engine`, `wgpu-hal`, `accesskit_windows`) from
+that same rev, as Rune's README asks of an app ("Depending on Rune"): a dependency's `[patch]` does not reach the
+crate that depends on it, and without the table the window is built on the stock crates, with none of Rune's
+macOS input-method fixes in winit. Moving the pin moves all six revs together (and the probes' crate's), and an
+entry Rune adds to its own table is added here. What that rev changed for this window is in
+[PROBES.md §18](docs/PROBES.md#18-rune-at-a5360a6-r0).
+
 ## What Evan can do in it
 
 | Do | How |
@@ -697,7 +705,14 @@ proof it switches:
 
 ![The same note as above, light: the theme follows the system](docs/note-light.png)
 
-Rune renders headless, so a change can be looked at without a display, on a scratch outline:
+Rune renders headless, so a change can be looked at without a display, on a scratch outline. The headless flags
+are a debug build's: Rune links them into a release build only with its `tooling` feature, which this crate
+leaves off, so `target/release/ep0ch-native --snap …` ends saying so.
+
+Most pictures on this page were drawn on the Rune pin before `a5360a6`. A render made now has the same boxes and
+the same words, and differs at the edges of its letters: on Linux a hinted face's rows now land on whole pixels
+([PROBES.md §18](docs/PROBES.md#18-rune-at-a5360a6-r0) has the two side by side). A picture is drawn again by the
+wave that changes what it shows, on that wave's own scratch outline.
 
 ```sh
 target/debug/ep0ch-native --snap out.png --scene bar --theme dark -- --ws scratch
@@ -791,8 +806,9 @@ toolbar button is
   everything above about a hold were run on Linux in headless windows: none of it was run on a Mac or on a display.
 
 - Writing: a block is its whole source in one field, as typed: nothing is drawn of it until it is saved (no
-  preview beside), and a long block (past a thousand lines) types slowly, since the field is laid out whole on each
-  key (PROBES.md §12). The editor's own keys (undo, word motion, select all) are Rune's and have no act line; Return
+  preview beside). A long block types as fast as its frame draws since the pin moved: Rune lays out the paragraph
+  a key changed, not the field (6.7 ms a key at a thousand lines, 13 ms at three thousand, where it was 38 and
+  113: PROBES.md §12). The editor's own keys (undo, word motion, select all) are Rune's and have no act line; Return
   types a line and continues no list (the door's `draft.newline` does), and Tab moves no snippet's slot. A
   completion row that makes something when chosen (a page nobody wrote yet, an anchor on a heading, a new
   component) isn't offered, nor are a row's variations; the list shows what the service sent, with no Jev
@@ -862,5 +878,7 @@ toolbar button is
   back (the bar's Extensions installs it).
 - After its own write the window reads what it shows at once rather than waiting for the watch to say so.
 - The bar's list bounds itself to seven rows (`list::bounded`): `rune-kit`'s `Dialog` doesn't bound a scroll view in its body.
-- Rune is pre-release and pinned by rev in `Cargo.toml`. Windows builds also need Rune's `wgpu-hal` patch
-  (its README, "Add it"), and the socket is a Unix one.
+- Windows: the socket is a Unix one. (Rune's own patches, `wgpu-hal` among them, are in `Cargo.toml` since R0.)
+- A quit drops what the run holds (`rune::orderly_exit`): the control socket leaves its folder as it is dropped.
+  Rune's faster default, which ends the process at the quit's last hook, would leave the file behind until the
+  next launch; the socket's removal is not a quit hook yet.

@@ -226,7 +226,7 @@ fn the_words_a_thread_is_on_are_marked_and_a_press_on_them_shows_the_thread_besi
     assert_eq!(rt.state.steps.last().map(|step| (step.line(), step.by.clone(), step.ok)), Some(("thread.toggle thread=thread-sowing tile=reader".to_string(), Actor::Person, true)));
     assert!(rt.state.ui("reader").unfolded.contains("thread-sowing"));
     let whole = rt.elements().into_iter().filter(|e| e.path.contains("tile/reader/card/thread-sowing")).filter_map(|e| e.text).collect::<Vec<_>>();
-    assert!(whole.iter().any(|said| said == "Friday's.") && whole.iter().any(|said| said == "Reply") && whole.iter().any(|said| said == "Resolve"), "the comment, its reply and its own presses: {whole:?}");
+    assert!(whole.iter().any(|said| plain(said) == "Friday's.") && whole.iter().any(|said| said == "Reply") && whole.iter().any(|said| said == "Resolve"), "the comment, its reply and its own presses: {whole:?}");
     // Its own press, from the page: the reply is written under the part its words are in.
     pressed(&mut rt, "tile/reader/margin/thread-sowing/press/0");
     assert_eq!(rt.state.draft_on("reader").map(|draft| draft.writes.clone()), Some(Writes::Reply { thread: "thread-sowing".into(), to: "Which rain?".into() }));
