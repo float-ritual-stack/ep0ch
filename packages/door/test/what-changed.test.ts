@@ -86,9 +86,10 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(at).not.toBeNull();
     key({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 39 });
     // Red once in the nightly's parallel run and never again alone or under load (PIE-1805): a timeout says where the
-    // click went and what the bar and the drawer were showing.
+    // click went, what the bar and the drawer were showing, and the bar's message whole (the bar cuts it short).
     await until(() => app.whatChanged.count() === 0, "seen once the person looked").catch(e => {
-      throw new Error(`${e.message}: clicked ${at.from! + 1},39 for the new item at ${at.from}-${at.to}; count ${app.whatChanged.count()}; drawer open ${app.drawer.open}, tabs ${app.drawer.tabs().map(t => t.kind).join(",")}; the bar: ${bar()}`);
+      const drawn = bar();
+      throw new Error(`${e.message}: clicked ${at.from! + 1},39 for the new item at ${at.from}-${at.to}; count ${app.whatChanged.count()}; drawer open ${app.drawer.open}, tabs ${app.drawer.tabs().map(t => t.kind).join(",")}; the bar: ${drawn}; its message: ${(app as any).messageSaid?.text ?? "none"}`);
     });
     expect(app.drawer.open).toBe(true);
     const tab = app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
