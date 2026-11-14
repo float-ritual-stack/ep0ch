@@ -742,6 +742,13 @@ scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts        
 scripts/agent-env <name> -- bun packages/door/scripts/layout-contract.ts --check   # exit 1 naming the first stale row
 ```
 
+- **Asked of the window only by cargo** (RW). The door's test makes the tables again and compares them with the
+  files; the window's Rust is asked the rows by `cargo test` in `packages/native`, which no bun gate runs. A diff
+  under `packages/outline-core/fixtures` or `packages/native` runs it (the README's "Check it", the root CONTRIBUTING.md), and
+  `scripts/box-test native` runs it on the test box with the build kept between runs. Not run there by this wave:
+  float-box was not reachable from where it was built, so what the box needs (rustup with the toolchain
+  `rust-toolchain.toml` names, `libxkbcommon-dev`, `libwayland-dev`, `mesa-vulkan-drivers`) is said by the script
+  and checked by nobody yet.
 - **Kept true:** the door's `test/layout-contract.test.ts` makes them again and fails on a stale row. It also counts
   what they ask against the door's source: every operation, node kind, place, policy field, open rule, alt rule and
   wire verb, and every agent-gated operation asked by an agent.
