@@ -39,6 +39,24 @@ fn what_an_agent_was_refused_leaves_the_status_line_once_it_has_been_read() {
     assert_eq!(g.app.fade(again + Duration::from_secs(31)).0, true, "thirty seconds is the most anything takes to read");
 }
 
+/// Seen on the walk of this wave, in a window 1180 points wide on the desk: the toolbar's buttons leave the status
+/// line a few words' room, and it was cut after the agent's name, the act and why it was refused unread, with no
+/// way to read them before it went. The line says its whole words to a pointer that rests on it.
+#[test]
+fn a_status_line_the_toolbar_cuts_short_says_its_whole_words_on_a_hover() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    let (send, got) = std::sync::mpsc::channel();
+    rt.update(move |s, _| { let refused = s.act("screen.open name=no-such-bench", agent()); let _ = send.send((refused.ok, s.agent_said.clone())); });
+    rest(&mut rt);
+    let (ok, said) = got.recv().unwrap();
+    let said = said.expect("said on the status line");
+    assert!(!ok && said.contains("screen.open refused"), "{said}");
+    let line = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("status")).expect("the status line is on the toolbar");
+    assert_eq!(line.text.as_deref(), Some(said.as_str()));
+    assert_eq!(line.help.as_deref(), Some(said.as_str()), "the whole of it, however little of it the toolbar has room for");
+}
+
 /// A refusal's notice answers what the person did then. Once it has been up long enough to read, their next act
 /// puts it away; one that says something of its own leaves that in its place. The clock alone takes no notice away:
 /// the window keeps no log to find it in.
@@ -110,6 +128,15 @@ fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     rt.set_titlebar_inset(0.0);
     rest(&mut rt);
     assert_eq!(name(&rt)[0], 10.0);
+    // A window torn from this one has the same row over its tile (the outline's name, with no button of a screen's),
+    // and its own buttons sit over that row as well: it starts past them too.
+    let Garden { mut app, .. } = garden(ok());
+    assert!(act(&mut app, "tile.tear tile=reader").ok);
+    let mut torn = window(app.born().pop().expect("the act asked for a window"));
+    assert_eq!(name(&torn)[0], 10.0);
+    torn.set_titlebar_inset(buttons);
+    rest(&mut torn);
+    assert!(name(&torn)[0] >= buttons + 8.0, "a torn window's name starts at {} and its buttons end at {buttons}", name(&torn)[0]);
     // On this platform the frame asks for nothing over the content, so a headless render reports none either.
     assert_eq!(crate::shell::frame().titlebar_inset(), if cfg!(target_os = "macos") { 67.0 } else { 0.0 });
 }

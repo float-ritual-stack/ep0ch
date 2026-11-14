@@ -95,7 +95,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Jump between agents | The bar's Programs (`bar.open scope=programs`, the kitchen's Programs and its tile): the programs this window runs, in a tile or not, each with what it reports of itself; a row takes the keys to its program (`terminal.jump key=`), in a tile beside the note when it has none. What herdr-core runs that this window never started is listed after them in the tile, and is never ended, typed into or attached from here |
 | Scroll, paste and copy in a terminal | `shift+pageup` and `shift+pagedown` or the wheel move through what scrolled off (`terminal.scroll`); `mod+shift+v` pastes the clipboard as a paste (`terminal.paste`); words are selected with the mouse, as in a note, and copied with ⌘C on a Mac (elsewhere step out with `ctrl+]` first: Ctrl+C in a program is the program's) |
 | See it change | An edit from the door, an agent or another machine redraws what's open |
-| Read what an agent did, and move on | The toolbar's status line names the agent and the act, or why it was refused, for as long as it takes to read (4 s at least, about 14 characters a second, 30 s at most: the door's rule for its status bar), then it goes. A refusal of your own is the notice under the toolbar: it stays until you have had time to read it and do something else, or dismiss it; the clock alone takes no notice away |
+| Read what an agent did, and move on | The toolbar's status line names the agent and the act, or why it was refused, for as long as it takes to read (4 s at least, about 14 characters a second, 30 s at most: the door's rule for its status bar), then it goes; where the toolbar's buttons cut it short, the pointer resting on it reads the whole of it. A refusal of your own is the notice under the toolbar: it stays until you have had time to read it and do something else, or dismiss it; the clock alone takes no notice away |
 
 **The keys are the actions' own.** Each action's row says its chords (`src/actions/*.rs`), and the key table, the
 keycap on a button, the bar's rows and `actions` over the control socket all read the row. The defaults:
@@ -723,7 +723,8 @@ toolbar button is
   here takes a tile's content (the door's shelves), so the rule's `receive` is ported and never asked.
 - On a Mac: the toolbar starting past the traffic lights was built from Rune's source and run here by telling a
   headless runtime the inset a Mac's window reports; it was not run on a Mac. The toolbar is no drag region of its
-  own (AppKit's title bar band moves the window), and a torn-out window has no toolbar to inset.
+  own (AppKit's title bar band moves the window). A torn-out window has the same row over its tile and starts
+  past its own buttons by the same rule, held by the same test and run on no Mac either.
 - Windows: a torn-out window isn't opened again at the next start (its unsaved text is: the first window brings
   it back) and has no toolbar of its own (the bar is its `mod+k`). Its tile goes back into the window it came from
   along that window's right edge, by the layout's rule for a new tile: it is not dropped at a place chosen across
