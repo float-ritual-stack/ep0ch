@@ -133,12 +133,26 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | Chord | Act line | Where | Does |
 |---|---|---|---|
 | `mod+[` | `back` | everywhere | back |
+| `alt+left` | `back` | reader | back to the note before |
+| `backspace` | `back` | reader | back to the note before |
+| `alt+right` | `forward` | reader | forward again |
+| `u` | `up` | reader | the note this one is under |
+| `j` | `reading.step by=1` | reader | the next part of the page |
+| `down` | `reading.step by=1` | reader | the next part of the page |
+| `k` | `reading.step by=-1` | reader | the part before |
+| `up` | `reading.step by=-1` | reader | the part before |
+| `pagedown` | `scroll by=1` | reader | a page down |
+| `space` | `scroll by=1` | reader | a page down |
+| `pageup` | `scroll by=-1` | reader | a page up |
+| `home` | `scroll to=top` | reader | the top of the page |
+| `end` | `scroll to=end` | reader | the end of the page |
+| `shift+g` | `scroll to=end` | reader | the end of the page |
 | `mod+n` | `note.new` | everywhere | a new note under the open one |
 | `mod+backspace` | `note.trash` | tile | move the open note to the Trash |
 | `alt+up` | `note.move step=up` | tile | move the note up |
 | `alt+down` | `note.move step=down` | tile | move the note down |
-| `alt+right` | `note.move step=in` | tile | move the note in, under the one above |
-| `alt+left` | `note.move step=out` | tile | move the note out, after its parent |
+| `alt+shift+right` | `note.move step=in` | tile | move the note in, under the one above |
+| `alt+shift+left` | `note.move step=out` | tile | move the note out, after its parent |
 | `mod+e` | `edit` | everywhere | edit the open note |
 | `mod+s` | `edit.save` | everywhere | save |
 | `mod+enter` | `edit.save` | draft | save, from the note's source |
@@ -159,16 +173,56 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `enter` | `bar.pick` | bar | pick the lit row |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
-| `escape` | `notice.dismiss` | tile | dismiss the notice |
+| `l` | `tree.fold open=true` | tree | unfold the row |
+| `right` | `tree.fold open=true` | tree | unfold the row |
+| `h` | `tree.fold open=false` | tree | fold the row, or go to the row it is under |
+| `left` | `tree.fold open=false` | tree | fold the row, or go to the row it is under |
+| `space` | `tree.fold` | tree | fold or unfold the row |
+| `enter` | `list.pick` | list | open the row the cursor is on |
+| `j` | `list.step by=1` | list | the next row |
+| `down` | `list.step by=1` | list | the next row |
+| `k` | `list.step by=-1` | list | the row before |
+| `up` | `list.step by=-1` | list | the row before |
+| `pagedown` | `list.step by=1 page=true` | list | a page of rows down |
+| `pageup` | `list.step by=-1 page=true` | list | a page of rows up |
+| `l` | `list.step axis=column by=1` | list | the next lane of a board |
+| `right` | `list.step axis=column by=1` | list | the next lane of a board |
+| `h` | `list.step axis=column by=-1` | list | the lane before |
+| `left` | `list.step axis=column by=-1` | list | the lane before |
+| `shift+l` | `list.step axis=group by=1` | list | the next group |
+| `shift+h` | `list.step axis=group by=-1` | list | the group before |
+| `home` | `list.select n=1` | list | the first row |
+| `end` | `list.select n=-1` | list | the last row |
+| `escape` | `notice.dismiss` | noticed | dismiss the notice |
+| `alt+n` | `tab.select by=1` | tile | the next tab of this set |
+| `alt+p` | `tab.select by=-1` | tile | the tab before |
+| `escape` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `q` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `1` | `keys.stop n=1` | tile | the keys to tile 1 |
+| `2` | `keys.stop n=2` | tile | the keys to tile 2 |
+| `3` | `keys.stop n=3` | tile | the keys to tile 3 |
+| `4` | `keys.stop n=4` | tile | the keys to tile 4 |
+| `5` | `keys.stop n=5` | tile | the keys to tile 5 |
+| `6` | `keys.stop n=6` | tile | the keys to tile 6 |
+| `7` | `keys.stop n=7` | tile | the keys to tile 7 |
+| `8` | `keys.stop n=8` | tile | the keys to tile 8 |
+| `9` | `keys.stop n=9` | tile | the keys to tile 9 |
 | `mod+d` | `tile.split` | everywhere | split this tile: a new one on its right |
 | `mod+shift+d` | `tile.split dir=down` | everywhere | split this tile: a new one below |
 | `mod+w` | `tile.close` | everywhere | close this tile |
+| `tab` | `tile.focus by=1` | tile | the keys to the next tile |
+| `shift+tab` | `tile.focus by=-1` | tile | the keys to the tile before |
 | `mod+alt+left` | `tile.focus dir=left` | everywhere | the keys to the tile on the left |
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
 | `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
+| `minus` | `tile.collapse on=true` | tile | fold this tile to a spine |
+| `plus` | `tile.collapse on=false` | tile | open this tile from its spine |
+| `equal` | `tile.collapse on=false` | tile | open this tile from its spine |
 | `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
+| `escape` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
+| `q` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
 | `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
@@ -178,6 +232,8 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `shift+pageup` | `terminal.scroll lines=-12` | program | up through what scrolled off |
 | `shift+pagedown` | `terminal.scroll lines=12` | program | back down |
 | `mod+shift+v` | `terminal.paste` | program | paste the clipboard into the program |
+| `escape` | `dock.toggle` | docked | shut the dock the keys are in |
+| `q` | `dock.toggle` | docked | shut the dock the keys are in |
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |

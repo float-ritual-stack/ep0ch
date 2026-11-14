@@ -50,6 +50,15 @@ pub struct TileUi {
     /// A terminal tile's program, by the key the run holds it under (`pty::Programs`): kept with the arrangement,
     /// so the tile finds the same program in another window, and the next launch where its host still runs it.
     pub program: Option<String>,
+    /// A list's cursor: the row the keys are on, by its id (never by its place: the rows change under it). Not the
+    /// pointer's hover, and not the mark of the note its reader shows. None: on no row yet.
+    pub cursor: Option<String>,
+    /// How many rows a list's view shows, as its drawer last laid it out: what a page of its cursor is.
+    pub room: Option<f64>,
+    /// A reader's reading line: the part of its page the keys are on, by its place among the parts.
+    pub reading: Option<usize>,
+    /// The notes a reader went back from, nearest last: where `forward` goes. A new open forgets them.
+    pub ahead: Vec<String>,
 }
 
 /// What a press did, and where it was pressed: the note and the line of the part.
@@ -241,7 +250,13 @@ pub struct State {
     pub trashed: HashMap<String, String>,
     /// An element to bring into view on the next frame.
     pub reveal: Option<String>,
+    /// A scroll to move on the next frame, by its element: a reader's page, by pages or to an end.
+    pub scroll: Option<(String, Scroll)>,
 }
+
+/// How a scroll is moved by a key or an act: pages down (negative: up), or to an end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scroll { Pages(i32), Top, End }
 
 pub struct App {
     pub(in crate::actions) st: State,
@@ -320,7 +335,9 @@ impl App {
                 screen: Screen::nowhere(),
                 tiles: HashMap::new(),
                 asked_screen: None,
-                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
+                // (Until the shell has measured the tiles' area: what a window of the usual size has under its
+                // toolbar and over its hint row.)
+                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 39.0 },
                 journal: Vec::new(), memory: Default::default(),
                 aimed: None,
                 about: None,
@@ -350,6 +367,7 @@ impl App {
                 steps: Vec::new(),
                 trashed: HashMap::new(),
                 reveal: None,
+                scroll: None,
             },
             store,
             ways: None,
@@ -939,6 +957,11 @@ impl App {
 
     /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).
     pub fn revealed(&mut self) -> Option<String> { self.st.reveal.take() }
+    /// The scroll an act asked the next frame to move, taken once (`keys::effects` is the one caller).
+    pub fn scrolled(&mut self) -> Option<(String, Scroll)> { self.st.scroll.take() }
+    /// How many rows a list tile's view shows, as its drawer laid it out: what a page of its cursor moves by. Told
+    /// by the list drawer when its scroll is laid out, as the window's size is told by the shell.
+    pub fn list_room(&mut self, tile: &str, rows: f64) { if self.spec(tile).is_some() && self.ui(tile).room != Some(rows) { self.ui_mut(tile).room = Some(rows) } }
 
     /// The windows this one asked for, each its whole state, taken once: the shell opens them (`shell::windows` is
     /// the one caller in a run; a test draws one itself).
@@ -1012,6 +1035,8 @@ impl App {
 
     /// The key table's memory of a sequence under way (`keys::press` is the one caller).
     pub fn held(&mut self) -> &mut crate::keys::Held { &mut self.held }
+    /// The same, read: what the hint row says of a sequence that is begun.
+    pub fn held_now(&self) -> &crate::keys::Held { &self.held }
 
     /// The window is this large, in points (the shell is the one caller): the area the layout fills, in cells.
     pub fn resized(&mut self, width: f32, height: f32) {
@@ -1041,6 +1066,9 @@ impl App {
         let ui = self.st.tiles.entry(tile.to_string()).or_default();
         // (Words selected in the note it showed are that note's: another note has none picked.)
         if was.as_deref() != Some(id) { ui.passage = None }
+        // Another note's page: the reading line is the page's own. A new open has nowhere forward of it.
+        if was.as_deref() != Some(id) { ui.reading = None }
+        if remember { ui.ahead.clear() }
         if remember && let Some(was) = was.filter(|was| was != id) { ui.history.push(was) }
         ui.note = Some(id.to_string());
     }

@@ -72,6 +72,9 @@ fn state_changes_only_under_actions_and_the_store() {
         (".typed(", vec!["keys.rs"]),
         (".held()", vec!["keys.rs"]),
         (".resized(", vec!["shell.rs"]),
+        // How many rows a list's view shows is told by the one drawer of a list as its scroll is laid out, as the
+        // window's size is told by the shell: what a page of its cursor is.
+        (".list_room(", vec!["tiles/list.rs"]),
         (".revealed()", vec!["keys.rs"]),
         (".take()", vec!["main.rs", "store.rs", "client.rs"]),
         (".reconnect()", vec!["main.rs"]),
@@ -88,7 +91,7 @@ fn state_changes_only_under_actions_and_the_store() {
         for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
             // (`act_in` is an act line run from the tile it was pressed in, and `pressed_in` the same for a press, which
             // gives its tile the keys first: the dispatcher's own, as `act` is.)
-            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains(".pressed_in(") || line.contains("s.resized(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains(".pressed_in(") || line.contains("s.resized(") || line.contains("s.list_room(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
             assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
         }
     }
@@ -300,7 +303,8 @@ fn the_second_sweep_s_deciders_each_have_one_place() {
 
     // What a list is, and how its rows sit under headers: one port of `listSections`, one drawer of a row.
     none("a second copy of a list's sections", strays("fn sections(", |path| path == "page.rs"));
-    none("a list's sections asked outside the list drawer", strays(".sections()", |path| path == "tiles/list.rs"));
+    // (Asked by the drawer, and by the list's own actions for the order the keys move a cursor through its rows.)
+    none("a list's sections asked outside the list drawer and the list's own actions", strays(".sections()", |path| path == "tiles/list.rs" || path == "actions/list.rs"));
     for gone in ["fn rows(", "fn line(", "[\"groups\"]", "\"headers\"", "[\"group\"]"] { assert!(!code("tiles/prim.rs").contains(gone), "tiles/prim.rs has `{gone}`: a list on a page is drawn by the list drawer (`list::on_page`)") }
     assert!(code("tiles/prim.rs").contains("super::list::on_page("));
     assert!(!code("parts.rs").contains("page.children"), "parts.rs makes no rows: the notes under a note are the list the service answered (`under`)");
@@ -800,7 +804,9 @@ fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
     assert!(code("tiles/prim.rs").contains("head.iter().chain(rest.iter()).eq(whole.iter())"), "a cut is safe where the kit's own reading of the two pieces is its reading of the whole");
     for reading in ["\"\\n\\n\"", "starts_with(\"- \")", "starts_with('#')", "```"] { assert!(!code("tiles/prim.rs").contains(reading) && !code("tiles/page.rs").contains(reading), "a drawer reads Markdown itself for where a block ends (`{reading}`)") }
     // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
-    none("a tab brought forward outside the one action that shows a note's comments", strays("Op::Tab", |path| path == "actions/review.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
+    // (The person brings a tab forward themselves by the tile's own action, `tab.select`: a press on a tab, a key.)
+    none("a tab brought forward outside the one action that shows a note's comments and the tile's own tab.select", strays("Op::Tab", |path| path == "actions/review.rs" || path == "actions/tile.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
+    assert_eq!(code("actions/tile.rs").matches("Op::Tab").count(), 1, "tab.select is the one place a tile's actions bring a tab forward");
     assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
     // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
     none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs"));
