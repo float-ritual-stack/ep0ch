@@ -14,7 +14,8 @@
  * a primitive draws that (`sample`: a heading pattern's strip; the lit row's `view` is then its `shown`, the look on
  * an example, and no note is walked), every stop of what it writes (`slots`), and whether choosing it leaves the
  * cursor in a token, so the list is asked again at once (`next`: outline-core's `asksAgain`, the door's rule, with
- * the one detector run over the line as the choice leaves it).
+ * the one detector run over the line as the choice leaves it), and what of it is still to come when it goes on from
+ * what is typed (`rest`: a client shows it dimmed after the cursor and compares no text to find it).
  *
  * A page nobody has written is offered as the door offers it, with the request that makes it (`makes`: `pages.follow`,
  * sent by the client as whoever chose, before the link is written). An anchor on a heading and a new component need
@@ -66,12 +67,18 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
     const written = (lines[row] ?? "").slice(0, start) + insert + (lines[row] ?? "").slice(end);
     const after = written.split("\n"), last = after.length - 1, col = after[last]!.length - ((lines[row] ?? "").length - end);
     const next = !slots.length && asksAgain(target.kind, merged) && !!completionTargetAtCursor(after[last]!, col, [...lines.slice(0, row), ...after, ...lines.slice(row + 1)], row + last);
+    // What of the row is still to come when it goes on from what is typed (the token's text up to the cursor, as
+    // typed): shown dimmed after the cursor, and a row with stops has none. What already stands after the cursor in
+    // the token (a bracket closed) is not to come again.
+    const typed = (lines[row] ?? "").slice(start, cursor - lineStart), tail = (lines[row] ?? "").slice(cursor - lineStart, end);
+    const more = !slots.length && !merged.newPage && typed.length > 0 && insert.startsWith(typed) ? insert.slice(typed.length) : "";
+    const rest = tail && more.endsWith(tail) ? more.slice(0, more.length - tail.length) : more;
     return {
       id: `${index}`, label: merged.label, from: merged.from, insert, pick: pickId(insert),
       ...(merged.kind ? { kind: merged.kind } : {}), ...(merged.detail ? { detail: merged.detail } : {}), ...(merged.group ? { group: merged.group } : {}),
       ...(select ? { select } : {}), ...(enter ? { enter } : {}), ...(merged.docs ? { docs: merged.docs } : {}),
       ...(merged.matches.length ? { matches: merged.matches } : {}), ...(slots.length ? { slots } : {}), ...(merged.sample ? { sample: merged.sample } : {}),
-      ...(next ? { next } : {}), ...(merged.newPage ? { makes: { action: "pages.follow", params: { address: merged.newPage } } } : {}),
+      ...(next ? { next } : {}), ...(rest ? { rest } : {}), ...(merged.newPage ? { makes: { action: "pages.follow", params: { address: merged.newPage } } } : {}),
     };
   });
   // What the lit row makes, drawn. An example that can't be drawn (it asks about a note that is gone) leaves the row its words.

@@ -172,14 +172,21 @@ test("a page nobody has written is offered with the request that makes it, and a
 test("completion.rows for a text and a cursor says the letters matched, a skeleton's stops, and when choosing a row opens the next list", async () => {
   const { store, client } = await service();
   const bed = store.create("North bed [type::bed] [stage::sown]");
-  type Row = { label: string; insert: string; kind?: string; matches?: number[]; slots?: { start: number; end: number }[]; select?: { start: number; end: number }; next?: boolean };
+  type Row = { label: string; insert: string; kind?: string; matches?: number[]; slots?: { start: number; end: number }[]; select?: { start: number; end: number }; next?: boolean; rest?: string };
   const keys = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [sta", cursor: 9, near: bed.id });
   const stage = keys.rows.find(row => row.label === "stage")!;
-  expect(stage).toMatchObject({ insert: "[stage::", matches: [0, 1, 2], next: true });
+  // (`rest`: what of the row is still to come after what is typed, for a client to show dimmed after the cursor.)
+  expect(stage).toMatchObject({ insert: "[stage::", matches: [0, 1, 2], next: true, rest: "ge::" });
   // A value closes its bracket and leaves no token: nothing is asked again.
   const values = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [stage::so", cursor: 15, near: bed.id });
-  expect(values.rows[0]).toMatchObject({ label: "sown", insert: "sown]", matches: [0, 1] });
+  expect(values.rows[0]).toMatchObject({ label: "sown", insert: "sown]", matches: [0, 1], rest: "wn]" });
   expect(values.rows[0]!.next).toBeUndefined();
+  // A bracket already closed after the cursor is not to come again; a row that doesn't go on from what is typed
+  // (another case, letters from its middle) has nothing to show after the cursor.
+  const closed = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [stage::so]", cursor: 15, near: bed.id });
+  expect(closed.rows[0]).toMatchObject({ label: "sown", rest: "wn" });
+  const middle = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [tag", cursor: 9, near: bed.id });
+  expect(middle.rows.find(row => row.label === "stage")?.rest).toBeUndefined();
   // A component's skeleton: every value of its example a stop, in order, the first the one selected once it is in.
   const components = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "::graph-met", cursor: 11, near: bed.id });
   const meter = components.rows.find(row => row.kind === "component" && row.slots?.length)!;

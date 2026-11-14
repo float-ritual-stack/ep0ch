@@ -870,6 +870,8 @@ export interface CompletionAtRow {
   sample?: import("./primitive").Primitive;
   /** Choosing it leaves the cursor in a token (a key's `::` opens its values): the list is asked again at once (outline-core's `asksAgain`). */
   next?: boolean;
+  /** What of `insert` is still to come when it goes on from what is typed (the token's text up to the cursor, as typed, less what already stands after the cursor): a client shows it dimmed after the cursor, where Tab takes it. */
+  rest?: string;
   /**
    * Choosing it makes something first (a page nobody has written): the request to send, as whoever chose, before
    * its `insert` is written; refused, nothing is written and the refusal is said.
