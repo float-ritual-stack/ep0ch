@@ -287,7 +287,7 @@ test("pictures: a media line where it stands, an svg fence as its own text, and 
 
 // A property that styles the line it is on is no content (outline-core's heading-styles.ts, the one rule every reader
 // has): a heading's own style, a line that declares one, a rule's, a `style.*`. A page that draws no style still
-// leaves them out, and says the style each heading or rule names, so a client that can draw it does.
+// leaves them out. (The style a heading or a rule names is not served yet: a client draws a plain heading.)
 test("a heading is served without the properties that style it; what says something stays", async () => {
   const { create, page } = await setup();
   const note = await create([
