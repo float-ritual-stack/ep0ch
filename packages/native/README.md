@@ -170,6 +170,8 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
 | `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
 | `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
+| `mod+.` | `tile.menu` | everywhere | this tile's menu |
+| `mod+shift+y` | `note.copy-ref kind=id` | everywhere | copy the open note's id |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
 | `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |

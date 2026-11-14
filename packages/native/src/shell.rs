@@ -152,24 +152,17 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
     // The tile that is held is dimmed where it stands until it is let go.
     keys::tile(col().key(format!("tile/{name}")).role("group").label(name.clone()).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.md).fill(c.surface_base).border(1.0, if focused { c.border_focus } else { c.border_muted })
         .opacity(match s.moving.as_ref().filter(|held| held.tile == id) { Some(held) if held.lifted.is_none() => 0.4, Some(_) => 0.9, None => 1.0 })
-        .on_secondary_press(menu_at(&name))
+        .on_secondary_press({ let from = name.clone(); move |s: &mut App, press: PointerPress, _: &mut Tx| for line in menu_lines(None, press) { s.act_in(&line, &from, Actor::Person); } })
         .child(bar)
         .child(body.child(el().w_full().grow(1.0).min_h(0.0).child(drawn))))
 }
 
-/// A right-click in a tile: its menu, where the pointer is (`tile.menu`, which gives the tile the keys first), as
-/// the door names a place: a cell of the window, here with the fraction the pointer is inside it. `on`: what under
-/// the pointer the menu is about first, as arguments of `tile.point` (a list's row, a link in prose).
-pub(crate) fn menu_press(s: &mut App, tile: &str, on: Option<String>, press: PointerPress) {
-    let tile = word(tile);
-    if let Some(on) = on { s.act(&format!("tile.point {on} tile={tile}"), Actor::Person); }
-    s.act(&format!("tile.menu at={} tile={tile}", word(&format!("{:.2},{:.2}", press.x / CELL.0, press.y / CELL.1))), Actor::Person);
-}
-
-/// What a tile's own right-click runs: its menu, about the tile.
-fn menu_at(tile: &str) -> impl Fn(&mut App, PointerPress, &mut Tx) + 'static {
-    let tile = tile.to_string();
-    move |s: &mut App, press: PointerPress, _: &mut Tx| menu_press(s, &tile, None, press)
+/// What a right-click in a tile says, as act lines run from that tile: what under the pointer its menu is about
+/// first (`on`: the arguments of `tile.point`, a list's row or a link in prose), then the menu where the pointer is
+/// (`tile.menu`, which gives the tile the keys), as the door names a place: a cell of the window, here with the
+/// fraction the pointer is inside it.
+pub(crate) fn menu_lines(on: Option<&str>, press: PointerPress) -> Vec<String> {
+    on.map(|on| format!("tile.point {on}")).into_iter().chain([format!("tile.menu at={}", word(&format!("{:.2},{:.2}", press.x / CELL.0, press.y / CELL.1)))]).collect()
 }
 
 /// One place a held tile can land in, as the layout's drop rule answers it: its box, its words, and why the

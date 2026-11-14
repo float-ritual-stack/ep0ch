@@ -264,3 +264,39 @@ fn a_picture_pasted_into_a_block_is_kept_and_its_line_put_in() {
     assert!(words(&rt.state).ends_with("\n[img::/made/up/garden/media/2026-11-14-clipboard.png]\n"), "{}", words(&rt.state));
     assert!(!rt.state.act("draft.image path=/made/up/bed.png", agent()).ok, "the editor is the person's");
 }
+
+/// The pointer resting on a row of the tree: after the door's 300 ms of rest the note that row is keyed by is asked
+/// of the service (read once, never watched) and shown in a card beside the row, its title and how it starts, each
+/// part built by the registry as on a page. Nothing opens: the reader keeps its note. The card goes as the pointer
+/// leaves the row, and an agent has no pointer to rest.
+#[test]
+fn a_row_the_pointer_rests_on_shows_its_note_in_a_card_beside_it_and_opens_nothing() {
+    let mut g = garden(ok());
+    assert!(act(&mut g.app, "tree.fold id=plot open=true").ok);
+    let (asked, mut rt) = (g.asked.clone(), window(g.app));
+    rest(&mut rt);
+    let (x, y) = rt.find("tile/tree/row/beans").expect("the beans are a row of the tree");
+    rt.pointer_move(x, y);
+    // Not at once: a pointer passing over rows shows nothing.
+    for _ in 0..6 { rt.frame(1.0 / 60.0); }
+    assert!(rt.state.glance.is_none(), "100 ms is no rest");
+    rest(&mut rt);
+    assert_eq!(rt.state.glance.as_ref().map(|glance| (rt.state.layout.name(&glance.tile), glance.row.clone())), Some(("tree".to_string(), "beans".to_string())));
+    let read = asked.borrow().iter().filter(|ask| ask["action"] == "notes.page" && ask["blockId"] == "beans").cloned().collect::<Vec<_>>();
+    assert!(!read.is_empty() && read.iter().all(|ask| ask.get("watch").is_none_or(|watch| watch.is_null())), "the note is read, and not watched: {read:?}");
+    let says = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with(key))).filter_map(|e| e.text).map(|text| plain(&text)).collect::<Vec<_>>().join(" ");
+    assert_eq!(says(&rt, "tile/tree/glance/title"), "Water the beans");
+    // The card stands beside its row, inside the window, and how the note starts is drawn in it.
+    let (card, row) = (rect_of(&rt, "tile/tree/glance").unwrap(), rect_of(&rt, "tile/tree/row/beans").unwrap());
+    let within = |e: &rune::ElementInfo| e.rect[0] >= card[0] - 1.0 && e.rect[1] >= card[1] - 1.0 && e.rect[0] + e.rect[2] <= card[0] + card[2] + 1.0 && e.rect[1] + e.rect[3] <= card[1] + card[3] + 1.0;
+    let drawn = rt.elements().into_iter().filter(within).filter_map(|e| e.text).map(|text| plain(&text)).collect::<Vec<_>>().join(" ");
+    assert!(drawn.contains("Before the rain."), "how the note starts is in the card: {drawn}");
+    assert!(card[0] >= row[0] + row[2] - 1.0 && card[0] + card[2] <= 1180.0, "the card {card:?} is beside the row {row:?}");
+    assert_eq!(open_note(&rt.state).as_deref(), Some("plot"), "nothing was opened");
+    // The pointer leaves: the card goes.
+    let (rx, ry) = rt.find("tile/reader/bar").unwrap();
+    rt.pointer_move(rx, ry);
+    rest(&mut rt);
+    assert!(rt.state.glance.is_none() && rect_of(&rt, "tile/tree/glance").is_none());
+    assert!(!rt.state.act("glance row=beans tile=tree", agent()).ok, "the card follows the person's pointer");
+}

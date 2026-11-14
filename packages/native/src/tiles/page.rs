@@ -183,17 +183,13 @@ fn beside(cx: &TileCx, part: &Value, built: El, margin: bool, roomy: bool, k: &K
 }
 
 /// A place files are dropped on a note (Rune's `on_drop_files`, the innermost target under the pointer): each file
-/// is `note.drop`, after `line` of the note's text when the place is a part of it. What a note keeps is the
+/// is `note.drop`, run from this tile, after `line` of the note's text when the place is a part of it (the first
+/// goes after the line; the rest follow it at the caret, in the order they were dropped). What a note keeps is the
 /// service's to say, so every file is taken and a refusal is its words.
 fn dropping(place: El, cx: &TileCx, line: Option<u64>) -> El {
-    let tile = word(&cx.name);
-    place.on_drop_files(move |s: &mut App, files: &[std::path::PathBuf], _: &mut rune::Tx| {
-        for (n, file) in files.iter().enumerate() {
-            // The first goes after the line; the rest follow it at the caret, in the order they were dropped.
-            let after = line.filter(|_| n == 0).map_or(String::new(), |line| format!(" line={line}"));
-            s.act(&format!("note.drop path={}{after} tile={tile}", word(&file.to_string_lossy())), Actor::Person);
-        }
-    })
+    let from = cx.name.clone();
+    let lines = move |files: &[std::path::PathBuf]| files.iter().enumerate().map(|(n, file)| format!("note.drop path={}{}", word(&file.to_string_lossy()), line.filter(|_| n == 0).map_or(String::new(), |line| format!(" line={line}")))).collect::<Vec<_>>();
+    place.on_drop_files(move |s: &mut App, files: &[std::path::PathBuf], _: &mut rune::Tx| for line in lines(files) { s.act_in(&line, &from, Actor::Person); })
 }
 
 /// What is attached to words, beside them: the row of the list the mark names (a thread's), drawn by the list

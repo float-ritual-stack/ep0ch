@@ -91,11 +91,11 @@ static DISMISS: ActionRow = ActionRow::new("complete.dismiss", Touches::Draft, "
     .person(THEIRS)
     .keys(&[KeyRow::on("escape", "said", "put the list away")]);
 
-static IMAGE: ActionRow = ActionRow::new("draft.image", Touches::Draft, "put a file in the block being written here, at the caret, as a media line on a line of its own: the file at path=, else the picture on the clipboard. The service keeps it and writes its line (media.keep, the door's rule): a picture is copied into the outline's folder (media/, named by its day and contents, the same picture twice one file) and goes in as [img::<path>]; a page a note runs is named where it is, as [artifact::<path>]; anything else is refused with what a note keeps. One step of the editor's undo")
+static IMAGE: ActionRow = ActionRow::new("draft.image", Touches::Draft, "put a file in the block being written here, at the caret, as a media line on a line of its own: the file at path=, else the picture on the clipboard. The service keeps it and writes its line (media.keep, the door's rule): a picture is copied into the outline's folder (media/, named by its day and contents, the same picture twice one file) and goes in as its picture line; a page a note runs is named where it is, as its artifact line; anything else is refused with what a note keeps. One step of the editor's undo")
     .person(THEIRS)
     .args(&[("path", ArgSpec::text("a file on this machine to put in, instead of the clipboard's picture").optional())])
     .keys(&[KeyRow::via("a picture pasted into a block being written, or files copied in a file manager pasted there")])
-    .examples(&[Example { act: "draft.image path=/made/up/bed-at-dusk.png", does: "keeps that picture in the outline's media folder and puts its [img::] line in at the caret", safe: None }]);
+    .examples(&[Example { act: "draft.image path=/made/up/bed-at-dusk.png", does: "keeps that picture in the outline's media folder and puts its picture line in at the caret", safe: None }]);
 
 static DROP: ActionRow = ActionRow::new("note.drop", Touches::Draft, "a file dropped on a note in a reader (tile=, else the reader an act about the open note means): the note is opened for editing when it isn't, the caret goes to the end of line= (the line of the note's text the file was dropped after: the last of the part under the pointer), and the file goes in there as draft.image puts one in (kept by the service, its media line on a line of its own). With no line=, at the caret")
     .person(THEIRS)
@@ -104,11 +104,11 @@ static DROP: ActionRow = ActionRow::new("note.drop", Touches::Draft, "a file dro
         ("line", ArgSpec::number("the line of the note's text it goes in after, from 1 (default: where the caret is)").optional()),
     ])
     .keys(&[KeyRow::via("a file dragged from a file manager and let go over a note: it lands under the part it was let go on")])
-    .examples(&[Example { act: "note.drop path=/made/up/bed-at-dusk.png line=3", does: "opens the reader's note for editing and puts the picture's line in after its third line", safe: None }]);
+    .examples(&[Example { act: "note.drop line=3 path=/made/up/bed-at-dusk.png", does: "opens the reader's note for editing and puts the picture's line in after its third line", safe: None }]);
 
 pub static ACTIONS: &[Action] = &[
     Action { row: &IMAGE, run: image, about: About::Drafts },
-    Action { row: &DROP, run: dropped, about: About::Notes },
+    Action { row: &DROP, run: drop_in, about: About::Notes },
     Action { row: &EDIT, run: edit, about: About::Notes },
     Action { row: &SAVE, run: save, about: About::Drafts },
     Action { row: &CLOSE, run: close, about: About::Drafts },
@@ -491,7 +491,7 @@ fn image(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     Outcome::done()
 }
 
-fn dropped(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+fn drop_in(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let Some(tile) = app.about() else { return Outcome::refused("there is no reader to drop a file on") };
     let path = args.text("path").unwrap_or("").to_string();
     let (bytes, name) = match read_file(&path) { Ok(read) => read, Err(no) => return no };

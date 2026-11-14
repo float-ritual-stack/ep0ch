@@ -239,6 +239,8 @@ pub struct State {
     pub menu: Option<super::menu::Menu>,
     /// The window has menus of the platform's own (said once, where the window is made).
     pub native_menus: bool,
+    /// The row of a list whose note is shown in a card beside it, while the pointer rests there (`glance`).
+    pub glance: Option<super::menu::Glance>,
     pub notice: Option<Notice>,
     /// The last act an agent ran, as the status line says it: up for as long as it takes to read (`App::fade`).
     pub agent_said: Option<String>,
@@ -357,6 +359,7 @@ impl App {
                 closing: false,
                 menu: None,
                 native_menus: false,
+                glance: None,
                 notice: None,
                 agent_said: None,
                 heard: Heard::default(),
@@ -775,6 +778,8 @@ impl App {
             if let Some(shows) = draft.shows().filter(|shows| *shows != ask) { wants.push(Want { tile: draft.tile.clone(), role: "completes", ask: shows.clone() }) }
         }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
+        // The note of the row the pointer rests on, for its card.
+        if let Some(ask) = self.glance_ask() { wants.push(Want { tile: "glance".into(), role: "page", ask }) }
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
             wants.push(Want { tile: "sources".into(), role: "list", ask: self.sources_ask() });

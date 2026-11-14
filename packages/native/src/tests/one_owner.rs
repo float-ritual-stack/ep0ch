@@ -596,7 +596,8 @@ fn a_window_an_outline_and_an_extension_each_have_one_owner() {
     assert!(acted.contains("super::nav::OPEN.id"), "a note an extension's action asks to have opened goes through the open action's own row");
     none("a second reader of what is written as a Resource ref (`ext::resource_ref`, held to outline-core's rows)", strays("\"resource:\"", |path| path == "ext.rs"));
     none("the clipboard written outside the window's hands (`keys::effects`)", strays("tx.copy(", |path| path == "keys.rs"));
-    none("words put on the clipboard for somebody other than an extension's answer for the person", strays("st.copying =", |path| path == "actions/ext.rs"));
+    // (Since A1: and a note's address the person copies, `note.copy-ref`. An agent's copy is answered and never put there.)
+    none("words put on the clipboard for somebody other than an extension's answer for the person, or the address of a note they copy", strays("st.copying =", |path| path == "actions/ext.rs" || path == "actions/menu.rs"));
     // A machine's name belongs to the machine that says it: whether the host asked may speak for an outline is one
     // rule, asked before anybody is asked the way, and the launch that opens one from here is written once.
     none("a second rule for whose a machine's name is", strays("fn vouched(", |path| path == "actions/outline.rs"));
@@ -803,7 +804,8 @@ fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
     none("a tab brought forward outside the one action that shows a note's comments", strays("Op::Tab", |path| path == "actions/review.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path.starts_with("layout"))).collect());
     assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
     // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
-    none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs"));
+    // (Since A1: a tile's menu lists the same rows for the words picked in it, from the same reader.)
+    none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs" || path == "actions/menu.rs"));
     assert!(code("keys.rs").contains("if self.ui(&self.layout.focus).passage.is_some() { Layer::Selection }"), "the layer of picked words is said by `App::person`");
 }
 

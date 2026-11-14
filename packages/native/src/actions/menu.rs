@@ -44,7 +44,17 @@ static COPY: ActionRow = ActionRow::new("note.copy-ref", Touches::Nothing, "copy
     .menu(&[MenuRow::with("Copy note id", "Copy", Some("mod+shift+y"), &[("kind", Scalar::Text("id"))]), MenuRow::with("Copy note web link", "Copy", None, &[("kind", Scalar::Text("link"))])])
     .examples(&[Example { act: "note.copy-ref kind=link", does: "copies the open note's web link", safe: Some(true) }]);
 
-pub static ACTIONS: &[Action] = &[Action { row: &MENU, run: menu, about: About::Any }, Action { row: &POINT, run: point, about: About::Any }, Action { row: &COPY, run: copy, about: About::Notes }];
+static GLANCE: ActionRow = ActionRow::new("glance", Touches::Nothing, "show the note a row of a list (tile=, row= by the row's id) opens, in a card beside the row, without opening it: its title and how it starts, as the service answers its page. With no row=, the card is put away. The person's: it follows their pointer, resting on a row")
+    .person("the card follows the person's pointer: an agent reads a note from the service itself, and opens one here with open id=…")
+    .args(&[("row", ArgSpec::text("the row whose note to show, by its id; left out, the card is put away").optional())])
+    .keys(&[KeyRow::via("the pointer resting on a row of a list tile; it goes when the pointer leaves the row")])
+    .examples(&[Example { act: "glance row=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree", does: "shows that note in a card beside its row of the tree", safe: Some(true) }]);
+
+pub static ACTIONS: &[Action] = &[Action { row: &MENU, run: menu, about: About::Any }, Action { row: &POINT, run: point, about: About::Any }, Action { row: &COPY, run: copy, about: About::Notes }, Action { row: &GLANCE, run: glance, about: About::Lists }];
+
+/// The row whose note is shown in a card beside it: which list tile, and which of its rows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Glance { pub tile: Id, pub row: String }
 
 /// What the pointer was on in a tile when its menu was asked for.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -146,6 +156,28 @@ impl App {
     /// The window has menus of the platform's own (Rune's `popup_menu_supported`, said once where the window is
     /// made): a right-click's menu is one of those. Without, and for a menu asked with words, it is the bar's list.
     pub fn with_native_menus(mut self, native: bool) -> App { self.st.native_menus = native; self }
+}
+
+impl App {
+    /// What a glance at a row asks: the page of the note the row is keyed by, read once (never watched: the card is
+    /// gone before the note changes). A row that is no note's is refused by the service, and shows no card.
+    pub fn glance_ask(&self) -> Option<crate::store::Ask> { self.glance.as_ref().map(|glance| crate::store::Ask::read(&self.at, "notes.page", json!({ "blockId": glance.row }))) }
+
+    /// The row of `tile` glanced at, with its note's page when the service has answered it.
+    pub fn glanced(&self, tile: &str) -> Option<(&str, Option<&crate::page::Page>)> {
+        let glance = self.glance.as_ref().filter(|glance| glance.tile == tile)?;
+        Some((glance.row.as_str(), self.glance_ask().and_then(|ask| self.store.read::<crate::page::Page>(&ask))))
+    }
+}
+
+fn glance(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let Some(tile) = app.about() else { return Outcome::refused("there is no list to glance at a row of") };
+    app.st.glance = match args.text("row") {
+        Some(row) if app.rows_of(&tile).iter().any(|listed| listed.id == row) => Some(Glance { tile, row: row.to_string() }),
+        Some(row) => return Outcome::refused(format!("{} lists no row {row}", app.layout.name(&tile))),
+        None => None,
+    };
+    Outcome::done()
 }
 
 /// Whether a row matches the words typed, as the bar matches an action's row: every word in its label, its group

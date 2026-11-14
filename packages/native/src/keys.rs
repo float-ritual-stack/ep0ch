@@ -542,8 +542,8 @@ impl Text {
 /// dropped there is, or the picture it is, kept for the block being written. The one place a paste is read.
 fn hand_over(s: &mut App, tile: &str, content: &rune::ClipboardContent) {
     if !content.text().is_empty() { return s.pasted(tile, content.text()) }
-    let name = s.layout.name(tile);
-    for file in content.files() { s.act(&format!("draft.image path={} tile={}", word(&file.to_string_lossy()), word(&name)), Actor::Person); }
+    let from = s.layout.name(tile);
+    for file in content.files() { s.act_in(&format!("draft.image path={}", word(&file.to_string_lossy())), &from, Actor::Person); }
     if content.files().is_empty() && let Some(picture) = content.image() { s.pasted_picture(tile, picture.png()) }
 }
 

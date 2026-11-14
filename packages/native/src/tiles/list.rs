@@ -25,7 +25,7 @@ use crate::list::{self, Rows};
 use crate::page::{ListAnswer, ListGroup, ListRow, ListView, Section};
 use crate::store::Ask;
 
-pub static DRAWER: Drawer = Drawer { id: "list", about: "one list, whatever it is of: a tree, rows under their groups, a table or lanes, as the list says", notes: false, lists: true, asks, draw, facts, takes_keys: false, version, over: None };
+pub static DRAWER: Drawer = Drawer { id: "list", about: "one list, whatever it is of: a tree, rows under their groups, a table or lanes, as the list says", notes: false, lists: true, asks, draw, facts, takes_keys: false, version, over: Some(over) };
 
 static DOT: Icon = Icon { name: "ep0ch-dot", view: 16.0, body: r#"<circle cx="8" cy="8" r="1.6" fill="currentColor"/>"# };
 
@@ -112,6 +112,25 @@ fn chip(cx: &TileCx, at: &Place, key: &str, value: &str, said: String, on: bool,
         .on_press(at.chip(cx, key, value))
 }
 
+/// How long the pointer rests on a row before its note is shown beside it: the door's `HOVER_REST_MS`.
+const REST: std::time::Duration = std::time::Duration::from_millis(300);
+/// How many of a note's parts a card beside a row shows: how it starts.
+const GLANCE_PARTS: usize = 2;
+
+/// What a list tile draws over the window: the note of the row the pointer rests on, in a card beside the row (the
+/// kit's raised popover, anchored to the row). Its title and how it starts, each part built by the registry as on
+/// a page, whole (a popover has no scroll: a list in it is built as a list inside a row is).
+fn over(cx: &TileCx, _: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
+    let Some((row, Some(page))) = cx.app.glanced(cx.id) else { return };
+    // The row left the list while the pointer was on it: nothing to hang a card on.
+    if !cx.app.rows_of(cx.id).iter().any(|listed| listed.id == row) { return }
+    let at = PrimCx::of(cx).in_row();
+    let mut card = col().key(cx.key("glance")).role("tooltip").label(page.title.clone()).w(360.0).max_h(280.0).clip_rounded(k.radius.md).padding(12.0).gap(8.0)
+        .child(text(page.title.clone()).key(cx.key("glance/title")).font(k.ty.body_medium).color(k.c.text_base).wrap());
+    for (n, part) in page.parts.iter().take(GLANCE_PARTS).enumerate() { card = card.child(prim::build(part, &at.at(format!("glance/part/{n}")), k)) }
+    layer.push(rune_kit::popover::anchored(k, rune_kit::popover::raised(k, card, k.radius.md), &Place::tile(cx).row_key(cx, row), rune_kit::Placement::RightStart, 6.0));
+}
+
 /// One row: its mark and label, the properties it carries as chips, and its detail under it (or beside it, in a
 /// tree). A cell that carries an act line is a press of its own on the row (the service's word on what it runs), and
 /// what the row shows under itself (`view`) is a primitive, built by the registry as any is: a change, a thread's
@@ -154,8 +173,14 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     let head = if tree { head.level(r.depth as u32 + 1) } else { head };
     let head = if r.folds && (tree || at.unfolds(cx)) { head.expanded(r.open) } else { head };
     let head = head.focus_selected(selected);
+    // The pointer resting on a list tile's row that opens something: the note it is keyed by, in a card beside it
+    // (`glance`, after the door's 300 ms of rest); gone as the pointer leaves.
+    let head = if at.page || r.act.is_none() { head } else {
+        let (tile, row) = (cx.name.clone(), word(&r.id));
+        head.hover_delays(REST, std::time::Duration::ZERO).on_hover_change(move |s: &mut App, over: bool, _: &mut rune::Tx| { s.act_in(&if over { format!("glance row={row}") } else { "glance".to_string() }, &tile, crate::actions::Actor::Person); })
+    };
     // A right-click on a list tile's row: the tile's menu, about this row first (its own act and presses).
-    let head = if at.page { head } else { let (tile, on) = (cx.name.clone(), format!("row={}", word(&r.id))); head.on_secondary_press(move |s: &mut App, press: rune::PointerPress, _: &mut rune::Tx| crate::shell::menu_press(s, &tile, Some(on.clone()), press)) };
+    let head = if at.page { head } else { let (tile, on) = (cx.name.clone(), format!("row={}", word(&r.id))); head.on_secondary_press(move |s: &mut App, press: rune::PointerPress, _: &mut rune::Tx| for line in crate::shell::menu_lines(Some(&on), press) { s.act_in(&line, &tile, crate::actions::Actor::Person); }) };
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
     // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
     let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
