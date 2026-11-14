@@ -97,7 +97,7 @@ const go = (to: string, words: string, move: string[], select: string[]): ModeKe
 export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a person types: a note's edit, a comment, the composer, an inspector field, the power bar, a line field", [
   { key: "ctrl+s", action: "edit.save", label: "save", says: "save or send what's written" },
   { key: "esc", action: "edit.close", label: "done", says: "let go of a selection; then close what you're writing (on changed text a second press puts it aside as unsent, never dropped)" },
-  { key: "tab", action: "draft.indent", label: "indent", says: "indent the line, or the selected lines, one level (a list item goes under the item above)" },
+  { key: "tab", action: "draft.indent", label: "indent", says: "indent the list item the cursor is on, or the selected lines, one level (an item goes under the item above); any other line only from its start: in the middle of a paragraph Tab moves nothing" },
   { key: "shift+tab", action: "draft.outdent", label: "out", says: "outdent the line, or the selected lines, one level" },
   { key: "ctrl+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
   { key: "ctrl+y", action: "draft.redo", label: "redo", says: "put back the change you undid (ctrl+shift+z too)" },
@@ -1556,7 +1556,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   }),
   "draft.indent": def({
-    summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: rowKeys("draft.indent"),
+    summary: "indent one level: the list item the cursor is on (it goes under the item above), the selection's lines, any other line from its start or inside its indent (in the middle of a paragraph the key moves nothing), or lines from..to outright", keys: rowKeys("draft.indent"),
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     examples: [
