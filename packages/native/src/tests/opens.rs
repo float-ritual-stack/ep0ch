@@ -95,7 +95,7 @@ fn the_cursor_s_steps_show_where_the_select_wire_says_and_return_and_alt_return_
     assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("tree", Some(on.clone())));
     assert_eq!(rt.state.ui("reader").history, ["plot"], "a walk keeps one way back: where it began");
     // The hint row says where each lands, in the layout's words, for the tile with the keys.
-    let lands = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("hints/lands")).and_then(|e| e.text).unwrap_or_default();
+    let lands = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("lands")).and_then(|e| e.text).unwrap_or_default();
     assert_eq!(plain(&lands), "select \u{2192} reader \u{b7} open \u{2192} reader \u{b7} alt \u{2192} beside tree");
     // Return opens the row where the tree's opens land: with no wire, the first reader not pinned, which takes the keys.
     key(&mut rt, Key::Enter);

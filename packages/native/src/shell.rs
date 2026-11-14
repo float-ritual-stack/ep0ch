@@ -112,14 +112,26 @@ fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: boo
             .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &tab_name, frame) { s.act(&line, Actor::Person); }));
     }
     let floats = s.layout.is_float(id);
-    let mut bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 }).child(title);
     // A set whose tabs take the whole title has no room for more than its close: the model says where the labels end.
     let roomy = tabs.len() == 1 || s.title_has_room(&tabs, r);
     // What opens where, said on the title and pressed there (`opens`): the landing still marked here, what a list
     // about a note is held on, a reader's pin, and where this tile's select, open and open fresh land.
-    if roomy { bar = opens(s, id, &name, r, focused, bar, frame, k) }
+    // (They take the room the title has left once its name, its kind and its own controls are said: the name is
+    // never squeezed out for them. Counted in cells, as the layout counts. Where a narrow title has no room for
+    // them beside its kind's word, the kind's word goes: where its opens land, a pin and a hold say more.)
+    let mut kind_shown = roomy;
+    if roomy {
+        let named: f64 = if tabs.len() == 1 { name.chars().count() as f64 * 1.1 + 2.5 } else { tabs.iter().map(|tab| tab.to - tab.from).sum() };
+        let kind_said = s.kind_of(id).map(|row| row.name.chars().count()).filter(|n| *n > 0).unwrap_or(kind.chars().count()) as f64 * 0.8 + 2.5;
+        // (The room the controls of the tile with the keys take is kept on every title, so nothing here moves with the keys.)
+        let controls = 3.2 * (3.0 + f64::from(s.torn()));
+        let mut room = r.cols - 2.5 - named - kind_said - controls;
+        if room < 7.0 && tabs.len() == 1 && s.has_wires(id) { kind_shown = false; room += kind_said }
+        title = opens(s, id, &name, room, title, frame, k);
+    }
+    let mut bar = row().key(format!("tile/{name}/bar")).w_full().h(TITLE).gap(6.0).center_y().px(6.0).fill(if focused { c.layer_02 } else { c.layer_01 }).child(title.gap(4.0));
     // What kind of tile it is, in the kind's own word for itself (its row's name), else as its spec names it.
-    if roomy { bar = bar.child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k)) }
+    if kind_shown { bar = bar.child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k)) }
     // The tile with the keys says what can be done with it where it is: fold it, pop it out. A float says the way back.
     let control = |glyph: &'static rune::Icon, line: String, part: &str| IconButton::new(glyph).variant(IconButtonVariant::GhostMuted).label(actions::label(&line)).on_press(act(line)).build(k).key(format!("tile/{name}/{part}"));
     if focused && roomy && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, format!("tile.collapse tile={}", word(&name)), "fold")) }
@@ -152,48 +164,65 @@ fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: boo
 /// been seen), the tiles wired into it, what a list about a note is held on or follows (`tile.hold`), a reader's pin
 /// (`reader.pin`), and where its select, open and open fresh land (`wire.pick`, which picks another tile on screen).
 /// Every word is the model's (`App::wire_words`, `held_on`, `pinned`, `arrival`): placement's own answer, asked
-/// without opening anything. A wide tile says the verbs in words; a narrower one where an open lands; a narrow one
-/// keeps the pin and the subject alone.
-fn opens(s: &App, id: &str, name: &str, r: Rect, focused: bool, mut bar: El, frame: Frame, k: &Kit) -> El {
+/// without opening anything. `room` is what the title has left, in cells: a control that doesn't fit is left out,
+/// the landing's mark, the pin and the subject first, then where an open lands, then the other verbs.
+fn opens(s: &App, id: &str, name: &str, room: f64, mut bar: El, frame: Frame, k: &Kit) -> El {
     let c = &k.c;
-    // (A control on the title is still the title: held and dragged, it carries the tile as the bare title does.)
+    // (A control on the title is still the title: held and dragged, it carries the tile as the bare title does. So
+    // which controls a title has never depends on whether its tile has the keys: a press that brings them must
+    // find the control it went down on still there.)
     let chip = |words: String, line: String, part: &str, on: bool, help: String| {
         let dragged = name.to_string();
         k.interactive(text(words).font(k.ty.small).color(if on { c.text_base } else { c.text_muted }).truncate().px(5.0).py(2.0).radius(k.radius.sm).fill(if on { c.surface_hover } else { rune::Color::TRANSPARENT }))
             .key(format!("tile/{name}/{part}")).role("button").label(help.clone()).help(help).on_press(act(line))
             .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &dragged, frame) { s.act(&line, Actor::Person); })
     };
-    if let Some(arrived) = s.arrival(id) {
+    // What a control costs of the title's room, in cells: a glyph, or its words in the small face.
+    let (glyph, worded) = (3.0, |words: &str| words.chars().count() as f64 * 0.85 + 2.0);
+    let room = std::cell::Cell::new(room);
+    let takes = |cost: f64| { let fits = room.get() >= cost; if fits { room.set(room.get() - cost) } fits };
+    if let Some(arrived) = s.arrival(id).filter(|_| takes(glyph)) {
         let said = format!("{} {} here", arrived.by.label(), if arrived.preview { "previewed" } else { "opened" });
         bar = bar.child(rune::icon(&glyphs::SPARKLE, 13.0).color(c.warning.fg).key(format!("tile/{name}/arrived")).label(said.clone()).help(said));
     }
     // While a wire is being set, a tile says what a press on it does and nothing else (`linking`, over the tiles).
     if s.linking.is_some() { return bar }
-    let (from, lands) = s.wired_from(id);
-    if r.cols >= 70.0 && !from.is_empty() { bar = bar.child(text(format!("\u{2190} {}", from.join(", "))).key(format!("tile/{name}/from")).font(k.ty.small).color(c.text_faint).truncate().help(if lands { "wired from there; an open that names no tile lands here" } else { "wired from there" })) }
-    if let Some((held, title, home)) = s.held_on(id) {
-        let home = home.unwrap_or_else(|| "its reader".into());
-        let words = match (held, title) { (true, Some(title)) => format!("held \u{b7} {title}"), (true, None) => "held".into(), (false, _) => format!("follows {home}") };
-        let help = if held { format!("held on its note while {home} moves on: press to let it follow {home}") } else { format!("lists what {home} shows: press to hold it on this note") };
-        bar = bar.child(chip(words, format!("tile.hold tile={}", word(name)), "subject", held, help).max_w(180.0));
-    }
     if s.reads_notes(id) && !s.in_place(id) {
+        // (A pin that is set is always said: it is why an open lands elsewhere.)
         let pinned = s.pinned(id);
-        if pinned || r.cols >= 44.0 {
+        if takes(glyph) || pinned {
             let help = if pinned { "pinned: it keeps its note, and opens aimed at it land beside it. Press to let it go".to_string() } else { "pin this reader on its note: opens aimed at it land beside it".to_string() };
             bar = bar.child(IconButton::new(&glyphs::LOCK).variant(if pinned { IconButtonVariant::Neutral } else { IconButtonVariant::GhostMuted }).label(help).on_press(act(format!("reader.pin tile={}", word(name)))).build(k).key(format!("tile/{name}/pin")));
         }
     }
-    if !s.has_wires(id) || r.cols < 26.0 { return bar }
-    // A list selects, opens and opens fresh; a reader has no cursor to follow.
-    let verbs: &[&str] = if s.reads_notes(id) { &["open", "alt"] } else { &["select", "open", "alt"] };
-    let wide = r.cols >= 96.0 || (focused && r.cols >= 78.0);
-    for verb in verbs.iter().filter(|verb| wide || **verb == "open") {
-        let lands = s.wire_words(id, verb);
-        let words = if wide { format!("{verb} \u{2192} {lands}") } else { format!("\u{2192} {lands}") };
-        let help = format!("{} from {name} lands in {lands}: press, then press the tile to send it to", match *verb { "select" => "what its cursor is on", "alt" => "an open fresh", _ => "an open" });
-        bar = bar.child(chip(words, format!("wire.pick verb={verb} tile={}", word(name)), &format!("wire/{verb}"), false, help).max_w(if wide { 200.0 } else { 96.0 }));
+    if let Some((held, title, home)) = s.held_on(id) {
+        let home = home.unwrap_or_else(|| "its reader".into());
+        let words = match (held, title) { (true, Some(title)) => format!("held \u{b7} {title}"), (true, None) => "held".into(), (false, _) => format!("follows {home}") };
+        let help = if held { format!("held on its note while {home} moves on: press to let it follow {home}") } else { format!("lists what {home} shows: press to hold it on this note") };
+        // (Its words are cut to the room there is; with room for none, the control is the tile's own key and the bar's row.)
+        // Held or following is always said, in a word at least, and is always there to press: it is why the list
+        // moves with its reader, or no longer does.
+        let cost = worded(&words).min(room.get().max(6.0)).min(24.0);
+        if takes(cost) || cost <= 6.0 { bar = bar.child(chip(words, format!("tile.hold tile={}", word(name)), "subject", held, help).max_w(cost as f32 * CELL.0)) }
     }
+    if !s.has_wires(id) { return bar }
+    // Where its open lands first, then (a list) where its cursor shows and where an open fresh goes: a reader has
+    // no cursor to follow. The tile with the keys says the verbs in words.
+    let verbs: &[&str] = if s.reads_notes(id) { &["open", "alt"] } else { &["open", "select", "alt"] };
+    for verb in verbs {
+        let lands = s.wire_words(id, verb);
+        let full = format!("{verb} \u{2192} {lands}");
+        // (Where an open lands is said by its arrow alone where the verb's word would not fit.)
+        let words = if *verb != "open" || worded(&full) <= room.get() { full } else { format!("\u{2192} {lands}") };
+        // (Where an open lands is cut to the room there is before it is left out; the other verbs are said whole or not.)
+        let cost = if *verb == "open" { worded(&words).min(room.get()) } else { worded(&words) };
+        if cost < 7.0 || !takes(cost) { break }
+        let help = format!("{} from {name} lands in {lands}: press, then press the tile to send it to", match *verb { "select" => "what its cursor is on", "alt" => "an open fresh", _ => "an open" });
+        bar = bar.child(chip(words, format!("wire.pick verb={verb} tile={}", word(name)), &format!("wire/{verb}"), false, help).max_w(cost as f32 * CELL.0));
+    }
+    let (from, lands) = s.wired_from(id);
+    let chain = format!("\u{2190} {}", from.join(", "));
+    if !from.is_empty() && takes(worded(&chain)) { bar = bar.child(text(chain).key(format!("tile/{name}/from")).font(k.ty.small).color(c.text_faint).truncate().help(if lands { "wired from there; an open that names no tile lands here" } else { "wired from there" })) }
     bar
 }
 
@@ -360,12 +389,8 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
 fn foot(s: &App, k: &Kit) -> El {
     let c = &k.c;
     let mut line = row().key("hints").role("status").label("What the keys do here").w_full().h(FOOT).gap(14.0).center_y().px(10.0).clip_rounded(0.0);
-    for (i, hint) in s.hinted().into_iter().enumerate() {
-        let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
-        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
-    }
     // Where the keys just said land, for the tile that has them: its select, open and open fresh, in the layout's
-    // own words (`App::wire_words`, the answer its title's controls read), at the row's end. A press picks another
+    // own words (`App::wire_words`, the answer its title's controls read), before the keys. A press picks another
     // tile for its opens on screen.
     let focus = &s.layout.focus;
     let person = s.person();
@@ -373,7 +398,11 @@ fn foot(s: &App, k: &Kit) -> El {
         let verbs: &[&str] = if s.reads_notes(focus) { &["open", "alt"] } else { &["select", "open", "alt"] };
         let said = verbs.iter().map(|verb| format!("{verb} \u{2192} {}", s.wire_words(focus, verb))).collect::<Vec<_>>().join(" \u{b7} ");
         let pick = format!("wire.pick verb=open tile={}", word(&s.layout.name(focus)));
-        line = line.child(el().grow(1.0).min_w(0.0)).child(k.interactive(text(said).font(k.ty.small).color(c.text_muted).truncate()).key("hints/lands").role("button").label(actions::label(&pick)).help("Where this tile's select, open and open fresh land: press, then press the tile its opens go to").on_press(act(pick)));
+        line = line.child(k.interactive(text(said).font(k.ty.small).color(c.text_muted)).key("lands").role("button").label(actions::label(&pick)).help("Where this tile's select, open and open fresh land: press, then press the tile its opens go to").on_press(act(pick)));
+    }
+    for (i, hint) in s.hinted().into_iter().enumerate() {
+        let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
+        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
     }
     line
 }

@@ -49,6 +49,4 @@ impl Presses {
         self.last = Some((row.to_string(), p.now));
         if p.focusing { Gesture::Focus } else { Gesture::Select }
     }
-    /// The list changed under the pointer: the next press starts afresh.
-    pub fn forget(&mut self) { self.last = None }
 }

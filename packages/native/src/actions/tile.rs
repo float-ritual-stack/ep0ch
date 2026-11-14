@@ -147,7 +147,7 @@ fn split(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let note = app.note_of(&from).filter(|_| reads(&kind) && same);
     let outcome = app.reshape(&Op::Open { tile: spec, name: Some(name.clone()), loose: false, alt: false, deliberate: None, at: At::Split { target: from, dir, pair: false, weight: None }, keys: true, link: None, verb: None, select_from: Vec::new() }, by);
     // A tile made by hand is one the person asked for: no open aimed elsewhere takes it for showing the note.
-    if outcome.ok && app.stands(by) && let Some(made) = app.layout.named(&name) { app.ui_mut(&made).deliberate = true }
+    if outcome.ok && app.stands(by) { app.ui_mut(&name).deliberate = true }
     if outcome.ok && let Some(note) = note { app.show(&name, &note, false); app.keep() }
     outcome
 }

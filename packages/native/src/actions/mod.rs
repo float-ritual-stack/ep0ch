@@ -33,7 +33,7 @@ mod wires;
 
 use serde_json::{Map, Value, json};
 
-pub use app::{ARRIVAL, App, Arrival, CELL, Field, FormUi, Linking, Notice, Said, Scroll, TileUi, Tone, Ways, stays};
+pub use app::{App, CELL, Field, FormUi, Notice, Said, Scroll, TileUi, Tone, Ways, stays};
 pub use carry::{Moving, Strip};
 pub use row::ActionRow;
 
