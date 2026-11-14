@@ -108,6 +108,41 @@ impl Link for Nowhere {
     fn wait(&mut self, _: &str, _: Duration) {}
 }
 
+/// A link that answers from what a host once answered: the asks a window made of a scratch host, each with the
+/// answer it got (`stories/recorded.json`, written by the recorder in `tests/live.rs`). A story of the playground
+/// is a window over one: it draws real answers with no host running. An ask is found by everything it says but its
+/// own id and the asker's name for itself; one the recording holds a single answer for under that action is given
+/// it; anything else is refused, saying this is a recording.
+pub struct Recorded { pairs: std::sync::Arc<Vec<(Value, Value)>>, said: VecDeque<Value> }
+
+impl Recorded {
+    pub fn new(pairs: std::sync::Arc<Vec<(Value, Value)>>) -> Recorded { Recorded { pairs, said: VecDeque::new() } }
+
+    /// An ask as it is found by: what it says, less the id its sender gave it and the name the asking window has
+    /// for itself (another window's is another name, and the answer is the same).
+    pub fn asked(request: &Value) -> Value {
+        let mut ask = request.clone();
+        if let Some(fields) = ask.as_object_mut() { for own in ["id", "client", "clientId"] { fields.remove(own); } }
+        ask
+    }
+}
+
+impl Link for Recorded {
+    fn send(&mut self, request: &Value) {
+        let ask = Recorded::asked(request);
+        let same: Vec<&(Value, Value)> = self.pairs.iter().filter(|(asked, _)| asked["action"] == ask["action"]).collect();
+        let found = same.iter().find(|(asked, _)| *asked == ask).or_else(|| same.first().filter(|_| same.len() == 1));
+        let mut line = match found {
+            Some((_, answer)) => answer.clone(),
+            None => json!({ "ok": false, "kind": "failed", "error": format!("a recording answers this window: nobody recorded what a host says to this {}", ask["action"].as_str().unwrap_or("ask")) }),
+        };
+        line["id"] = request["id"].clone();
+        self.said.push_back(line);
+    }
+    fn take(&mut self) -> Vec<Value> { self.said.drain(..).collect() }
+    fn wait(&mut self, _: &str, _: Duration) {}
+}
+
 /// The way to an outline's host: the link to it, and where a window keeps that outline's arrangement between runs
 /// (none: nowhere, as a headless render keeps none).
 pub struct Way {

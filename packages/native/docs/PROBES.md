@@ -847,6 +847,54 @@ focus that goes to a neighbour when the focused element leaves the tree, F6 betw
 `Tx::scroll_center`, `rune_kit::search::Fold` (search that folds case and width in every language),
 `rune::text::compare_names`, and `El::placeholder_font`.
 
+## 19. Adopting Rune (A1)
+
+**What the window now takes from Rune as it is, what it composes, and what Rune lacks for it.** Read from Rune's
+source at `a5360a6` (paths under `crates/`) and run on a headless runtime here. **Nothing below was run on a Mac,
+on Windows or on a display.**
+
+| Asked | Answer | Evidence |
+|---|---|---|
+| Can the toolbar be the window's title bar? | **Yes, as it is:** `App::titlebar(Titlebar::new(height))` and `.window_drag()` on the row. A press on the row's ground asks for a window drag (`Runtime::take_titlebar_action` answers `Drag`); a press on a button on it asks for none and runs the button. `Cx::chrome_insets` says what the controls take at both ends | `rune/src/window/titlebar.rs:32`, `rune/src/el/layout.rs:596`; `the_toolbar_is_the_window_s_title_bar_and_keeps_clear_of_the_window_s_own_controls` |
+| Is a context menu the platform's? | **On macOS and Windows** (`popup_menu_supported`, `rune/src/popup_menu/mod.rs:51`); elsewhere a request is answered `None` at once. A headless runtime queues one on every platform (`Runtime::popup_menu`, `resolve_popup`), which is how the test picks a row on Linux. A right-click reaches the innermost element with `on_secondary_press` and no other: one right-click opened one menu | `a_right_click_on_a_row_opens_the_tile_s_menu_about_that_row_and_a_pick_runs_its_line` |
+| Does a key table's chord read as a menu's key hint? | **Yes:** `"mod+d".parse::<Shortcut>()` reads the names the rows write (Rune's own example writes `mod+c`) | `rune/examples/popup_menu.rs`; `keys::popup` |
+| Do dropped files say where they were dropped? | **By the target:** the innermost `on_drop_files` element under the pointer takes them, so a handler on each part of a page knows its part. `Runtime::drop_files(paths, at)` runs it headless | `rune/src/el/drop.rs:63`; `a_file_dropped_on_a_part_of_a_note_goes_in_after_that_part…` |
+| Does a paste hand over a picture, or files? | **Both:** `ClipboardContent::image()` is the clipboard's picture as PNG and `files()` the files it names; `Runtime::paste_content` feeds one. `ClipboardImage::from_png` takes bytes that start as a PNG does (24 bytes, an `IHDR`) | `rune/src/clipboard/content.rs:58`, `:132` |
+| Can a row say the pointer rests on it? | **Yes:** `on_hover_change` with `hover_delays(300 ms, 0)`; a headless `pointer_move` and frames run it. No card after 100 ms, one after the rest | `rune/src/el/layout.rs:687`, `:725`; `a_row_the_pointer_rests_on_shows_its_note_in_a_card…` |
+| Can a storybook's story be the app itself? | **Yes:** `Story::<App>::new(name, init, shell::view)`: the stage is the window's own view over a state the story makes, its handlers act on that state, and `App::headless_runtime` with `open_playground` runs one in `cargo test`. `--playground "<story>" --snap` draws one with no host | `rune/src/playground/story.rs:34`, `playground/testing.rs:13`; `a_story_opens_in_the_playground_on_a_state_of_its_own_and_is_pressed_there` |
+
+What the window uses of Rune's and the kit's since A1, each as it is: `App::titlebar`, `Cx::chrome_insets`,
+`El::window_drag`, `Tx::popup_menu` with `PopupMenu` and `PopupItem`, `El::on_secondary_press` and the kit
+Markdown's `on_link_secondary`, `El::on_drop_files`, `ClipboardContent::image` and `files`, `El::on_hover_change`
+with `hover_delays`, the kit's `popover::anchored` and `popover::raised` (the two parts its `HoverCard` is made
+of: the card hangs on a row from the window's overlay, where a `HoverCard` wraps its trigger where it is built),
+`El::help`, `help_keys` and `help_when_truncated`, `El::role`, `level`, `expanded`, `focus_selected` and
+`live_region`, `Tx::set_title`, `Tx::live_only`, `App::playground` with `Story` and `Stage::Fill`.
+
+**What Rune lacked, and what the window does in its place:**
+
+- **A pop-up menu has no reason for a dimmed row, no filter and no group names** (`rune/src/popup_menu/mod.rs:59-69`:
+  an item is an id, a title, enabled, checked, a key hint and a symbol), and none at all off macOS and Windows
+  (`:36-46`). The same rows are a source of the bar (`bar::MENU`): typed into, each with its group and why it is
+  refused. Built on the bar's own list, not a second menu widget.
+- **A text field has no point-to-offset hit test**: `Tx::drop_point` gives a point on the element
+  (`rune/src/el/drop.rs:134`) and nothing public maps it into a field's text. A file dropped on a block being
+  written goes in at the caret; on a note being read it goes after the part under the pointer, which the innermost
+  drop target says.
+- **A link in text has a press, a secondary press and a tooltip string, and no hover event and no box**
+  (`rune/src/el/text.rs:420`, `:430`; `rune-kit/src/markdown/links.rs:63`). A card on a link in a note's prose is
+  not built: it needs the links' ranges from the service as keyed highlights, the pointer tracker the marks have
+  (`tiles/prim.rs`) and a rest timer. A row of a list is an element, and has its card.
+- **Menu bar items carry no id** (`rune/src/native_menu/mod.rs:47`, `:52`: an item is a title and a
+  `fn(&mut S, &mut Tx)`), so a menu bar can't be made from the action rows as a tile's menu is. None is set.
+- **The kit's `HoverCard` builds its trigger and its card together** (`rune-kit/src/overlay.rs:494-523`), so it
+  can't hang a card on a row built inside a virtual list from outside it. The window uses the two parts it is
+  made of.
+- **Tree, Table and SplitView still take a field named at compile time** (§5, §18): the one list drawer stays. The
+  roles a tree's row says (its depth, whether it is open, which is the open one) are said on the window's own rows.
+- **A virtual stack outside a scroll viewport still panics** (§18): the card beside a row builds a note's parts
+  with `in_row()`, as the completion's panel does.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**

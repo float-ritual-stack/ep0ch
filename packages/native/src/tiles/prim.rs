@@ -204,9 +204,11 @@ fn markdown(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
     let pointer = std::rc::Rc::new(std::cell::Cell::new([f32::MIN; 2]));
     // One piece of the text, drawn: the whole of it, or what is over and under something that stands inside it.
     let piece = |text: &str, lit: Vec<(std::ops::Range<usize>, Highlight)>, key: String| -> El {
-        let tile = word(&cx.tile.name);
+        let (tile, from) = (word(&cx.tile.name), cx.tile.name.clone());
         let shown = Markdown::new(text).selectable(true).tasks_read_only()
-            .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); });
+            .on_link_tx(move |s: &mut App, href: &str, _| { s.act(&format!("link.follow ref={} tile={tile}", word(href)), Actor::Person); })
+            // A right-click on a link: the tile's menu, about the link first.
+            .on_link_secondary(move |s: &mut App, href: &str, press: rune::PointerPress, _| for line in crate::shell::menu_lines(Some(&format!("link={}", word(href))), press) { s.act_in(&line, &from, Actor::Person); });
         if lit.is_empty() { return shown.build(k).key(key) }
         let (moved, at, boxes, from) = (pointer.clone(), pointer.clone(), boxes.clone(), cx.tile.name.clone());
         shown.highlights(lit).build(k).key(key)

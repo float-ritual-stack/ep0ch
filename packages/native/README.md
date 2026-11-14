@@ -38,6 +38,10 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A tile torn out into a second window over the same store, dark](docs/window-dark.png)
 ![A shell and an agent beside a note: rows on the column grid across wide characters and coloured grounds, each tile saying what keeps its program and what it reports of itself, dark](docs/terminal-dark.png)
 
+![A tile's menu: everything there is to do with the reader, each row an action's own menu row under its group with its key from the key table; here the bar's list, on a Mac the system's own menu at the pointer, dark](docs/menu-dark.png)
+![A row's note on a hover: the pointer rests on a row of the tree and the note it opens is shown in a card beside it, its title and how it starts, with nothing opened, dark](docs/glance-dark.png)
+![The playground, in the window: the stories listed under their groups, one on the stage (the window's own view over answers a scratch host once gave), dark](docs/playground-dark.png)
+
 ## Run it
 
 ```sh
@@ -84,6 +88,12 @@ entry Rune adds to its own table is added here. What that rev changed for this w
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
 | Narrow by what notes carry | The navigator: a facet's row, or a chip on any list, narrows that list's question (`facets.set key= value=`); the Matches tile beside it lists what is left, and the chip that says what it is narrowed by takes it back |
 | See what changed | Last callers: the notes people and agents edited, newest first; a row opens its note beside |
+| Move the window | The toolbar is the window's title bar: held where nothing on it takes a press, it moves the window, and a double press zooms it as the system's setting says. Every button on it keeps its press. On a Mac the traffic lights sit in the middle of that row and the outline's name starts past them; on Windows the caption buttons are at its other end and the row ends before them. The window is called after the note its reader shows and its outline |
+| Ask a tile what can be done | Right-click anywhere in a tile, press the three dots on its title, or `mod+.` (`tile.menu`): everything there is to do with the tile, each row an action's own menu row under its group, with its key. A right-click on a row of a list puts that row's own act and its own presses first (Open, Reply, Restore: the service's lines), one on a link the action that follows it, and words picked what the key table offers for them. On a Mac and on Windows it is the system's own menu at the pointer; elsewhere, and whenever it is opened with words (`tile.menu q=copy`), it is the bar's list: typed into, picked with Return |
+| Copy a note's address | `note.copy-ref` (`mod+shift+y`, the Copy rows of a reader's menu): the note's full id, or `kind=link` its web link as the service says it. The notice says what was copied |
+| Drop a file on a note | Drag a file from a file manager and let go over a note: the note opens for editing and the file's line goes in after the part it was let go on, on a line of its own, as one step of the editor's undo (`note.drop path= line=`). A picture is copied into the outline's own folder (`media/`, named by its day and contents: the same picture twice is one file); a page a note runs is named where it is; anything else is refused in the service's words. A picture pasted into a block being written, and files copied in a file manager and pasted there, go in the same way (`draft.image`) |
+| See a row's note without opening it | Rest the pointer on a row of a list tile (the tree, a board's card, a link): after a third of a second the note that row opens is shown in a card beside it, its title and how it starts (`glance`). It goes when the pointer leaves, and nothing is opened |
+| Look at every part by itself | The playground (a debug build's: `mod+shift+d`, or the bar along the foot of the window): the window's stories under their groups, a tile of each kind, the bar, a tile held by its title, a tile's menu, a notice, a thread's card, a note's card, a block being written. Each is the window itself over answers a scratch host once gave, live and pressable, and nothing done there reaches an outline |
 | Arrange the window by mouse | Hold a tile by its title (or a tab by its label) and carry it: every tile shows the places it would take it in, as boxes with their words (a side to split it, its middle for a tab above and a swap below, its title for a place among its tabs, the window's left, right and bottom strips for a whole column or row, a shut dock's strip), the one under the pointer is lit, the held tile is dimmed, and the foot of the tiles says what is held, where it would land and that Escape lets go. Let go and it lands there (`layout.move to= where= index=`, `layout.swap to=`, the door's acts by the door's arguments); over no place, or with Escape, nothing moves and the window says so. A place the layout refuses is marked (✕) while the tile is held, and says why in its own box once the pointer is over it. A tab carried to a side of its own set leaves the set; let go outside the window, a tile is torn into a window of its own, and a torn window's tile dragged out of its window (or the put-back on its title, `tile.return`) goes back into the window it came from. A float follows the hand and lands on a title, an edge or a dock's strip. A press anywhere in a tile gives it the keys |
 | Arrange it by key or act | `tile.split` (a second reader on the same note, or `kind=`), `layout.move`, `layout.swap`, a border dragged (`layout.resize`), `tile.close`, `tile.dock`, `dock.toggle`, `tile.collapse` (fold to a spine: `mod+shift+c`, the fold on the title of the tile with the keys; a press on a spine opens it), `tile.zoom` (`mod+shift+enter`), `tile.float` (`mod+shift+o`, the float on a title) and `float.place`, `layout.lock` (`mod+shift+l`, the lock on the toolbar), `layout.policy` (what a container lets its tiles do) and `tile.agent` (what an agent may do to a tile); `layout.undo` takes each back |
 | Keep an arrangement | `screen.save name="Garden work"` writes it as a `[type::screen]` note; `screen.open name=` lays the window out as any screen the outline has; `screen.reset` puts it back as its screen has it. The window opens as it was left |
@@ -170,6 +180,8 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
 | `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
 | `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
+| `mod+.` | `tile.menu` | everywhere | this tile's menu |
+| `mod+shift+y` | `note.copy-ref kind=id` | everywhere | copy the open note's id |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
 | `ctrl+]` | `tile.enter` | tile | into the terminal: every key goes to its program |
@@ -221,6 +233,7 @@ src/ (Rust, Rune)                                      the outline host
                     what runs them (the terminal's crates behind the `pty` feature; a scripted host for scenes)
   tiles/prim.rs     PRIMS: one builder a primitive type; the page drawer walks parts through it
   tiles/diff.rs     a change to a text, drawn from the lines the service found
+  stories.rs        the playground's stories, as data: names and act lines over stories/recorded.json
   keys.rs           chord -> act line, by where the person is
   control.rs        an agent's act line, over native.sock
         │ an act line, whoever asks
@@ -409,10 +422,37 @@ src/ (Rust, Rune)                                      the outline host
   `staysMs` by port, the rule the door's status bar keeps a message by). The status line is news and goes by the
   clock. A notice is the person's: a problem's goes with their next act once it has been up long enough to read,
   unless that act says something in its place.
-- **The toolbar starts past the window's own buttons** where they sit over it (`shell::toolbar_lead`, from Rune's
-  `Cx::titlebar_inset`): on a Mac the content fills the window under a clear title bar, and the outline's name is
-  drawn after the traffic lights. In full screen, and on every other platform, it starts at the edge. Each window's
-  frame is said once (`shell::frame`).
+- **The toolbar is the window's title bar, and Rune's** (`shell::titlebar`, Rune's `App::titlebar`; since A1). The
+  window draws the band itself: on a Mac only what says `window_drag` moves the window (the toolbar's row does, and
+  every control on it keeps its press) and the traffic lights are centred in it; on Windows Rune draws the caption
+  buttons over its end. What the window's own controls take of the row is Rune's to say (`Cx::chrome_insets`, read
+  in `shell::view` alone), and the row keeps clear of both ends (`shell::toolbar_lead`). In full screen, and where
+  the native frame stays (Linux), it starts at the edge.
+- **A tile's menu is the actions' rows, read once more** (`actions/menu.rs`). `App::menu_rows` lists every `menu`
+  row of an action that acts in a tile of that sort and can run as it is, under the groups the rows name, in the
+  order the actions list them; before them what the pointer was on says of itself (`tile.point`: a list's row its
+  own act and presses as the service wrote them, a link the action that follows it, picked words what the key table
+  offers). Nothing is worded there. It is drawn by what the platform has: Rune's `Tx::popup_menu` where the window
+  has menus of the platform's own (`keys::effects` opens it, and a pick runs the row's line), the bar's own source
+  `menu` everywhere else and whenever it is asked with words. Both run a row from its tile, as a press in the tile
+  runs (`App::act_in`). An agent's `tile.menu` is answered the rows, each with why the agent would be refused.
+- **A file is kept by the service, and the line is the service's** (`media.keep`, the outliner's `media-keep.ts`).
+  The window hands over a file's bytes, its name and where it is; the service keeps a picture in the outline's
+  folder by the door's rule (outline-core's `media-keep.ts` names it and writes the media line, and the door's own
+  `keepImage` asks the same) and answers the line, which goes in at the caret by the one way a paste goes in
+  (`App::paste_in`). One asker, whoever hands the file over (`App::keep_file`): a file let go over a note (Rune's
+  `on_drop_files` on each part of the page, the innermost under the pointer, so the line lands after that part),
+  a picture pasted, files pasted, `draft.image`. The window reads no extension and writes no media line.
+- **A row's note is read for its card, once** (`glance`). The pointer resting on a list tile's row (Rune's
+  `on_hover_change` after the door's 300 ms) asks the page of the note the row is keyed by, unwatched, and the
+  list drawer hangs a card on the row over the window (the kit's raised popover, `Drawer.over`), its parts built by
+  the registry as on a page. A row that is no note's is refused by the service and shows nothing.
+- **The playground is the window, over a recording** (`stories.rs`, `main.rs`'s `playground`; Rune's
+  `App::playground`). A story is a name and act lines; its stage is `shell::view` over an `App` of its own whose
+  link answers from `stories/recorded.json` (`client::Recorded`): every ask the story's lines made of a scratch
+  host, with its answer, written by `cargo test -- --ignored record_the_stories` and read where the window was
+  built (nothing of it is compiled in). So a story draws real answers with no host, and a headless
+  `--playground "<story>" --snap out.png` needs none either.
 - **What is about a note is a list that follows a reader** (`extensions/screens`: the `threads`, `proposals` and
   `revisions` kinds, each the list drawer over a producer of `lists.read`, with `source: tile:<reader>` and
   `subject: follows`, as the links tile has). The window has no code for any of them. The desk holds the three as
@@ -648,6 +688,19 @@ extension installed.
 screen in, or the extension names a drawer the window hasn't: what the window opens on is changed by forking the
 extension or saving a screen note, never by building the window again.
 
+`src/tests/adopt.rs` is wave A1's: the toolbar as the window's title bar (a press on its ground asks Rune for a
+window drag, a press on its button is the button's, and it keeps clear of the insets Rune reports at each end), a
+control's name and key on a hover and the roles of what a screen reader meets first, a right-click on a row
+opening the platform's menu about that row and a pick running its line, the same menu as the bar's list typed into
+and picked by key, an agent's `tile.menu` answered as rows, a note's address copied, a file dropped on a part of a
+note by a real drop event (its line after that part, taken back by the editor's undo; a page named where it is; a
+file a note doesn't keep refused), a picture pasted, a row's note in a card after 300 ms of rest, and the
+playground: every story standing on its recording, and one opened headless and pressed on its stage. `cargo test
+-- --ignored live_a_file` runs the sentence against a scratch host (the picture kept in the outline's own media
+folder under the door's name for it, served back as a picture part), and `cargo test -- --ignored
+record_the_stories` writes the stories' recording again. The service's side is
+`packages/outliner/test/media-keep.test.ts`.
+
 `cargo test -- --ignored live` runs the same window against a scratch host: among them the draft's whole sentence
 (written with completions from the service's own sources while an agent patches it over the control socket, the
 window ended mid-word, the text found back), what is about a note (a comment on words of it, a reply, the
@@ -755,11 +808,11 @@ pictures it draws into the folder, an svg fence and a mermaid fence), and `quote
 words across a link, a reference and bold text: a comment already anchored to the source such words were drawn from,
 and one begun on words picked as a selection says them), and `margin` (a note the same seed writes with two comment
 threads on words of it: the passages marked, the first thread opened beside its words; draw it wide, `--size 1760x900 --at 0.5`,
-for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list), and `acted` (the same seed's note in the kitchen's reader, and the default-on what-changed extension's `change` run about it by a line: the notice says its words and what of its answer is not done here). `--act <file>` runs any file of them before the
+for the margin, since the tiles' area is measured on the first frame), and `inplace` (the same note with words of its list picked and a comment begun on them: the field stands in the note's one part, under the list), and `menu` and `glance` (wave A1's, on any outline: the first note opened, then the reader's menu as the bar's list; and the pointer said to rest on the tree's second row, whose note is shown beside it. The pictures of both on this page were drawn from the playground's stories, which need no host: `target/debug/ep0ch-native --playground "Shell/A tile's menu" --snap out.png --theme dark --size 1760x900 --at 0.5`, and `--whole-window` for the playground itself), and `acted` (the same seed's note in the kitchen's reader, and the default-on what-changed extension's `change` run about it by a line: the notice says its words and what of its answer is not done here). `--act <file>` runs any file of them before the
 first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `--script` taps by element key: a tile's parts are under `tile/<name>/` (`tile/reader/edit`,
 `tile/reader/save`, `tile/reader/child/<id>`, `tile/reader/part/<n>` (a part's frame),
 `tile/reader/part/<n>/view` (what it draws: its button), `tile/reader/part/<n>/<id>` (a row of its list, by the row's id: the note it opens), `tile/reader/part/<n>/group/<name>` (a group's header),
-`tile/reader/part/<n>/said`, `tile/reader/chip/<key>/<value>`, `tile/<name>/bar` its title, `tile/<name>/close`; in
+`tile/reader/part/<n>/said`, `tile/reader/chip/<key>/<value>`, `tile/<name>/bar` its title, `tile/<name>/close`, `tile/<name>/menu` (the three dots), `tile/<name>/glance` (a row's note in its card: `…/title`); in
 a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<group>`,
 `tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), in a
 block being written `tile/reader/source` (its field), `tile/reader/save`, `tile/reader/done` or `tile/reader/discard`,
@@ -791,10 +844,27 @@ toolbar button is
   18 points of its 26 and the band under it starts inside the title. A group (a screen in a tile) takes no tile
   dropped into it, and no part of a note is dragged out of a reader (the door's `element.detach`). No tile kind
   here takes a tile's content (the door's shelves), so the rule's `receive` is ported and never asked.
-- On a Mac: the toolbar starting past the traffic lights was built from Rune's source and run here by telling a
-  headless runtime the inset a Mac's window reports; it was not run on a Mac. The toolbar is no drag region of its
-  own (AppKit's title bar band moves the window). A torn-out window has the same row over its tile and starts
-  past its own buttons by the same rule, held by the same test and run on no Mac either.
+- On a Mac: the window's own title bar (the toolbar's row as the drag band, the traffic lights centred in it, the
+  row starting past them) was built from Rune's source and run here on a headless runtime told the insets a
+  window reports; it was not run on a Mac, nor on Windows. A torn-out window has the same row over its tile by
+  the same rule. No menu bar of the app's own is set (Rune's default one stays).
+- A tile's menu: the system's menu dims a row nobody can run and has no room for why (the bar's list says it). A
+  right-click on a row of a list in a note (a `::links` on a page) opens the reader's menu, not about that row,
+  and a row's menu has no Copy rows (a row is not known to be a note here until the cursor row lands). The groups
+  are in the order the actions list them, not the door's (Copy, Tile, Note). The system's menu was run through
+  Rune's headless menu queue here, and on no Mac.
+- A dropped file: the line lands after the part it was let go on, not at the place inside it, and in a block
+  being written at the caret (Rune's text field has no point-to-offset hit test); nothing is tinted while a file
+  is held over a note. The file's bytes go to the service whole, whatever it is. A drop was run by Rune's
+  headless drop events and against a scratch host, from no file manager.
+- A note's card: on a list tile's rows only. A link in a note's prose shows none (Rune's text has no hover event
+  and no box for a link), nor does a row of a list in a note; the card can't be kept open or turned off (the
+  door's glass has both), and no wire says where a hover lands.
+- The playground: no story of a dropped file (it needs a file where the window runs), and none of a terminal.
+  The stories are a debug build's, read from the checkout the window was built in.
+- What a screen reader meets has roles and names (the toolbar, a tile's tabs, a tree's rows with their depth and
+  whether they are open, the notice and the status line as live regions); it was read off Rune's element tree
+  and run with no screen reader. A list has no tree, grid or listbox parent role yet, and a table's headers none.
 - The status line on a full toolbar: on the desk in a window 1180 points wide its room is about a dozen characters,
   the start of the agent's name; the act and why it was refused are read on a hover. The window keeps no log of
   what it said once it has gone.
@@ -814,8 +884,7 @@ toolbar button is
   component) isn't offered, nor are a row's variations; the list shows what the service sent, with no Jev
   re-ranking asked, and its docs don't scroll. A value whose example needs a note that declares what it uses (a
   heading style's pattern) is drawn without that note: its heading shows its style's token and no glyph track
-  (the door draws the pattern itself; the `band` primitive here draws none). A picture on the clipboard isn't
-  pasted as a file (the door's `draft.image`): a paste is its words. A save refused because the note changed keeps the text and says so,
+  (the door draws the pattern itself; the `band` primitive here draws none). A save refused because the note changed keeps the text and says so,
   and offers no merge. An `@agent` line typed in a draft is told to the service once the keys go quiet (`drafts.touch`);
   what an agent answers there was not run in this wave, and no progress is shown on the line. A draft stays in its tile: closing the
   tile is refused until it is closed, a tile takes one thing being written (a comment waits for the block's edit to

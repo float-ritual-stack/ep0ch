@@ -8,6 +8,7 @@
  * - `lists.read`: one list, whatever it is of (list-producers.ts).
  * - `tiles.view`: what a tile an extension's script renders shows (tile-view.ts).
  * - `passages.find`: where a quoted passage is in a note's text, before anything is written about it (passage-find.ts).
+ * - `media.keep`: a picture or an artifact a client puts into a draft, kept by the door's rule (media-keep.ts).
  * - `outlines.known`: the outlines there are to open. The host answers it before it gets here (outline-links.ts); a
  *   service no host runs knows only its own.
  *
@@ -17,6 +18,7 @@
 import type { OutlinerResponse } from "@ep0ch/outline-core/protocol";
 import { isWatchedLater } from "./actions";
 import { readList } from "./list-producers";
+import { keepMedia } from "./media-keep";
 import { servedPage } from "./note-page";
 import { foundPassage } from "./passage-find";
 import type { QueryWatches, WatchConnection } from "./query-watches";
@@ -29,7 +31,7 @@ import type { OutlinerRequest } from "./types";
  * The requests the modules here answer, as one member of the wire's union: a module's request type is added here,
  * never to types.ts (which is capped, and names this once).
  */
-export type ModuleRequest = import("./screens").ScreensRequest | import("./list-producers").ListsRequest | import("./tile-view").TileViewRequest | import("./outline-links").KnownOutlinesRequest | import("./passage-find").PassageFindRequest;
+export type ModuleRequest = import("./screens").ScreensRequest | import("./list-producers").ListsRequest | import("./tile-view").TileViewRequest | import("./outline-links").KnownOutlinesRequest | import("./passage-find").PassageFindRequest | import("./media-keep").MediaKeepRequest;
 
 /** What a module's handler is given of the service. */
 export interface ModuleHost {
@@ -39,6 +41,8 @@ export interface ModuleHost {
   require(id: string): { id: string; text: string; revision: number; effectiveDeletedRootId?: string | null };
   /** The outline's name and its machine's, as a page says where it is. */
   address(): { outline?: string; machine: string };
+  /** The outline's own folder on this machine, when it has one: where a kept picture goes. */
+  folder(): string | undefined;
 }
 
 /** `result`'s answer, kept and asked again on each pass when the request says `watch` and the action's row says it is watched (`watch: "later"`). */
@@ -56,6 +60,7 @@ export function answeredInModule(request: OutlinerRequest, connection: WatchConn
     case "lists.read": return answered(request, connection, host, () => readList(host.own, request));
     case "tiles.view": return answered(request, connection, host, () => readTileView(host.own, request));
     case "passages.find": return answered(request, connection, host, async () => foundPassage(host.require, request));
+    case "media.keep": return answered(request, connection, host, async () => keepMedia(host.folder(), request));
     case "outlines.known": return answered(request, connection, host, async () => { const { outline } = host.address(); return { outlines: outline ? [{ name: outline, here: true }] : [] }; });
     default: return null;
   }

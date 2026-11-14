@@ -329,6 +329,7 @@ export interface WireAnswers {
   "tiles.view": import("./tile-view").TileView;
   "outlines.known": import("./outline-links").KnownOutlines;
   "passages.find": import("./passage-find").PassageFound;
+  "media.keep": import("@ep0ch/outline-core/media-keep").MediaKept;
   "screens.list": import("./screens").ScreensList;
   "screens.save": import("./screens").ScreenSaved;
   "site.answer": SiteAnswer;
