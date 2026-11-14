@@ -147,18 +147,46 @@ test("completion.rows for a text and a cursor says, on the row, when Return is t
   expect(begun.rows[0]!.enter).toBeUndefined();
 });
 
-test("a row left out of the text-and-cursor form takes what its source said of it: nothing is offered that can't be chosen", async () => {
+test("a page nobody has written is offered with the request that makes it, and an anchor or a new component is left out with what its source said of it", async () => {
   const { store, client } = await service();
   store.create("Shed [page::shed]");
-  // A page nobody wrote yet: the door offers to make it (`↓ then ⏎ makes it`), which needs a client that runs that
-  // write first. A thin client is told there is no such page, and never how to choose a row it wasn't sent.
+  // A page nobody wrote yet: offered as the door offers it, after every match, with what the client sends first
+  // (`makes`: `pages.follow`). Return is the field's until it is chosen (`enter`), as in the door.
   const text = "See [[compost-heap";
-  const answer = await client.request<{ token: { kind: string; query: string } | null; rows: unknown[]; message?: string }>({ action: "completion.rows", text, cursor: text.length });
+  type Row = { label: string; kind?: string; insert: string; enter?: string; makes?: { action: string; params: { address: string } } };
+  const answer = await client.request<{ token: { kind: string; query: string } | null; rows: Row[]; message?: string }>({ action: "completion.rows", text, cursor: text.length });
   expect(answer.token).toMatchObject({ kind: "page", query: "compost-heap" });
-  expect(answer.rows).toEqual([]);
-  expect(answer.message).toContain("no matching named addresses");
-  expect(answer.message).not.toContain("makes it");
-  expect(answer.message).not.toContain("partial search");
+  const made = answer.rows.find(row => row.makes);
+  expect(made).toMatchObject({ insert: "[[compost-heap]]", enter: "new line", makes: { action: "pages.follow", params: { address: "compost-heap" } } });
+  // The request it names is one the service takes: sent, the page is there, and the link names it.
+  const followed = await client.request<{ created: boolean; block?: { id: string } }>({ action: made!.makes!.action, ...made!.makes!.params, author: "user" });
+  expect(followed.created).toBe(true);
+  // A component nobody has written needs a note written and opened beside: the door runs that, and it is not offered here.
+  const component = await client.request<{ rows: { label: string; kind?: string }[] }>({ action: "completion.rows", text: "::stalebeds", cursor: 11 });
+  expect(component.rows.some(row => row.kind === "new")).toBe(false);
+});
+
+// What a list's row needs to be read at a glance and to do the next thing (native H5), said once by the service: the
+// letters typed (`matches`, the merge's own), the stops of a skeleton (`slots`), and that choosing a key opens its
+// values (`next`, the door's rule in outline-core's `asksAgain` with the one detector).
+test("completion.rows for a text and a cursor says the letters matched, a skeleton's stops, and when choosing a row opens the next list", async () => {
+  const { store, client } = await service();
+  const bed = store.create("North bed [type::bed] [stage::sown]");
+  type Row = { label: string; insert: string; kind?: string; matches?: number[]; slots?: { start: number; end: number }[]; select?: { start: number; end: number }; next?: boolean };
+  const keys = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [sta", cursor: 9, near: bed.id });
+  const stage = keys.rows.find(row => row.label === "stage")!;
+  expect(stage).toMatchObject({ insert: "[stage::", matches: [0, 1, 2], next: true });
+  // A value closes its bracket and leaves no token: nothing is asked again.
+  const values = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "Beds [stage::so", cursor: 15, near: bed.id });
+  expect(values.rows[0]).toMatchObject({ label: "sown", insert: "sown]", matches: [0, 1] });
+  expect(values.rows[0]!.next).toBeUndefined();
+  // A component's skeleton: every value of its example a stop, in order, the first the one selected once it is in.
+  const components = await client.request<{ rows: Row[] }>({ action: "completion.rows", text: "::graph-met", cursor: 11, near: bed.id });
+  const meter = components.rows.find(row => row.kind === "component" && row.slots?.length)!;
+  expect(meter.insert.startsWith("::graph-meter")).toBe(true);
+  expect(meter.slots![0]).toEqual(meter.select!);
+  expect(meter.slots!.every((slot, i) => slot.end > slot.start && (i === 0 || slot.start >= meter.slots![i - 1]!.end))).toBe(true);
+  expect(meter.next).toBeUndefined();
 });
 
 // What a row says of itself is its source's own word (`SourceRow.docs`), and the one that is lit carries what
@@ -177,23 +205,28 @@ test("completion.rows for a text and a cursor says each row's docs, and draws th
   const meant = await client.request<Listed>({ action: "completion.rows", text: "Beds [heading-pat", cursor: 17, near: bed.id });
   expect(meant.rows[0]).toMatchObject({ label: "heading-pattern" });
   expect(meant.rows[0]!.docs).toContain("the glyph track the band is drawn in");
-  // A value a component's schema knows: its docs are the schema's words for it, and the lit row (the first, unless
-  // said) carries its example as written and as drawn, each a box of primitives.
+  // A value a component's schema knows: its docs are the schema's words for it. One whose look a primitive draws (a
+  // heading pattern's glyph track) carries that look on every row, one line high (`sample`), and the lit row (the
+  // first, unless said) carries it on an example (`view`: the schema's `shown`, a band over a heading). No note is
+  // walked for it, and nothing is said to be "as drawn" that the page's walk leaves as words.
   const text = "Beds [heading-pattern::";
-  const values = await client.request<Listed>({ action: "completion.rows", text, cursor: text.length, near: bed.id });
+  const values = await client.request<Listed & { rows: (Row & { sample?: { type: string; pattern?: string }; view?: { type: string; pattern?: string; text?: string } })[] }>({ action: "completion.rows", text, cursor: text.length, near: bed.id });
   expect(values.rows.map(row => row.label).sort()).toEqual(["dots", "rule", "stack", "uptime", "waffle"]);
   const dots = values.rows.findIndex(row => row.label === "dots");
   expect(values.rows[dots]!.docs).toBe("sparse dots, now and then a bright one");
-  expect(values.rows[0]!.view!.children.map(box => box.title)).toEqual(["As written", "As drawn"]);
-  expect(values.rows[0]!.view!.children[0]!.children[0]).toMatchObject({ type: "source" });
-  expect(values.rows[0]!.view!.children[0]!.children[0]!.text).toContain(`[heading-pattern::${values.rows[0]!.label}]`);
-  expect(values.rows[0]!.view!.children[1]!.children.length).toBeGreaterThan(0);
+  expect(values.rows.map(row => row.sample)).toEqual(values.rows.map(row => ({ type: "track", pattern: row.label })));
+  expect(values.rows[0]!.view).toMatchObject({ type: "band", pattern: values.rows[0]!.label, text: "Your calls" });
   expect(values.rows.slice(1).every(row => row.view === undefined)).toBe(true);
   // Another row lit: that one's, and only that one's.
-  const lit = await client.request<Listed>({ action: "completion.rows", text, cursor: text.length, near: bed.id, lit: dots });
+  const lit = await client.request<typeof values>({ action: "completion.rows", text, cursor: text.length, near: bed.id, lit: dots });
   expect(lit.rows.map(row => row.label)).toEqual(values.rows.map(row => row.label));
   expect(lit.rows.filter(row => row.view).map(row => row.label)).toEqual(["dots"]);
-  expect(lit.rows[dots]!.view!.children[0]!.children[0]!.text).toContain("[heading-pattern::dots]");
+  expect(lit.rows[dots]!.view).toMatchObject({ type: "band", pattern: "dots" });
+  // A row with no look of its own still carries its example as written and as drawn, each a box of primitives.
+  const callouts = await client.request<Listed>({ action: "completion.rows", text: "> [!ti", cursor: 6, near: bed.id });
+  expect(callouts.rows[0]!.view!.children.map(box => box.title)).toEqual(["As written", "As drawn"]);
+  expect(callouts.rows[0]!.view!.children[0]!.children[0]).toMatchObject({ type: "source" });
+  expect(callouts.rows[0]!.view!.children[1]!.children.length).toBeGreaterThan(0);
   await expect(client.request({ action: "completion.rows", text, cursor: text.length, lit: -1 })).rejects.toThrow("lit");
 });
 

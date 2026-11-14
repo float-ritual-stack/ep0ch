@@ -10,11 +10,18 @@
  * (`drawnExample`), so the window draws a component, a value or a callout beside the list with the parts it draws a
  * note with. One row's, never every row's: an example is a note walked, with the questions it asks.
  *
- * A row that makes something when it is chosen (a page nobody has written, an anchor on a heading, a new component)
- * needs a client that runs that write first: the door does, and such a row is left out here until a thin client can.
+ * A row also says which letters of its label were typed (`matches`, the merge's own), how what it writes looks when
+ * a primitive draws that (`sample`: a heading pattern's strip; the lit row's `view` is then its `shown`, the look on
+ * an example, and no note is walked), every stop of what it writes (`slots`), and whether choosing it leaves the
+ * cursor in a token, so the list is asked again at once (`next`: outline-core's `asksAgain`, the door's rule, with
+ * the one detector run over the line as the choice leaves it).
+ *
+ * A page nobody has written is offered as the door offers it, with the request that makes it (`makes`: `pages.follow`,
+ * sent by the client as whoever chose, before the link is written). An anchor on a heading and a new component need
+ * more than one request and a check between them: the door runs those, and such a row is left out here.
  */
 import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
-import { completionSaid, enterKeeps, insertSelection, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf } from "@ep0ch/outline-core/completion-source";
+import { asksAgain, completionSaid, enterKeeps, insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf } from "@ep0ch/outline-core/completion-source";
 import type { PagePrimitive } from "@ep0ch/outline-core/note-page";
 import type { CompletionAtRequest, CompletionAtRow, CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 
@@ -42,7 +49,7 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
   // A row that makes something when chosen is left out (see above), and with it what its source said of that row
   // alone: a source whose every row went says only that it has nothing (`empty`), never how to choose what wasn't sent.
   const answers = found.answers.map(answer => {
-    const rows = answer.rows.filter(row => !row.anchor && !row.newPage && !row.newComponent);
+    const rows = answer.rows.filter(row => !row.anchor && !row.newComponent);
     if (rows.length === answer.rows.length) return answer;
     const { partial: _, ...rest } = answer;
     return rows.length ? { ...answer, rows } : { ...rest, rows };
@@ -52,16 +59,27 @@ export async function completionAt(request: CompletionAtRequest, rows: (asked: C
     const insert = insertText(merged.insert), select = insertSelection(merged.insert);
     // Whether Return is the field's while this row is lit and nothing has been chosen: the one rule's answer, said on
     // the row (a row that would leave the line as typed among them), so the window compares no text to know.
-    const enter = enterKeeps({ insertion: insert, ...(merged.enter ? { enter: merged.enter } : {}) }, { chosen: false, line: lines[row] ?? "", start, end });
+    const enter = enterKeeps({ insertion: insert, ...(merged.enter ? { enter: merged.enter } : {}), ...(merged.newPage ? { newPage: merged.newPage } : {}) }, { chosen: false, line: lines[row] ?? "", start, end });
+    const slots = insertSlots(merged.insert);
+    // Whether the list is asked again once this row is in: the door's rule, with the one detector run over the line
+    // as the choice leaves it (the cursor after what was written; a row with stops puts it in the first, and waits).
+    const written = (lines[row] ?? "").slice(0, start) + insert + (lines[row] ?? "").slice(end);
+    const after = written.split("\n"), last = after.length - 1, col = after[last]!.length - ((lines[row] ?? "").length - end);
+    const next = !slots.length && asksAgain(target.kind, merged) && !!completionTargetAtCursor(after[last]!, col, [...lines.slice(0, row), ...after, ...lines.slice(row + 1)], row + last);
     return {
       id: `${index}`, label: merged.label, from: merged.from, insert, pick: pickId(insert),
       ...(merged.kind ? { kind: merged.kind } : {}), ...(merged.detail ? { detail: merged.detail } : {}), ...(merged.group ? { group: merged.group } : {}),
       ...(select ? { select } : {}), ...(enter ? { enter } : {}), ...(merged.docs ? { docs: merged.docs } : {}),
+      ...(merged.matches.length ? { matches: merged.matches } : {}), ...(slots.length ? { slots } : {}), ...(merged.sample ? { sample: merged.sample } : {}),
+      ...(next ? { next } : {}), ...(merged.newPage ? { makes: { action: "pages.follow", params: { address: merged.newPage } } } : {}),
     };
   });
   // What the lit row makes, drawn. An example that can't be drawn (it asks about a note that is gone) leaves the row its words.
-  const example = merged[lit]?.example;
-  if (example && draws && rest.near) {
+  // A row whose look a primitive draws shows that, on its example: nothing is walked for it, and nothing is said to
+  // be drawn that the page's walk would leave as words (a heading's style).
+  const example = merged[lit]?.example, shown = merged[lit]?.shown;
+  if (shown) listed[lit] = { ...listed[lit]!, view: shown };
+  else if (example && draws && rest.near) {
     const view = await draws(rest.near, example).catch(() => null);
     if (view) listed[lit] = { ...listed[lit]!, view: { type: "box", children: view } };
   }
