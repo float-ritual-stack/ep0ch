@@ -250,6 +250,11 @@ pub struct DraftSession {
     pub completing: Completing,
     /// The service is to be told the person typed, once the keys are quiet.
     pub touched: Option<Instant>,
+    /// A selection the window filled in for typing over (what a chosen completion says to select: an example value),
+    /// while it is still the selection: a wrap character typed there replaces it, as any character does.
+    pub filled: Option<(usize, usize)>,
+    /// When a character was last typed here: a pause before the next one ends a step of the field's way back.
+    pub typed_at: Option<Instant>,
     /// What the draft stood on before a patch the saved note also took, by patch: taken back, it stands there again.
     stood: HashMap<String, (u64, String)>,
 }
@@ -285,23 +290,6 @@ pub fn plain_ends(words: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(words.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
-/// A list item's lead, as far as a level in or out reads it (outline-core's `listLead`): how long its indent, its
-/// marker (`-`, `*`, `+`, `1.`, `1)`: up to nine digits) and the space after it are. None: the line starts no item
-/// (`-` alone isn't one; `- ` with nothing after it is).
-fn list_lead(line: &str) -> Option<(usize, usize, usize)> {
-    let blank = |rest: &str| rest.bytes().take_while(|b| matches!(b, b' ' | b'\t')).count();
-    let indent = blank(line);
-    let rest = &line[indent..];
-    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-    let marker = match rest.as_bytes().first() {
-        Some(b'-' | b'*' | b'+') => 1,
-        Some(_) if (1..=9).contains(&digits) && matches!(rest.as_bytes().get(digits), Some(b'.' | b')')) => digits + 1,
-        _ => return None,
-    };
-    let gap = blank(&rest[marker..]);
-    (gap > 0).then_some((indent, marker, gap))
-}
-
 /// A draft's lines one level in or out: the edits (apart, in order, bytes of the text) and where the selection's two
 /// ends are once they are made.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -312,7 +300,10 @@ pub struct Indented { pub edits: Vec<(usize, usize, String)>, pub anchor: usize,
 /// under `indent`, and `tests/contract.rs` asks every row). A list item goes under the item above it by that item's
 /// marker and gap, or back to its parent's level; anything else moves two spaces, or one tab where the line is
 /// indented with tabs; every line moves by the first line's step; blank lines in a selection of several stay; the
-/// caret stays on its text. Offsets are bytes.
+/// caret stays on its text. A level in is the Tab key's, and moves lines only where Tab can mean that
+/// (`edit::tab_takes`: a list item from any column, several selected lines, any other line from its start or inside
+/// its indent): in the middle of a paragraph nothing moves. Offsets are bytes. What a list item's lead is, and which
+/// item above is its parent or the one it follows, is read where the other keys' rules read it (`crate::edit`).
 pub fn indent(text: &str, out: bool, anchor: usize, caret: usize) -> Indented {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut starts = Vec::with_capacity(lines.len());
@@ -321,22 +312,21 @@ pub fn indent(text: &str, out: bool, anchor: usize, caret: usize) -> Indented {
     let place = |offset: usize| { let offset = offset.min(text.len()); let row = starts.iter().rposition(|start| *start <= offset).unwrap_or(0); (row, offset - starts[row]) };
     let (a, c) = (place(anchor), place(caret));
     let (from, to) = (a.0.min(c.0), a.0.max(c.0));
-    let indent_of = |line: &str| line.bytes().take_while(|b| matches!(b, b' ' | b'\t')).count();
-    // The lines above `from` that say where they are, nearest first: a list item's lead (none for prose) and how far in.
-    let above = || lines[..from].iter().rev().filter(|line| !line.trim().is_empty()).map(|line| { let lead = list_lead(line); (lead, lead.map_or(indent_of(line), |lead| lead.0)) });
-    let (first, lead) = (lines[from], list_lead(lines[from]));
-    let ind = lead.map_or(indent_of(first), |lead| lead.0);
+    let indent_of = |line: &str| crate::edit::indent_of(line).len();
+    let lead = crate::edit::lead(lines[from]);
+    let first = lines[from];
+    let ind = lead.as_ref().map_or(indent_of(first), |lead| lead.indent.len());
     let tabs = first[..ind].contains('\t');
     let step = if out {
         // Back to the level of the item it is nested in: the nearest one above indented less.
-        let mut up = None;
-        if lead.is_some() { for (lead, at) in above() { if at < ind { up = lead; break } if at == 0 { break } } }
-        match up { Some(up) if !tabs => ind - up.0, _ => ind.min(if tabs { 1 } else { 2 }) }
+        let up = lead.as_ref().and_then(|_| crate::edit::parent(&lines, from, ind));
+        match up { Some(up) if !tabs => ind - up.indent.len(), _ => ind.min(if tabs { 1 } else { 2 }) }
+    } else if !crate::edit::tab_takes(&lines, from, to, c.1) {
+        0
     } else {
         // Under the item above it at its own level: by that item's marker and gap.
-        let mut sibling = None;
-        if lead.is_some() { for (lead, at) in above() { if at < ind { break } if lead.is_some() && at == ind { sibling = lead; break } } }
-        match sibling { Some(sibling) if !tabs => sibling.1 + sibling.2, _ => if tabs { 1 } else { 2 } }
+        let sibling = lead.as_ref().and_then(|_| crate::edit::sibling(&lines, from, ind));
+        match sibling { Some(sibling) if !tabs => sibling.marker.len() + sibling.gap.len(), _ => if tabs { 1 } else { 2 } }
     };
     let put = if tabs { "\t".to_string() } else { " ".repeat(step) };
     // Each line that moves, and by how much: in by the step, out by the step or what indent it has.
@@ -391,7 +381,7 @@ pub fn map_cursor(offset: usize, spans: &[Placed]) -> usize {
 impl DraftSession {
     /// A draft of `note` on `tile`: `text` as the service holds it at `revision`, in a field the caller made.
     pub fn new(tile: Id, note: String, revision: u64, base: String, buf: Text) -> DraftSession {
-        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, stood: HashMap::new() }
+        DraftSession { tile, note, writes: Writes::Block, send: send_name(), revision, base, buf, hold: Hold::None, told: None, lit: Vec::new(), lit_at: 0, changes: 0, quiet_at: 0, completing: Completing::default(), touched: None, filled: None, typed_at: None, stood: HashMap::new() }
     }
 
     /// The same session, writing something else than the block's own text (a comment, a reply).

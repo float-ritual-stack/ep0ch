@@ -223,6 +223,8 @@ pub struct State {
     pub pasting: Option<Id>,
     /// Words an extension's action handed back for the person's clipboard, until the window's hands copy them.
     pub copying: Option<String>,
+    /// Keys an action handed to the field's own editor, until the window's hands send them (`keys::effects`).
+    pub sending: Vec<crate::keys::Sent>,
     /// What the run's programs had shown when the window last looked (`Store::programs_moved`).
     pub programs_seen: u64,
     /// The terminal tile being closed with its program left running (`terminal.detach`): a close of it ends nothing.
@@ -341,6 +343,7 @@ impl App {
                 out_of: None,
                 pasting: None,
                 copying: None,
+                sending: Vec::new(),
                 programs_seen: 0,
                 detaching: None,
                 closing: false,

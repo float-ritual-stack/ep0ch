@@ -43,6 +43,7 @@ mod arrange;
 mod contract;
 mod control;
 mod drafts;
+mod editor;
 mod ext;
 mod garden;
 mod lists;

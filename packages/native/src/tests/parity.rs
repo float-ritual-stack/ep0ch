@@ -19,6 +19,8 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("note.untrash", _) => vec!["note.trash ref=beans"],
         ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
         ("edit.save" | "edit.close" | "draft.paste" | "draft.indent" | "draft.outdent", _) => vec!["edit"],
+        // What is done with a selection needs one: the word the caret is on.
+        ("draft.wrap" | "draft.copy" | "draft.cut", _) => vec!["edit", "draft.select what=word"],
         // The list's own keys need the list: a block being written, with a page's name begun in it.
         ("complete.accept" | "complete.enter" | "complete.move" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[se\""],
         // The keys go to the tile above or below from one that has a tile there; a dock is toggled where one is.
@@ -132,6 +134,9 @@ fn event(chord: &rune::Chord) -> rune::KeyEvent {
         ChordKey::Right => Key::Right,
         ChordKey::PageUp => Key::PageUp,
         ChordKey::PageDown => Key::PageDown,
+        ChordKey::Home => Key::Home,
+        ChordKey::End => Key::End,
+        ChordKey::Delete => Key::Delete,
         other => panic!("the parity table has no key event for {other:?} yet"),
     };
     rune::KeyEvent { key, mods }
@@ -160,6 +165,9 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         let bars_own = case.on == Some("bar");
         if !bars_own { assert_eq!(by_bar(&case), line, "{}: its bar row pressed and its act line leave one record", case.line) }
         match case.bind {
+            // A key the field's own editor answers is listed and never run by the table (`tests/editor.rs` presses
+            // those), and one that is no key on this platform can't be pressed here.
+            Some(bind) if bind.own || bind.keyless() => two += 1,
             Some(bind) => {
                 assert_eq!(by_chord(&case, bind), line, "{}: {} and its act line leave one record", case.line, bind.spec);
                 if bars_own { two += 1 } else { three += 1 }
@@ -173,7 +181,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "draft.wrap", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

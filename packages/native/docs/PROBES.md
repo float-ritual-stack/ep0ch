@@ -550,6 +550,7 @@ What could not be done:
 - **The editor's own keys have no rows.** Undo, redo, select all, word motion and paste are the kit's, handled
   after the table: they have no keycap to show and `act` can't run them. Only what the table binds (save, close,
   the list's keys) and `draft.paste` are act lines.
+  **Since K3 they have** (§19): a row lists the field's own key without binding it, and its action runs by act.
 - **Not run:** a real input method (events were fed to `Runtime::ime`), spellcheck, a mouse drag selection across
   a patch landing, and anything on macOS.
 
@@ -846,6 +847,69 @@ focus that goes to a neighbour when the focused element leaves the tree, F6 betw
 `El::labelled_by` for a screen reader, `rune::Tracked` and `rune::region`, `Latest::request_if_changed`,
 `Tx::scroll_center`, `rune_kit::search::Fold` (search that folds case and width in every language),
 `rune::text::compare_names`, and `El::placeholder_font`.
+
+## 19. The editor's keys (K3)
+
+**Rune's `TextEdit` stays the block's editor. What a Blockdown source needs on top of it is a table of rows and
+eight rules over `Text`, none of it an editor of this window's own.** Evan's second run by hand: "now when hitting
+tab anywhere on a line moves the entire line", and decades of prior art ignored. Run, not read: `src/tests/editor.rs`
+(real keys through the runtime), `contract.rs` (every row of outline-core's tables), and the live sentence
+(`cargo test -- --ignored live_a_block`). Not run: any of it on a Mac.
+
+What Rune's editor gives a plain field of lines by itself, kept as it is (read in `edit/input.rs` at `a5360a6`,
+and the ones marked run are pressed in `tests/editor.rs`):
+
+| Key | Rune's own | Here |
+|---|---|---|
+| Arrows, Shift with them, a click, a drag, a double and a triple click | by grapheme, by laid-out row, by word and paragraph | Rune's |
+| Option (Control off a Mac) with Left and Right, Backspace and Delete | by UAX 29 word | Rune's, listed as rows (run: the key, and `draft.go to=word-back` by act) |
+| ⌘Z, ⇧⌘Z, ⌘A, ⌘C, ⌘X | its history, its clipboard | Rune's, listed as rows (run: undo, redo, cut) |
+| ⌘←, ⌘→, ⌘⌫ on a Mac; Ctrl+A E B F P N D H K there | the drawn row's edge, the line's start, Emacs's set | Rune's (not run: a Mac) |
+| Page Up, Page Down | scroll, the caret stays (AppKit's rule) | Rune's. The door moves its cursor a page; nothing public moves a caret by drawn rows, and the platform's rule is kept |
+
+What Rune lacked for this, and what stands in its place:
+
+| Rune lacks | Where | Built here |
+|---|---|---|
+| Tab in a plain field indents nothing: the editor's Tab is the rich model's list blocks, and any other Tab is focus traversal | `edit/input.rs:172-182`, `runtime/input/keys.rs:36-53` | `draft.indent` and `draft.outdent` (H1), now asked of `tabTakes` first: from the middle of a paragraph the row takes the key and moves nothing |
+| Return in a field with no `on_submit` goes to the default button; a list's continuation exists only for rich blocks whose markers are drawn, never characters | `edit/input.rs:150-167`, README "Rich text editing" | `draft.newline`, outline-core's `newlineText` over `Text::put` |
+| No line commands: the Command arm knows z, y, a, b, i, u, c, x | `edit/input.rs:286-306` | `draft.line`, `draft.select`, `draft.check`: rules on the text, put in as one undo step |
+| ⌘⌦ erases one character (the Delete arm reads `word`, never `line`); Ctrl+U is unbound | `edit/input.rs:225-233`, `edit/keys.rs:156-162` | `draft.erase to=line-end` on `line+delete`, `to=line-start` on `ctrl+u` |
+| Home and End on a Mac are the text's ends | `edit/input.rs:246-252` | `home` and `end` are draft rows: the line as written, on every platform |
+| Typed text over a selection always replaces it; nothing pairs a bracket | `edit/input.rs:112-117` | the field's adapter asks `App::types` before the editor types (`on_input_key` sees `Key::Text` first): `typedText` wraps, pairs, types over |
+| A whole run of typing is one undo step until the caret moves, with no setting | `edit/history.rs:96-99, 138-148` | `break_history_group` (public) is called before a character that starts a word after a space, and after a pause of 1.2 s: a step is a word and its space |
+| The history can't be read as steps with a name or an author, or marked at a save (`History` is `pub(crate)`; only `history_len` and `history_json`) | `edit/history.rs:86-93, 316-325` | not built: see below |
+| The editor's motions can only be asked for as key events: `TextEdit::key` needs a layout the app never holds, `prev_word`, `next_word` and `line_edge` are private | `edit/input.rs:64, 376`, `edit/caret_motion.rs:36, 61` | `Tx::send_key` from `keys::effects` (`keys::Sent`), so `act draft.go to=word-back` runs the field's own motion; Alt is the editor's word modifier on every platform, so one event serves all |
+| A chord has no name for "the platform's word key" | `shortcuts/parse.rs` | `keys::platform`: a row names `word+left` or `line+delete`, read as Option and Command on a Mac, Control for a word elsewhere, and no key for a line's edge there (listed, with "is no key here") |
+| No hook when the caret moves in a field | `el/input.rs:191-197` | not needed yet: the hint row reads the selection each time the tile is drawn |
+
+- **A row can list a key it does not bind** (`KeyRow.own: field`, `Bind.own`). §12's "the editor's own keys have
+  no rows" is closed: `rows()`, the keys screen and the README's table carry them with `from: field`, `find` skips
+  them, and the action behind each is what an act line runs.
+- **Home, End, ⌘↑ and ⌘↓ are bound** and answered on the text (`edit::go`): the line as written, however it
+  wraps. ⌘← and ⌘→ stay Rune's, which go to the drawn row's edge: on a wrapped line the two differ, as they do in
+  every Mac editor.
+- **A bracket's closer and the service's completion don't fight.** `[[` is `[[]]` with the caret inside; the
+  service's token ends at the closers already there (`completion-at.ts`: "a bracket closed is not to come again"),
+  so its row is written over them. Run live: `[[she`, Return, `[[shed]]`, one pair. A selection the window filled
+  in for typing over (a completion's example value) is replaced by a bracket, not wrapped (`DraftSession.filled`).
+- **Return inside a pair takes the closer down with it** (`See [[s`, Return: the `]]` are on the next line), as
+  in any editor that pairs. Not softened.
+- **The door changed too, in one place:** Tab from the middle of a paragraph or a heading moves nothing there now
+  (`Draft.tab`); Shift+Tab and lines an act names are as they were. The door does not pair brackets yet: the rule
+  is in outline-core for it to ask.
+
+What an editing part of this window's own would take, and why it is not here:
+
+- **A history of its own** (`draft.rs`, no Rune) is the one thing `TextEdit` cannot be made to give: steps named
+  and attributed ("tidy's edit"), an undo that stops at a save and asks, an agent that takes back only its own, and
+  a hint that says what the next undo takes. It would record a step by diffing on every change (`changeSpan` is
+  that diff), take `mod+z` as a bound row (the table beats the editor), restore with `Text::replace` and `select`,
+  and call the editor's `clear_history` so there is one history. It was left out: the units are right without it,
+  and replacing the editor's undo under an input method's composition was not something to do unrun on a Mac.
+- **A source view of its own** (wrapped list items hung under their text, an answer folded under its ask) needs a
+  field drawn by this window on Rune's text layout with `App::on_ime` and `.ime_cursor()`: `Span` only styles a
+  byte range and a plain field wraps to column 0. Drawing, not keys; not needed for what Evan listed.
 
 ## The contract tables
 

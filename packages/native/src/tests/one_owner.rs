@@ -867,3 +867,37 @@ fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place
     assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
     for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
 }
+
+/// K3, the editor's keys: each rule is outline-core's, ported once (`edit.rs`, no Rune) and asked by the one file of
+/// the editor's actions; a key's change enters a field by one hand; a character is asked of the rules in one place
+/// before it is typed; and what is the field's own to do is handed to it in one place.
+#[test]
+fn an_editor_s_key_has_one_rule_one_way_into_the_field_and_one_hand_that_sends_the_field_its_own() {
+    // The rules: ported in one file, which names no renderer, no action and no socket, and asked by one.
+    let edit = sources().into_iter().find(|(path, _)| path == "edit.rs").expect("edit.rs").1;
+    for other in ["rune", "crate::actions", "crate::store", "crate::keys", "serde_json"] { assert!(!edit.lines().filter(|line| !line.trim_start().starts_with("//")).any(|line| line.contains(other)), "edit.rs is a text and two offsets in and out: it names no {other}") }
+    none("an editor's rule asked outside the editor's actions", ["edit::newline(", "edit::line_op(", "edit::wrap(", "edit::typed(", "edit::select(", "edit::go(", "edit::erase(", "edit::check("].iter().flat_map(|rule| strays(rule, |path| path == "actions/editor.rs")).collect());
+    // What a list item's lead is, and which item above is its parent or the one it follows, is read once, for
+    // these rules and for Tab's.
+    none("a list item's lead read beside `edit::lead`", ["fn lead(", "fn list_lead(", "fn parent(", "fn sibling(", "fn tab_takes("].iter().flat_map(|reader| strays(reader, |path| path == "edit.rs")).collect());
+    none("whether Tab moves a line asked outside the indent rule", strays("tab_takes(", |path| path == "edit.rs" || path == "draft.rs"));
+    // A line is broken by the rule, wherever Return comes from: the draft's row, the list's row that leaves it to
+    // the field, and the field's adapter. Nothing types a bare newline.
+    none("a line break typed beside the rule", strays("insert(\"\\n\")", |_| false));
+    none("Return broken outside the rule's three askers", calls("break_line", |path| ["keys.rs", "actions/editor.rs", "actions/draft.rs"].contains(&path)));
+    // One way in for a key's change, one place a character is asked before it is typed, one place an undo's step
+    // is cut and the field's way back walked.
+    none("a key's change put in a field outside `App::put`", strays("buf.put(", |path| path == "actions/editor.rs"));
+    none("a character asked of the rules outside the field's adapter", calls("types", |path| path == "keys.rs" || path == "actions/editor.rs" || path.starts_with("pty/")));
+    none("the field's way back cut or walked outside the editor's actions", ["buf.rest(", "buf.undo(", "buf.redo("].iter().flat_map(|call| strays(call, |path| path == "actions/editor.rs")).collect());
+    // What is the field's own (a motion by word, a copy) is asked for by the editor's actions and sent by the
+    // window's hands, as a paste is read by them.
+    none("a key handed to a field's editor outside `keys::effects`", strays("send_key(", |path| path == "keys.rs"));
+    none("a key asked for a field's editor outside the editor's actions", strays("st.sending", |path| path == "actions/editor.rs"));
+    // The rows: every action of the editor is the person's, and a row that lists the field's own key is a draft's.
+    for action in crate::actions::all().filter(|action| action.row.id.starts_with("draft.") && action.row.id != "draft.patch") { assert!(action.row.person.is_some(), "{} is the person's: an agent's way into a draft is draft.patch", action.row.id) }
+    let own: Vec<&crate::keys::Bind> = crate::keys::table().iter().filter(|bind| bind.own).collect();
+    assert!(own.len() >= 10 && own.iter().all(|bind| bind.layer == Some(crate::keys::Layer::Draft) && bind.from == "field"), "the field's own keys are listed where a block is written, and say whose they are");
+    // A chord that is the platform's own for a word or a line's edge is read in one place.
+    none("a platform's word or line key named outside the key table", ["\"word+", "\"line+"].iter().flat_map(|named| strays(named, |path| path == "keys.rs" || path == "actions/editor.rs")).collect());
+}

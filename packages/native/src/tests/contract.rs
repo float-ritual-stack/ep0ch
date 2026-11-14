@@ -354,6 +354,53 @@ fn a_draft_s_lines_go_a_level_in_or_out_as_outline_core_s_indent_text_moves_them
     }
 }
 
+/// What an editor's keys make of a draft are outline-core's rules (`draft-keys.ts`: the door's `Draft` asks the same
+/// functions), asked of `crate::edit` row for row: the same text after, the same place for the selection's two ends
+/// and the same one span between. The table's offsets are UTF-16 units and the window's are bytes. A row that says
+/// `needs` asks for the note's components or a page's title rule, which only outline-core reads: the window has
+/// neither part, and those rows are counted and not asked.
+#[test]
+fn an_editor_s_keys_make_of_a_draft_what_outline_core_s_rules_make() {
+    use crate::draft::{byte_of, utf16_of};
+    use crate::edit::{self, Change};
+    let all = table("core-contract");
+    let asked = |key: &str, least: usize, run: &dyn Fn(&Value, &str, usize, usize) -> Option<Change>| {
+        let rows = all[key].as_array().unwrap_or_else(|| panic!("the table has no {key} rows")).clone();
+        assert!(rows.len() >= least, "{key}: {} rows", rows.len());
+        let mut unasked = 0;
+        for case in &rows {
+            if case.get("needs").is_some() { unasked += 1; continue }
+            let (name, text) = (&case["name"], case["text"].as_str().unwrap());
+            let at = |v: &Value| byte_of(text, v.as_u64().unwrap() as usize).unwrap_or_else(|| panic!("{key}, {name}: an offset inside a character"));
+            let did = run(case, text, at(&case["anchor"]), at(&case["cursor"]));
+            let Some(did) = did else { assert!(case["after"].is_null(), "{key}, {name}: the window does nothing, and the table says {}", case["after"]); continue };
+            assert!(!case["after"].is_null(), "{key}, {name}: the table says the key is only text, and the window made {did:?}");
+            let want = &case["after"];
+            if let Some(text) = want["text"].as_str() { assert_eq!(did.text, text, "{key}, {name}: the text") }
+            assert_eq!(json!({ "anchor": utf16_of(&did.text, did.anchor), "cursor": utf16_of(&did.text, did.caret) }), json!({ "anchor": want["anchor"], "cursor": want["cursor"] }), "{key}, {name}: the selection");
+            if let Some(spans) = case.get("spans") {
+                let span: Vec<Value> = did.span(text).into_iter().map(|(start, end, with)| json!({ "start": utf16_of(text, start), "end": utf16_of(text, end), "replacement": with })).collect();
+                assert_eq!(&json!(span), spans, "{key}, {name}: the span");
+            }
+        }
+        unasked
+    };
+    let word = |case: &Value, key: &str| case[key].as_str().unwrap().to_string();
+    let unasked = asked("newline", 20, &|case, text, anchor, caret| Some(edit::newline(text, anchor, caret, case["options"]["plain"] == true)));
+    assert!(unasked <= 3, "{unasked} rows of Return ask for a part the window has not: only closing a component and titling a page may");
+    asked("lines", 40, &|case, text, anchor, caret| edit::line_op(text, anchor, caret, &word(case, "op")));
+    asked("wrap", 6, &|case, text, anchor, caret| edit::wrap(text, anchor, caret, &word(case, "open")));
+    asked("typed", 25, &|case, text, anchor, caret| edit::typed(text, anchor, caret, word(case, "ch").chars().next().unwrap(), case["filled"] == true));
+    // (A selection and a motion change no text: the row's `after` is the two ends alone.)
+    let ends = |text: &str, ends: Option<(usize, usize)>| ends.map(|(anchor, caret)| Change { text: text.to_string(), anchor, caret });
+    asked("select", 25, &|case, text, anchor, caret| ends(text, edit::select(text, anchor, caret, &word(case, "what"))));
+    asked("go", 70, &|case, text, anchor, caret| ends(text, edit::go(text, anchor, caret, &word(case, "to"), case["extend"] == true)));
+    asked("erase", 18, &|case, text, anchor, caret| edit::erase(text, anchor, caret, &word(case, "to")));
+    asked("check", 9, &|_, text, anchor, caret| Some(edit::check(text, anchor, caret)));
+    // The lists the rules read are the table's own: what wraps, what pairs, what a line key does.
+    assert_eq!(edit::LINE_OPS.to_vec(), all["lines"].as_array().unwrap().iter().take(5).map(|row| row["op"].as_str().unwrap()).collect::<Vec<_>>());
+}
+
 /// A key a screen names (outline-core's `isKeyName`, the door's one name for a key) reads as a chord here: every
 /// name there is, a capital as Shift with its letter. The two this window has no chord for (a modifier alone, and
 /// Hyper, which no key here is) read as none, and such a key is listed and never pressed.

@@ -15,6 +15,7 @@ mod bar;
 mod client;
 mod control;
 mod draft;
+mod edit;
 mod ext;
 mod keys;
 mod layout;

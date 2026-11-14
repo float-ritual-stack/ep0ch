@@ -154,6 +154,17 @@ pub enum KeyRow {
         on: Option<Str>,
         #[serde(default, skip_serializing_if = "Pairs::is_empty")]
         args: Pairs<Scalar>,
+        /// Whose keys these are, when they are not the table's to bind. `field`: the editor's own (a motion by word
+        /// needs the field's layout, an undo its history): listed with their keycap, on the keys screen and in a hint,
+        /// and answered by the field itself. The action is what an act line, a menu row or a press runs in their place.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "leak::opt_str")]
+        own: Option<Str>,
+        /// Listed on the keys screen and the action's page, and left out of the hint row where the person is.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
+        /// What must hold for the hint row to offer these keys (`selection`: something is selected where they write).
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "leak::opt_str")]
+        when: Option<Str>,
     },
     Via {
         #[serde(deserialize_with = "leak::str")]
@@ -162,9 +173,15 @@ pub enum KeyRow {
 }
 
 impl KeyRow {
-    pub const fn keys(keys: Str, does: Str) -> KeyRow { KeyRow::Keys { keys, does, says: None, on: None, args: Pairs(&[]) } }
-    pub const fn on(keys: Str, on: Str, does: Str) -> KeyRow { KeyRow::Keys { keys, does, says: None, on: Some(on), args: Pairs(&[]) } }
-    pub const fn with(keys: Str, on: Option<Str>, does: Str, args: &'static [(Str, Scalar)]) -> KeyRow { KeyRow::Keys { keys, does, says: None, on, args: Pairs(args) } }
+    pub const fn keys(keys: Str, does: Str) -> KeyRow { KeyRow::with(keys, None, does, &[]) }
+    pub const fn on(keys: Str, on: Str, does: Str) -> KeyRow { KeyRow::with(keys, Some(on), does, &[]) }
+    pub const fn with(keys: Str, on: Option<Str>, does: Str, args: &'static [(Str, Scalar)]) -> KeyRow { KeyRow::Keys { keys, does, says: None, on, args: Pairs(args), own: None, quiet: false, when: None } }
+    /// Keys the field's own editor answers, on `on`: listed, never bound.
+    pub const fn field(keys: Str, on: Str, does: Str, args: &'static [(Str, Scalar)]) -> KeyRow { KeyRow::Keys { keys, does, says: None, on: Some(on), args: Pairs(args), own: Some("field"), quiet: false, when: None } }
+    /// The same row, left out of the hint row.
+    pub const fn quiet(self) -> KeyRow { match self { KeyRow::Keys { keys, does, says, on, args, own, when, .. } => KeyRow::Keys { keys, does, says, on, args, own, quiet: true, when }, via => via } }
+    /// The same row, hinted only while `when` holds.
+    pub const fn when(self, when: Str) -> KeyRow { match self { KeyRow::Keys { keys, does, says, on, args, own, quiet, .. } => KeyRow::Keys { keys, does, says, on, args, own, quiet, when: Some(when) }, via => via } }
     pub const fn via(via: Str) -> KeyRow { KeyRow::Via { via } }
 }
 

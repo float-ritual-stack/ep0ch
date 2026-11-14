@@ -24,7 +24,7 @@ use crate::layout::{Id, Op, Request};
 use crate::store::{OutlineAt, Reply};
 
 /// Whose the editor is, for every row that is the person's own.
-const THEIRS: &str = "the editor is the person's: an agent doesn't open, type in, save or close it · draft.patch changes its text, in front of the person and never in the block they are typing in";
+pub(super) const THEIRS: &str = "the editor is the person's: an agent doesn't open, type in, save or close it · draft.patch changes its text, in front of the person and never in the block they are typing in";
 
 static EDIT: ActionRow = ActionRow::new("edit", Touches::Draft, "open the note for editing: its text where the reader shows it, at the revision the service has now, held on the service while it is open so an agent's patch lands in it")
     .person(THEIRS)
@@ -36,10 +36,10 @@ static SAVE: ActionRow = ActionRow::new("edit.save", Touches::Draft, "save the d
     .keys(&[KeyRow::keys("mod+s", "save"), KeyRow::on("mod+enter", "draft", "save, from the note's source")])
     .menu(&[MenuRow::new("Save", "Note", Some("mod+s"))]);
 
-static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "close the edit; unsaved changes need discard=true, and stay in the editor until then")
+static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "let go of a selection in the edit; with none, close the edit: unsaved changes need discard=true, and stay in the editor until then")
     .person(THEIRS)
     .args(&[("discard", ArgSpec::flag("close even with unsaved changes").optional())])
-    .keys(&[KeyRow::on("escape", "draft", "leave the editor, when everything is saved")])
+    .keys(&[KeyRow::on("escape", "draft", "let go of a selection; then leave the editor, when everything is saved")])
     .menu(&[
         MenuRow::new("Done", "Note", Some("escape")),
         MenuRow::with("Discard", "Note", Some(""), &[("discard", Scalar::Flag(true))]),
@@ -52,13 +52,13 @@ static PASTE: ActionRow = ActionRow::new("draft.paste", Touches::Draft, "put tex
     .keys(&[KeyRow::on("mod+v", "draft", "paste the clipboard"), KeyRow::via("a paste into the block being written")])
     .examples(&[Example { act: "draft.paste text=\"See [[se\"", does: "writes that at the caret, and offers the pages that match", safe: None }]);
 
-static INDENT: ActionRow = ActionRow::new("draft.indent", Touches::Draft, "indent the caret's line, or every line the selection touches, one level: a list item goes under the item above it, anything else two spaces (one tab where the line is indented with tabs). One step of the editor's undo")
+static INDENT: ActionRow = ActionRow::new("draft.indent", Touches::Draft, "indent one level: the list item the caret is on, from any column (it goes under the item above it), every line a selection of several touches, or any other line with the caret at its start or in its indent (two spaces, or one tab where the line is indented with tabs). From the middle of a paragraph or a heading nothing moves: Tab there is no level. One step of the editor's undo")
     .person(THEIRS)
-    .keys(&[KeyRow::on("tab", "draft", "indent the line, or the selected lines")]);
+    .keys(&[KeyRow::on("tab", "draft", "indent the item, or the selected lines")]);
 
-static OUTDENT: ActionRow = ActionRow::new("draft.outdent", Touches::Draft, "outdent the caret's line, or every line the selection touches, one level: a list item back to its parent's level, anything else two spaces or a tab. One step of the editor's undo")
+static OUTDENT: ActionRow = ActionRow::new("draft.outdent", Touches::Draft, "outdent the caret's line, or every line the selection touches, one level, from any column: a list item back to its parent's level, anything else two spaces or a tab. One step of the editor's undo")
     .person(THEIRS)
-    .keys(&[KeyRow::on("shift+tab", "draft", "outdent the line, or the selected lines")]);
+    .keys(&[KeyRow::on("shift+tab", "draft", "outdent the item, or the selected lines")]);
 
 static PATCH: ActionRow = ActionRow::new("draft.patch", Touches::Nothing, "change a passage of the note a reader shows, through the service: in the draft a window holds of it (in front of whoever writes there, never in the block they are typing in), else in the saved note. Checked against the revision read; refused with why, and nothing changes")
     .args(&[
@@ -352,7 +352,7 @@ fn edit(app: &mut App, _: &Args, by: &Actor) -> Outcome {
 }
 
 /// The tile the act is about, when a block is being written in it.
-fn written(app: &App) -> Result<Id, Outcome> { app.about().filter(|tile| app.draft_on(tile).is_some()).ok_or_else(|| Outcome::refused("no note is open for editing")) }
+pub(super) fn written(app: &App) -> Result<Id, Outcome> { app.about().filter(|tile| app.draft_on(tile).is_some()).ok_or_else(|| Outcome::refused("no note is open for editing")) }
 
 fn save(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
@@ -394,6 +394,12 @@ pub(super) fn saved(app: &mut App, reply: Reply) {
 /// Leaves the editor. With unsaved text it stays and says how to keep or drop it: closing never loses words.
 fn close(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    // The first press lets go of a selection and nothing else (the door's ladder): what is selected is never what
+    // Escape was meant for, and the next press is the one that leaves.
+    if args.flag("discard") != Some(true) && let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) {
+        let (anchor, caret) = draft.buf.ends();
+        if anchor != caret { draft.buf.select(caret, caret); return Outcome::answer(json!({ "let": "go of the selection" })) }
+    }
     if app.draft_on(&tile).is_some_and(DraftSession::unsaved) && args.flag("discard") != Some(true) {
         let save = keys::cap("edit.save").map_or(String::new(), |cap| format!("{cap} saves it; "));
         let why = format!("Unsaved text. {save}{} drops it.", super::label("edit.close discard=true"));
@@ -493,7 +499,11 @@ fn choose(app: &mut App, tile: &str, row: Option<usize>, by: &Actor) -> Outcome 
     let (Some(start), Some(end)) = (draft::byte_of(&text, token.start), draft::byte_of(&text, token.end)) else { return Outcome::refused("the words moved under the list") };
     let after = start + row.insert.len();
     draft.buf.splice(&[(start, end, row.insert.as_str())], |_| after);
-    if let Some(span) = row.select && let (Some(from), Some(to)) = (draft::byte_of(&row.insert, span.start), draft::byte_of(&row.insert, span.end)) { draft.buf.select(start + from, start + to) }
+    if let Some(span) = row.select && let (Some(from), Some(to)) = (draft::byte_of(&row.insert, span.start), draft::byte_of(&row.insert, span.end)) {
+        draft.buf.select(start + from, start + to);
+        // The window filled this selection in for typing over: a bracket typed there replaces it (`App::types`).
+        draft.filled = Some(draft.buf.ends());
+    }
     app.wrote_in(tile);
     // The list is put away: it opens again when more is typed.
     app.st.drafts[index].quiet();
@@ -516,9 +526,8 @@ fn enter(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     // Until a deliberate choice, Return belongs to the field for a row that says so: a line is typed.
     let fields = app.completing(&tile).is_some_and(|found| found.rows.get(lit).is_none_or(|row| row.enter.is_some() && !moved));
     if !fields { return choose(app, &tile, None, by) }
-    let field = Field::Draft(tile);
-    app.field(&field).insert("\n");
-    app.typed(&field);
+    // The same break the draft's own Return makes (`draft.newline`): a list goes on under the list that completes.
+    app.break_line(&tile, false);
     Outcome::done()
 }
 
