@@ -537,6 +537,18 @@ impl Text {
     }
 }
 
+/// A tile's menu as the platform's own: an item a row (named by its place), a line between two groups, a row
+/// nobody can run now dimmed, and the key the table binds to a row's line beside it where the platform reads it.
+fn popup(rows: &[actions::menu::MenuItem]) -> rune::PopupMenu {
+    let mut menu = rune::PopupMenu::new();
+    for (n, row) in rows.iter().enumerate() {
+        if n > 0 && rows[n - 1].group != row.group { menu = menu.separator() }
+        let item = rune::PopupItem::new(n.to_string(), row.label.clone()).enabled(row.refused.is_none());
+        menu = menu.item(match bind_of(&row.line).and_then(|bind| bind.spec.parse::<rune::Shortcut>().ok()) { Some(key) => item.key_equivalent(key), None => item });
+    }
+    menu
+}
+
 /// What an act asked of the next frame, done: an element brought into view, the window closed, the clipboard read
 /// for a paste into a program or into a block being written, and written with the words an extension's action
 /// handed back for it. True when something moved.
@@ -547,5 +559,8 @@ pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| s.pasted(&tile, content.text())) }
     // Words an extension's action handed back for the person's clipboard (`extensions.act`'s answer) are copied here.
     if let Some(words) = s.copying() { tx.copy(words) }
+    // A tile's menu, where the window has menus of the platform's own: its rows as that menu, at the pointer or
+    // under the tile's title; a pick runs the row's line from its tile, and a menu put away picks nothing.
+    if let Some((rows, at)) = s.menu_to_show() { tx.popup_menu(popup(&rows), match at { Ok((x, y)) => rune::PopupAnchor::Point(x, y), Err(key) => rune::PopupAnchor::Key(key) }, |s: &mut App, picked: Option<&str>, _: &mut Tx| s.menu_picked(picked.and_then(|n| n.parse().ok()))) }
     match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }

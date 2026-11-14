@@ -119,7 +119,7 @@ fn chip(cx: &TileCx, at: &Place, key: &str, value: &str, said: String, on: bool,
 fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &Kit) -> El {
     let c = &k.c;
     let tall = r.tall();
-    let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
+    let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().help_when_truncated(r.label.clone()).grow(1.0).min_w(0.0);
     let mut line = row().w_full().gap(6.0).center_y();
     // The fold's mark is the row's own word (`folds`, the service's: in a list of notes, that a note is under it), so
     // a mark drawn always opens onto something; a row that folds nothing has a dot in a tree, and nothing elsewhere.
@@ -149,6 +149,13 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
         Some(run) => k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
         None => head,
     };
+    // What a screen reader is told of a row beside its words: how deep a tree's is, whether it is open when it
+    // folds, and that it is the one its reader shows.
+    let head = if tree { head.level(r.depth as u32 + 1) } else { head };
+    let head = if r.folds && (tree || at.unfolds(cx)) { head.expanded(r.open) } else { head };
+    let head = head.focus_selected(selected);
+    // A right-click on a list tile's row: the tile's menu, about this row first (its own act and presses).
+    let head = if at.page { head } else { let (tile, on) = (cx.name.clone(), format!("row={}", word(&r.id))); head.on_secondary_press(move |s: &mut App, press: rune::PointerPress, _: &mut rune::Tx| crate::shell::menu_press(s, &tile, Some(on.clone()), press)) };
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
     // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
     let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
@@ -175,7 +182,7 @@ fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, selected: boo
     let mut line = row().w_full().h(LINE).gap(8.0).center_y().px(8.0).radius(k.radius.sm).fill(if selected { c.surface_hover } else { rune::Color::TRANSPARENT }).key(at.row_key(cx, &r.id));
     for i in 0..columns.max(1) {
         let words = r.cells.get(i).map(ListRow::cell).unwrap_or_else(|| if i == 0 { r.label.clone() } else { String::new() });
-        line = line.child(text(words).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0));
+        line = line.child(text(words.clone()).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().help_when_truncated(words).grow(1.0).min_w(0.0));
     }
     match at.pick(cx, r) {
         Some(run) => k.interactive(line).role("row").focusable(at.page).on_press(run),

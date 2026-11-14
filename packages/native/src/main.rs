@@ -74,7 +74,8 @@ fn init() -> App {
         None => { let wake = app.store().waker(); app.running_on(pty::host(wake)) }
     };
     // The screen it opens on is asked of the service's list, when that has come: a headless render waits for it.
-    let mut app = app.blocking(headless).opening_on(flag("--screen"));
+    // A right-click's menu is the platform's own where it has one (macOS, Windows); elsewhere it is the bar's list.
+    let mut app = app.blocking(headless).opening_on(flag("--screen")).with_native_menus(rune::popup_menu_supported());
     app.start();
     if headless { app.settle(); }
     if let Some(file) = flag("--act") {
@@ -139,7 +140,7 @@ fn main() {
     // A quit drops what the run holds and comes back from `run`: the control socket leaves its folder as it is
     // dropped (`control::Control`). Rune's own default ends the process at the quit's last hook and drops nothing.
     rune::orderly_exit();
-    let window = rune::App::new(made(init)).chrome(shell::frame()).on_close(control::gone);
+    let window = rune::App::new(made(init)).chrome(shell::frame()).titlebar(shell::titlebar()).on_close(control::gone);
     // Agents reach a window that is on screen; a headless render is one frame and has no one to answer. Asked of
     // the arguments: Rune says which headless run this is only once the state is made, after this.
     let _control = (!rune::is_headless()).then(|| client::control(rune::extra_args())).flatten().and_then(|path| {

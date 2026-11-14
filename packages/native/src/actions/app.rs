@@ -50,6 +50,9 @@ pub struct TileUi {
     /// A terminal tile's program, by the key the run holds it under (`pty::Programs`): kept with the arrangement,
     /// so the tile finds the same program in another window, and the next launch where its host still runs it.
     pub program: Option<String>,
+    /// What the pointer was on here when it last asked for the tile's menu (a list's row, a link): the next menu's,
+    /// taken by it.
+    pub pointed: Option<super::menu::Pointed>,
 }
 
 /// What a press did, and where it was pressed: the note and the line of the part.
@@ -229,6 +232,11 @@ pub struct State {
     pub detaching: Option<Id>,
     /// The window was asked to close: the shell closes it on the next frame.
     pub closing: bool,
+    /// The tile menu the person has open (`actions/menu.rs`): drawn as the platform's own menu where the window has
+    /// those, else as the bar's list.
+    pub menu: Option<super::menu::Menu>,
+    /// The window has menus of the platform's own (said once, where the window is made).
+    pub native_menus: bool,
     pub notice: Option<Notice>,
     /// The last act an agent ran, as the status line says it: up for as long as it takes to read (`App::fade`).
     pub agent_said: Option<String>,
@@ -344,6 +352,8 @@ impl App {
                 programs_seen: 0,
                 detaching: None,
                 closing: false,
+                menu: None,
+                native_menus: false,
                 notice: None,
                 agent_said: None,
                 heard: Heard::default(),

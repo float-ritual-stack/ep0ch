@@ -37,12 +37,15 @@ pub struct Source {
     pub facets: bool,
 }
 
-/// The two sources this window lists itself.
+/// The sources this window lists itself.
 pub const ALL: &str = "all";
 pub const ACTIONS: &str = "actions";
+/// The rows of the tile menu the person has open (`actions/menu.rs`): the same rows the platform's own menu shows.
+pub const MENU: &str = "menu";
 
-fn own() -> [Source; 2] {
+fn own() -> [Source; 3] {
     [
+        Source { id: MENU.into(), about: "Menu".into(), placeholder: "What to do with this tile, or with what the pointer was on".into(), prefix: None, served: false, main: false, facets: false },
         Source { id: ALL.into(), about: "Everything".into(), placeholder: "An action, or words in a note · > for actions alone".into(), prefix: None, served: false, main: false, facets: false },
         Source { id: ACTIONS.into(), about: "Actions".into(), placeholder: "An action's name or what it does; a whole act line runs as written".into(), prefix: Some('>'), served: false, main: false, facets: false },
     ]
@@ -92,7 +95,7 @@ pub fn row_key(row: &BarRow) -> String { format!("bar/row/{}/{}", row.source, ro
 /// The source the open bar lists and the words for it: `all` with a source's prefix typed is that source alone.
 fn reading(app: &App) -> (Source, String) {
     let (all, text) = (sources(app), app.bar.edit.words().to_string());
-    let scope = all.iter().find(|s| s.id == app.bar.scope).or_else(|| all.first()).cloned().unwrap_or_else(|| own()[0].clone());
+    let scope = all.iter().find(|s| s.id == app.bar.scope).or_else(|| all.iter().find(|s| s.id == ALL)).cloned().unwrap_or_else(|| own()[1].clone());
     if scope.id == ALL && let Some(first) = text.chars().next() && let Some(prefixed) = all.iter().find(|s| s.prefix == Some(first)) {
         return (prefixed.clone(), text[first.len_utf8()..].trim_start().to_string());
     }
@@ -165,9 +168,17 @@ fn served_rows(app: &App, source: &Source, words: &str) -> Vec<BarRow> {
     answer.list.rows.iter().filter_map(|r| r.act.as_ref().map(|line| BarRow { source: source.id.clone(), key: r.id.clone(), label: r.label.clone(), detail: r.detail.clone().unwrap_or_default(), keycap: keys::cap(line), line: line.clone(), fill: false })).collect()
 }
 
+/// The open tile menu's rows that match the words: each as the menu has it (`App::menu_rows`), its detail the group
+/// it is under and, for a row whoever asked can't run, why.
+fn menu_rows(app: &App, words: &str) -> Vec<BarRow> {
+    let Some((_, rows)) = app.menu_open() else { return Vec::new() };
+    rows.into_iter().filter(|item| actions::menu::matches(item, words)).map(|item| BarRow { source: MENU.into(), key: item.line.clone(), label: item.label, detail: match &item.refused { Some(why) => format!("{} · {why}", item.group), None => item.group }, keycap: item.keycap, line: item.line, fill: false }).collect()
+}
+
 /// The rows a source lists for some words, from what the store holds now.
 pub fn rows_for(app: &App, scope: &Source, words: &str) -> Vec<BarRow> {
     if scope.served { return served_rows(app, scope, words) }
+    if scope.id == MENU { return menu_rows(app, words) }
     let actions = action_rows(words);
     if scope.id != ALL { return actions }
     actions.into_iter().chain(sources(app).iter().filter(|source| source.main).flat_map(|source| served_rows(app, source, words))).collect()
@@ -206,8 +217,8 @@ fn asking(app: &App) -> bool { asks(app).iter().any(|ask| app.store().waiting(as
 fn row_el(row: &BarRow, lit: bool, k: &Kit) -> El {
     let c = &k.c;
     let words = col().gap(1.0).grow(1.0).min_w(0.0)
-        .child(text(row.label.clone()).font(k.ty.ui_medium).color(c.text_base).truncate())
-        .child(text(row.detail.clone()).font(k.ty.small).color(c.text_faint).truncate());
+        .child(text(row.label.clone()).font(k.ty.ui_medium).color(c.text_base).truncate().help_when_truncated(row.label.clone()))
+        .child(text(row.detail.clone()).font(k.ty.small).color(c.text_faint).truncate().help_when_truncated(row.detail.clone()));
     let mut line = rune::row().w_full().gap(10.0).center_y().child(words);
     if let Some(cap) = &row.keycap { line = line.child(Keybind::new(&[cap.as_str()]).build(k)) }
     let pick = format!("bar.pick source={} key={}", row.source, word(&row.key));
