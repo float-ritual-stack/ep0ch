@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, COMPACT_FACTOR, compactionRoom, compactLog, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, writeGenesis, type LogRange } from "../src/change-log";
-import { appendToArchive, archivedCursor, letGoOtherChains, otherChains, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
+import { appendToArchive, archivedCursor, archivedRanges, letGoOtherChains, otherChains, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { importOutline } from "../src/outline-import";
@@ -494,6 +494,32 @@ test("an archive refuses ranges that skip entries between them, and a relay from
   home.close();
   replayArchive(archive, "home", join(dir, "restored.sqlite"), { logId });
   expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+});
+
+test("a relayed archive keeps the sender's range ends: a hub's copy has every point the sender's restores to (PIE-1806)", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const sender = join(dir, "sender"), hub = join(dir, "hub");
+  const take = () => { const at = archivedCursor(sender, "home", home.log.cursor().logId)?.lsn ?? 0; writeSegment(sender, "home", [home.log.range(at, 20_000)]); };
+  take();
+  appendToArchive(hub, "home", archivedRanges(sender, "home", home.log.cursor().logId));
+  // The rollback point: what the sender's archive held once (its own upload's), then more after it.
+  home.create("Crate of quinces", shelf.id);
+  take();
+  const point = home.log.cursor().lsn;
+  writeFileSync(join(dir, "point-dump.txt"), dumpOf(join(dir, "home.sqlite")));
+  home.create("Crate of medlars", shelf.id);
+  take();
+  const logId = home.log.cursor().logId;
+  const sent = archivedRanges(sender, "home", logId);
+  // Several of the sender's ranges past what the hub holds arrive in one relay: each still ends where the sender's did.
+  appendToArchive(hub, "home", sent);
+  expect(archivedRanges(hub, "home", logId).map(r => r.entries.at(-1)!.lsn)).toEqual(sent.map(r => r.entries.at(-1)!.lsn));
+  expect(archivedRanges(hub, "home", logId).map(r => r.entries.at(-1)!.lsn)).toContain(point);
+  home.close();
+  const replay = (archive: string, file: string) => replayArchive(archive, "home", join(dir, file), { logId, through: point });
+  expect(replay(hub, "hub.sqlite").lsn).toBe(point);
+  expect(dumpOf(join(dir, "hub.sqlite"))).toBe(readFileSync(join(dir, "point-dump.txt"), "utf8"));
 });
 
 test("a genesis carries AUTOINCREMENT's high-water marks: an id given out once is never given again after a restore", () => {

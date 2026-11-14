@@ -108,9 +108,10 @@ export interface Replayed { logId: string; lsn: number; at: string | null; rows:
  * its newest genesis at this build's schema up to `until` (an entry's time; default all of it) into `out`, a new file.
  * The result is an outline of its own: a new log id, recorded as forked from the old at the last entry it holds.
  * `logId` names the folder: a log's own, or a part of it set aside at a gap (`<logId>~<lsn>`), which replays as that log.
- * `through` is an exact entry: when it ends one of the archive's segments (a point an archive was taken at, so the
- * outline once stood there), the replay stops there even inside a transaction that ran on past it; `until` keeps whole
- * transactions.
+ * `through` is an exact entry: when it ends one of the archive's ranges (a host's answer ends at its head, or where a
+ * transaction id ends: either way the outline stood there), the replay stops there even inside a transaction id that
+ * ran on past it (a write that ends none); `until` keeps whole transactions. A relay keeps the sender's ranges as they
+ * were (`appendToArchive`), so a hub's copy has the same points.
  */
 export function replayArchive(root: string, outline: string, out: string, o: { until?: number; logId?: string; through?: number } = {}): Replayed {
   if (existsSync(out)) throw new Error(`${out} already exists; not overwritten`);
@@ -118,8 +119,7 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   const logs = logsOf(root, outline);
   const log = o.logId ? logs.find(l => l.logId === o.logId) : logs[0];
   if (!log) throw new Error(`the archive at ${join(root, outline)} holds no log ${o.logId ? `${o.logId} ` : ""}of ${outline}`);
-  const segs = segments(log.dir);
-  const ranges = segs.flatMap(s => readSegment(s.file));
+  const ranges = segments(log.dir).flatMap(s => readSegment(s.file));
   // The log the folder holds: a chain set aside at a gap is still that log (its folder only says where it stopped).
   const identity = log.logId.replace(/~\d+$/, "");
   const all: LogEntry[] = ranges.flatMap(r => r.entries);
@@ -134,7 +134,7 @@ export function replayArchive(root: string, outline: string, out: string, o: { u
   // Whole transactions only: a cut inside one leaves it out. Except an exact entry the archive was taken at: the log's
   // transaction ids can run on across the host's writes (a write that ends none), and the outline stood at that entry.
   const lastTxn = entries.at(-1)!.txn;
-  const taken = o.through !== undefined && entries.at(-1)!.lsn === o.through && segs.some(s => s.last === o.through);
+  const taken = o.through !== undefined && entries.at(-1)!.lsn === o.through && ranges.some(r => r.entries.at(-1)?.lsn === o.through);
   const cut = all.some(e => e.txn === lastTxn && (Date.parse(e.at) > until || (e.lsn > through && !taken)));
   const kept = cut ? entries.filter(e => e.txn !== lastTxn) : entries;
   const temp = `${out}.${process.pid}.part`;
@@ -166,8 +166,10 @@ export function archivedRanges(root: string, outline: string, logId: string): Lo
 
 /**
  * Adds to an outline's archive what it doesn't hold yet of `ranges` (one log's, in order, which may begin before the
- * archive's newest entry: a relay sends the whole log), as one new segment. Refused when they don't meet the archive
- * at its newest entry with the same entry. Returns the archive's newest entry after, and the segment written, if any.
+ * archive's newest entry: a relay sends the whole log), as one new segment of the same ranges, cut where the archive
+ * ends: each range ends where the sender's did, the points a restore to an exact entry reads (`replayArchive`). Refused
+ * when they don't meet the archive at its newest entry with the same entry. Returns the archive's newest entry after,
+ * and the segment written, if any.
  */
 export function appendToArchive(root: string, outline: string, ranges: readonly LogRange[]): { lsn: number; file: string | null } {
   if (!ranges.length) throw new Error("nothing to archive");
@@ -186,15 +188,23 @@ export function appendToArchive(root: string, outline: string, ranges: readonly 
     // chain is kept aside, and a new one starts at that genesis.
     const from = entries.findIndex(e => e.op === "g");
     renameSync(join(root, outline, logId), join(root, outline, `${logId}~${have.lsn}`));
-    const kept = entries.slice(from);
-    const last = ranges.at(-1)!;
-    const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: kept[0]!.lsn - 1, head: last.head, prev: null, entries: kept, complete: last.complete }]);
-    return { lsn: kept.at(-1)!.lsn, file };
+    const g = entries[from]!;
+    const kept = after(ranges, g.lsn - 1, null);
+    return { lsn: kept.at(-1)!.entries.at(-1)!.lsn, file: writeSegment(root, outline, kept) };
   } else throw new Error(`these entries don't meet ${outline}'s archive (it holds through ${have.lsn}; they run ${entries[0]?.lsn ?? "?"} to ${entries.at(-1)?.lsn ?? "?"})`);
   if (!rest.length) return { lsn: have.lsn, file: null };
-  const last = ranges.at(-1)!;
-  const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: have.lsn, head: last.head, prev: have.digest, entries: rest, complete: last.complete }]);
-  return { lsn: rest.at(-1)!.lsn, file };
+  return { lsn: rest.at(-1)!.lsn, file: writeSegment(root, outline, after(ranges, have.lsn, have.digest)) };
+}
+
+/** `ranges` from the entry after `lsn` on, each range keeping where it ends; the first now follows `lsn` (`prev`). */
+function after(ranges: readonly LogRange[], lsn: number, prev: string | null): LogRange[] {
+  const out: LogRange[] = [];
+  for (const r of ranges) {
+    const entries = r.entries.filter(e => e.lsn > lsn);
+    if (!entries.length) continue;
+    out.push(out.length ? r : { ...r, after: lsn, prev, entries });
+  }
+  return out;
 }
 
 /**

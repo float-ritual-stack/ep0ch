@@ -58,7 +58,8 @@ answer means nothing is archived that run, said with the command that starts it.
    `chain=<folder>:<newest entry>` for each, and once that upload lands each chain it names leaves here. Retention
    keeps that snapshot for good, and `ep0ch backup restore <outline> --log <old id> --entry <n> --to <new file>` finds
    the chain in it (a part set aside at a gap too, which restores as that log). An exact entry the archive was taken at
-   (a segment's last: install's rollback points) replays to that entry even when the log's transaction ran on past it. A relay doesn't let one go: it sends only the current chain. The run says each chain and its size,
+   (where one of its ranges ends: install's rollback points) replays to that entry even when the log's transaction id
+   ran on past it; a relay keeps the sender's ranges as they were, so the hub's copy has the same points. A relay doesn't let one go: it sends only the current chain. The run says each chain and its size,
    and so does `lastRun` in its state.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the

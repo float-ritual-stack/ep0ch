@@ -3,14 +3,15 @@
 // machine's behalf. Scratch outlines (fictional notes), local restic repositories, and the outliner's fake ssh (the hub is
 // a scratch HOME) in a temp folder only: no bucket, no real backup, no ~/outlines. Skipped where restic isn't installed.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
-import { statusLines } from "../src/backup/cli";
+import { backupCommand, statusLines } from "../src/backup/cli";
 import { archiveRoot, runAll, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
-import { snapshots } from "../src/backup/restic";
+import { forget, runRestic, snapshots } from "../src/backup/restic";
 import { hostRequest, SocketBoard } from "../src/socket";
 import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { outliner, scratchDir } from "./scratch";
@@ -208,6 +209,43 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(direct.trimmed?.find(t => t.outline === "potting")).toEqual({ outline: "potting", chains: [{ chain: old, bytes: expect.any(Number) }] });
     expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting"))).toEqual([now]);
     writeBackupState(laptop.state, s);
+  }, 120_000);
+
+  test("a rollback point the laptop uploaded itself still restores exactly from the hub's held chain, after its own snapshots are gone (Codex on #1522)", async () => {
+    const say = () => {};
+    // Uploaded straight (the rollback point), then relayed: the hub gets the laptop's ranges in one go, the point
+    // between two of them.
+    await write(laptop.host, "bench", ["Oil the bench", "Sharpen the chisels"]);
+    const s = readBackupState(laptop.state);
+    expect((await snapshot(laptop, s, { say, probe: REACHABLE })).uploaded).toContain("bench");
+    const point = { logId: s.outlines.bench!.logId!, seq: s.outlines.bench!.seq! };
+    await write(laptop.host, "bench", ["Sweep the shavings"]);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
+    // The point's transaction ran on into the next write: only the boundary the laptop archived at marks it.
+    const entries = archivedRanges(archiveRoot(laptop, "laptop"), "bench", point.logId).flatMap(r => r.entries);
+    const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
+    expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
+    // A new log, relayed: the hub's snapshot holds the old chain, and the hub lets it go.
+    await hostRequest(laptop.host, "outlines.delete", { name: "bench" });
+    await write(laptop.host, "bench", ["Build a new bench"]);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
+    expect(readdirSync(join(archiveRoot(hub, "laptop"), "bench"))).toEqual([s.outlines.bench!.logId!]);
+    writeBackupState(laptop.state, s);
+    // Retention let the old log's own snapshots go (the laptop's among them): the hub's held one is all there is.
+    const repo = laptop.repoOf("laptop");
+    for (const x of (await hubSnaps()).filter(x => x.outline === "bench" && x.logId === point.logId)) expect((await runRestic(hub, repo, ["forget", x.id])).code).toBe(0);
+    expect((await forget(hub, repo, { host: "laptop" })).code).toBe(0);
+    expect((await hubSnaps()).filter(x => x.outline === "bench" && x.chains?.[point.logId] !== undefined).length).toBeGreaterThan(0);
+    const out: string[] = [], err: string[] = [];
+    const to = join(dir, "bench-point.sqlite");
+    const code = await backupCommand(["backup", "restore", "bench", "--log", point.logId, "--entry", String(point.seq), "--to", to], { out: l => out.push(l), err: l => err.push(l) }, laptop.env);
+    expect([code, err]).toEqual([0, []]);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    const db = new Database(to, { readonly: true });
+    try {
+      const has = (t: string) => !!db.query("SELECT 1 FROM blocks WHERE text = ?").get(t);
+      expect([has("Sharpen the chisels"), has("Sweep the shavings")]).toEqual([true, false]);
+    } finally { db.close(); }
   }, 120_000);
 
   test("the hub unreachable too: the outline fails, with both reasons, and the hub holds nothing of it", async () => {
