@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use super::picture::Shown;
-use crate::actions::{self, Actor, App};
+use crate::actions::{self, Actor, App, word};
 use crate::draft::{DraftSession, Hold};
 use crate::keys;
 use crate::page::Page;
@@ -140,13 +140,16 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
             let inset = written.and_then(|draft| draft.writes.stands_at()).filter(|(line, _)| parts::line_of(part) == Some(line + 1)).and_then(|(_, place)| prim::inset(part, place, &field));
             let here = at.at(format!("part/{i}"));
             let built = prim::build(part, &match &inset { Some(inset) => here.taking(inset), None => here }, k);
-            body = body.child(beside(cx, part, built, margin, roomy, k));
+            // A file let go over this part goes in after it: after the last line of the note's text it is written in.
+            body = body.child(dropping(beside(cx, part, built, margin, roomy, k), cx, parts::span_of(part).and_then(|(_, end)| crate::draft::line_ending_at(&page.text, end as usize))));
             if inset.is_none() && let Some(field) = field() { body = body.child(held(field)) }
             if picked == Some(i) { body = body.children(offered(cx, k).map(&held)) }
         },
         (None, None) => {}
     }
     for prim in &foot { body = body.child(held(prim::build(prim, &at, k))) }
+    // A file let go anywhere else on the note: at the caret of what is being written, else at the note's end.
+    if page.is_some() { body = dropping(body, cx, None) }
     // The tile's note is on its way: the last one stays, dimmed, so the tile never blanks.
     let opacity = if cx.app.loading_of(cx.id) && draft.is_none() { 0.55 } else { 1.0 };
     k.scroll_bar(col().key(cx.key("scroll")).w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(row().w_full().justify_center().child(body.opacity(opacity))))
@@ -177,6 +180,20 @@ fn beside(cx: &TileCx, part: &Value, built: El, margin: bool, roomy: bool, k: &K
     } else {
         cards.into_iter().fold(col().w_full().max_w(MEASURE).gap(8.0).child(held), El::child)
     }
+}
+
+/// A place files are dropped on a note (Rune's `on_drop_files`, the innermost target under the pointer): each file
+/// is `note.drop`, after `line` of the note's text when the place is a part of it. What a note keeps is the
+/// service's to say, so every file is taken and a refusal is its words.
+fn dropping(place: El, cx: &TileCx, line: Option<u64>) -> El {
+    let tile = word(&cx.name);
+    place.on_drop_files(move |s: &mut App, files: &[std::path::PathBuf], _: &mut rune::Tx| {
+        for (n, file) in files.iter().enumerate() {
+            // The first goes after the line; the rest follow it at the caret, in the order they were dropped.
+            let after = line.filter(|_| n == 0).map_or(String::new(), |line| format!(" line={line}"));
+            s.act(&format!("note.drop path={}{after} tile={tile}", word(&file.to_string_lossy())), Actor::Person);
+        }
+    })
 }
 
 /// What is attached to words, beside them: the row of the list the mark names (a thread's), drawn by the list

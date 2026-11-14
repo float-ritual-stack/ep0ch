@@ -379,6 +379,7 @@ export const ACTIONS = {
   "outlines.known": { read: true, async: true },
   // Where a quoted passage is in a note's text, asked before anything is written about it (passage-find.ts).
   "passages.find": { read: true, async: true },
+  "media.keep": { async: true },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
   "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },

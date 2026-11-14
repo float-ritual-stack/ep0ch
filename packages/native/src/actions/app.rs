@@ -224,6 +224,8 @@ pub struct State {
     pub out_of: Option<Id>,
     /// The tile a paste was asked into with no words of its own, until the clipboard is read for it.
     pub pasting: Option<Id>,
+    /// The tile whose draft asked for the clipboard's picture (`draft.image` with no file named), until it is read.
+    pub pasting_picture: Option<Id>,
     /// Words an extension's action handed back for the person's clipboard, until the window's hands copy them.
     pub copying: Option<String>,
     /// What the run's programs had shown when the window last looked (`Store::programs_moved`).
@@ -348,6 +350,7 @@ impl App {
                 parked: HashMap::new(),
                 out_of: None,
                 pasting: None,
+                pasting_picture: None,
                 copying: None,
                 programs_seen: 0,
                 detaching: None,

@@ -492,7 +492,7 @@ pub fn area(text: &Text, tile: &str, named: (&str, &str), rows: usize, lit: &[st
         .on_input_change(move |s: &mut App, _| s.typed(&typed))
         .on_input_key(table_first(field, true))
         // A paste, however it was asked for (the platform's chord, the field's own menu): the window's, never the editor's.
-        .on_input_paste(move |s: &mut App, content: &rune::ClipboardContent, _| { s.pasted(&pasted, content.text()); true });
+        .on_input_paste(move |s: &mut App, content: &rune::ClipboardContent, _| { hand_over(s, &pasted, content); true });
     if !lit.is_empty() { input = input.spans(lit.iter().map(|range| Span { bg: Some(ground), ..Span::new(range.start, range.end) }).collect::<Vec<_>>()) }
     let frame = col().role("textbox").padding(8.0).w_full().min_h((rows.max(1) as f32 * style.line_px() + 16.0).max(80.0)).child(input).radius(k.radius.md).fill(c.bg_base).token_motion(k.motion.control);
     if text.0.focused { return frame.outline(1.0, -1.0, c.border_focus) }
@@ -537,6 +537,16 @@ impl Text {
     }
 }
 
+/// What a paste holds, handed to the tile it was pasted in: its words (`App::pasted`: into the block being written
+/// there, or the tile's program); with no words, the files it names (copied in a file manager), each as a file
+/// dropped there is, or the picture it is, kept for the block being written. The one place a paste is read.
+fn hand_over(s: &mut App, tile: &str, content: &rune::ClipboardContent) {
+    if !content.text().is_empty() { return s.pasted(tile, content.text()) }
+    let name = s.layout.name(tile);
+    for file in content.files() { s.act(&format!("draft.image path={} tile={}", word(&file.to_string_lossy()), word(&name)), Actor::Person); }
+    if content.files().is_empty() && let Some(picture) = content.image() { s.pasted_picture(tile, picture.png()) }
+}
+
 /// A tile's menu as the platform's own: an item a row (named by its place), a line between two groups, a row
 /// nobody can run now dimmed, and the key the table binds to a row's line beside it where the platform reads it.
 fn popup(rows: &[actions::menu::MenuItem]) -> rune::PopupMenu {
@@ -556,7 +566,9 @@ pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if s.closing { tx.close_window() }
     // A paste asked for with no words of its own is the clipboard's: read here, where the window's hands are, and
     // handed to the tile the person was in when they asked (its program, or the block being written there).
-    if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| s.pasted(&tile, content.text())) }
+    if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| hand_over(s, &tile, content)) }
+    // A picture asked for by name (`draft.image` with no file): the clipboard's, or said that it holds none.
+    if let Some(tile) = s.pasting_picture() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| match content.image() { Some(picture) => s.pasted_picture(&tile, picture.png()), None => s.no_picture() }) }
     // Words an extension's action handed back for the person's clipboard (`extensions.act`'s answer) are copied here.
     if let Some(words) = s.copying() { tx.copy(words) }
     // A tile's menu, where the window has menus of the platform's own: its rows as that menu, at the pointer or

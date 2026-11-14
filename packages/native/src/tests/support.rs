@@ -584,6 +584,18 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
                 Some(other) => Err(("failed", format!("Revision {other} of {note} isn't kept (the note is at revision 3; ep0ch revisions lists the ones kept)"))),
                 None => Ok(json!({ "blockId": note, "revision": 3, "revisions": [] })),
             },
+            // A file kept for a draft, as the service answers one (the outliner's media-keep.ts, held by its own
+            // test): a picture by its name into the outline's media folder, a page a note runs named where it is,
+            // anything else refused with what a note keeps.
+            "media.keep" => {
+                let name = ask["name"].as_str().unwrap_or("clipboard.png");
+                let path = format!("/made/up/garden/media/2026-11-14-{name}");
+                if name.ends_with(".png") { Ok(json!({ "path": path, "line": format!("[img::{path}]"), "kind": "picture", "kept": true })) }
+                else if name.ends_with(".html") { Ok(json!({ "path": ask["path"], "line": format!("[artifact::{}]", ask["path"].as_str().unwrap_or("")), "kind": "artifact", "kept": false })) }
+                else { Err(("invalid", format!("{name} is no picture and no page a note runs: a note keeps pictures and artifacts"))) }
+            }
+            // Where a note is on the web, as `notes.address` says it.
+            "notes.address" => Ok(json!({ "outline": outline, "machine": "box", "blockId": note, "link": format!("https://garden.example/o/{outline}/p/{note}") })),
             action => Err(("failed", format!("no action {action}"))),
         }
     });

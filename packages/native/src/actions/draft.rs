@@ -91,7 +91,24 @@ static DISMISS: ActionRow = ActionRow::new("complete.dismiss", Touches::Draft, "
     .person(THEIRS)
     .keys(&[KeyRow::on("escape", "said", "put the list away")]);
 
+static IMAGE: ActionRow = ActionRow::new("draft.image", Touches::Draft, "put a file in the block being written here, at the caret, as a media line on a line of its own: the file at path=, else the picture on the clipboard. The service keeps it and writes its line (media.keep, the door's rule): a picture is copied into the outline's folder (media/, named by its day and contents, the same picture twice one file) and goes in as [img::<path>]; a page a note runs is named where it is, as [artifact::<path>]; anything else is refused with what a note keeps. One step of the editor's undo")
+    .person(THEIRS)
+    .args(&[("path", ArgSpec::text("a file on this machine to put in, instead of the clipboard's picture").optional())])
+    .keys(&[KeyRow::via("a picture pasted into a block being written, or files copied in a file manager pasted there")])
+    .examples(&[Example { act: "draft.image path=/made/up/bed-at-dusk.png", does: "keeps that picture in the outline's media folder and puts its [img::] line in at the caret", safe: None }]);
+
+static DROP: ActionRow = ActionRow::new("note.drop", Touches::Draft, "a file dropped on a note in a reader (tile=, else the reader an act about the open note means): the note is opened for editing when it isn't, the caret goes to the end of line= (the line of the note's text the file was dropped after: the last of the part under the pointer), and the file goes in there as draft.image puts one in (kept by the service, its media line on a line of its own). With no line=, at the caret")
+    .person(THEIRS)
+    .args(&[
+        ("path", ArgSpec::text("the dropped file, on this machine")),
+        ("line", ArgSpec::number("the line of the note's text it goes in after, from 1 (default: where the caret is)").optional()),
+    ])
+    .keys(&[KeyRow::via("a file dragged from a file manager and let go over a note: it lands under the part it was let go on")])
+    .examples(&[Example { act: "note.drop path=/made/up/bed-at-dusk.png line=3", does: "opens the reader's note for editing and puts the picture's line in after its third line", safe: None }]);
+
 pub static ACTIONS: &[Action] = &[
+    Action { row: &IMAGE, run: image, about: About::Drafts },
+    Action { row: &DROP, run: dropped, about: About::Notes },
     Action { row: &EDIT, run: edit, about: About::Notes },
     Action { row: &SAVE, run: save, about: About::Drafts },
     Action { row: &CLOSE, run: close, about: About::Drafts },
@@ -415,6 +432,80 @@ impl App {
         self.field(&field).insert(&draft::plain_ends(words));
         self.typed(&field);
     }
+}
+
+impl App {
+    /// A file handed over for the block being written on `tile` (its bytes; its name and where it is, when it has
+    /// them): asked of the service to keep (`media.keep`), which answers the line that draws it. The one way a file
+    /// goes into a draft: a picture pasted, files pasted, `draft.image` and a file dropped on a note all come here.
+    pub(super) fn keep_file(&mut self, tile: &str, bytes: &[u8], name: Option<&str>, path: Option<&str>, by: &Actor) {
+        use base64::Engine;
+        let mut ask = json!({ "base64": base64::engine::general_purpose::STANDARD.encode(bytes) });
+        if let Some(name) = name { ask["name"] = json!(name) }
+        if let Some(path) = path { ask["path"] = json!(path) }
+        let at = self.at.clone();
+        self.store.request(&at, "media.keep", ask, by, kept, json!({ "tile": tile, "name": name }));
+    }
+
+    /// A picture pasted into the block being written on `tile` (the clipboard's, as PNG): kept, and its line put in.
+    /// `keys.rs` hands it over, as it hands a paste's words to `App::pasted`.
+    pub fn pasted_picture(&mut self, tile: &str, png: &[u8]) {
+        if self.draft_on(tile).is_some() { self.keep_file(tile, png, None, None, &Actor::Person) }
+    }
+
+    /// The clipboard held no picture for a `draft.image` that asked for one: said, and nothing is put in.
+    pub fn no_picture(&mut self) { self.st.notice = Some(Notice::problem("There is no picture on the clipboard: copy one first, or name a file (draft.image path=…).")) }
+
+    /// The tile whose draft waits on the clipboard's picture (`draft.image` with no file named), taken once.
+    pub fn pasting_picture(&mut self) -> Option<Id> { self.st.pasting_picture.take() }
+}
+
+/// The service kept a file, or said why not: its line goes in at the caret of the block it was for, on a line of
+/// its own, by the one way a paste goes in (`App::paste_in`); a refusal is the notice, in the service's words.
+fn kept(app: &mut App, reply: Reply) {
+    let Some(tile) = reply.ctx["tile"].as_str().map(str::to_string) else { return };
+    let line = match reply.result {
+        Ok(result) => match result["line"].as_str() { Some(line) => line.to_string(), None => return },
+        Err(refusal) => { app.st.notice = Some(Notice::problem(refusal.error)); return }
+    };
+    // The block was closed while the file was on its way: nothing takes its line, and the notice says where it is.
+    let Some(draft) = app.draft_on(&tile) else { app.st.notice = Some(Notice::info(format!("Kept, with no block open to put it in: {line}"))); return };
+    let (words, (_, caret)) = (draft.buf.words(), draft.buf.ends());
+    let (before, after) = (&words[..caret.min(words.len())], &words[caret.min(words.len())..]);
+    let own = format!("{}{line}{}", if before.is_empty() || before.ends_with('\n') { "" } else { "\n" }, if after.starts_with('\n') { "" } else { "\n" });
+    app.paste_in(&tile, &own);
+}
+
+/// A file read off this machine for a draft: its bytes and its name, or why not in words.
+fn read_file(path: &str) -> Result<(Vec<u8>, String), Outcome> {
+    let name = std::path::Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    std::fs::read(path).map(|bytes| (bytes, name)).map_err(|why| Outcome::refused(format!("{path} can't be read here: {why}")))
+}
+
+fn image(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    match args.text("path") {
+        Some(path) => match read_file(path) { Ok((bytes, name)) => app.keep_file(&tile, &bytes, Some(&name), Some(path), by), Err(no) => return no },
+        None => app.st.pasting_picture = Some(tile),
+    }
+    Outcome::done()
+}
+
+fn dropped(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let Some(tile) = app.about() else { return Outcome::refused("there is no reader to drop a file on") };
+    let path = args.text("path").unwrap_or("").to_string();
+    let (bytes, name) = match read_file(&path) { Ok(read) => read, Err(no) => return no };
+    // The note is written from here on: opened as `edit` opens it, when nothing is being written there yet.
+    if app.draft_on(&tile).is_none() { let opened = edit(app, args, by); if !opened.ok { return opened } }
+    // The caret goes to the end of the line the file was dropped after.
+    if let (Some(line), Some(draft)) = (args.number("line"), app.st.drafts.iter_mut().find(|draft| draft.tile == tile)) {
+        let words = draft.buf.words();
+        let end = words.split_inclusive('\n').take(line.max(1.0) as usize).map(str::len).sum::<usize>();
+        let end = if words[..end].ends_with('\n') { end - 1 } else { end };
+        draft.buf.select(end, end);
+    }
+    app.keep_file(&tile, &bytes, Some(&name), Some(&path), by);
+    Outcome::done()
 }
 
 /// Text put in at the caret, as a paste: the words the act says, else the clipboard's, read where the window's

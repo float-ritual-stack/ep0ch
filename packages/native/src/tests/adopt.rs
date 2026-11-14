@@ -192,5 +192,75 @@ fn a_note_s_address_is_copied_for_the_person_and_answered_to_an_agent() {
     // The web link is the service's to say.
     assert!(g.app.act("note.copy-ref kind=link", Actor::Person).ok);
     g.app.settle();
-    assert_eq!(last(&g.asked)["action"], "notes.address");
+    assert!(actions(&g.asked).contains(&"notes.address".to_string()));
+    assert_eq!(g.app.copying().as_deref(), Some("https://garden.example/o/garden/p/plot"), "the link the service said is what is copied");
+}
+
+/// A made-up file in a scratch folder of this test's own: its path.
+fn scratch_file(test: &str, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ep0ch-native-{test}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+/// A file dragged from a file manager and let go over a part of a note (a real drop event through the window):
+/// the note opens for editing, and the file's line goes in after the part it was let go on, on a line of its own,
+/// as one step of the editor's undo. The service keeps the file and writes the line (`media.keep`): the window
+/// hands over its bytes, its name and where it is, and puts in what is answered. A page a note runs is named where
+/// it is; a file a note doesn't keep is refused in the service's words, and nothing is put in.
+#[test]
+fn a_file_dropped_on_a_part_of_a_note_goes_in_after_that_part_as_the_line_the_service_kept_it_under() {
+    let picture = scratch_file("drop", "bed-at-dusk.png", &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1]);
+    let g = garden(ok());
+    let (asked, mut rt) = (g.asked.clone(), window(g.app));
+    assert!(draft(&rt.state).is_none());
+    let at = rt.find("tile/reader/part/0").expect("the note's prose is its first part");
+    rt.drop_files(vec![picture.clone()], Some(at));
+    rest(&mut rt);
+    let kept = asked.borrow().iter().find(|ask| ask["action"] == "media.keep").cloned().expect("the service is asked to keep the file");
+    assert_eq!((kept["name"].as_str(), kept["path"].as_str()), (Some("bed-at-dusk.png"), picture.to_str()));
+    assert_eq!(base64::Engine::decode(&base64::engine::general_purpose::STANDARD, kept["base64"].as_str().unwrap()).unwrap().len(), 13, "its bytes are handed over");
+    // The prose is the note's second line: the line went in after it, and the note is being written.
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the rain.\n[img::/made/up/garden/media/2026-11-14-bed-at-dusk.png]\n");
+    assert!(unsaved(&rt.state));
+    assert!(rt.state.steps.iter().any(|step| step.action == "note.drop" && step.ok && step.tile.as_deref() == Some("reader") && step.args["line"] == 2.0));
+    // The editor's own undo takes the line back out, whole.
+    chord(&mut rt, rune::Key::Command('z'), primary());
+    assert_eq!(words(&rt.state), "Plot [type::chore]\nBefore the rain.");
+    // A page a note runs, dropped on the block now being written: named where it is, at the caret.
+    let page = scratch_file("drop", "night shift.html", b"<p>beds</p>");
+    let field = rt.find("tile/reader/source").expect("the block's field");
+    rt.drop_files(vec![page.clone()], Some(field));
+    rest(&mut rt);
+    assert!(words(&rt.state).ends_with(&format!("\n[artifact::{}]\n", page.display())), "{}", words(&rt.state));
+    // A file a note doesn't keep: the service's refusal is the notice, and nothing is put in.
+    let seeds = scratch_file("drop", "seeds.csv", b"peas,3\n");
+    let before = words(&rt.state).to_string();
+    rt.drop_files(vec![seeds], Some(field));
+    rest(&mut rt);
+    assert_eq!(words(&rt.state), before);
+    assert!(rt.state.notice.as_ref().is_some_and(|notice| notice.said.contains("no picture and no page")));
+    let _ = std::fs::remove_dir_all(picture.parent().unwrap());
+}
+
+/// A picture pasted into a block being written (a paste event that holds a picture and no words): kept by the
+/// service as a dropped picture is, and its line put in at the caret. An agent is refused the editor's own actions.
+#[test]
+fn a_picture_pasted_into_a_block_is_kept_and_its_line_put_in() {
+    let g = garden(ok());
+    let (asked, mut rt) = (g.asked.clone(), window(g.app));
+    rt.update(|s, _| { s.act("edit", Actor::Person); });
+    rest(&mut rt);
+    // The start of a PNG, two pixels by two: what Rune takes as a clipboard's picture.
+    let png: Vec<u8> = [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13][..], b"IHDR", &[0, 0, 0, 2, 0, 0, 0, 2]].concat();
+    let picture = rune::ClipboardImage::from_png(png.clone()).expect("the bytes read as a PNG's start");
+    rt.paste_content(rune::ClipboardContent::new("").with_image(picture));
+    rest(&mut rt);
+    let kept = asked.borrow().iter().find(|ask| ask["action"] == "media.keep").cloned().expect("the picture is handed to the service");
+    assert!(kept["name"].is_null() && kept["path"].is_null(), "a clipboard's picture has no name and is nowhere: {kept}");
+    assert_eq!(base64::Engine::decode(&base64::engine::general_purpose::STANDARD, kept["base64"].as_str().unwrap()).unwrap(), png);
+    assert!(words(&rt.state).ends_with("\n[img::/made/up/garden/media/2026-11-14-clipboard.png]\n"), "{}", words(&rt.state));
+    assert!(!rt.state.act("draft.image path=/made/up/bed.png", agent()).ok, "the editor is the person's");
 }
