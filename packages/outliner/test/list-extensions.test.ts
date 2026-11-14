@@ -2,12 +2,13 @@
 // extension's settings reaching the script it ships: the service's half of "install Waiting from the bar, use it,
 // configure it, uninstall it, switch outline". A scratch service in a temp folder; every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ListAnswer, ListSource } from "@ep0ch/outline-core/list-row";
 import type { ExtensionsConfigured } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
+import { ACT_ASKS_OF_A_CLIENT, type ExtensionActResult } from "../src/extension-calls";
 import type { KnownOutlines } from "../src/outline-links";
 import type { ScreensList } from "../src/screens";
 import { OutlinerServer } from "../src/server";
@@ -106,6 +107,27 @@ test("a tile a script renders is one view, each press its act line, and reads it
   await expect(view("reader")).rejects.toThrow("isn't drawn by a script");
   await expect(view("compost.heap")).rejects.toThrow("no extension here serves a compost.heap tile");
 }, 120_000);
+
+test("what an extension's action answers a window is written down for the window's own tests", async () => {
+  const { client, install } = await setup();
+  await install("what-changed");
+  const bed = await client.request<{ id: string }>({ action: "create", text: "North bed [type::bed]", author: "user" } as never);
+  // The request as the native window sends it (packages/native/src/actions/ext.rs): the action, its own arguments,
+  // the note a reader shows and who asked.
+  const asked = { action: "extensions.act", extension: "what-changed", extensionAction: "change", args: {}, blockId: bed.id, mutation: { author: "user" } };
+  const answer = await client.request<ExtensionActResult>(asked as never);
+  // Its words alone would say something that didn't happen: it asks for the note to be opened with its change beside it.
+  expect(answer).toEqual({ extension: "what-changed", action: "change", message: "the change, beside the note", written: [], open: bed.id, compare: true });
+  // Written down as answered, the note under a made-up name: EP0CH_WRITE_FIXTURES=1 writes it, never a hand.
+  const fixture = join(import.meta.dir, "..", "..", "outline-core", "fixtures", "served-act.json");
+  const named = <T,>(value: T): T => JSON.parse(JSON.stringify(value).replaceAll(bed.id, "north-bed"));
+  const answered = JSON.stringify({
+    about: "What the service answers `extensions.act` as the native window asks it: the default-on what-changed extension's `change`, about a made-up note, on a scratch service. `asks` is everything such an answer may ask of the client beyond saying its words (the outliner's ACT_ASKS_OF_A_CLIENT): a client does each or says it isn't done there. Written by packages/outliner/test/list-extensions.test.ts (EP0CH_WRITE_FIXTURES=1), never by hand; packages/native/src/tests read it.",
+    asks: ACT_ASKS_OF_A_CLIENT, asked: named(asked), answered: named(answer),
+  }, null, 2) + "\n";
+  if (process.env.EP0CH_WRITE_FIXTURES === "1") writeFileSync(fixture, answered);
+  expect(existsSync(fixture) ? readFileSync(fixture, "utf8") : "", "outline-core/fixtures/served-act.json is stale: EP0CH_WRITE_FIXTURES=1 bun test test/list-extensions.test.ts").toBe(answered);
+}, 60_000);
 
 test("the outlines there are to open are a list, and it makes none", async () => {
   const { client, list } = await setup();

@@ -167,6 +167,14 @@ export const DOOR_COMMANDS = ["peek", "snap", "open", "actions", "act", "subscri
 export const DOORS: Readonly<Record<string, string>> = { terminal: "door.sock", native: "native.sock" };
 
 /**
+ * A door that is a program of its own (`ep0ch-<door>`, started with the outline's words after `--`) and that nothing
+ * installs: what builds it on a machine and puts its command on the PATH, said where no such command is found
+ * (`controlFor`'s hint). The native window is a Rust crate with a cargo build of its own (packages/native/README.md,
+ * "Run it"), run from its folder so its own toolchain file is the one read.
+ */
+export const DOOR_BUILDS: Readonly<Record<string, string>> = { native: "`cargo install --locked --path .` in the checkout's packages/native builds the window and puts ep0ch-native on the PATH" };
+
+/**
  * A door command's `--ws <outline>` and `--machine <ssh-name>`, wherever they are on the line (`ep0ch act --ws pie
  * ext.yo.settings …`, `ep0ch act ext.yo.settings --ws pie …`): taken out, so the action's words are only its own
  * (`key=value`), and said, so main.ts reaches that outline's door. A flag with no value is refused with what it takes.

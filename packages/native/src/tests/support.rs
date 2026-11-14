@@ -143,7 +143,9 @@ fn plain_page(id: &str, title: &str, revision: u64, text: &str) -> Value {
 /// A made-up outline: Plot › (Lift the onions › Take the fork, Water the beans), Shed. `saves`: how `update` answers.
 /// `screens`: the rows the host's `screens.list` answers beside the shipped ones, for a test to set (then
 /// `screens_are`). `shipped`: whether the screens extension is installed there.
-pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>>, pub shipped: Rc<std::cell::Cell<bool>>, pub elsewhere: Elsewhere }
+/// `outlines`: what the host's `outlines.known` answers, for a test to set. `reached`: every outline the window asked
+/// the way to (the rule every client opens one by), whether or not there was one.
+pub struct Garden { pub app: App, pub asked: Asked, pub said: Said, pub screens: Rc<RefCell<Value>>, pub shipped: Rc<std::cell::Cell<bool>>, pub elsewhere: Elsewhere, pub outlines: Rc<RefCell<Value>>, pub reached: Rc<RefCell<Vec<crate::store::OutlineAt>>> }
 
 /// What the hosts of the other outlines a window switched to were asked and said, by the outline's name: a link each.
 pub type Elsewhere = Rc<RefCell<std::collections::HashMap<String, (Asked, Said)>>>;
@@ -166,7 +168,12 @@ impl Waiting {
     fn listed(&self) -> Value {
         let screen = json!({ "name": "waiting", "title": "waiting on others" });
         let tile = json!({ "kind": "waiting.list", "name": "Outbox waiting", "description": "the outbox items still waiting for an answer", "render": "waiting" });
-        let compost = json!({ "id": "compost", "name": "Compost", "state": "active", "screens": [], "tiles": [], "bar": [], "actions": [{ "id": "turn", "name": "ext.compost.turn", "label": "Turn the heap", "description": "Turns the heap and says when" }] });
+        // (Its actions each answer one of the things the service's `extensions.act` may: `acted`, below.)
+        let action = |id: &str, label: &str, description: &str| json!({ "id": id, "name": format!("ext.compost.{id}"), "label": label, "description": description });
+        let compost = json!({ "id": "compost", "name": "Compost", "state": "active", "screens": [], "tiles": [], "bar": [], "actions": [
+            action("turn", "Turn the heap", "Turns the heap and says when"), action("sift", "Sift the heap", "Opens the note the heap was last fed from, its last change beside it"),
+            action("ledger", "The ledger", "Opens the heap's ledger, a file"), action("empty", "Empty the heap", "Empties the heap, once it is sure"),
+            action("tag", "A tag for the bin", "Hands back the words for the bin's tag"), action("log", "Log a turn", "Writes a line where the caret is"), action("rounds", "The rounds", "Walks the heaps, a step each")] });
         let waiting = json!({ "id": "waiting", "name": "Waiting", "state": "active", "settings": self.settings(), "screens": [screen], "tiles": [tile], "actions": [], "bar": [] });
         if self.installed.get() { json!({ "extensions": [compost, waiting], "available": [{ "id": "moon", "name": "Moon" }] }) } else { json!({ "extensions": [compost], "available": [{ "id": "moon", "name": "Moon" }, { "id": "waiting", "name": "Waiting" }] }) }
     }
@@ -413,16 +420,45 @@ fn completion(text: &str, cursor: usize, lit: usize) -> Value {
 pub fn garden(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_on(saves, true) }
 
 /// The garden as a window first finds it: its readers told no note.
-pub fn garden_unopened(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_with(saves, true, None, false) }
+pub fn garden_unopened(saves: Rc<RefCell<Result<(), (&'static str, String)>>>) -> Garden { garden_with(saves, true, None, false, "") }
 
 /// The garden on a host with the screens extension installed, or (`shipped: false`) without it.
-pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None, true) }
+pub fn garden_on(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool) -> Garden { garden_with(saves, with_screens, None, true, "") }
 
 /// The garden, in a window that keeps its arrangement (and what is being written) in `kept` between runs.
-pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept), true) }
+pub fn garden_kept(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, kept: &std::path::Path) -> Garden { garden_with(saves, true, Some(kept), true, "") }
+
+/// The garden on another machine (`machine`: this machine's ssh name for it), in a window that reaches it over a
+/// forward: its host is the one asked which outlines there are, and names machines by its own ssh names.
+pub fn garden_away(machine: &'static str) -> Garden { garden_with(ok(), true, None, true, machine) }
+
+/// What a real service answered `extensions.act` as this window asks it, and everything such an answer may ask of a
+/// client (`asks`): outline-core's fixture, written by the outliner's own test (list-extensions.test.ts).
+pub fn served_act() -> Value { serde_json::from_str(include_str!("../../../outline-core/fixtures/served-act.json")).expect("the served act fixture is JSON") }
+
+/// What the stand-in host answers an extension's action with, one made-up action each thing the service's
+/// `extensions.act` may answer (the outliner's extension-calls.ts, `ExtensionActResult`): words alone, a note to
+/// open with its last change beside it (the answer a real service gave, `served_act`), a Resource to open, a question before it does anything (the argument that
+/// says yes), words for the clipboard, a line for the caret, and a runbook's plan.
+fn acted(ask: &Value) -> Value {
+    let mut answer = json!({ "extension": ask["extension"], "action": ask["extensionAction"], "written": [] });
+    let more = match ask["extensionAction"].as_str().unwrap_or("") {
+        // (As the service answered what-changed's `change`: the recorded answer, about the garden's beans.)
+        "sift" => { let mut recorded = served_act()["answered"].clone(); recorded["open"] = json!("beans"); for own in ["extension", "action"] { recorded.as_object_mut().unwrap().remove(own); } recorded }
+        "ledger" => json!({ "message": "the heap's ledger", "open": "file:/shed/ledger.md" }),
+        "empty" if ask["args"]["sure"] != "yes" => json!({ "confirmation": { "message": "Somebody fed the heap since it was last turned. Empty it anyway?", "argument": "sure", "value": "yes" } }),
+        "empty" => json!({ "message": "emptied the heap", "written": ["plot"] }),
+        "tag" => json!({ "message": "a tag for the bin", "copy": "Compost · turned on the third of May" }),
+        "log" => json!({ "insert": { "text": "- turned the heap" } }),
+        "rounds" => json!({ "runbook": { "title": "The rounds", "steps": [{ "name": "the north heap" }] } }),
+        _ => json!({ "message": "turned the heap" }),
+    };
+    for (key, value) in more.as_object().into_iter().flatten() { answer[key] = value.clone() }
+    answer
+}
 
 /// A stand-in host for one outline: the link to it, and what a test reads and says on it.
-struct Host { link: Standin, asked: Asked, said: Said, screens: Rc<RefCell<Value>>, shipped: Rc<std::cell::Cell<bool>> }
+struct Host { link: Standin, asked: Asked, said: Said, screens: Rc<RefCell<Value>>, shipped: Rc<std::cell::Cell<bool>>, outlines: Rc<RefCell<Value>> }
 
 fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, outline: &'static str) -> Host {
     let (asked, said): (Asked, Said) = Default::default();
@@ -432,6 +468,8 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
     let shipped = Rc::new(std::cell::Cell::new(with_screens));
     let installed = shipped.clone();
     let waiting = Waiting { installed: Rc::new(std::cell::Cell::new(false)), warn: Rc::new(std::cell::Cell::new(None)) };
+    let there: Rc<RefCell<Value>> = Rc::new(RefCell::new(known()));
+    let outlines = there.clone();
     let answers: Answers = Box::new(move |ask| {
         let note = ask["blockId"].as_str().unwrap_or("").to_string();
         let titled = |id: &str| match id { "plot" => "Plot", "onions" => "Lift the onions", "beans" => "Water the beans", "shed" => "Shed", "new" => "", _ => "Take the fork" }.to_string();
@@ -482,9 +520,9 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
                 if ask["unset"].as_array().is_some_and(|names| names.iter().any(|name| name == "warn-days")) { waiting.warn.set(None) }
                 Ok(json!({ "id": "waiting", "settings": waiting.settings() }))
             }
-            "extensions.act" => Ok(json!({ "extension": ask["extension"], "action": ask["extensionAction"], "message": "turned the heap" })),
+            "extensions.act" => Ok(acted(ask)),
             "tiles.view" => waiting.view(ask["kind"].as_str().unwrap_or("")),
-            "outlines.known" => Ok(known()),
+            "outlines.known" => Ok(outlines.borrow().clone()),
             "events.subscribe" => Ok(json!({ "subscribed": true })),
             // The service runs a button's steps and says how the run went; what it answers a script's act with is its own.
             "scripts.sequence" => match ask["line"].as_u64() { Some(13) => Ok(json!({ "extension": "button", "action": "run", "undo": "run-1", "state": "running", "written": [] })), _ => Err(("invalid", "No button on that line; read the note and press its current button".into())) },
@@ -532,29 +570,32 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             action => Err(("failed", format!("no action {action}"))),
         }
     });
-    Host { link: Standin { answers, asked: asked.clone(), said: said.clone() }, asked, said, screens, shipped: installed }
+    Host { link: Standin { answers, asked: asked.clone(), said: said.clone() }, asked, said, screens, shipped: installed, outlines: there }
 }
 
-fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>, opened: bool) -> Garden {
-    let Host { link, asked, said, screens, shipped } = host(saves, with_screens, "garden");
+fn garden_with(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bool, kept: Option<&std::path::Path>, opened: bool, machine: &'static str) -> Garden {
+    let Host { link, asked, said, screens, shipped, outlines } = host(saves, with_screens, "garden");
     let elsewhere: Elsewhere = Default::default();
-    let (links, beside) = (elsewhere.clone(), kept.map(std::path::Path::to_path_buf));
+    let reached: Rc<RefCell<Vec<crate::store::OutlineAt>>> = Default::default();
+    let (links, beside, ways_asked) = (elsewhere.clone(), kept.map(std::path::Path::to_path_buf), reached.clone());
     // The way to any other outline is another stand-in host, as the rule would find one: the same made-up notes
-    // under another name, on a link of its own. One on a machine nobody reaches says so.
+    // under another name, on a link of its own. One on a machine nobody reaches says so: this machine reaches its
+    // own and the one the window's outline is on (the forward it was opened over).
     let ways: crate::actions::Ways = Rc::new(move |at: &crate::store::OutlineAt| {
-        if !at.machine.is_empty() { return Err(format!("can't reach the outline host on {}: no route to it from here", at.machine)) }
+        ways_asked.borrow_mut().push(at.clone());
+        if !at.machine.is_empty() && at.machine != machine { return Err(format!("can't reach the outline host on {}: no route to it from here", at.machine)) }
         let name: &'static str = Box::leak(at.outline.clone().into_boxed_str());
         let there = host(ok(), true, name);
         links.borrow_mut().insert(at.outline.clone(), (there.asked.clone(), there.said.clone()));
         Ok(crate::client::Way { link: Box::new(there.link), kept: beside.as_ref().map(|path| path.with_file_name(format!("native-{}.layout.json", at.outline))) })
     });
-    let mut app = App::new(Box::new(link), "garden").reaching(ways);
+    let mut app = App::opened(Box::new(link), crate::store::OutlineAt { outline: "garden".into(), machine: machine.into() }).reaching(ways);
     if let Some(kept) = kept { app = app.arranged_in(kept.to_path_buf()) }
     app.start();
     app.settle();
     // A reader shows the note it was told and no other: the plot is opened, where a window has a reader and shows none.
     if opened && app.reader().is_some() && app.subject().is_none() { act(&mut app, "open id=plot"); }
-    Garden { app, asked, said, screens, shipped, elsewhere }
+    Garden { app, asked, said, screens, shipped, elsewhere, outlines, reached }
 }
 
 /// The host's screens are `rows` now, and it says so: the watched `screens.list` is read again.

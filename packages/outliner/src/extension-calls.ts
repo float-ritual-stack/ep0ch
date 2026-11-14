@@ -242,6 +242,15 @@ export interface ExtensionActResult {
   readonly answer?: string;
 }
 
+/**
+ * What an `extensions.act` answer may ask of the client that sent it, beyond saying its words: a question to put
+ * before anything is done, a note or a Resource to open (with its last change beside it), words to copy, a line to
+ * put at the caret, a runbook to walk. A client does each or says it isn't done there; reading `message` alone states
+ * something that didn't happen. Written into `outline-core/fixtures/served-act.json` with a real answer (the
+ * outliner's list-extensions test), which the native window's tests hold their reader to.
+ */
+export const ACT_ASKS_OF_A_CLIENT = ["confirmation", "open", "compare", "copy", "insert", "runbook"] as const satisfies readonly (keyof ExtensionActResult)[];
+
 /** `extensions.bar`: a query for one of an extension's command-palette sources (PIE-656). */
 export interface ExtensionBarRequest {
   readonly extension: string;

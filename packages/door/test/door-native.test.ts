@@ -1,7 +1,7 @@
 // `--door native` (packages/native): the door's own client reaches the native window's control socket, which sits
 // beside the terminal door's in the outline's session folder and speaks the same protocol.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,9 +43,21 @@ describe("--door native", () => {
     expect(taking).toEqual(["peek", "act", "actions"]);
   });
 
-  test("no native window on the outline is said, with what starts one", async () => {
-    const none = await controlFor(env, root, ["act", "--ws", "garden"], "native");
-    expect(none).toEqual({ error: "no native door runs on garden · `ep0ch-native -- --ws garden` starts one" });
+  test("no native window on the outline is said, with what starts one, and what builds one where none is built", async () => {
+    // Nothing installs the window's command: it is built once a machine, from the checkout. Where the PATH has none
+    // the hint says the build before the command, so nobody is sent to a command that isn't found.
+    const bare = { ...env, PATH: join(root, "no-bin") };
+    expect(await controlFor(bare, root, ["act", "--ws", "garden"], "native")).toEqual({ error: "no native door runs on garden · `ep0ch-native -- --ws garden` starts one, once this machine has built it: `cargo install --locked --path .` in the checkout's packages/native builds the window and puts ep0ch-native on the PATH" });
+    // Built and on the PATH, the command alone.
+    const bin = join(root, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "ep0ch-native"), "#!/bin/sh\n", { mode: 0o755 });
+    const built = { ...env, PATH: bin };
+    expect(await controlFor(built, root, ["act", "--ws", "garden"], "native")).toEqual({ error: "no native door runs on garden · `ep0ch-native -- --ws garden` starts one" });
+    // With no outline named and none running, the same two.
+    const unnamed = await controlFor(built, root, ["act"], "native");
+    expect(typeof unnamed === "object" && unnamed.error).toContain("`ep0ch-native -- --ws <outline>` starts one");
+    expect(typeof unnamed === "object" && unnamed.error).not.toContain("cargo");
   });
 
   test("a native window's socket is the one reached, beside where the terminal door's would be", async () => {

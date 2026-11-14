@@ -5,7 +5,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ListAnswer } from "@ep0ch/outline-core/list-row";
+import { listSections, type ListAnswer } from "@ep0ch/outline-core/list-row";
 import { OutlinerClient } from "../src/client";
 import { listSources } from "../src/list-producers";
 import { OutlinerServer } from "../src/server";
@@ -107,6 +107,32 @@ test("lanes: the matches grouped by a property name into lanes, and refused in w
   expect(lanes).toEqual({ sown: [herbs.id, north.id], planned: [south.id] });
   expect(board.list.groups!.find(g => g.name === "sown")).toMatchObject({ label: "sown", count: 2 });
   await expect(client.request({ action: "lists.read", from: "lanes", query: "type=bed" } as never)).rejects.toThrow("group=<a property name>");
+});
+
+test("query and lanes: grouped by two property names, a group's own groups come with it, each level labelled by its own key", async () => {
+  const { list, create, beds, north, south, herbs } = await setup();
+  for (const from of ["query", "lanes"]) {
+    const nested = await list(from, { query: "type=bed", group: "stage,crop", sort: "title asc" });
+    expect(nested.group).toBe("stage,crop");
+    expect(nested.list.groups!.map(g => g.name).sort()).toEqual(["planned", "sown"]);
+    // The second level is the group's own groups, as `blocks.query` answers them and a view of the same question lists them.
+    const sown = nested.list.groups!.find(g => g.name === "sown")!;
+    expect(sown.groups!.map(g => [g.label, g.count, g.ids]).sort()).toEqual([["peas", 1, [north.id]], ["thyme", 1, [herbs.id]]]);
+    expect(nested.list.groups!.find(g => g.name === "planned")!.groups!.map(g => [g.label, g.ids])).toEqual([["beans", [south.id]]]);
+    // A section each, named by the way to it: three, where one level alone gives two. Every section's name is its own.
+    const sections = listSections(nested.list);
+    expect(sections.map(s => s.head!.label).sort()).toEqual(["planned / beans", "sown / peas", "sown / thyme"]);
+    expect(new Set(sections.map(s => s.head!.name)).size).toBe(3);
+    expect(sections.find(s => s.head!.label === "sown / thyme")!.rows.map(r => r.id)).toEqual([herbs.id]);
+  }
+  // A note with no value at a level is under that level's own key, never under both.
+  const fallow = await create("Fallow bed [type::bed] [stage::sown]", beds.id);
+  const loose = await create("Loose bed [type::bed] [crop::kale]", beds.id);
+  const more = await list("query", { query: "type=bed", group: "stage,crop", sort: "title asc" });
+  expect(more.list.groups!.find(g => g.name === "sown")!.groups!.find(g => g.ids!.includes(fallow.id))).toMatchObject({ label: "no crop", count: 1 });
+  const unstaged = more.list.groups!.find(g => g.groups?.some(k => k.ids!.includes(loose.id)))!;
+  expect(unstaged).toMatchObject({ name: "", label: "no stage" });
+  expect(unstaged.groups!.map(g => g.label)).toEqual(["kale"]);
 });
 
 test("facets: the properties the matches carry as rows, a group a key, each a pick that narrows the list it is in", async () => {

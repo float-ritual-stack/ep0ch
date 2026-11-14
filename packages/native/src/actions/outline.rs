@@ -10,6 +10,10 @@
 //!   of them now), and asked for again when the window comes back.
 //! - **A link is one an outline**, kept by the store: a window that comes back to an outline, or a second window
 //!   on it, uses the link that is there.
+//! - **A machine's name belongs to the machine that says it.** A host lists the machines it holds a forward to by
+//!   its own ssh names. This machine's host says this machine's names, which the rule here follows. A host on
+//!   another machine (the window was opened on its outline over a forward) says that machine's: `vouched` lets it
+//!   speak for its own machine's outlines only, and the window says what opens the rest from here.
 use serde_json::{Value, json};
 
 use super::app::Parked;
@@ -20,8 +24,8 @@ use crate::draft::Recovery;
 use crate::screen::Screen;
 use crate::store::{OutlineAt, Reply};
 
-static SWITCH: ActionRow = ActionRow::new("outline.switch", Touches::Screen, "this window opens another outline: one this machine has, or one on a machine it holds a forward to (machine=, that machine's ssh name). Only an outline the service lists is opened: a name nobody has is refused with the ones there are, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; switched back to, it is as it was left")
-    .args(&[("name", ArgSpec::text("the outline's name, as the bar's Outlines lists it")), ("machine", ArgSpec::text("the ssh name of the machine it is on, when that isn't this one").optional())])
+static SWITCH: ActionRow = ActionRow::new("outline.switch", Touches::Screen, "this window opens another outline: one this machine has, or one on a machine it holds a forward to (machine=, that machine's ssh name). Only an outline the service lists is opened: a name nobody has is refused with the ones there are, and nothing is made. The outline left keeps its arrangement, what each tile showed and the blocks being written, as typed; switched back to, it is as it was left. A window on another machine's outline opens that machine's other outlines; a machine that host lists is named by the host's own ssh name, which this machine doesn't follow, so such an outline (and one of this machine's own, unless the window left it) is refused with the launch that opens it from here")
+    .args(&[("name", ArgSpec::text("the outline's name, as the bar's Outlines lists it")), ("machine", ArgSpec::text("this machine's ssh name for the machine it is on, when that isn't this one; left out, the machine this window's outline is on; empty, this machine").optional())])
     .keys(&[KeyRow::via("a press on its row in the bar's Outlines")])
     .menu(&[MenuRow::new("Switch outline", "Outline", None)])
     .examples(&[Example { act: "outline.switch name=allotment", does: "opens the allotment outline in this window, the one left kept as it was", safe: Some(true) }]);
@@ -40,6 +44,12 @@ fn switch(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // Which outlines there are is asked now, each time, of a host on the machine named: this outline's when it is on
     // that machine, else one this window left there, else this outline's (which lists its forwards' too).
     let via = if app.at.machine == to.machine { app.at.clone() } else { app.parked.keys().find(|at| at.machine == to.machine).cloned().unwrap_or_else(|| app.at.clone()) };
+    // A host on another machine speaks for that machine's outlines alone: nobody is asked the way by a name of its.
+    if let Err(why) = vouched(&via.machine, &to) {
+        let why = format!("Still on {}: {why}", app.at.outline);
+        if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) }
+        return Outcome::refused(why);
+    }
     app.store.request(&via, "outlines.known", json!({}), by, known, json!({ "name": to.outline, "machine": to.machine, "asked": via.machine }));
     Outcome::answer(json!({ "switching": to.outline, "machine": to.machine }))
 }
@@ -55,11 +65,36 @@ fn known(app: &mut App, reply: Reply) {
     if !rows.iter().any(|row| row["name"] == to.outline.as_str() && machine_of(row) == to.machine) {
         let there: Vec<String> = rows.iter().map(|row| match machine_of(row).as_str() { "" => row["name"].as_str().unwrap_or("").to_string(), machine => format!("{} on {machine}", row["name"].as_str().unwrap_or("")) }).collect();
         let elsewhere: Vec<String> = rows.iter().filter(|row| row["name"] == to.outline.as_str()).map(|row| machine_of(row)).collect();
-        let hint = match elsewhere.first() { Some(machine) => format!("{} has one by that name: say machine={}", if machine.is_empty() { "this machine" } else { machine.as_str() }, word(machine)), None => format!("ep0ch outline create {} makes one on purpose", to.outline) };
+        // Where there is one by that name: a machine this machine's own host names is said as the machine= to say;
+        // one another machine's host names is that host's name, and is never offered as one.
+        let hint = match elsewhere.first() {
+            Some(machine) if asked.is_empty() => format!("{} has one by that name: say machine={}", if machine.is_empty() { "this machine" } else { machine.as_str() }, word(machine)),
+            Some(machine) => format!("{asked} lists one by that name on a machine it calls {machine}: {} opens it from here, in a window of its own", launch(&to.outline, true)),
+            None => format!("ep0ch outline create {} makes one on purpose", to.outline),
+        };
         app.st.notice = Some(Notice::problem(format!("No outline named {}{} here, and none is made by asking. There are: {}. ({hint}.)", to.outline, if to.machine.is_empty() { String::new() } else { format!(" on {}", to.machine) }, there.join(", "))));
         return;
     }
     if let Err(why) = app.go(to.clone()) { app.st.notice = Some(Notice::problem(format!("Still on {}: {why}", app.at.outline))) }
+}
+
+/// The launch that opens `outline` in a window of its own, as it is typed on this machine (the README's "Run it":
+/// the words after `--` name the outline as every client does). `away`: it is on another machine, whose ssh name
+/// here only the person knows.
+fn launch(outline: &str, away: bool) -> String { format!("ep0ch-native -- --ws {}{}", word(outline), if away { " --machine <this machine's ssh name for it>" } else { "" }) }
+
+/// Whether the host asked (on the machine this machine calls `asked`; empty: this machine) may say that `to` is
+/// there to open. This machine's own host may, for its outlines and for the machines it holds a forward to: it
+/// names them as this machine does. A host on another machine may for that machine's outlines alone: a machine
+/// it names is named by its own ssh name, which on this machine may be nobody's or somebody else's, and this
+/// machine's outlines are not its to list. The refusal says what opens the outline from here.
+fn vouched(asked: &str, to: &OutlineAt) -> Result<(), String> {
+    if asked.is_empty() || asked == to.machine { return Ok(()) }
+    Err(if to.machine.is_empty() {
+        format!("this window asks {asked}'s host which outlines there are, and this machine's own are not its to list. From here one opens in a window of its own: {}.", launch(&to.outline, false))
+    } else {
+        format!("{} is {asked}'s name for the machine {} is on, not this machine's, and this window follows no name of another machine's. From here it opens in a window of its own: {} (no --machine when it is this machine's own).", to.machine, to.outline, launch(&to.outline, true))
+    })
 }
 
 impl App {

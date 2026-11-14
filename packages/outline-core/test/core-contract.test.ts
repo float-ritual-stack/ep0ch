@@ -28,6 +28,10 @@ test("every table has rows, and the cases that matter are among them", () => {
   expect(new Set(t.newNote!.map(r => r.rule))).toEqual(new Set([null, 0, 1]));
   expect(t.linkGroups.all).toEqual(["outlinks", "resources", "backlinks", "children"]);
   expect(t.links!.some(r => (r.groups as { bad?: string }).bad === "cousins")).toBe(true);
+  // What an answer asks a client to open: a Resource ref in each form, and a block's id that only looks like one.
+  const refs = (t as unknown as { resourceRefs: { value: string; resource: boolean }[] }).resourceRefs;
+  expect(refs.filter(r => r.resource).map(r => r.value.slice(0, r.value.indexOf(":") + 1))).toEqual(expect.arrayContaining(["file:", "web:", "resource:"]));
+  expect(refs.filter(r => !r.resource).length).toBeGreaterThan(5);
 });
 
 test("the quoted rows hold a passage found as written, one found as drawn, and each way one is refused", () => {

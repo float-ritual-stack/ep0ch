@@ -538,11 +538,14 @@ impl Text {
 }
 
 /// What an act asked of the next frame, done: an element brought into view, the window closed, the clipboard read
-/// for a paste into a program or into a block being written. True when something moved.
+/// for a paste into a program or into a block being written, and written with the words an extension's action
+/// handed back for it. True when something moved.
 pub fn effects(s: &mut App, tx: &mut Tx) -> bool {
     if s.closing { tx.close_window() }
     // A paste asked for with no words of its own is the clipboard's: read here, where the window's hands are, and
     // handed to the tile the person was in when they asked (its program, or the block being written there).
     if let Some(tile) = s.pasting() { tx.read_clipboard(move |s: &mut App, content: &rune::ClipboardContent, _: &mut Tx| s.pasted(&tile, content.text())) }
+    // Words an extension's action handed back for the person's clipboard (`extensions.act`'s answer) are copied here.
+    if let Some(words) = s.copying() { tx.copy(words) }
     match s.revealed() { Some(key) => { tx.scroll_into_view(key); true } None => false }
 }
