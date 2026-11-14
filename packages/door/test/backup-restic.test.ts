@@ -6,14 +6,15 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
+import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { canonicalDump } from "@ep0ch/outliner/change-log";
-import { forget, parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
+import { forget, HELD_CHAINS, KEEP, parseSnapshots, resticArgv, runRestic, snapshots, summaryId } from "../src/backup/restic";
 import { verdict } from "../src/backup/verdict";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -82,7 +83,7 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
  * were most of its time, more or less of it with the load each repository happened to be made under (PIE-1804; the
  * fixture's README says how it was made). The first test's other repository is left to its first run, which makes it.
  */
-const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault", "bothy", "croft"];
 const EMPTY_REPO = join(import.meta.dir, "fixtures", "restic-repo");
 beforeAll(async () => {
   if (!RESTIC) return;
@@ -596,6 +597,112 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     expect(r.ok).toBe(true);
     expect(said.filter(l => /✓ damsons \(log entry/.test(l))).toHaveLength(1);
     expect(said.some(l => l.startsWith("cleared a stale restic lock"))).toBe(true);
+  }, 120_000);
+
+  test("a log begun again: once a snapshot holds the old chain, it leaves local staging; restic still restores it, and the drill passes (PIE-1806)", async () => {
+    const c = await served(machine("bothy"));
+    await write(c, "seeds", ["Sort the seed packets", "Label the trays"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.seeds!;
+    const old = { logId: was.logId!, seq: was.seq! };
+    // Archived here past its last upload (that upload failed), then made again (as a migration or an import begins a
+    // new log): a new log id, and the old chain's last entries are only here and in the snapshot that holds it next.
+    const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "seeds", ["Water the trays"]);
+    expect((await job(broken)).ok).toBe(false);
+    const tail = archivedCursor(archiveRoot(c, c.machine), "seeds", old.logId)!.lsn;
+    expect(tail).toBeGreaterThan(old.seq);
+    await hostRequest(c.host, "outlines.delete", { name: "seeds" });
+    await write(c, "seeds", ["Sow the chard"]);
+    const staged = join(archiveRoot(c, c.machine), "seeds");
+    // An upload that fails confirms nothing: the old chain stays.
+    expect((await job(broken)).ok).toBe(false);
+    expect(readdirSync(staged)).toContain(old.logId);
+    // (A copy of the old chain, to put back below as a quiet outline's leftover.)
+    cpSync(join(staged, old.logId), join(root, "bothy-aside", old.logId), { recursive: true });
+    // The upload confirmed: the snapshot took every chain, and the old one goes from here, said with its size.
+    const said: string[] = [];
+    expect((await job(c, { say: l => said.push(l) })).ok).toBe(true);
+    const s = readBackupState(c.state);
+    expect(s.outlines.seeds!.logId).not.toBe(old.logId);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    expect(said.filter(l => l.includes("old log chain"))).toEqual([expect.stringMatching(new RegExp(`^✓ seeds: let go of 1 old log chain here \\(${old.logId.slice(0, 8)} [\\d.]+ [kM]?B\\); the repository holds it$`))]);
+    expect(s.lastRun!.detail).toMatch(new RegExp(`let go seeds's ${old.logId.slice(0, 8)} [\\d.]+ [kM]?B here`));
+    // A quiet outline (its log didn't move) whose newest snapshot is confirmed lets go too, on a run that uploads nothing:
+    // float-2's first run after the deploy, for outlines nobody wrote to.
+    cpSync(join(root, "bothy-aside", old.logId), join(staged, old.logId), { recursive: true });
+    const quiet: string[] = [];
+    expect((await job(c, { say: l => quiet.push(l) })).ok).toBe(true);
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([expect.stringContaining(`✓ seeds: let go of 1 old log chain here (${old.logId.slice(0, 8)} `)]);
+    expect(readBackupState(c.state).lastRun!.detail).toContain(`let go seeds's ${old.logId.slice(0, 8)} `);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    // Then there is nothing more to let go.
+    quiet.length = 0;
+    await job(c, { say: l => quiet.push(l) });
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([]);
+    // The old log's history is restic's now: its exact entry restores from the repository.
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const to = join(root, "bothy-restored", "seeds.sqlite");
+    const code = await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(old.seq), "--to", to], io, c.env);
+    expect([code, err]).toEqual([0, []]);
+    expect(holds(to, "Label the trays")).toBe(true);
+    expect(holds(to, "Water the trays")).toBe(false);
+    expect(holds(to, "Sow the chard")).toBe(false);
+    // The snapshot that let it go names the chain to its last entry, and retention keeps every such snapshot for good.
+    const list = await snapshots(c, c.repoOf(c.machine), { all: true, outline: "seeds" });
+    expect("error" in list ? list : list.filter(x => x.chains?.[old.logId] === tail).length).toBeGreaterThan(0);
+    expect(KEEP.slice(-2)).toEqual(["--keep-tag", HELD_CHAINS]);
+    // Its last entries, which only the new log's snapshot holds (CodeRabbit on #1522): that snapshot names the chain.
+    const last = join(root, "bothy-restored", "seeds-tail.sqlite");
+    expect(await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(tail), "--to", last], io, c.env)).toBe(0);
+    expect(holds(last, "Water the trays")).toBe(true);
+    expect(holds(last, "Sow the chard")).toBe(false);
+    // And the served drill still passes on the current chain.
+    expect(await backupCommand(["backup", "drill", "--serve"], io, c.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/seeds ok \(\d+ blocks.*served by a scratch host/);
+  }, 120_000);
+
+  test("every rollback point of an old log restores from the snapshot that let it go: a chain set aside at a gap, an entry inside a transaction that ran on (Codex on #1522)", async () => {
+    const c = await served(machine("croft"));
+    await write(c, "beds", ["Dig the beds", "Rake the beds"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.beds!;
+    const point = { logId: was.logId!, seq: was.seq! };
+    // Archived past that point by a run whose upload failed.
+    const broken = machine("croft", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "beds", ["Edge the beds"]);
+    expect((await job(broken)).ok).toBe(false);
+    const root0 = archiveRoot(c, c.machine), staged = join(root0, "beds");
+    const entries = archivedRanges(root0, "beds", point.logId).flatMap(r => r.entries);
+    const tail = entries.at(-1)!.lsn;
+    // The point's transaction ran on into the next write (the log's txn ids, as the host writes them): a replay that
+    // keeps whole transactions alone would stop short of it.
+    const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
+    expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
+    // Set aside at a gap (`<log>~<entry>`, as the job names a chain the host compacted past), then a new log begun.
+    renameSync(join(staged, point.logId), join(staged, `${point.logId}~${tail}`));
+    await hostRequest(c.host, "outlines.delete", { name: "beds" });
+    await write(c, "beds", ["Sow the leeks"]);
+    expect((await job(c)).ok).toBe(true);
+    expect(readdirSync(staged)).toEqual([readBackupState(c.state).outlines.beds!.logId!]);
+    // Retention let the old log's own snapshots go: the one that let the chain go is all there is of it.
+    const repo = c.repoOf(c.machine);
+    const list = await snapshots(c, repo, { all: true, outline: "beds" });
+    if ("error" in list) throw new Error(list.error);
+    for (const x of list.filter(x => x.logId === point.logId)) expect((await runRestic(c, repo, ["forget", x.id])).code).toBe(0);
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const restore = (entry: number, file: string) => backupCommand(["backup", "restore", "beds", "--log", point.logId, "--entry", String(entry), "--to", join(root, "croft-restored", file)], io, c.env);
+    expect([await restore(tail, "tail.sqlite"), err]).toEqual([0, []]);
+    expect(holds(join(root, "croft-restored", "tail.sqlite"), "Edge the beds")).toBe(true);
+    expect([await restore(point.seq, "point.sqlite"), err]).toEqual([0, []]);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Rake the beds")).toBe(true);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Edge the beds")).toBe(false);
+    // The restored outline is forked from the old log under its own id, not the folder's set-aside name.
+    const db = new Database(join(root, "croft-restored", "point.sqlite"), { readonly: true });
+    try { expect(JSON.parse((db.query("SELECT forked_from FROM log_state").get() as { forked_from: string }).forked_from).logId).toBe(point.logId); } finally { db.close(); }
   }, 120_000);
 
   test("a prune that finishes is once a day; two failed in a row is an incident", async () => {

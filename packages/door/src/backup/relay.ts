@@ -7,18 +7,21 @@
 //             over ssh to `ep0ch backup receive` in a login shell; no scp: it travels on the ssh command's stdin
 //   receiver  `ep0ch backup receive --machine <m> --outline <n> --sha256 H` with the ranges on stdin: into a private
 //             incoming folder, checked (sha256, one log, meeting the archive), appended to `<state>/log/<m>/<n>/`, then
-//             the upload (restic with `--host <m>`, then retention)
+//             the upload (restic with `--host <m>`, then retention); once it's uploaded, the hub's other chains of
+//             that outline (an earlier log) leave its archive here (PIE-1806), when the sender says its own retention
+//             keeps the snapshot that holds them (KEEPS_HELD: both machines forget that repository)
 //
 // Secrets stay on each machine: the hub uses its own keys for the upload; nothing here reads or prints them.
 import type { DrillTimes } from "./jobs";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { appendToArchive, archivedRanges } from "@ep0ch/outliner/log-archive";
+import { appendToArchive, archivedRanges, letGoOtherChains, otherChains } from "@ep0ch/outliner/log-archive";
 import { lastJson, ssh } from "../mcp-netmail";
 import { type BackupConfig, MACHINE_NAME } from "./config";
+import { readBackupState, writeBackupState } from "./alert";
 import { archiveRoot, ensureRepo, waitForLock } from "./jobs";
-import { backupFolder, forget, OUTLINE_NAME } from "./restic";
+import { backupFolder, forget, HELD_CHAINS, OUTLINE_NAME } from "./restic";
 
 /** The hub's answer to a relayed log. */
 export interface Received {
@@ -29,7 +32,18 @@ export interface Received {
   snapshot?: string;
   uploadError?: string;
   error?: string;
+  /** The hub's older chains of this outline it let go once its snapshot held them (PIE-1806), each with its size. */
+  trimmed?: { chain: string; bytes: number }[];
+  /** Why the hub kept its older chains of this outline: the sender's code doesn't keep held snapshots yet. */
+  chainsWait?: string;
 }
+
+/**
+ * Set on the ssh command by a sender whose own retention keeps HELD_CHAINS snapshots (PIE-1806): the sender and the hub
+ * both forget its repository, so the hub lets a chain go only when neither forget would drop the snapshot holding it.
+ * An environment variable, not a flag: a hub not updated yet refuses an unknown flag, and this one it never reads.
+ */
+export const KEEPS_HELD = "EP0CH_BACKUP_KEEPS_HELD";
 
 /** Why a repository can't be reached, asked quickly (no answer from its host within `timeoutMs`), or null. Only s3: repositories are probed. */
 export async function unreachable(repo: string, timeoutMs = 8_000): Promise<string | null> {
@@ -48,7 +62,7 @@ export async function relay(c: BackupConfig, hub: string, o: { outline: string; 
   // Read once: the checksum is of exactly the bytes sent.
   const text = archivedRanges(o.root, o.outline, o.logId).map(r => JSON.stringify(r)).join("\n") + "\n";
   const bytes = new TextEncoder().encode(text);
-  const r = await ssh(c.env, hub, `ep0ch backup receive --machine ${c.machine} --outline ${o.outline} --sha256 ${sha256(bytes)}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
+  const r = await ssh(c.env, hub, `${KEEPS_HELD}=1 ep0ch backup receive --machine ${c.machine} --outline ${o.outline} --sha256 ${sha256(bytes)}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
   try { return lastJson(r.out) as Received; } catch { /* no answer from the command itself */ }
   const why = r.code === 255 ? `${hub} doesn't answer over ssh` : r.code === 127 || /not found/.test(r.err) ? `${hub} has no ep0ch on a login shell's PATH` : `ep0ch backup receive on ${hub} failed (${r.code}): ${r.err.trim().split("\n").at(-1) ?? ""}`;
   return { ok: false, error: why };
@@ -79,7 +93,7 @@ export const incomingDir = (c: BackupConfig, machine: string) => join(c.state, "
  * The receiving side: ranges at `part` (already written under `incomingDir`), claimed to be `outline`'s log on
  * `machine`. Checked, added to this machine's archive of it, uploaded to `machine`'s repository.
  */
-export async function receive(c: BackupConfig, o: { machine: string; outline: string; sha256?: string; part: string; lockWaitMs?: number }): Promise<Received> {
+export async function receive(c: BackupConfig, o: { machine: string; outline: string; sha256?: string; part: string; lockWaitMs?: number; keepsHeld?: boolean }): Promise<Received> {
   if (!MACHINE_NAME.test(o.machine) || o.machine === c.machine) return { ok: false, error: `${o.machine} isn't another machine's name` };
   if (!c.mirrors.some(m => m.machine === o.machine)) return { ok: false, error: `${c.machine} doesn't take ${o.machine}'s relays: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` };
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
@@ -100,11 +114,21 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     const repo = c.repoOf(o.machine);
     const problem = await ensureRepo(c, repo, () => {});
     if (problem) return { ok: true, lsn, uploadError: problem };
-    const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId);
+    // The machine's older chains of it, named in the snapshot's tags to their newest entries, then let go once it lands;
+    // kept, and said, while the sender's own forget would drop that snapshot (it runs code from before HELD_CHAINS).
+    const older = otherChains(root, o.outline, ranges[0]!.logId);
+    const held = o.keepsHeld ? older : [];
+    const up = await backupFolder(c, repo, join(root, o.outline), o.outline, lsn, ranges.at(-1)!.schema, o.machine, ranges[0]!.logId, held);
     if ("error" in up) return { ok: true, lsn, uploadError: up.error };
+    const trimmed = letGoOtherChains(root, o.outline, ranges[0]!.logId, held);
+    const chainsWait = !o.keepsHeld && older.length ? `kept ${o.machine}'s older chains of ${o.outline} here (${older.map(h => h.chain.slice(0, 8)).join(", ")}): ${o.machine}'s ep0ch doesn't keep ${HELD_CHAINS} snapshots yet, and its own forget would drop the one holding them; they go at its first relay once it's updated (ep0ch install --apply there)` : undefined;
+    const st = readBackupState(c.state), key = `${o.machine}/${o.outline}`;
+    if (chainsWait) (st.chainsWait ??= {})[key] = { since: st.chainsWait?.[key]?.since ?? new Date().toISOString(), why: chainsWait };
+    else if (st.chainsWait?.[key]) { delete st.chainsWait[key]; if (!Object.keys(st.chainsWait).length) delete st.chainsWait; }
+    writeBackupState(c.state, st);
     // A short wait: the sender's ssh waits on this answer, per outline; a lock that stays is the next relay's.
     await forget(c, repo, { host: o.machine, wait: "30s" });
-    return { ok: true, lsn, snapshot: up.id };
+    return { ok: true, lsn, snapshot: up.id, ...(trimmed.length ? { trimmed } : {}), ...(chainsWait ? { chainsWait } : {}) };
   } finally { release(); }
 }
 
@@ -128,7 +152,7 @@ export async function receiveCommand(args: readonly string[], c: BackupConfig, i
   try {
     await Bun.write(part, new Response(await stdin() as BodyInit));
     chmodSync(part, 0o600);
-    return say(await receive(c, { machine, outline, ...(flag("--sha256") ? { sha256: flag("--sha256")! } : {}), part }));
+    return say(await receive(c, { machine, outline, ...(flag("--sha256") ? { sha256: flag("--sha256")! } : {}), part, keepsHeld: c.env[KEEPS_HELD] === "1" }));
   } catch (e) { return say({ ok: false, error: (e as Error).message }); }
   finally { rmSync(part, { force: true }); }
 }

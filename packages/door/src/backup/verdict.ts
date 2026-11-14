@@ -27,6 +27,19 @@ export const moment = (t: string | number) => {
 /** The command to give for a failure: the VPN is a person's to turn off, the run is the job's. */
 export const RUN = "ep0ch backup run";
 
+/** A size as a person reads it: `812 B`, `40.2 kB`, `1.1 GB`. */
+export const sized = (bytes: number) => {
+  const [n, unit] = bytes < 1e3 ? [bytes, "B"] : bytes < 1e6 ? [bytes / 1e3, "kB"] : bytes < 1e9 ? [bytes / 1e6, "MB"] : [bytes / 1e9, "GB"];
+  return `${unit === "B" ? n : n.toFixed(1)} ${unit}`;
+};
+
+/** The chains a run let go of an outline's local archive (PIE-1806), each with its size: `698ead42 1.1 GB`. */
+export const chainsLine = (chains: readonly { chain: string; bytes: number }[]) => chains.map(c => `${c.chain.slice(0, 8)}${c.chain.includes("~") ? ` (kept aside at ${c.chain.split("~")[1]})` : ""} ${sized(c.bytes)}`).join(", ");
+
+/** The progress line for chains let go here once the repository holds them. */
+export const letGoLine = (name: string, chains: readonly { chain: string; bytes: number }[]) =>
+  `✓ ${name}: let go of ${chains.length} old log chain${chains.length === 1 ? "" : "s"} here (${chainsLine(chains)}); the repository holds ${chains.length === 1 ? "it" : "them"}`;
+
 /** The plain progress line for an outline the run could not back up (what the run says, not what status shows). */
 export function failedLine(name: string, error: string, o: { repo?: string; hub?: string | null } = {}): string {
   return `✗ ${name}: not backed up: ${plainFailure(error, o)}. Next: ${hintFor(error)}`;
@@ -104,7 +117,7 @@ function columns(rows: string[][], visible: (s: string) => number): string[] {
 /** The status page: verdict, the command, this machine's outlines, then history. `age` is alert.ts's. */
 export function renderStatus(o: {
   s: BackupState; a: Alert | null; now: number; machine: string; repo: string; hub?: string | null; machineNote: string;
-  age: (ms: number) => string; tint: Tint; visible: (s: string) => number; verbose?: boolean; netmail: string[];
+  age: (ms: number) => string; tint: Tint; visible: (s: string) => number; verbose?: boolean; netmail: string[]; /** Other lines of how things stand here (a relayed outline's chains kept, PIE-1806). */ notes?: string[];
 }): string[] {
   const { s, now, tint } = o;
   const v = verdict(s, o.a, now, { machine: o.machine, repo: o.repo, hub: o.hub });
@@ -140,7 +153,7 @@ export function renderStatus(o: {
     const n = (s.drill.detail.match(/ ok \(/g) ?? []).length, total = n + (s.drill.detail.match(/ FAILED:/g) ?? []).length;
     hist.push(total ? `restore drill ${moment(s.drill.at)}: ${n} of ${total} restored ok${n === total ? "" : " (ep0ch backup drill)"}` : `restore drill ${moment(s.drill.at)}: ${s.drill.ok ? "ok" : "failed"}`);
   }
-  hist.push(...o.netmail);
+  hist.push(...o.netmail, ...(o.notes ?? []));
   if (hist.length) { out.push("", tint("dim", "history")); out.push(...hist.map(h => `  ${h}`)); }
   if (o.verbose) {
     out.push("", tint("dim", "raw"));

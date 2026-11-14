@@ -2,11 +2,11 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyRange, canonicalDump, COMPACT_FACTOR, compactionRoom, compactLog, LOG_RANGE_PAGE_BYTES, LOG_TABLES, RangeRefused, readRange, writeGenesis, type LogRange } from "../src/change-log";
-import { appendToArchive, archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
+import { appendToArchive, archivedCursor, archivedRanges, letGoOtherChains, otherChains, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { importOutline } from "../src/outline-import";
@@ -447,6 +447,27 @@ test("an archive keeps what follows its newest genesis here, and still replays t
   expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
 });
 
+test("an archive lets go of the other chains a snapshot holds whole, and of none while its current log holds nothing (PIE-1806)", () => {
+  const archive = join(root(), "archive");
+  const chain = (name: string, last: number, bytes = 10) => {
+    mkdirSync(join(archive, "home", name), { recursive: true });
+    writeFileSync(join(archive, "home", name, `0000000000000001-${String(last).padStart(16, "0")}.jsonl`), JSON.stringify({ entries: [], pad: "x".repeat(bytes) }) + "\n");
+  };
+  chain("an-earlier-log", 40, 400);
+  chain("the-current-log~120", 120, 200);
+  chain("a-later-tail", 9);
+  expect(otherChains(archive, "home", "the-current-log")).toEqual([{ chain: "a-later-tail", lsn: 9 }, { chain: "an-earlier-log", lsn: 40 }, { chain: "the-current-log~120", lsn: 120 }]);
+  const held = [{ chain: "an-earlier-log", lsn: 40 }, { chain: "the-current-log~120", lsn: 120 }, { chain: "a-later-tail", lsn: 8 }];
+  // The current log has no chain yet (its first segment wasn't written): nothing goes.
+  expect(letGoOtherChains(archive, "home", "the-current-log", held)).toEqual([]);
+  chain("the-current-log", 10);
+  const gone = letGoOtherChains(archive, "home", "the-current-log", held);
+  expect(gone.map(g => g.chain)).toEqual(["an-earlier-log", "the-current-log~120"]);
+  expect(gone.every(g => g.bytes > 200)).toBe(true);
+  // A chain holding an entry past what the snapshot holds of it stays.
+  expect(readdirSync(join(archive, "home")).sort()).toEqual(["a-later-tail", "the-current-log"]);
+});
+
 test("an archive refuses ranges that skip entries between them, and a relay from a trimmed sender restarts at its genesis", () => {
   const dir = root();
   const { home, shelf } = busyHome(dir);
@@ -473,6 +494,32 @@ test("an archive refuses ranges that skip entries between them, and a relay from
   home.close();
   replayArchive(archive, "home", join(dir, "restored.sqlite"), { logId });
   expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
+});
+
+test("a relayed archive keeps the sender's range ends: a hub's copy has every point the sender's restores to (PIE-1806)", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const sender = join(dir, "sender"), hub = join(dir, "hub");
+  const take = () => { const at = archivedCursor(sender, "home", home.log.cursor().logId)?.lsn ?? 0; writeSegment(sender, "home", [home.log.range(at, 20_000)]); };
+  take();
+  appendToArchive(hub, "home", archivedRanges(sender, "home", home.log.cursor().logId));
+  // The rollback point: what the sender's archive held once (its own upload's), then more after it.
+  home.create("Crate of quinces", shelf.id);
+  take();
+  const point = home.log.cursor().lsn;
+  writeFileSync(join(dir, "point-dump.txt"), dumpOf(join(dir, "home.sqlite")));
+  home.create("Crate of medlars", shelf.id);
+  take();
+  const logId = home.log.cursor().logId;
+  const sent = archivedRanges(sender, "home", logId);
+  // Several of the sender's ranges past what the hub holds arrive in one relay: each still ends where the sender's did.
+  appendToArchive(hub, "home", sent);
+  expect(archivedRanges(hub, "home", logId).map(r => r.entries.at(-1)!.lsn)).toEqual(sent.map(r => r.entries.at(-1)!.lsn));
+  expect(archivedRanges(hub, "home", logId).map(r => r.entries.at(-1)!.lsn)).toContain(point);
+  home.close();
+  const replay = (archive: string, file: string) => replayArchive(archive, "home", join(dir, file), { logId, through: point });
+  expect(replay(hub, "hub.sqlite").lsn).toBe(point);
+  expect(dumpOf(join(dir, "hub.sqlite"))).toBe(readFileSync(join(dir, "point-dump.txt"), "utf8"));
 });
 
 test("a genesis carries AUTOINCREMENT's high-water marks: an id given out once is never given again after a restore", () => {

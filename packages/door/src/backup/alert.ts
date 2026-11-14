@@ -126,6 +126,11 @@ export interface BackupState {
   host?: { failingSince: string; error: string; fix: string };
   /** What each follower here said of its copy at the last run (the alert's `follow:` incidents). */
   follows?: FollowedCopy[];
+  /**
+   * A relayed outline whose older chains the hub keeps (PIE-1806), by `<machine>/<outline>`: its sender's code doesn't
+   * keep held snapshots yet. Status, never an incident: the chains are here and in the repository.
+   */
+  chainsWait?: Record<string, { since: string; why: string }>;
 }
 
 /** A follower's word on its copy (outliner outline-follower.ts writes `<mirrors>/<machine>/.follow/<outline>.json`). */

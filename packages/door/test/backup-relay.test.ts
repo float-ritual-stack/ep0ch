@@ -3,14 +3,15 @@
 // machine's behalf. Scratch outlines (fictional notes), local restic repositories, and the outliner's fake ssh (the hub is
 // a scratch HOME) in a temp folder only: no bucket, no real backup, no ~/outlines. Skipped where restic isn't installed.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
-import { statusLines } from "../src/backup/cli";
+import { backupCommand, statusLines } from "../src/backup/cli";
 import { archiveRoot, runAll, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
-import { snapshots } from "../src/backup/restic";
+import { forget, runRestic, snapshots } from "../src/backup/restic";
 import { hostRequest, SocketBoard } from "../src/socket";
 import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { outliner, scratchDir } from "./scratch";
@@ -169,6 +170,82 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(direct).toMatchObject({ failed: [], relayed: [] });
     expect(direct.uploaded).toContain("garden");
     expect(s.outlines.garden!.relayed).toBeUndefined();
+  }, 120_000);
+
+  test("a log begun again: the hub lets go of its older chain once it uploads; the laptop keeps its own until a direct upload holds it (PIE-1806)", async () => {
+    await write(laptop.host, "potting", ["Wash the pots"]);
+    const s = readBackupState(laptop.state);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("potting");
+    const old = s.outlines.potting!.logId!;
+    // Made again (a migration or an import begins a new log), and relayed: the hub's snapshot holds both chains, and
+    // its old one goes; the laptop sent only its current chain, so its own old one stays.
+    await hostRequest(laptop.host, "outlines.delete", { name: "potting" });
+    await write(laptop.host, "potting", ["Sieve the compost"]);
+    const said: string[] = [];
+    expect((await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN })).relayed).toContain("potting");
+    const now = s.outlines.potting!.logId!;
+    expect(now).not.toBe(old);
+    expect(readdirSync(join(archiveRoot(hub, "laptop"), "potting"))).toEqual([now]);
+    expect(said.filter(l => l.includes("older log chains"))).toEqual([expect.stringMatching(new RegExp(`^· hub-box let go of potting's older log chains there \\(${old.slice(0, 8)} [\\d.]+ [kM]?B\\)`))]);
+    expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting")).sort()).toEqual([old, now].sort());
+    // A sender whose code doesn't keep held snapshots yet (a staggered deploy: its own forget would drop them) gets
+    // its relay uploaded, and the hub keeps its older chains, saying why there and in its status (Codex on #1522).
+    const hubRoot = archiveRoot(hub, "laptop");
+    cpSync(join(hubRoot, "potting", now), join(hubRoot, "potting", `${now}~1`), { recursive: true });
+    const part = join(dir, "older-sender.jsonl");
+    writeFileSync(part, archivedRanges(archiveRoot(laptop, "laptop"), "potting", now).map(r => JSON.stringify(r)).join("\n") + "\n");
+    const waits = await receive(hub, { machine: "laptop", outline: "potting", part, lockWaitMs: 5_000 });
+    expect(waits).toMatchObject({ ok: true, snapshot: expect.any(String), chainsWait: expect.stringContaining("laptop's ep0ch doesn't keep") });
+    expect(readdirSync(join(hubRoot, "potting")).sort()).toEqual([now, `${now}~1`].sort());
+    expect(statusLines(hub).join("\n")).toContain("kept laptop's older chains of potting here");
+    // The same relay from code that keeps them: the chain goes, and so does the note.
+    expect(await receive(hub, { machine: "laptop", outline: "potting", part, lockWaitMs: 5_000, keepsHeld: true })).toMatchObject({ ok: true, trimmed: [{ chain: `${now}~1` }] });
+    expect(readdirSync(join(hubRoot, "potting"))).toEqual([now]);
+    expect(statusLines(hub).join("\n")).not.toContain("kept laptop's older chains");
+    // Off the VPN, the next change goes straight to the repository, whose snapshot takes the whole folder: the laptop's goes too.
+    await write(laptop.host, "potting", ["Label the seedlings"]);
+    const direct = await snapshot(laptop, s, { say, probe: REACHABLE });
+    expect(direct.uploaded).toContain("potting");
+    expect(direct.trimmed?.find(t => t.outline === "potting")).toEqual({ outline: "potting", chains: [{ chain: old, bytes: expect.any(Number) }] });
+    expect(readdirSync(join(archiveRoot(laptop, "laptop"), "potting"))).toEqual([now]);
+    writeBackupState(laptop.state, s);
+  }, 120_000);
+
+  test("a rollback point the laptop uploaded itself still restores exactly from the hub's held chain, after its own snapshots are gone (Codex on #1522)", async () => {
+    const say = () => {};
+    // Uploaded straight (the rollback point), then relayed: the hub gets the laptop's ranges in one go, the point
+    // between two of them.
+    await write(laptop.host, "bench", ["Oil the bench", "Sharpen the chisels"]);
+    const s = readBackupState(laptop.state);
+    expect((await snapshot(laptop, s, { say, probe: REACHABLE })).uploaded).toContain("bench");
+    const point = { logId: s.outlines.bench!.logId!, seq: s.outlines.bench!.seq! };
+    await write(laptop.host, "bench", ["Sweep the shavings"]);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
+    // The point's transaction ran on into the next write: only the boundary the laptop archived at marks it.
+    const entries = archivedRanges(archiveRoot(laptop, "laptop"), "bench", point.logId).flatMap(r => r.entries);
+    const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
+    expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
+    // A new log, relayed: the hub's snapshot holds the old chain, and the hub lets it go.
+    await hostRequest(laptop.host, "outlines.delete", { name: "bench" });
+    await write(laptop.host, "bench", ["Build a new bench"]);
+    expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
+    expect(readdirSync(join(archiveRoot(hub, "laptop"), "bench"))).toEqual([s.outlines.bench!.logId!]);
+    writeBackupState(laptop.state, s);
+    // Retention let the old log's own snapshots go (the laptop's among them): the hub's held one is all there is.
+    const repo = laptop.repoOf("laptop");
+    for (const x of (await hubSnaps()).filter(x => x.outline === "bench" && x.logId === point.logId)) expect((await runRestic(hub, repo, ["forget", x.id])).code).toBe(0);
+    expect((await forget(hub, repo, { host: "laptop" })).code).toBe(0);
+    expect((await hubSnaps()).filter(x => x.outline === "bench" && x.chains?.[point.logId] !== undefined).length).toBeGreaterThan(0);
+    const out: string[] = [], err: string[] = [];
+    const to = join(dir, "bench-point.sqlite");
+    const code = await backupCommand(["backup", "restore", "bench", "--log", point.logId, "--entry", String(point.seq), "--to", to], { out: l => out.push(l), err: l => err.push(l) }, laptop.env);
+    expect([code, err]).toEqual([0, []]);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    const db = new Database(to, { readonly: true });
+    try {
+      const has = (t: string) => !!db.query("SELECT 1 FROM blocks WHERE text = ?").get(t);
+      expect([has("Sharpen the chisels"), has("Sweep the shavings")]).toEqual([true, false]);
+    } finally { db.close(); }
   }, 120_000);
 
   test("the hub unreachable too: the outline fails, with both reasons, and the hub holds nothing of it", async () => {
