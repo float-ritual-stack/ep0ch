@@ -33,13 +33,13 @@ static EDIT: ActionRow = ActionRow::new("edit", Touches::Draft, "open the note f
 
 static SAVE: ActionRow = ActionRow::new("edit.save", Touches::Draft, "save the draft. A block's text is checked against the revision it started from, and saving never ends editing: what the service holds is then what was sent, and the editor goes on. A comment or a reply is sent, and its draft is done")
     .person(THEIRS)
-    .keys(&[KeyRow::keys("mod+s", "save"), KeyRow::on("mod+enter", "draft", "save, from the note's source")])
+    .keys(&[KeyRow::keys("mod+s", "save"), KeyRow::on("mod+enter", "draft", "save")])
     .menu(&[MenuRow::new("Save", "Note", Some("mod+s"))]);
 
 static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "close the edit; unsaved changes need discard=true, and stay in the editor until then")
     .person(THEIRS)
     .args(&[("discard", ArgSpec::flag("close even with unsaved changes").optional())])
-    .keys(&[KeyRow::on("escape", "draft", "leave the editor, when everything is saved")])
+    .keys(&[KeyRow::on("escape", "draft", "done")])
     .menu(&[
         MenuRow::new("Done", "Note", Some("escape")),
         MenuRow::with("Discard", "Note", Some(""), &[("discard", Scalar::Flag(true))]),
@@ -49,16 +49,16 @@ static CLOSE: ActionRow = ActionRow::new("edit.close", Touches::Draft, "close th
 static PASTE: ActionRow = ActionRow::new("draft.paste", Touches::Draft, "put text in at the caret of the open edit as it came, as a paste does (over the selection, if any; one step of the editor's undo, however much): text= says the words, and left out they are the clipboard's. Line ends are made plain on the way in (a carriage return is a newline); what completes it is offered as when it is typed")
     .person(THEIRS)
     .args(&[("text", ArgSpec::text("the text, as it is to stand (left out: what the clipboard holds)").optional())])
-    .keys(&[KeyRow::on("mod+v", "draft", "paste the clipboard"), KeyRow::via("a paste into the block being written")])
+    .keys(&[KeyRow::on("mod+v", "draft", "paste"), KeyRow::via("a paste into the block being written")])
     .examples(&[Example { act: "draft.paste text=\"See [[se\"", does: "writes that at the caret, and offers the pages that match", safe: None }]);
 
 static INDENT: ActionRow = ActionRow::new("draft.indent", Touches::Draft, "indent the caret's line, or every line the selection touches, one level: a list item goes under the item above it, anything else two spaces (one tab where the line is indented with tabs). One step of the editor's undo")
     .person(THEIRS)
-    .keys(&[KeyRow::on("tab", "draft", "indent the line, or the selected lines")]);
+    .keys(&[KeyRow::on("tab", "draft", "indent")]);
 
 static OUTDENT: ActionRow = ActionRow::new("draft.outdent", Touches::Draft, "outdent the caret's line, or every line the selection touches, one level: a list item back to its parent's level, anything else two spaces or a tab. One step of the editor's undo")
     .person(THEIRS)
-    .keys(&[KeyRow::on("shift+tab", "draft", "outdent the line, or the selected lines")]);
+    .keys(&[KeyRow::on("shift+tab", "draft", "outdent")]);
 
 static PATCH: ActionRow = ActionRow::new("draft.patch", Touches::Nothing, "change a passage of the note a reader shows, through the service: in the draft a window holds of it (in front of whoever writes there, never in the block they are typing in), else in the saved note. Checked against the revision read; refused with why, and nothing changes")
     .args(&[
@@ -69,40 +69,82 @@ static PATCH: ActionRow = ActionRow::new("draft.patch", Touches::Nothing, "chang
     .keys(&[KeyRow::via("an agent, over the control socket")])
     .examples(&[Example { act: "draft.patch observed=\"beans  go\" replacement=\"beans go\"", does: "tidies that passage where the note is being written, or as saved", safe: None }]);
 
-static ACCEPT: ActionRow = ActionRow::new("complete.accept", Touches::Draft, "write the lit row of the open completion list, or row n= (from 1), over what is being typed")
+static ACCEPT: ActionRow = ActionRow::new("complete.accept", Touches::Draft, "write the lit row of the open completion list, or row n= (from 1), over what is being typed, as one step of the editor's undo: a row that leaves more to complete (a property's key) opens the next list at once, one with stops (a component's skeleton) puts the caret in the first, and one that makes something (a page nobody has written) makes it first")
     .person(THEIRS)
     .args(&[("n", ArgSpec::number("the row, from 1").optional())])
-    .keys(&[KeyRow::on("tab", "complete", "write the lit row"), KeyRow::via("a press on a row of the list")]);
+    .keys(&[KeyRow::on("tab", "complete", "accept"), KeyRow::via("a press on a row of the list")]);
 
-static ENTER: ActionRow = ActionRow::new("complete.enter", Touches::Draft, "Return while the completion list is open: the lit row is written, unless it says Return is still the field's (nothing chosen yet), when a line is typed")
+static ENTER: ActionRow = ActionRow::new("complete.enter", Touches::Draft, "Return while the completion list is open: the lit row is written once it was chosen (a key that moves, a press, the list asked for by its key), or when the row doesn't say Return is the field's; else a line is typed")
     .person(THEIRS)
-    .keys(&[KeyRow::on("enter", "complete", "write the lit row, or a line when the row says so")]);
+    .keys(&[KeyRow::on("enter", "complete", "accept")]);
 
-static MOVE: ActionRow = ActionRow::new("complete.move", Touches::Draft, "light another row of the open completion list: by= rows, negative up, round again")
+static MOVE: ActionRow = ActionRow::new("complete.move", Touches::Draft, "light another row of the open completion list: by= rows, negative up. One row at a time goes round again at an end; more (a page) stops there")
     .person(THEIRS)
     .args(&[("by", ArgSpec::number("how many rows down; negative is up"))])
     .keys(&[
-        KeyRow::with("down", Some("complete"), "the next row", &[("by", Scalar::Whole(1))]),
-        KeyRow::with("up", Some("complete"), "the row before", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("down", Some("complete"), "next", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("up", Some("complete"), "previous", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("ctrl+n", Some("complete"), "next", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("ctrl+p", Some("complete"), "previous", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("pagedown", Some("complete"), "a page down", &[("by", Scalar::Whole(draft::LIST_ROWS as i64))]),
+        KeyRow::with("pageup", Some("complete"), "a page up", &[("by", Scalar::Whole(-(draft::LIST_ROWS as i64)))]),
     ])
     .examples(&[Example { act: "complete.move by=1", does: "lights the next row", safe: Some(true) }]);
 
+static JUMP: ActionRow = ActionRow::new("complete.jump", Touches::Draft, "light the first or the last row of the open completion list")
+    .person(THEIRS)
+    .args(&[("to", ArgSpec::text("first or last").choices(&["first", "last"]))])
+    .keys(&[
+        KeyRow::with("home", Some("complete"), "the first row", &[("to", Scalar::Text("first"))]),
+        KeyRow::with("end", Some("complete"), "the last row", &[("to", Scalar::Text("last"))]),
+    ])
+    .examples(&[Example { act: "complete.jump to=last", does: "lights the last row", safe: Some(true) }]);
+
+static LIGHT: ActionRow = ActionRow::new("complete.light", Touches::Draft, "light row n= (from 1) of the open completion list as the pointer passes over it: nothing is chosen, the caret and the keys stay where they are")
+    .person(THEIRS)
+    .args(&[("n", ArgSpec::number("the row, from 1"))])
+    .keys(&[KeyRow::via("the pointer over a row of the list")])
+    .examples(&[Example { act: "complete.light n=2", does: "lights the second row", safe: Some(true) }]);
+
+static ASK: ActionRow = ActionRow::new("complete.ask", Touches::Draft, "open the completion list for the token at the caret, as a deliberate choice: Return then writes its lit row. Says so when the caret is in nothing that completes")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("ctrl+space", "draft", "complete here")])
+    .examples(&[Example { act: "complete.ask", does: "lists what completes the token at the caret", safe: Some(true) }]);
+
 static DISMISS: ActionRow = ActionRow::new("complete.dismiss", Touches::Draft, "close the open completion list, leaving what's typed as it is: it opens again when more is typed")
     .person(THEIRS)
-    .keys(&[KeyRow::on("escape", "said", "put the list away")]);
+    .keys(&[KeyRow::on("escape", "said", "close the list")]);
+
+static STOP_NEXT: ActionRow = ActionRow::new("snippet.next", Touches::Draft, "select the next stop of the skeleton a completion wrote; after the last, the caret goes past it and the stops are done")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("tab", "stops", "next stop")]);
+
+static STOP_PREVIOUS: ActionRow = ActionRow::new("snippet.previous", Touches::Draft, "select the stop before, of the skeleton a completion wrote")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("shift+tab", "stops", "previous stop")]);
+
+static STOP_END: ActionRow = ActionRow::new("snippet.end", Touches::Draft, "finish the skeleton a completion wrote, keeping its text: Tab indents again")
+    .person(THEIRS)
+    .keys(&[KeyRow::on("escape", "stops", "leave the stops")]);
 
 pub static ACTIONS: &[Action] = &[
     Action { row: &EDIT, run: edit, about: About::Notes },
     Action { row: &SAVE, run: save, about: About::Drafts },
     Action { row: &CLOSE, run: close, about: About::Drafts },
-    Action { row: &PASTE, run: paste, about: About::Drafts },
     Action { row: &INDENT, run: indent, about: About::Drafts },
     Action { row: &OUTDENT, run: outdent, about: About::Drafts },
+    Action { row: &PASTE, run: paste, about: About::Drafts },
     Action { row: &PATCH, run: patch, about: About::Notes },
     Action { row: &ACCEPT, run: accept, about: About::Drafts },
     Action { row: &ENTER, run: enter, about: About::Drafts },
     Action { row: &MOVE, run: step, about: About::Drafts },
+    Action { row: &JUMP, run: jump, about: About::Drafts },
+    Action { row: &LIGHT, run: light, about: About::Drafts },
+    Action { row: &ASK, run: ask, about: About::Drafts },
     Action { row: &DISMISS, run: dismiss, about: About::Drafts },
+    Action { row: &STOP_NEXT, run: stop_next, about: About::Drafts },
+    Action { row: &STOP_PREVIOUS, run: stop_previous, about: About::Drafts },
+    Action { row: &STOP_END, run: stop_end, about: About::Drafts },
 ];
 
 /// A field that takes the keyboard when it appears, the caret at its end.
@@ -482,53 +524,148 @@ fn said(app: &mut App, by: &Actor, words: String) {
 // ── the completion list ─────────────────────────────────────────────────────────────────────────────────────────
 
 /// A row of the open list written over the token it completes: the row's own `insert`, as one step of the field's
-/// way back, with what the row says to select once it is in. The choice is counted where every client's are.
+/// way back, with what the row says to select once it is in. The choice is counted where every client's are. What
+/// comes next is the row's own word: a row with stops (`slots`) has them stepped through (`snippet.next`), one that
+/// leaves more to complete (`next`) opens the next list at once, and one that makes something first (`makes`) is
+/// written when the service has made it.
 fn choose(app: &mut App, tile: &str, row: Option<usize>, by: &Actor) -> Outcome {
     let Some(found) = app.completing(tile).cloned() else { return Outcome::refused("no completion list is open here") };
     let Some(index) = app.drafts.iter().position(|draft| draft.tile == tile) else { return Outcome::refused("no note is open for editing") };
-    let lit = row.unwrap_or(app.drafts[index].completing.lit);
+    let lit = row.unwrap_or(app.completing_at(tile));
     let (Some(row), Some(token)) = (found.rows.get(lit), found.token.as_ref()) else { return Outcome::refused(format!("the list has {} rows", found.rows.len())) };
-    let draft = &mut app.st.drafts[index];
-    let text = draft.buf.words().to_string();
+    let text = app.drafts[index].buf.words().to_string();
     let (Some(start), Some(end)) = (draft::byte_of(&text, token.start), draft::byte_of(&text, token.end)) else { return Outcome::refused("the words moved under the list") };
-    let after = start + row.insert.len();
-    draft.buf.splice(&[(start, end, row.insert.as_str())], |_| after);
-    if let Some(span) = row.select && let (Some(from), Some(to)) = (draft::byte_of(&row.insert, span.start), draft::byte_of(&row.insert, span.end)) { draft.buf.select(start + from, start + to) }
-    app.wrote_in(tile);
-    // The list is put away: it opens again when more is typed.
-    app.st.drafts[index].quiet();
-    app.pump();
-    if let Some(key) = &found.pick_key {
+    let counted = found.pick_key.as_ref().map(|key| json!({ "key": key, "insert": row.pick, "outcome": "accepted", "source": row.from, "query": token.query, "row": { "id": row.id, "label": row.label, "insertion": row.insert } }));
+    // A row that makes something (a page nobody has written): asked of the service first, as whoever chose; the row
+    // is written when that is done, into the text as it then stands, and a refusal is said with nothing written.
+    if let Some(makes) = &row.makes {
         let at = app.at.clone();
-        app.store.request(&at, "completion.picked", json!({ "key": key, "insert": row.pick, "outcome": "accepted", "source": row.from, "query": token.query, "row": { "id": row.id, "label": row.label, "insertion": row.insert } }), by, unheard, Value::Null);
+        let slots: Vec<Value> = row.slots.iter().map(|span| json!([span.start, span.end])).collect();
+        let ctx = json!({ "tile": tile, "version": draft::version(&text), "start": start, "end": end, "insert": row.insert, "select": row.select.map(|span| json!([span.start, span.end])), "slots": slots, "next": row.next, "counted": counted });
+        app.st.drafts[index].quiet();
+        app.pump();
+        app.store.request(&at, &makes.action, makes.params.clone(), by, made, ctx);
+        return Outcome::answer(json!({ "making": makes.action, "then": row.insert }));
+    }
+    let slots: Vec<(usize, usize)> = row.slots.iter().map(|span| (span.start, span.end)).collect();
+    app.put(tile, start, end, &row.insert, row.select.map(|span| (span.start, span.end)), &slots, row.next);
+    if let Some(counted) = counted {
+        let at = app.at.clone();
+        app.store.request(&at, "completion.picked", counted, by, unheard, Value::Null);
     }
     Outcome::answer(json!({ "wrote": row.insert }))
 }
 
+impl App {
+    /// A completion row's words put over a token of the draft on `tile` (bytes of its text), one step of the
+    /// field's way back. `select`, `slots`: the spans of `insert` (UTF-16) the row says to select and to step
+    /// through; `next`: the row leaves more to complete, so the list is asked for again where the caret now is.
+    fn put(&mut self, tile: &str, start: usize, end: usize, insert: &str, select: Option<(usize, usize)>, slots: &[(usize, usize)], next: bool) {
+        let Some(index) = self.drafts.iter().position(|draft| draft.tile == tile) else { return };
+        let draft = &mut self.st.drafts[index];
+        let after = start + insert.len();
+        draft.buf.splice(&[(start, end, insert)], |_| after);
+        let bytes = |span: (usize, usize)| draft::byte_of(insert, span.0).zip(draft::byte_of(insert, span.1));
+        if let Some((from, to)) = select.and_then(bytes) { draft.buf.select(start + from, start + to) }
+        self.wrote_in(tile);
+        let draft = &mut self.st.drafts[index];
+        // The list is put away; a row that leaves more to complete asks for the next one at once, as a choice.
+        if next { draft.summon() } else { draft.quiet() }
+        let stops: Vec<(usize, usize)> = slots.iter().filter_map(|span| bytes(*span)).collect();
+        if !stops.is_empty() { draft.fill(&stops, start) }
+        self.pump();
+    }
+}
+
+/// What a row asked to be made first is made (or refused): the row is written where its token was, when the text
+/// is still the one it was chosen in; a refusal is said, and nothing is written.
+fn made(app: &mut App, reply: Reply) {
+    let ctx = reply.ctx;
+    let tile = ctx["tile"].as_str().unwrap_or("").to_string();
+    let made = match reply.result { Ok(made) => made, Err(refusal) => { app.st.notice = Some(Notice::problem(refusal.error)); return } };
+    // (Asked for a page, the service says how the address stands when it made none: one in the trash stays there.)
+    if made.get("block").is_some_and(Value::is_null) { app.st.notice = Some(Notice::problem(format!("Not made ({}), and nothing was written.", made["status"].as_str().unwrap_or("the service made nothing")))); return }
+    let Some(draft) = app.draft_on(&tile) else { return };
+    if ctx["version"].as_str() != Some(draft::version(draft.buf.words()).as_str()) { app.st.notice = Some(Notice::problem("Made, and not written: the text moved on meanwhile. Choose it again.")); return }
+    let span = |v: &Value| v[0].as_u64().zip(v[1].as_u64()).map(|(start, end)| (start as usize, end as usize));
+    let (Some(start), Some(end), Some(insert)) = (ctx["start"].as_u64(), ctx["end"].as_u64(), ctx["insert"].as_str()) else { return };
+    let slots: Vec<(usize, usize)> = ctx["slots"].as_array().into_iter().flatten().filter_map(span).collect();
+    app.put(&tile, start as usize, end as usize, insert, span(&ctx["select"]), &slots, ctx["next"] == true);
+    if !ctx["counted"].is_null() {
+        let at = app.at.clone();
+        app.store.request(&at, "completion.picked", ctx["counted"].clone(), &reply.by, unheard, Value::Null);
+    }
+}
+
 fn accept(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
-    choose(app, &tile, args.number("n").map(|n| (n.max(1.0) as usize) - 1), by)
+    let row = args.number("n").map(|n| (n.max(1.0) as usize) - 1);
+    // A row that makes something, lit and never chosen (the lone offer of a page nobody has written): the key is
+    // still the field's, as Return is, so nothing is made by a Tab meant to indent. Chosen, or named, it is made.
+    let unchosen = row.is_none() && !app.draft_on(&tile).is_some_and(|draft| draft.completing.moved) && app.completing(&tile).is_some_and(|found| found.rows.get(app.completing_at(&tile)).is_some_and(|row| row.makes.is_some()));
+    if unchosen { return indent(app, args, by) }
+    choose(app, &tile, row, by)
 }
 
 fn enter(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
-    let (lit, moved) = app.draft_on(&tile).map_or((0, false), |draft| (draft.completing.lit, draft.completing.moved));
-    // Until a deliberate choice, Return belongs to the field for a row that says so: a line is typed.
-    let fields = app.completing(&tile).is_some_and(|found| found.rows.get(lit).is_none_or(|row| row.enter.is_some() && !moved));
-    if !fields { return choose(app, &tile, None, by) }
+    if !app.enter_fields(&tile) { return choose(app, &tile, None, by) }
     let field = Field::Draft(tile);
     app.field(&field).insert("\n");
     app.typed(&field);
     Outcome::done()
 }
 
+impl App {
+    /// Whether Return is the field's while the list over `tile`'s draft is open: until a deliberate choice, for a
+    /// row that says so (`CompletionRow.enter`, the service's word: outline-core's `enterKeeps`), a line is typed.
+    pub fn enter_fields(&self, tile: &str) -> bool {
+        let moved = self.draft_on(tile).is_some_and(|draft| draft.completing.moved);
+        self.completing(tile).is_some_and(|found| found.rows.get(self.completing_at(tile)).is_none_or(|row| row.enter.is_some() && !moved))
+    }
+}
+
 fn step(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
     let Some(rows) = app.completing(&tile).map(|found| found.rows.len() as i64).filter(|rows| *rows > 0) else { return Outcome::refused("no completion list is open here") };
-    let by = args.number("by").unwrap_or(1.0) as i64;
-    let at = app.at.clone();
-    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.light((draft.completing.lit as i64 + by).rem_euclid(rows) as usize, &at) }
-    // What choosing the row now lit makes is asked for.
+    let (lit, by) = (app.completing_at(&tile) as i64, args.number("by").unwrap_or(1.0) as i64);
+    // A row at a time, round again; more than one (a page), no further than an end.
+    let to = if by.abs() == 1 { (lit + by).rem_euclid(rows) } else { (lit + by).clamp(0, rows - 1) };
+    app.light_row(&tile, to as usize, true);
+    Outcome::answer(json!({ "lit": to + 1, "of": rows }))
+}
+
+fn jump(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(rows) = app.completing(&tile).map(|found| found.rows.len()).filter(|rows| *rows > 0) else { return Outcome::refused("no completion list is open here") };
+    let to = match args.text("to") { Some("first") => 0, Some("last") => rows - 1, other => return Outcome::refused(format!("complete.jump to= is first or last, not {}", other.unwrap_or("left out"))) };
+    app.light_row(&tile, to, true);
+    Outcome::answer(json!({ "lit": to + 1, "of": rows }))
+}
+
+fn light(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(rows) = app.completing(&tile).map(|found| found.rows.len()).filter(|rows| *rows > 0) else { return Outcome::refused("no completion list is open here") };
+    let n = args.number("n").unwrap_or(1.0).max(1.0) as usize;
+    if n > rows { return Outcome::refused(format!("the list has {rows} rows")) }
+    if app.completing_at(&tile) != n - 1 { app.light_row(&tile, n - 1, false) }
+    Outcome::done()
+}
+
+impl App {
+    /// A row of the list over `tile`'s draft is lit (`chosen`: by the person's own choice, not the pointer passing),
+    /// what choosing it makes is asked for, and the row is brought into the list's view.
+    fn light_row(&mut self, tile: &str, row: usize, chosen: bool) {
+        let (at, now) = (self.at.clone(), self.now);
+        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.light(row, chosen, &at, now) }
+        if chosen { self.st.reveal = Some(format!("tile/{}/complete/row/{row}", self.layout.name(tile))) }
+        self.pump();
+    }
+}
+
+fn ask(app: &mut App, _: &Args, _: &Actor) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.summon() }
     app.pump();
     Outcome::done()
 }
@@ -537,5 +674,27 @@ fn dismiss(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
     if let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.quiet() }
     app.pump();
+    Outcome::done()
+}
+
+// ── the stops of a skeleton ──────────────────────────────────────────────────────────────────────────────────────
+
+fn stop(app: &mut App, by: isize) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) else { return Outcome::refused("no note is open for editing") };
+    if draft.stops.is_none() { return Outcome::refused("no skeleton is being filled in here") }
+    let on = draft.stop(by);
+    let at = draft.stops.as_ref().map(|(stops, _)| json!({ "stop": stops.at + 1, "of": stops.spans.len() }));
+    app.remember();
+    Outcome::answer(if on { at.unwrap_or(Value::Null) } else { json!({ "done": true }) })
+}
+
+fn stop_next(app: &mut App, _: &Args, _: &Actor) -> Outcome { stop(app, 1) }
+fn stop_previous(app: &mut App, _: &Args, _: &Actor) -> Outcome { stop(app, -1) }
+
+fn stop_end(app: &mut App, _: &Args, _: &Actor) -> Outcome {
+    let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    let Some(draft) = app.st.drafts.iter_mut().find(|draft| draft.tile == tile) else { return Outcome::refused("no note is open for editing") };
+    if draft.stops.take().is_none() { return Outcome::refused("no skeleton is being filled in here") }
     Outcome::done()
 }

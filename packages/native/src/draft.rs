@@ -78,7 +78,7 @@ pub struct Completing {
     /// its way: the list never blinks away between two letters of one word. Let go once the caret leaves the
     /// line it was asked on.
     pub held: Option<Held>,
-    /// The row the person had lit when the text changed, by what it writes: lit again in the list that answers the
+    /// The row the person had lit when the text changed, by the name the service counts a choice of it under (`pick`): lit again in the list that answers the
     /// text as it is now, when it is still one of its rows (a row is the same row wherever it sits). None: the first.
     pub kept: Option<String>,
     /// When the lit row was lit, on the window's clock: what the lit row says of itself is shown beside the list once
@@ -89,6 +89,9 @@ pub struct Completing {
 /// A list shown past the change of the text it was asked for: its question, and the row that was lit in it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Held { pub ask: Ask, pub lit: usize }
+
+/// The rows the list shows before it scrolls: what a page down or up moves by.
+pub const LIST_ROWS: usize = 8;
 
 /// How long a row is lit before what it says of itself is drawn beside the list, in seconds.
 pub const CARD_QUIET: f64 = 0.3;
@@ -470,7 +473,7 @@ impl DraftSession {
     /// skeleton being filled in follow a change inside the one the caret is in, and end on any other.
     pub fn changed(&mut self) {
         self.changes += 1;
-        if let Some((mut stops, before)) = self.stops.take() && stops.update(&before, self.buf.words()) { self.stops = Some((stops, self.buf.words().to_string())) }
+        if let Some((mut stops, before)) = std::mem::take(&mut self.stops) && stops.update(&before, self.buf.words()) { self.stops = Some((stops, self.buf.words().to_string())) }
     }
 
     /// The ranges somebody else's last patch wrote, while nothing has changed since.

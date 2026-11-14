@@ -19,7 +19,7 @@
 use std::hash::{Hash, Hasher};
 
 use rune::{Align, El, ScrollSpec, Side, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Keybind, Kit, Placement, PopupItem, PopupList, popover};
+use rune_kit::{Button, ButtonVariant, Keybind, Kit, Placement, popover};
 use serde_json::{Value, json};
 
 use super::prim::{self, PrimCx};
@@ -28,6 +28,7 @@ use super::picture::Shown;
 use crate::actions::{self, Actor, App};
 use crate::draft::{DraftSession, Hold};
 use crate::keys;
+use crate::list;
 use crate::page::Page;
 use crate::parts;
 use crate::store::Ask;
@@ -41,6 +42,12 @@ fn asks(cx: &TileCx) -> Vec<(&'static str, Ask)> {
 
 /// The draft written in this tile, when it is of the note the tile shows.
 fn draft_of<'a>(cx: &'a TileCx) -> Option<&'a DraftSession> { cx.app.draft_on(cx.id) }
+
+/// How a draft's hold stands, in a word: said once on the editor's one line, with the whole of it (`held`) for
+/// whoever rests the pointer there.
+fn hold(draft: &DraftSession) -> &'static str {
+    match &draft.hold { Hold::Held { .. } => "held", Hold::Asked => "asking to hold…", Hold::None | Hold::Refused(_) => "not held" }
+}
 
 /// How a draft's hold stands, in words: who else can reach it while it is written. (A comment or a reply is held
 /// by nobody: it is nobody else's to change.)
@@ -247,26 +254,32 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     let buttons = row().gap(6.0).center_y()
         .child(if unsaved { button(cx, "edit.close discard=true", ButtonVariant::Ghost).build(k).key(cx.key("discard")) } else { button(cx, "edit.close", ButtonVariant::Ghost).build(k).key(cx.key("done")) })
         .child(button(cx, "edit.save", ButtonVariant::Contrast).disabled(saving || !unsaved).build(k).key(cx.key("save")));
-    // What somebody else last did to the text, by name, then how the draft is held.
+    // What somebody else last did to the text, by name, on a line of its own while there is something to say.
     let told = draft.told.as_ref().map(|told| text(told.line()).key(cx.key("told")).font(k.ty.small).color(c.info.fg).wrap());
-    let how = Some(held(draft)).filter(|held| !held.is_empty()).map(|held| text(held).key(cx.key("held")).font(k.ty.small).color(c.text_faint).wrap());
-    let status = col().grow(1.0).min_w(0.0).gap(2.0).children(told).children(how);
+    // How the draft is held, in a word; the whole of it for a pointer resting there.
+    let how = Some(held(draft)).filter(|held| !held.is_empty()).map(|held| text(hold(draft)).key(cx.key("held")).font(k.ty.small).color(c.text_faint).help(held));
     // What a comment or a reply is on, over its field: the words it quotes (a long passage by its start and its
     // end), the comment it answers; and, when the service says those words are no passage of the note, why.
     let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
     let unfound = draft.writes.quoted().and_then(|quoted| quoted.refused()).map(|why| text(why.to_string()).key(cx.key("on-problem")).font(k.ty.small).color(c.danger.fg).wrap());
-    // What the keys do where they are now, from the table: the save that keeps you here, then the draft's own (the
-    // Esc that leaves), or the list's while one is open over the block (the Esc that puts it away, the keys that choose).
-    let hints = keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does)).into_iter().chain(keys::hints(cx.app.writing(cx.id))).fold(row().key(cx.key("editor-keys")).w_full().gap(12.0).flex_wrap(), |line, (cap, does)| {
-        line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
-    });
+    // What the keys do where they are now, from the table, on one line of one height whatever layer they are in (a
+    // list opening over the block moves nothing under it): the key that leaves this layer, the save that keeps you
+    // here, then the layer's own, each once, as many as the line holds. The keys screen has them all.
+    let mut shown: Vec<&str> = Vec::new();
+    let hints = keys::esc(cx.app.writing(cx.id)).map(|bind| (bind.cap(), bind.does, bind.line.as_str())).into_iter()
+        .chain(keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does, bind.line.as_str())))
+        .chain(keys::hinted(cx.app.writing(cx.id)))
+        .filter(|(_, _, line)| if shown.contains(line) { false } else { shown.push(line); true })
+        .fold(row().key(cx.key("editor-keys")).grow(1.0).min_w(0.0).h(22.0).gap(12.0).center_y().clip_soft(0.0), |line, (cap, does, _)| {
+            line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
+        });
     let framed = if draft.is_block() { col().key(cx.key("editor")).w_full().gap(8.0) } else { col().key(cx.key("editor")).w_full().gap(8.0).padding(12.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_focus) };
     framed
         .children(on)
         .children(unfound)
         .child(field)
-        .child(row().w_full().gap(10.0).child(status).child(buttons))
-        .child(hints)
+        .children(told)
+        .child(row().w_full().gap(10.0).center_y().child(hints).children(how).child(buttons))
 }
 
 fn draw(cx: &TileCx, k: &Kit) -> El {
@@ -277,45 +290,141 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
     }
 }
 
-/// The list that completes what is being typed in this tile's draft, over the window at the caret: the service's
-/// rows, the lit one marked, a press on one writing it. It takes no keys: they stay in the field, and the list's
-/// own (the next row, the one before, write it, put it away) are the key table's rows for it.
+/// The widest and the narrowest the list that completes a word is, how many rows it shows before it scrolls, and
+/// how wide the card beside it is, in points.
+const LIST_MOST: f32 = 520.0;
+const LIST_LEAST: f32 = 280.0;
+const CARD: f32 = 340.0;
+const CARD_TALLEST: f32 = 380.0;
+/// The room between the caret's line and the list, and between the list and its card.
+const HANG: f32 = 4.0;
+
+/// One entry of the completion list as it is drawn: a section's header (over the row at that place, with the
+/// section's name and how many rows it has), or a row of the service's (by its place).
+enum Listed { Header(usize, String, usize), Row(usize) }
+
+/// The list that completes what is being typed in this tile's draft, over the window: one box hung under the
+/// caret's line with its left edge at the start of the token being completed (the kit's anchored surface: it goes
+/// above the line when there is no room below, and stays inside the window), as wide as its rows need and at most
+/// eight rows tall, scrolling inside itself. Its rows are the one list's (`list::line`), each the service's row as
+/// served: what it is, its name with the typed letters set apart, how what it writes looks (a primitive, built by
+/// the registry) and one quiet detail. Its foot says which row of how many is lit and what the keys do there, read
+/// from the key table. It takes no keys: they stay in the field, and the list's own are the key table's rows.
+/// Beside it, once the lit row has been lit a moment, what that row says of itself and what choosing it makes.
 fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
     let (Some(draft), Some(found)) = (draft_of(cx), cx.app.completing(cx.id)) else { return };
     if !cx.focused { return }
-    // Where the list hangs: a mark at the caret, when the window has drawn one; else the field.
-    let anchor = match caret {
-        Some([x, y, w, h]) => { layer.push(el().key(cx.key("caret")).absolute(x, y).w(w.max(1.0)).h(h)); cx.key("caret") }
-        None => cx.key("source"),
+    let lit = cx.app.completing_at(cx.id);
+    let style = keys::area_style(k);
+    let wide = |said: &str| rune::text::measure(said, &[], style, None).0;
+    // Where the list hangs: a mark on the caret's line at the token's start, when the window has drawn a caret;
+    // else the field. The start is measured from the line's own start while the line hasn't wrapped before the
+    // caret (so the mark stays put as letters are typed), else back from the caret.
+    let anchor = match (caret, cx.app.completing_words(cx.id)) {
+        (Some([x, y, _, h]), Some((before, typed))) => {
+            let left = rune::memo::layout(&cx.key("source")).map(|at| at[0] + keys::AREA_PAD);
+            let at = match left { Some(left) if (left + wide(&format!("{before}{typed}")) - x).abs() <= 3.0 => left + wide(before), _ => (x - wide(typed)).max(left.unwrap_or(0.0)) };
+            layer.push(el().key(cx.key("complete-at")).absolute(at, y).w(1.0).h(h).inert());
+            // What of the lit row is still to come, dimmed after the caret: not part of the field's words.
+            if let Some(rest) = cx.app.completing_rest(cx.id) { layer.push(text(rest.to_string()).key(cx.key("complete-rest")).absolute(x + 1.0, y).h(h).font(style).color(k.c.text_faint).a11y_hidden().inert()) }
+            cx.key("complete-at")
+        }
+        (Some([x, y, w, h]), None) => { layer.push(el().key(cx.key("complete-at")).absolute(x, y).w(w.max(1.0)).h(h).inert()); cx.key("complete-at") }
+        (None, _) => cx.key("source"),
     };
-    let from = cx.name.clone();
-    let items: Vec<PopupItem> = found.rows.iter().enumerate().map(|(n, row)| {
-        let detail = [row.detail.as_deref(), row.kind.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
-        PopupItem::new((n + 1).to_string(), row.label.clone()).description(detail)
-    }).collect();
-    PopupList::<App>::new(cx.key("complete"), anchor.clone())
-        .anchored(anchor, Side::Bottom, Align::Start, 4.0)
-        .width(420.0)
-        .label(found.heading.clone().unwrap_or_default())
-        .empty_message(found.message.clone().unwrap_or_default())
-        .active(Some(draft.completing.lit).filter(|_| !found.rows.is_empty()))
-        .items(items)
-        .on_choose(move |s: &mut App, row, _| { s.act_in(&format!("complete.accept n={row}"), &from, Actor::Person); })
-        .build(k, layer);
-    let Some((lit, shown)) = cx.app.completing_lit(cx.id) else { return };
-    let list = format!("{}-content", cx.key("complete"));
-    // Under the list: what it is a list of, in the service's word, and which row of how many is lit.
-    let count = [found.heading.clone().unwrap_or_default(), format!("{}/{}", draft.completing.lit + 1, found.rows.len())].into_iter().filter(|said| !said.is_empty()).collect::<Vec<_>>().join(" ");
-    let strip = row().key(cx.key("complete-count")).preserve_focus_on_press(true).px(8.0).h(22.0).center_y().child(text(count).font(k.ty.small).color(k.c.text_weak));
-    layer.push(popover::anchored(k, popover::raised(k, strip, k.radius.md), &list, Placement::BottomStart, 2.0));
+    // The rows under their sections' headers, when the rows say sections.
+    let mut listed: Vec<Listed> = Vec::new();
+    for (n, row) in found.rows.iter().enumerate() {
+        if let Some(group) = row.group.as_ref().filter(|group| n == 0 || found.rows[n - 1].group.as_ref() != Some(group)) { listed.push(Listed::Header(n, group.clone(), found.rows.iter().filter(|other| other.group.as_ref() == Some(group)).count())) }
+        listed.push(Listed::Row(n));
+    }
+    let tagged = found.rows.iter().any(|row| row.kind.is_some());
+    let width = found.rows.iter().map(|row| list::line_width(tagged, &row.label, row.sample.is_some(), row.detail.as_deref(), k)).fold(LIST_LEAST, f32::max).min(LIST_MOST);
+    let surface = cx.key("complete");
+    let mut body = col().w_full().min_h(0.0);
+    if found.rows.is_empty() {
+        // Nothing to choose from: the service's word for why, in a line.
+        body = body.child(text(found.message.clone().unwrap_or_default()).key(cx.key("complete/said")).font(k.ty.ui_compact).color(k.c.text_weak).px(10.0).py(6.0).wrap());
+    } else {
+        let (from, at, kit, rows, listed) = (cx.name.clone(), cx.app.at.clone(), k.clone(), found.rows.clone(), std::rc::Rc::new(listed));
+        let (keyed, built, base, count) = (listed.clone(), listed.clone(), cx.key("complete"), listed.len());
+        // A row's sample is a primitive built by the registry, under a row (so nothing in it is built in view only).
+        let samples: Vec<Option<El>> = rows.iter().enumerate().map(|(n, row)| row.sample.as_ref().map(|sample| prim::build(sample, &PrimCx::of(cx).in_row().at(format!("complete/sample/{n}")), k))).collect();
+        let _ = at;
+        body = body.child(list::fitted(&format!("{base}/rows"), crate::draft::LIST_ROWS, k, list::Rows::new(count, list::LINE,
+            move |_: &App, i: usize| std::borrow::Cow::Owned(match &keyed[i] { Listed::Header(n, _, _) => format!("{base}/group/{n}"), Listed::Row(n) => format!("{base}/row/{n}") }),
+            move |_: &App, i: usize| match &built[i] {
+                Listed::Header(_, name, count) => list::header(name, *count, &kit),
+                Listed::Row(n) => {
+                    let (n, row) = (*n, &rows[*n]);
+                    let tag = row.kind.as_ref().and_then(|kind| kind.chars().next().map(|first| (first.to_uppercase().to_string(), kind.clone())));
+                    let line = list::line(list::Line { tag, label: row.label.clone(), marks: row.matches.clone(), sample: samples[n].clone(), detail: row.detail.clone(), ..list::Line::default() }, n == lit, &kit);
+                    let (hover, press, hovered, pressed) = (format!("complete.light n={}", n + 1), format!("complete.accept n={}", n + 1), from.clone(), from.clone());
+                    kit.interactive(line).role("option").label(row.label.clone()).description(row.detail.clone().unwrap_or_default())
+                        .on_hover(move |s: &mut App| { s.act_in(&hover, &hovered, Actor::Person); })
+                        .on_press(move |s: &mut App| { s.act_in(&press, &pressed, Actor::Person); })
+                }
+            })));
+    }
+    body = body.child(foot(cx, found, lit, k));
+    // A press on the box that is on no row goes no further (never to the page under it): it lights the row already lit.
+    let (stays, stays_in, stays_too, stays_there) = (format!("complete.light n={}", lit + 1), cx.name.clone(), format!("complete.light n={}", lit + 1), cx.name.clone());
+    let content = col().key(surface.clone()).role("group").label(found.heading.clone().unwrap_or_default()).preserve_focus_on_press(true).w(width).min_h(0.0).padding(4.0).child(body)
+        .on_press(move |s: &mut App| { s.act_in(&stays, &stays_in, Actor::Person); });
+    layer.push(popover::anchored(k, popover::raised(k, content, k.radius.md), &anchor, Placement::BottomStart, HANG));
     // Beside it: what the lit row says of itself (its source's words, Blockdown) and what choosing it makes (the
-    // service's drawing of its example), each a primitive built by the registry. A row that says neither has no panel.
-    if lit.docs.is_none() && shown.is_none() { return }
-    // In a popover, which has no scroll of its own: a list in the row's example is built whole, as a list inside a
+    // service's drawing of its example), each a primitive built by the registry, once the row has been lit a
+    // moment. A row that says neither has no card.
+    let _ = draft;
+    let Some((said, shown)) = cx.app.completing_card(cx.id) else { return };
+    // Over the window, in no scroll of the page's: a list in the row's example is built whole, as a list inside a
     // row is, never as the page's virtual rows (Rune panics on a virtual stack outside a scroll viewport).
     let at = PrimCx::of(cx).in_row();
-    let panel = col().key(cx.key("complete-docs")).preserve_focus_on_press(true).w(360.0).padding(10.0).gap(8.0)
-        .children(lit.docs.as_ref().map(|docs| prim::build(&json!({ "type": "blockdown", "text": docs }), &at.at("complete-docs/says"), k)))
+    let (side, align, tallest) = card_place(rune::memo::layout(&surface), caret, width, rune::memo::layout("shell"));
+    let card = col().key(cx.key("complete-docs")).role("note").preserve_focus_on_press(true).w(CARD).max_h(tallest).clip_soft(0.0).padding(10.0).gap(8.0)
+        .on_press(move |s: &mut App| { s.act_in(&stays_too, &stays_there, Actor::Person); })
+        .children(said.docs.as_ref().map(|docs| prim::build(&json!({ "type": "blockdown", "text": docs }), &at.at("complete-docs/says"), k)))
         .children(shown.map(|view| prim::build(view, &at.at("complete-docs/makes"), k)));
-    layer.push(popover::anchored(k, popover::raised(k, panel, k.radius.md), &list, Placement::RightStart, 6.0));
+    layer.push(popover::raised(k, card, k.radius.md).anchored(surface, side, align, HANG).instant_changes());
+}
+
+/// Where the card goes by the list, and how tall it may be: at the list's right when the window has room there,
+/// else at its left, else under it; beside the list their tops are level, and when the list went above the caret's
+/// line (no room below) their bottoms are, so the card never covers the line being typed. It is no taller than the
+/// window leaves it from there. `list`, `window`: both as last laid out (x, y, w, h).
+fn card_place(list: Option<[f32; 4]>, caret: Option<[f32; 4]>, width: f32, window: Option<[f32; 4]>) -> (Side, Align, f32) {
+    let (Some(list), Some(window)) = (list, window) else { return (Side::Right, Align::Start, CARD_TALLEST) };
+    let above = caret.is_some_and(|caret| list[1] < caret[1]);
+    let (right, left) = (window[2] - 8.0 - (list[0] + width + HANG), list[0] - HANG - 8.0);
+    // Level with the list's top it has the window from there down; level with its bottom, from there up.
+    let beside = if above { list[1] + list[3] - 8.0 } else { window[3] - list[1] - 8.0 };
+    let tallest = |room: f32| room.clamp(60.0, CARD_TALLEST);
+    match (right >= CARD, left >= CARD) {
+        (true, _) => (Side::Right, if above { Align::End } else { Align::Start }, tallest(beside)),
+        (false, true) => (Side::Left, if above { Align::End } else { Align::Start }, tallest(beside)),
+        (false, false) if above => (Side::Top, Align::Start, tallest(list[1] - HANG - 8.0)),
+        (false, false) => (Side::Bottom, Align::Start, tallest(window[3] - (list[1] + list[3]) - HANG - 8.0)),
+    }
+}
+
+/// The list's foot, inside its box: which row of how many is lit and what it is a list of (the service's word),
+/// then what the keys do here, each read from the key table: the key that writes the lit row, Return (the row's
+/// own word for it while Return is still the field's), and the key that closes the list.
+fn foot(cx: &TileCx, found: &crate::page::Completion, lit: usize, k: &Kit) -> El {
+    let c = &k.c;
+    let count = (!found.rows.is_empty()).then(|| format!("{} of {}", lit + 1, found.rows.len()));
+    let said = count.into_iter().chain(found.heading.clone().filter(|heading| !heading.is_empty())).collect::<Vec<_>>().join(" · ");
+    let enters = found.rows.get(lit).and_then(|row| row.enter.as_deref()).filter(|_| cx.app.enter_fields(cx.id));
+    let mut keys: Vec<(String, String)> = Vec::new();
+    if !found.rows.is_empty() {
+        keys.extend(keys::bind_of("complete.accept").map(|bind| (bind.cap(), bind.does.to_string())));
+        keys.extend(keys::bind_of("complete.enter").map(|bind| (bind.cap(), enters.map_or(bind.does.to_string(), str::to_string))));
+    }
+    keys.extend(keys::esc(cx.app.writing(cx.id)).map(|bind| (bind.cap(), bind.does.to_string())));
+    let hints = keys.into_iter().fold(row().key(cx.key("complete/keys")).gap(10.0).center_y(), |line, (cap, does)| line.child(text(format!("{cap} {does}")).font(k.ty.small).color(c.text_faint)));
+    let line = row().w_full().h(24.0).px(10.0).gap(12.0).center_y()
+        .child(text(said).key(cx.key("complete/count")).font(k.ty.small).color(c.text_weak).truncate())
+        .child(el().grow(1.0).min_w(4.0))
+        .child(hints);
+    col().key(cx.key("complete/foot")).w_full().child(el().w_full().h(1.0).fill(c.border_muted)).child(line)
 }

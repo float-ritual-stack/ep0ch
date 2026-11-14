@@ -11,6 +11,7 @@
 //! screen, and `--programs <file>` runs its terminal tiles on a scripted host (a scene's made-up shell).
 mod actions;
 mod actline;
+mod band;
 mod bar;
 mod client;
 mod control;
@@ -100,8 +101,11 @@ fn nobody() -> App { App::new(Box::new(Nowhere(None)), "") }
 
 fn setup(s: &mut App, waker: rune::Waker) { s.set_waker(waker) }
 
-fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
+fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let landed = s.take();
+    // What the lit row of an open completion list says of itself is drawn once the row has been lit a moment.
+    let (carded, due) = s.tick(clock);
+    if let Some(due) = due { tx.wake_after(due) }
     // The drafts held are renewed on the service, and it is told when the keys go quiet: asked again when due.
     if let Some(due) = s.beat() { tx.wake_after(due) }
     // What the status line says goes once it has been up long enough to read; asked again when that is due.
@@ -117,7 +121,7 @@ fn poll(s: &mut App, _clock: f64, tx: &mut Tx) -> bool {
         s.reconnect();
         tx.wake_after(Duration::from_secs(2));
     }
-    landed || moved || faded
+    landed || moved || faded || carded
 }
 
 /// What every window of the run is made of: its view, its keys, what it does each turn. `init` makes its state.

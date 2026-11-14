@@ -1401,16 +1401,17 @@ fn live_a_block_is_written_as_in_the_door_a_paste_keeps_its_lines_tab_indents_an
         let shown = |s: &App, n: usize| s.completing_lit("reader").filter(|(row, _)| row.label == s.completing("reader").unwrap().rows[n].label).and_then(|(_, view)| view.cloned());
         until(&mut rt, "the first row's drawing", |s| shown(s, 0).is_some());
         let first = shown(&rt.state, 0).unwrap();
-        assert_eq!(first["children"].as_array().unwrap().iter().map(|boxed| boxed["title"].as_str().unwrap_or("")).collect::<Vec<_>>(), ["As written", "As drawn"]);
-        assert!(first["children"][0]["children"][0]["text"].as_str().unwrap().contains(&format!("[heading-pattern::{}]", found.rows[0].label)), "{first}");
-        assert!(rt.find("tile/reader/complete-docs").is_some() && rt.find("tile/reader/complete-count").is_some());
-        assert!(texts(&rt).iter().any(|said| said == &format!("{} 1/5", found.heading.clone().unwrap_or_default())), "{:?}", texts(&rt));
+        // (A value with a look is drawn, never said to be: its sample on every row, a band of it on the lit one.)
+        assert_eq!((first["type"].as_str(), first["pattern"].as_str()), (Some("band"), Some(found.rows[0].label.as_str())), "{first}");
+        assert!(found.rows.iter().all(|row| row.sample.as_ref().is_some_and(|sample| sample["type"] == "track" && sample["pattern"] == row.label.as_str())), "{found:?}");
+        assert!(rt.find("tile/reader/complete-docs").is_some() && rt.find("tile/reader/complete/count").is_some());
+        assert!(texts(&rt).iter().any(|said| said == &format!("1 of 5 · {}", found.heading.clone().unwrap_or_default())), "{:?}", texts(&rt));
         assert!(texts(&rt).iter().any(|said| said.contains(found.rows[0].docs.as_deref().unwrap())), "the lit row's own words are drawn: {:?}", texts(&rt));
         // Down: the next row's, asked of the service with that row lit.
         chord(&mut rt, Key::Down, Mods::default());
         until(&mut rt, "the second row's drawing", |s| draft(s).is_some_and(|d| d.completing.lit == 1) && shown(s, 1).is_some());
-        assert!(shown(&rt.state, 1).unwrap()["children"][0]["children"][0]["text"].as_str().unwrap().contains(&format!("[heading-pattern::{}]", found.rows[1].label)));
-        assert!(texts(&rt).iter().any(|said| said.ends_with(" 2/5")));
+        assert_eq!(shown(&rt.state, 1).unwrap()["pattern"].as_str(), Some(found.rows[1].label.as_str()));
+        assert!(texts(&rt).iter().any(|said| said.starts_with("2 of 5")));
         // Tab writes the lit row: the list is still the list's while it is open.
         chord(&mut rt, Key::Tab, Mods::default());
         assert!(words(&rt.state).ends_with(&format!("[heading-pattern::{}]", found.rows[1].label)), "{}", words(&rt.state));

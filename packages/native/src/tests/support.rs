@@ -614,6 +614,8 @@ fn host(saves: Rc<RefCell<Result<(), (&'static str, String)>>>, with_screens: bo
             // two pages for a `[[` left open, and no token anywhere else.
             "completion.rows" => Ok(completion(ask["text"].as_str().unwrap_or(""), ask["cursor"].as_u64().unwrap_or(0) as usize, ask["lit"].as_u64().unwrap_or(0) as usize)),
             "completion.picked" => Ok(json!({})),
+            // A page followed by its address is made when nobody has written it; one in the trash is not.
+            "pages.follow" => match ask["address"].as_str() { Some("compost-bin") => Ok(json!({ "status": "deleted", "block": null, "created": false })), address => Ok(json!({ "status": "resolved", "block": { "id": address }, "created": true })) },
             // What is written about a note: a comment and a reply (the host says who wrote each), a thread's
             // lifecycle, a proposal applied or dismissed, and a revision's text.
             // (A comment on words is answered as the service answered that quote of that text: `quoted`.)
@@ -749,8 +751,11 @@ pub fn changed(app: &mut App, said: &Said, key: &str, generation: u64) {
 
 // ── the window itself ─────────────────────────────────────────────────────────────────────────────────────────
 
-pub fn window(app: App) -> Runtime<App> {
-    let mut rt = Runtime::new(app, view, (1180.0, 760.0), Env { system_dark: false, scale: 1.0 });
+pub fn window(app: App) -> Runtime<App> { window_sized(app, (1180.0, 760.0)) }
+
+/// The window at a size of the test's choosing.
+pub fn window_sized(app: App, size: (f32, f32)) -> Runtime<App> {
+    let mut rt = Runtime::new(app, view, size, Env { system_dark: false, scale: 1.0 });
     // As the app runs it: answers land in `poll`, before each frame, and a key nothing focused took is the table's.
     rt.poll = Some(|s, clock, tx| { let landed = s.take() | s.ran() | s.fade(std::time::Instant::now()).0 | s.tick(clock).0; crate::keys::effects(s, tx) | crate::keys::follow(s, tx) | landed });
     rt.on_key = Some(crate::keys::press);

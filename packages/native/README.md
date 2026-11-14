@@ -141,16 +141,26 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `alt+left` | `note.move step=out` | tile | move the note out, after its parent |
 | `mod+e` | `edit` | everywhere | edit the open note |
 | `mod+s` | `edit.save` | everywhere | save |
-| `mod+enter` | `edit.save` | draft | save, from the note's source |
-| `escape` | `edit.close` | draft | leave the editor, when everything is saved |
-| `mod+v` | `draft.paste` | draft | paste the clipboard |
-| `tab` | `draft.indent` | draft | indent the line, or the selected lines |
-| `shift+tab` | `draft.outdent` | draft | outdent the line, or the selected lines |
-| `tab` | `complete.accept` | complete | write the lit row |
-| `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
-| `down` | `complete.move by=1` | complete | the next row |
-| `up` | `complete.move by=-1` | complete | the row before |
-| `escape` | `complete.dismiss` | said | put the list away |
+| `mod+enter` | `edit.save` | draft | save |
+| `escape` | `edit.close` | draft | done |
+| `tab` | `draft.indent` | draft | indent |
+| `shift+tab` | `draft.outdent` | draft | outdent |
+| `mod+v` | `draft.paste` | draft | paste |
+| `tab` | `complete.accept` | complete | accept |
+| `enter` | `complete.enter` | complete | accept |
+| `down` | `complete.move by=1` | complete | next |
+| `up` | `complete.move by=-1` | complete | previous |
+| `ctrl+n` | `complete.move by=1` | complete | next |
+| `ctrl+p` | `complete.move by=-1` | complete | previous |
+| `pagedown` | `complete.move by=8` | complete | a page down |
+| `pageup` | `complete.move by=-8` | complete | a page up |
+| `home` | `complete.jump to=first` | complete | the first row |
+| `end` | `complete.jump to=last` | complete | the last row |
+| `ctrl+space` | `complete.ask` | draft | complete here |
+| `escape` | `complete.dismiss` | said | close the list |
+| `tab` | `snippet.next` | stops | next stop |
+| `shift+tab` | `snippet.previous` | stops | previous stop |
+| `escape` | `snippet.end` | stops | leave the stops |
 | `mod+shift+m` | `comment` | everywhere | comment on the selected words, or on the note |
 | `a then c` | `comment` | selection | comment on the selected words |
 | `mod+k` | `bar.open` | everywhere | open the bar on everything |

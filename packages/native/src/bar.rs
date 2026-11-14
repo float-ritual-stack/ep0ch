@@ -203,15 +203,12 @@ fn empty(app: &App) -> Option<String> { answer(app).and_then(|answer| answer.lis
 /// The bar's question is out and nothing has answered it yet.
 fn asking(app: &App) -> bool { asks(app).iter().any(|ask| app.store().waiting(ask)) }
 
+/// A row of the bar: the one list's row (`list::line`), two lines tall: its label over its detail, its keycap at
+/// the right.
 fn row_el(row: &BarRow, lit: bool, k: &Kit) -> El {
-    let c = &k.c;
-    let words = col().gap(1.0).grow(1.0).min_w(0.0)
-        .child(text(row.label.clone()).font(k.ty.ui_medium).color(c.text_base).truncate())
-        .child(text(row.detail.clone()).font(k.ty.small).color(c.text_faint).truncate());
-    let mut line = rune::row().w_full().gap(10.0).center_y().child(words);
-    if let Some(cap) = &row.keycap { line = line.child(Keybind::new(&[cap.as_str()]).build(k)) }
+    let line = list::line(list::Line { label: row.label.clone(), detail: Some(row.detail.clone()), keycap: row.keycap.clone(), tall: true, ..list::Line::default() }, lit, k);
     let pick = format!("bar.pick source={} key={}", row.source, word(&row.key));
-    k.interactive(line.px(10.0).py(6.0).h(ROW).radius(k.radius.sm).fill(if lit { c.surface_hover } else { rune::Color::TRANSPARENT }))
+    k.interactive(line.h(ROW))
         .key(row_key(row))
         .role("option")
         .on_press(move |s: &mut App| { s.act(&pick, Actor::Person); })

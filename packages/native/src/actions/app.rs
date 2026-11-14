@@ -725,6 +725,26 @@ impl App {
         Some((row, view))
     }
 
+    /// The words of the caret's line before the token being completed, and the token's own up to the caret: what the
+    /// list is hung by (its left edge at the token's start, under the line). None while no list is open there.
+    pub fn completing_words(&self, tile: &str) -> Option<(&str, &str)> {
+        let (draft, found) = (self.draft_on(tile)?, self.completing(tile)?);
+        let (text, caret) = (draft.buf.words(), draft.buf.ends().1);
+        let start = draft::byte_of(text, found.token.as_ref()?.start).filter(|start| *start <= caret)?;
+        let line = text[..start].rfind('\n').map_or(0, |at| at + 1);
+        Some((&text[line..start], &text[start..caret]))
+    }
+
+    /// What of the lit row is still to come after the caret, when the row goes on from what is typed (the service's
+    /// word on the row, `rest`) and nothing stands after the caret on its line: shown dimmed there, where Tab takes
+    /// it. None while the list on screen is one held from before the last change.
+    pub fn completing_rest(&self, tile: &str) -> Option<&str> {
+        let draft = self.draft_on(tile)?;
+        let (text, (anchor, caret)) = (draft.buf.words(), draft.buf.ends());
+        if anchor != caret || draft.buf.composing() || text[caret..].chars().next().is_some_and(|next| next != '\n') { return None }
+        self.completing_now(tile)?.rows.get(draft.completing.lit)?.rest.as_deref().filter(|rest| !rest.is_empty() && !rest.contains('\n'))
+    }
+
     /// The lit row and its drawing, once it has been lit long enough for a card (`draft::CARD_QUIET`, on the window's
     /// clock): what the popover draws beside its list. Moving down a list draws no card a row.
     pub fn completing_card(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
@@ -749,12 +769,14 @@ impl App {
     /// The list on screen now, as the next question holds it while its own answer is on its way: its question and
     /// lit row, and what that row writes when the person chose it (it is lit again in the list that answers).
     fn completion_shown(&self, tile: &str) -> Option<(Held, Option<String>)> {
-        let draft = self.draft_on(tile)?;
-        let found = self.completing(tile)?;
-        let fresh = draft.completes().is_some_and(|ask| !self.store.waiting(ask));
-        let ask = if fresh { draft.completing.ask.clone()? } else { draft.completing.held.as_ref()?.ask.clone() };
-        let lit = self.completing_at(tile);
-        let kept = if fresh { draft.completing.moved.then(|| found.rows.get(lit).map(|row| row.insert.clone())).flatten() } else { draft.completing.kept.clone() };
+        let now = &self.draft_on(tile)?.completing;
+        let ask = now.ask.as_ref()?;
+        // Its own answer when that had landed (for the text as it was until this change); else the list it held.
+        let listed = |ask: &Ask| self.store.read::<Completion>(ask).filter(|found| found.token.is_some() && !found.rows.is_empty());
+        let fresh = !self.store.waiting(ask) && listed(ask).is_some();
+        let (ask, lit) = if fresh { (ask.clone(), now.lit) } else { let held = now.held.as_ref()?; (held.ask.clone(), held.lit) };
+        let kept = if fresh { now.moved.then(|| listed(&ask).and_then(|found| found.rows.get(lit)).map(|row| row.pick.clone())).flatten() } else { now.kept.clone() };
+        listed(&ask)?;
         Some((Held { ask, lit }, kept))
     }
 
@@ -765,7 +787,7 @@ impl App {
             let draft = &self.drafts[index];
             if draft.completes().is_none_or(|ask| ask.key() != *key) { continue }
             let Some(kept) = draft.completing.kept.clone() else { self.st.drafts[index].completing.held = None; continue };
-            let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.insert == kept)).unwrap_or(0);
+            let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.pick == kept)).unwrap_or(0);
             self.st.drafts[index].light(row, false, &at, now);
             self.pump();
         }
@@ -1037,10 +1059,29 @@ impl App {
     pub fn typed(&mut self, field: &Field) {
         match field {
             Field::Bar => self.st.bar.cursor = 0,
-            Field::Draft(tile) => self.wrote_in(tile),
+            Field::Draft(tile) => { self.typed_out(tile); self.wrote_in(tile) }
             Field::Form(_) => if let Some(form) = &mut self.st.form { form.said = None },
         }
         self.pump();
+    }
+
+    /// The person typed the rest of the lit row themselves (a value's closing bracket, a key's `::`): the characters
+    /// that end the token commit it. What was still to come is the service's word on the row (`rest`), and when
+    /// exactly that was typed at the caret the choice is counted as one made from the list, where every client's
+    /// are. Nothing is written for it: the words are the person's own, as typed.
+    fn typed_out(&mut self, tile: &str) {
+        let Some(draft) = self.draft_on(tile) else { return };
+        let Some(ask) = draft.completing.ask.as_ref() else { return };
+        let Some(found) = self.store.read::<Completion>(ask) else { return };
+        let (Some(token), Some(row), Some(key)) = (found.token.as_ref(), found.rows.get(draft.completing.lit), found.pick_key.as_ref()) else { return };
+        let (Some(rest), Some(was), Some(cursor)) = (row.rest.as_deref(), ask.params["text"].as_str(), ask.params["cursor"].as_u64()) else { return };
+        let Some(at) = draft::byte_of(was, cursor as usize) else { return };
+        // The text is the one the list was asked for, with the row's rest typed where the caret was.
+        let (now, caret) = (draft.buf.words(), draft.buf.ends().1);
+        if caret != at + rest.len() || now.len() != was.len() + rest.len() || now.get(at..caret) != Some(rest) || now[..at] != was[..at] || now[caret..] != was[at..] { return }
+        let counted = json!({ "key": key, "insert": row.pick, "outcome": "accepted", "source": row.from, "query": token.query, "row": { "id": row.id, "label": row.label, "insertion": row.insert } });
+        let at = self.at.clone();
+        self.store.request(&at, "completion.picked", counted, &Actor::Person, |_, _| {}, Value::Null);
     }
 
     /// What time does to what the window says, asked each turn (`poll`), by the door's rule for its status bar
