@@ -128,6 +128,10 @@ pub struct ListView {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Section { pub head: Option<ListGroup>, pub rows: Vec<usize> }
 
+/// A list arranged as lanes, in the list's own word (outline-core's `ListPrimitive.arrange`): a group a lane, side by
+/// side, each a list of its own to the keys.
+pub const LANES: &str = "lanes";
+
 impl ListView {
     /// The rows in the sections they are drawn in, every renderer's order (outline-core's `listSections`, and the one
     /// copy of it here: `fixtures/core-contract.json` holds what that answers, and `tests/contract.rs` asks every row).

@@ -10,7 +10,7 @@
 use std::hash::{Hash, Hasher};
 
 use rune::{Align, Cx, Drag, El, Phase, Tx, col, el, memo, row, text};
-use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, IconButton, IconButtonVariant, Kit, glyphs};
+use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, IconButton, IconButtonVariant, Keybind, Kit, glyphs};
 
 use crate::actions::{self, Actor, App, CELL, Moving, Tone, word};
 use crate::keys;
@@ -89,7 +89,7 @@ fn spine(s: &App, id: &str, at: [f32; 4], fold: &Fold, frame: Frame, k: &Kit) ->
 
 /// One tile in its box: its title bar (its name, or its set's tabs; held and dragged to move it), then what its
 /// drawer draws.
-fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
+fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: bool, k: &Kit) -> El {
     let c = &k.c;
     let at = points(r);
     if let Some(fold) = s.layout.collapsed.get(id).filter(|_| s.layout.zoom.is_none()) { return spine(s, id, at, fold, frame, k) }
@@ -101,6 +101,9 @@ fn tile(s: &App, id: &str, r: Rect, frame: Frame, dark: bool, k: &Kit) -> El {
     // let go over one lands before that tab. A tab is held by its own label, and the title's bare part holds the one in front.
     let tabs = s.tab_cells(id, r);
     let mut title = row().center_y().grow(1.0).min_w(0.0).child(el().w(((tabs.first().map_or(r.col, |tab| tab.from) - r.col) as f32 * CELL.0 - 6.0).max(0.0)));
+    // Its number among the stops the keys go round (`App::tab_stops`): the digit that gives it the keys, where one
+    // key says it. Bright on the tile that has them.
+    if let Some(n) = stop.filter(|n| *n < 9) { title = title.child(text((n + 1).to_string()).key(format!("tile/{name}/stop")).font(k.ty.small).color(if focused { c.text_base } else { c.text_faint }).pl(2.0).pr(2.0)) }
     for tab in &tabs {
         let (here, tab_name, alone) = (tab.id == id, s.layout.name(&tab.id), tabs.len() == 1);
         let label = text(tab_name.clone()).font(if here { k.ty.ui_medium } else { k.ty.ui }).color(if here { c.text_base } else { c.text_muted }).truncate().px(6.0).py(3.0).radius(k.radius.sm);
@@ -279,6 +282,22 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
     Some(bar.child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("notice.dismiss")).on_press(act("notice.dismiss")).build(k).key("notice-close")))
 }
 
+/// The hint row under the tiles: the keys that matter where the person's keys are, each with what it does, as the
+/// key table says them (`App::hinted`: the keys of what the tile with the keys draws, what Escape steps back out
+/// of, and while a sequence is begun every row it can still become). Nothing here names a key or words one. It
+/// keeps its room while it has nothing to say, so the tiles never move when the keys do.
+fn foot(s: &App, k: &Kit) -> El {
+    let c = &k.c;
+    let mut line = row().key("hints").role("status").label("What the keys do here").w_full().h(FOOT).gap(14.0).center_y().px(10.0).clip_rounded(0.0);
+    for (i, hint) in s.hinted().into_iter().enumerate() {
+        let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
+        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
+    }
+    line
+}
+/// The hint row's height.
+const FOOT: f32 = 22.0;
+
 /// A window torn from another, opened: its own tree, keys and focus over the state the act made for it (`App::born`),
 /// which shares the first window's store. `made` is what every window of the run is made of (its view, its keys, its
 /// poll: `main.rs` says them once). Agents reach it by its name while it is open. A headless run opens nothing.
@@ -307,7 +326,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let mut area = el().key("tiles").w_full().grow(1.0).min_h(0.0).on_layout(|s: &mut App, r: [f32; 4]| s.resized(r[2], r[3]));
     // (A float that is held is drawn where the hand has it.)
     let lifted = |id: &str, r: Rect| s.moving.as_ref().filter(|held| held.tile == id).and_then(|held| held.lifted).map_or(r, |(col, row)| Rect { col, row, ..r });
-    for (id, r) in &order { area = area.child(tile(s, id, lifted(id, *r), frame, dark, &k)) }
+    // Where the keys stop, in the order Tab goes round: each tile's title says its number.
+    let stops = s.tab_stops();
+    let stop = |id: &str| Some(stops.iter().position(|stop| stop == id)?).filter(|_| stops.len() > 1);
+    for (id, r) in &order { area = area.child(tile(s, id, lifted(id, *r), stop(id), frame, dark, &k)) }
     if s.layout.zoom.is_none() {
         // A border between two kids of a split that both show and neither is a spine: a grip to drag.
         for (path, kid_boxes) in base.lines.iter().chain(slid.iter().flat_map(|dock| dock.placed.lines.iter())) {
@@ -336,5 +358,5 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         }
     }
     crate::bar::view(s, &k, &mut layer);
-    rune_kit::root(body.child(area), layer)
+    rune_kit::root(body.child(area).child(foot(s, &k)), layer)
 }

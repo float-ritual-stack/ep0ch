@@ -50,13 +50,13 @@ fn facts(cx: &TileCx) -> Value {
         "columns": answer.map(|a| a.list.columns.clone()), "facets": answer.map(|a| a.facets.iter().map(|f| f.key.clone()).collect::<Vec<_>>()),
         "hint": answer.and_then(|a| a.hint.clone()), "truncated": answer.is_some_and(|a| a.truncated), "sort": answer.and_then(|a| a.sort.clone()), "group": answer.and_then(|a| a.group.clone()),
         "question": cx.app.question_of(cx.id), "narrowed": cx.ui.narrowed, "chosen": cx.ui.chosen, "unfolded": cx.ui.unfolded,
-        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.home_note(cx.id),
+        "follows": cx.app.source_of(cx.id).map(|source| cx.app.layout.name(&source)), "selected": cx.app.home_note(cx.id), "cursor": cx.ui.cursor,
     })
 }
 
 fn version(cx: &TileCx) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.home_note(cx.id), cx.app.question_of(cx.id)).hash(&mut h);
+    (&cx.ui.unfolded, &cx.ui.narrowed, &cx.ui.chosen, cx.app.home_note(cx.id), cx.app.question_of(cx.id), &cx.ui.cursor).hash(&mut h);
     h.finish()
 }
 
@@ -115,8 +115,9 @@ fn chip(cx: &TileCx, at: &Place, key: &str, value: &str, said: String, on: bool,
 /// One row: its mark and label, the properties it carries as chips, and its detail under it (or beside it, in a
 /// tree). A cell that carries an act line is a press of its own on the row (the service's word on what it runs), and
 /// what the row shows under itself (`view`) is a primitive, built by the registry as any is: a change, a thread's
-/// replies, an example. A row that folds, in a list whose rows open, shows which way it is.
-fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &Kit) -> El {
+/// replies, an example. A row that folds, in a list whose rows open, shows which way it is. `mark`: how the row
+/// stands (`Mark`: the keys' cursor is on it, it is the open note's).
+fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, mark: Mark, k: &Kit) -> El {
     let c = &k.c;
     let tall = r.tall();
     let label = text(r.label.clone()).font(k.ty.ui).color(if r.act.is_some() || tall { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0);
@@ -143,8 +144,8 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, selected: bool, k: &
     for chip_ in r.chips.iter().take(3) { line = line.child(chip(cx, at, &chip_.key, &chip_.value, chip_.value.clone(), at.narrowed(cx, &chip_.key, &chip_.value), &format!("row/{}/chip", r.id), k)) }
     let detail = r.detail.as_deref().filter(|d| !d.is_empty() && !tree).map(|detail| { let said = text(detail.to_string()).font(k.ty.small).color(c.text_faint); if tall { said.wrap() } else { said.truncate() } });
     let head = match detail { Some(detail) => col().w_full().gap(1.0).child(line).child(detail), None => line };
-    let fill = if selected { c.surface_hover } else if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT };
-    let head = head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill);
+    let fill = mark.fill(k).unwrap_or(if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT });
+    let head = mark.edge(head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill), k);
     let head = match at.pick(cx, r) {
         Some(run) => k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
         None => head,
@@ -164,15 +165,30 @@ pub fn card(cx: &TileCx, r: &ListRow, under: &str, press: Option<&str>, whole: b
     let mut shown = r.clone();
     shown.act = press.map(str::to_string);
     if !whole { shown.view = None; shown.cells.clear() }
-    row_el(cx, &Place::page(cx, under), &shown, false, false, k)
+    row_el(cx, &Place::page(cx, under), &shown, false, Mark::default(), k)
+}
+
+/// How a row stands in its list, beside what it says: the keys' cursor is on it (`cursor`: whether its tile has the
+/// keys), and it is the row of the note the list's reader shows (`open`). Two marks, never one for both, and
+/// neither is the pointer's hover: the cursor is a fill with an edge while its tile has the keys and a dim fill
+/// when it has not (it stays where it was left), the open note's a quiet fill.
+#[derive(Clone, Copy, Default)]
+struct Mark { cursor: Option<bool>, open: bool }
+
+impl Mark {
+    fn fill(self, k: &Kit) -> Option<rune::Color> {
+        match self { Mark { cursor: Some(true), .. } => Some(k.selection()), Mark { cursor: Some(false), .. } => Some(k.c.layer_03), Mark { open: true, .. } => Some(k.c.surface_hover), _ => None }
+    }
+    /// The edge of the row the keys are on, drawn inside it so nothing moves when the cursor does.
+    fn edge(self, row: El, k: &Kit) -> El { if self.cursor == Some(true) { row.outline(1.0, -1.0, k.c.border_focus) } else { row } }
 }
 
 fn height(r: &ListRow, tree: bool) -> f32 { if tree || r.detail.as_deref().is_none_or(str::is_empty) { LINE } else { TWO } }
 
 /// A table's row: a cell a column, the first its label when the list gives no cell for it.
-fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, selected: bool, k: &Kit) -> El {
+fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, mark: Mark, k: &Kit) -> El {
     let c = &k.c;
-    let mut line = row().w_full().h(LINE).gap(8.0).center_y().px(8.0).radius(k.radius.sm).fill(if selected { c.surface_hover } else { rune::Color::TRANSPARENT }).key(at.row_key(cx, &r.id));
+    let mut line = mark.edge(row().w_full().h(LINE).gap(8.0).center_y().px(8.0).radius(k.radius.sm).fill(mark.fill(k).unwrap_or(rune::Color::TRANSPARENT)), k).key(at.row_key(cx, &r.id));
     for i in 0..columns.max(1) {
         let words = r.cells.get(i).map(ListRow::cell).unwrap_or_else(|| if i == 0 { r.label.clone() } else { String::new() });
         line = line.child(text(words).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0));
@@ -224,8 +240,10 @@ fn listed(cx: &TileCx, at: &Place, view: &Rc<ListView>, items: Vec<Item>, k: &Ki
             Item::Head(g) => head_el(&cx, &place, g, &kit),
             Item::Row(n) => {
                 let r = &built.rows[*n];
-                let lit = selected.as_deref() == Some(r.id.as_str());
-                if table { table_row(&cx, &place, r, columns, lit, &kit) } else { row_el(&cx, &place, r, tree, lit, &kit) }
+                // The cursor is the tile's own, read as it stands now: a list on a page has none.
+                let cursor = (!place.page && cx.ui.cursor.as_deref() == Some(r.id.as_str())).then_some(cx.focused);
+                let mark = Mark { cursor, open: selected.as_deref() == Some(r.id.as_str()) };
+                if table { table_row(&cx, &place, r, columns, mark, &kit) } else { row_el(&cx, &place, r, tree, mark, &kit) }
             }
         }
     });
@@ -238,7 +256,7 @@ type Listed = Rows<Box<dyn for<'a> Fn(&'a App, usize) -> Cow<'a, str>>, Box<dyn 
 /// A list's arrangements, as the list says them (outline-core's `ListPrimitive.arrange`): any other word is rows.
 const TREE: &str = "tree";
 const TABLE: &str = "table";
-const LANES: &str = "lanes";
+use crate::page::LANES;
 
 /// A table's header: a column a property. In a list tile a press sorts by it (`list.sort`); on a page it is words.
 fn columns_el(cx: &TileCx, at: &Place, view: &ListView, sort: Option<&str>, k: &Kit) -> Option<El> {
@@ -337,7 +355,12 @@ fn said_el(key: String, words: &str, k: &Kit) -> El { col().key(key).w_full().pa
 
 fn said(cx: &TileCx, words: &str, k: &Kit) -> El { said_el(cx.key("empty"), words, k) }
 
-fn scroll(cx: &TileCx, part: &str, body: El, k: &Kit) -> El { k.scroll_bar(col().key(cx.key(part)).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).child(body)) }
+/// A list tile's rows in their scroll. How many rows the scroll shows is told to the tile as it is laid out
+/// (`App::list_room`, by `line`, a row's height): a page of the cursor is that many rows less one.
+fn scroll(cx: &TileCx, part: &str, line: f32, body: El, k: &Kit) -> El {
+    let tile = cx.id.to_string();
+    k.scroll_bar(col().key(cx.key(part)).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).on_layout(move |s: &mut App, at: [f32; 4]| s.list_room(&tile, (at[3] / line).floor() as f64)).child(body))
+}
 
 fn draw(cx: &TileCx, k: &Kit) -> El {
     let ask = cx.app.list_ask(cx.id);
@@ -369,5 +392,7 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
         return body.child(lanes_el(cx, &at, &view, &sections, &scrolled, k).grow(1.0).h_full());
     }
     let rows = list::rows(cx.key("rows"), listed(cx, &at, &view, items(&sections), k));
-    body.child(el().w_full().grow(1.0).min_h(0.0).child(scroll(cx, "scroll", rows, k)))
+    // (A row's height as the list estimates one: a line in a tree and a table, two where rows carry their detail.)
+    let line = if view.arrange == TREE || view.arrange == TABLE { LINE } else { TWO };
+    body.child(el().w_full().grow(1.0).min_h(0.0).child(scroll(cx, "scroll", line, rows, k)))
 }

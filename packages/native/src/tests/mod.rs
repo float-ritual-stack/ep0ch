@@ -45,6 +45,7 @@ mod control;
 mod drafts;
 mod ext;
 mod garden;
+mod keys;
 mod lists;
 mod live;
 mod margin;

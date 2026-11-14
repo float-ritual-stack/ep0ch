@@ -1,6 +1,7 @@
 //! Going to a note: opening one, going back, following a link in prose.
-use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Touches};
-use super::{Action, Actor, App, Notice, Outcome, About};
+use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
+use super::{Action, Actor, App, Notice, Outcome, About, Scroll};
+use crate::cursor::{self, Step};
 use serde_json::json;
 
 use crate::actline::Args;
@@ -15,8 +16,37 @@ pub(super) static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open 
 static BACK: ActionRow = ActionRow::new("back", Touches::Tile, "go back to the note the reader showed before its last open (each reader keeps its own way back)")
     .args(&[("steps", ArgSpec::number("how many stops at once (default 1)").optional())])
     .typing()
-    .keys(&[KeyRow::keys("mod+[", "back")])
+    .keys(&[KeyRow::keys("mod+[", "back"), KeyRow::on("alt+left backspace", "page", "back to the note before")])
     .menu(&[MenuRow::new("Back", "Note", Some("mod+["))]);
+
+static FORWARD: ActionRow = ActionRow::new("forward", Touches::Tile, "go forward again to the note the reader went back from (each reader keeps its own way; a new open forgets it)")
+    .args(&[("steps", ArgSpec::number("how many stops at once (default 1)").optional())])
+    .typing()
+    .keys(&[KeyRow::on("alt+right", "page", "forward again")])
+    .menu(&[MenuRow::new("Forward", "Note", Some("alt+right"))]);
+
+static UP: ActionRow = ActionRow::new("up", Touches::Tile, "open the note the reader's note is under, in that reader (the way back remembers where from)")
+    .typing()
+    .keys(&[KeyRow::on("u", "page", "the note this one is under")])
+    .menu(&[MenuRow::new("Up to its parent", "Note", Some("u"))]);
+
+static READING: ActionRow = ActionRow::new("reading.step", Touches::Tile, "move a reader's reading line (tile=, else the reader with the keys): by= parts of its page (1 the next, -1 the one before). The reading line is the part of the page the keys are on: it is shown beside the part, brought into view when it moves, and never moved by scrolling. The person's place: an agent moves the one of a reader they are not on")
+    .args(&[("by", ArgSpec::number("1 the next part, -1 the one before (default 1)").optional())])
+    .keys(&[
+        KeyRow::with("j down", Some("page"), "the next part of the page", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("k up", Some("page"), "the part before", &[("by", Scalar::Whole(-1))]),
+    ])
+    .examples(&[Example { act: "reading.step by=1 tile=reader", does: "moves the reader's reading line to the next part of its page", safe: Some(true) }]);
+
+static SCROLL: ActionRow = ActionRow::new("scroll", Touches::Tile, "scroll a reader's page (tile=, else the reader with the keys) without moving its reading line: by= pages (negative: up; a window scrolls by what its view shows, where the terminal door counts rows), or to= top or end")
+    .args(&[("by", ArgSpec::number("pages to scroll down (negative: up)").optional()), ("to", ArgSpec::text("top or end").optional().choices(&["top", "end"]))])
+    .keys(&[
+        KeyRow::with("pagedown space", Some("page"), "a page down", &[("by", Scalar::Whole(1))]),
+        KeyRow::with("pageup", Some("page"), "a page up", &[("by", Scalar::Whole(-1))]),
+        KeyRow::with("home", Some("page"), "the top of the page", &[("to", Scalar::Text("top"))]),
+        KeyRow::with("end shift+g", Some("page"), "the end of the page", &[("to", Scalar::Text("end"))]),
+    ])
+    .examples(&[Example { act: "scroll by=1 tile=reader", does: "scrolls the reader's page one page down", safe: Some(true) }]);
 
 static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow a link written in a note: a note's opens it (`ep0ch:b/<id>`), a page nobody has made yet and a web address say so")
     .args(&[("ref", ArgSpec::text("the link as the page carries it: ep0ch:b/<id>, ep0ch:p/<page> or a URL"))])
@@ -26,7 +56,10 @@ static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow 
 
 // (An open's note is placed by the layout: aimed at no tile, it is about none until it lands. A link is followed
 // in the note it is written in: it is about that reader, as going back is.)
-pub static ACTIONS: &[Action] = &[Action { row: &OPEN, run: open, about: About::Placed }, Action { row: &BACK, run: back, about: About::Notes }, Action { row: &FOLLOW, run: follow, about: About::Notes }];
+pub static ACTIONS: &[Action] = &[
+    Action { row: &OPEN, run: open, about: About::Placed }, Action { row: &BACK, run: back, about: About::Notes }, Action { row: &FORWARD, run: forward, about: About::Notes }, Action { row: &UP, run: up, about: About::Notes },
+    Action { row: &FOLLOW, run: follow, about: About::Notes }, Action { row: &READING, run: reading, about: About::Notes }, Action { row: &SCROLL, run: scroll, about: About::Notes },
+];
 
 /// The note `id` opens. This says only who asks and from where: from the tile the act is aimed at, else (the
 /// person's) the tile with their keys; an agent's that names no tile comes from outside every tile. Where it lands is
@@ -93,11 +126,66 @@ fn back(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let id = history[at].clone();
     // A reader a block is being written in stays on its note: the fact the layout's own rules read, in its words.
     if let Some(why) = app.holds_edit(&reader) { if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
-    // Going back isn't itself a place to go back from.
+    // Going back isn't itself a place to go back from: it is somewhere to go forward to again, each stop passed
+    // over and the note left, nearest last.
+    let passed: Vec<String> = app.note_of(&reader).into_iter().chain(history[at + 1..].iter().rev().cloned()).collect();
     app.show(&reader, &id, false);
-    app.ui_mut(&reader).history.truncate(at);
+    let ui = app.ui_mut(&reader);
+    ui.history.truncate(at);
+    ui.ahead.extend(passed);
     app.keep();
     if app.stands(by) { app.st.bar.open = false }
+    Outcome::done()
+}
+
+/// Forward again: the note the reader went back from, and the one it leaves is somewhere to go back to.
+fn forward(app: &mut App, args: &Args, by: &Actor) -> Outcome {
+    let steps = args.number("steps").map_or(1, |n| n.max(1.0) as usize);
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader to go forward in") };
+    let ahead = app.ui(&reader).ahead.clone();
+    let Some(at) = ahead.len().checked_sub(steps) else { return Outcome::refused("there is nowhere to go forward to: nothing was gone back from") };
+    if let Some(why) = app.holds_edit(&reader) { if app.stands(by) { app.st.notice = Some(Notice::problem(why.clone())) } return Outcome::refused(why) }
+    let passed: Vec<String> = app.note_of(&reader).into_iter().chain(ahead[at + 1..].iter().rev().cloned()).collect();
+    app.show(&reader, &ahead[at], false);
+    let ui = app.ui_mut(&reader);
+    ui.ahead.truncate(at);
+    ui.history.extend(passed);
+    app.keep();
+    if app.stands(by) { app.st.bar.open = false }
+    Outcome::done()
+}
+
+/// The note the reader's note is under: the last of the way to it, as its page says (`ancestors`), opened in that
+/// reader by the one open.
+fn up(app: &mut App, _: &Args, by: &Actor) -> Outcome {
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader to go up in") };
+    let Some(parent) = app.shown_of(&reader).and_then(|page| page.ancestors.last()).map(|above| above.id.clone()) else { return Outcome::refused(format!("the note {} shows is under no other", app.layout.name(&reader))) };
+    let outer = app.st.aimed.replace(reader);
+    let went = go(app, &parent, by, true);
+    app.st.aimed = outer;
+    went
+}
+
+/// A reader's reading line moved through the parts of its page: the same step a list's cursor takes
+/// (`cursor::stepped`), over the parts the service framed. The part it lands on is brought into view.
+fn reading(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader to move a reading line in") };
+    let n = app.shown_of(&reader).map_or(0, |page| page.parts.len());
+    if n == 0 { return Outcome::refused(format!("{} shows no page to move through", app.layout.name(&reader))) }
+    let step = Step::By(args.number("by").map_or(1, |by| by as i64));
+    let to = cursor::stepped(step, app.ui(&reader).reading.map_or(-1, |at| at as i64), n, 0.0).max(0) as usize;
+    let name = app.layout.name(&reader);
+    app.ui_mut(&reader).reading = Some(to);
+    app.st.reveal = Some(format!("tile/{name}/reading/{to}"));
+    Outcome::answer(json!({ "tile": name, "reading": to + 1, "of": n }))
+}
+
+/// A reader's page scrolled, its reading line left where it is: asked of the next frame, where the window's hands
+/// are (`keys::effects`).
+fn scroll(app: &mut App, args: &Args, _: &Actor) -> Outcome {
+    let Some(reader) = app.about() else { return Outcome::refused("there is no reader to scroll") };
+    let how = match (args.text("to"), args.number("by")) { (Some("top"), _) => Scroll::Top, (Some(_), _) => Scroll::End, (None, by) => Scroll::Pages(by.map_or(1, |by| by as i32)) };
+    app.st.scroll = Some((format!("tile/{}/scroll", app.layout.name(&reader)), how));
     Outcome::done()
 }
 

@@ -431,7 +431,7 @@ fn the_actor_rule_answers_every_row_of_the_door_s_table() {
         let by = match case["actor"]["kind"].as_str() { Some("user") => Actor::Person, _ => Actor::Agent(text(&case["actor"], "id").unwrap()) };
         let at = &case["where"];
         let typing_in = text(at, "typingIn");
-        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)), takes_keys: false };
+        let person = Whereabouts { layer: if typing_in.is_some() { Layer::Draft } else { Layer::Tile }, focus: text(at, "focus").unwrap(), busy: flag(at, "busy") == Some(true), why: text(at, "why"), typing_in, idle: number(at, "idle").map(|ms| std::time::Duration::from_millis(ms as u64)), takes_keys: false, on: Vec::new() };
         let answer = rule(&row, &by, by.is_person() || flag(case, "invited") == Some(true), &person, case["tile"].as_str().unwrap());
         assert_eq!(answer.is_ok(), case["refused"].is_null(), "{name}: the door says {}, this window {answer:?}", case["refused"]);
         refused += answer.is_err() as usize;
@@ -520,5 +520,43 @@ fn every_cell_of_the_drop_contract_is_the_place_the_door_s_drag_lands_in() {
         let refuse = refusing(case);
         let got = drop::handle_drop(&handles, Rect::read(&case["area"]).unwrap(), number(case, "x").unwrap(), number(case, "y").unwrap(), case["src"].as_str().unwrap(), case.get("refuse").map(|_| &refuse as drop::Refuse));
         assert_eq!(got.as_ref().map_or(Value::Null, |zone| zone_row("", zone, None)), strip(&case["drop"]), "{}", case["name"]);
+    }
+}
+
+/// Where a list's cursor lands is outline-core's `cursorStepped` (the door's lists ask it through `listMove`),
+/// asked of `cursor::stepped`; the row a tree's row is under is its `parentRow`, asked of `cursor::parent_row`.
+#[test]
+fn a_cursor_steps_and_climbs_as_outline_core_s_list_cursor_does() {
+    use crate::cursor::{Step, parent_row, stepped};
+    let rows = table("core-contract")["steps"].as_array().unwrap().clone();
+    assert!(rows.len() > 25);
+    for case in &rows {
+        let step = &case["step"];
+        let read = match (step["by"].as_i64(), step["page"].as_i64(), step["edge"].as_str()) { (Some(by), ..) => Step::By(by), (None, Some(pages), _) => Step::Page(pages), (None, None, Some("first")) => Step::First, (None, None, Some("last")) => Step::Last, other => panic!("a step that is none: {other:?}") };
+        assert_eq!(stepped(read, case["at"].as_i64().unwrap(), case["n"].as_u64().unwrap() as usize, case["room"].as_f64().unwrap()), case["to"].as_i64().unwrap(), "{case}");
+    }
+    let rows = table("core-contract")["parents"].as_array().unwrap().clone();
+    assert!(rows.len() > 5);
+    for case in &rows {
+        let depths: Vec<usize> = case["depths"].as_array().unwrap().iter().map(|depth| depth.as_u64().unwrap() as usize).collect();
+        assert_eq!(parent_row(&depths, case["at"].as_u64().unwrap() as usize).map_or(-1, |at| at as i64), case["parent"].as_i64().unwrap(), "{case}");
+    }
+}
+
+/// Where Tab stops is outline-core's `tabStops` (the door's desk asks it of its own tree), and the stop one on and
+/// one back its `nextStop`: asked of `cursor::tab_stops` and `cursor::next_stop`, for every row.
+#[test]
+fn tab_stops_where_outline_core_s_tab_stops_says() {
+    use crate::cursor::{Shown, next_stop, tab_stops};
+    let rows = table("core-contract")["tabStops"].as_array().unwrap().clone();
+    assert!(rows.len() > 8);
+    for case in &rows {
+        let name = &case["name"];
+        let shown: Vec<Shown> = case["shown"].as_array().unwrap().iter().map(|tile| Shown { id: tile["id"].as_str().unwrap().to_string(), within: tile["in"].as_str().map(str::to_string), columns: tile["columns"] == true }).collect();
+        let floats: Vec<String> = case["floats"].as_array().unwrap().iter().map(|float| float.as_str().unwrap().to_string()).collect();
+        let focus = case["focus"].as_str().unwrap();
+        let stops = tab_stops(&shown, focus, |key| case["last"][key].as_str().map(str::to_string), &floats);
+        assert_eq!(json!(stops), case["stops"], "{name}: the stops");
+        assert_eq!((json!(next_stop(&stops, focus, 1)), json!(next_stop(&stops, focus, -1))), (case["next"].clone(), case["before"].clone()), "{name}: one on, one back");
     }
 }
