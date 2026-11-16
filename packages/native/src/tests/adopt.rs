@@ -2,6 +2,7 @@
 //! window and its buttons keep their presses), a right-click gives a tile's menu (the platform's own where the
 //! window has those, the bar's list everywhere), and a control says what it is called and its key on a hover.
 use rune::Runtime;
+use serde_json::json;
 
 use super::support::*;
 use crate::actions::{Actor, App};
@@ -186,6 +187,28 @@ fn a_list_s_menu_asked_by_key_is_about_the_row_its_cursor_is_on() {
     // An agent is answered the same rows for the tile: what the cursor is on is the tile's state, not a pointer's.
     let answered = rt.state.act("tile.menu tile=tree", agent());
     assert_eq!(answered.answer["rows"][0]["act"].as_str(), Some(own.as_str()));
+}
+
+/// Every row the list drawer draws takes a right-click the same way, a table's too: the cursor goes to the row
+/// under the pointer and the menu is about that row, never about the row the cursor was left on.
+#[test]
+fn a_right_click_on_a_table_s_row_is_about_that_row_as_on_any_row() {
+    let mut g = garden(ok());
+    screens_are(&mut g, json!([screen_row("seed-table", json!({ "focus": "beds", "root": { "t": "leaf", "kind": "query", "name": "beds", "query": "type=chore", "columns": "title area" } }), json!([]))]));
+    assert!(act(&mut g.app, "screen.open name=seed-table").ok);
+    let mut rt = window(g.app.with_native_menus(true));
+    assert_eq!(rt.state.list_of("beds").map(|a| a.list.arrange.clone()).as_deref(), Some("table"));
+    let rows: Vec<String> = rt.state.rows_of(&rt.state.layout.focus.clone()).iter().map(|row| row.id.clone()).collect();
+    assert!(rows.len() >= 2 && rows.contains(&"beans".to_string()), "the table lists more than one chore: {rows:?}");
+    // The cursor is left on another row, then the beans' row is right-clicked.
+    let other = rows.iter().position(|id| id != "beans").unwrap() + 1;
+    rt.update(|s, _| { assert!(s.act(&format!("list.select n={other} tile=beds"), Actor::Person).ok); });
+    rest(&mut rt);
+    right_click(&mut rt, "tile/beds/row/beans");
+    let beds = rt.state.layout.focus.clone();
+    assert_eq!(rt.state.ui(&beds).cursor.as_deref(), Some("beans"), "the cursor is on the row that was right-clicked");
+    let own = rt.state.rows_of(&beds).iter().find(|row| row.id == "beans").and_then(|row| row.act.clone()).expect("the row opens its note");
+    assert_eq!(rt.state.menu_open().unwrap().1[0].line, own, "the menu leads with the right-clicked row's own act");
 }
 
 /// An agent's `tile.menu` opens nothing: it is answered the rows as data, each with the act it runs and why the

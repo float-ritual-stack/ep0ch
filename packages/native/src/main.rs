@@ -119,7 +119,9 @@ fn story(told: &stories::Story) -> App {
 /// out of its list: a scene runs its act lines against whatever outline the window is on, and some of them write.
 fn playground() -> rune::Playground<App> {
     let listed = rune::Playground::<App>::new().scenes(|_| false);
-    stories::all().iter().fold(listed, |listed, told| listed.story(rune::Story::<App>::new(told.name, move || story(told), shell::view).poll(poll).stage(rune::Stage::Fill)))
+    // (What a story shows is said beside its stage, in the recording's own words for it.)
+    let about = |told: &'static stories::Story| move |_: &App, cx: &mut rune::Cx<App>| { let k = rune_kit::Kit::neutral(cx.system_dark()); rune::col().w_full().min_w(0.0).px(4.0).pb(8.0).child(rune::text(told.about).font(k.ty.small).color(k.c.text_muted).wrap().w_full()) };
+    stories::all().iter().fold(listed, |listed, told| listed.story(rune::Story::<App>::new(told.name, move || story(told), shell::view).poll(poll).side(about(told)).stage(rune::Stage::Fill)))
 }
 
 /// A state nobody opens on: what a window's spec names until the shell hands it the state it was made for.

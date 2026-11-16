@@ -206,14 +206,12 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, mark: Mark, k: &Kit)
         let (tile, row) = (cx.name.clone(), word(&r.id));
         head.hover_delays(REST, std::time::Duration::ZERO).on_hover_change(move |s: &mut App, over: bool, _: &mut rune::Tx| { s.act_in(&if over { format!("glance row={row}") } else { "glance".to_string() }, &tile, crate::actions::Actor::Person); })
     };
-    // A right-click on a list tile's row: the list's cursor goes to the row, and the tile's menu is about it first
-    // (its own act and presses).
-    let head = if at.page { head } else { let (tile, row) = (cx.name.clone(), r.id.clone()); head.on_secondary_press(move |s: &mut App, press: rune::PointerPress, _: &mut rune::Tx| for line in crate::shell::menu_lines(crate::shell::Under::Row(&row), press) { s.act_in(&line, &tile, crate::actions::Actor::Person); }) };
-    if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
+    if !tall { return menued(cx, at, r, head.h(height(r, tree)).key(at.row_key(cx, &r.id))) }
     // (Its line is keyed by itself under the row: what a press on the row means once something is drawn under it.)
     let mut whole = col().w_full().gap(4.0).pb(6.0).key(at.row_key(cx, &r.id)).child(head.key(format!("{}/head", at.row_key(cx, &r.id))));
     if let Some(view) = &r.view { whole = whole.child(el().w_full().px(8.0).child(prim::build(view, &PrimCx::of(cx).at(format!("{}row/{}/view", at.under, r.id)).in_row(), k))) }
-    whole
+    // (The whole of a row that shows something under itself is the row to a right-click.)
+    menued(cx, at, r, whole)
 }
 
 /// One row of a list drawn by itself on a page, beside what it is about (a comment thread's, beside the words it
@@ -252,10 +250,19 @@ fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, mark: Mark, k
         let words = r.cells.get(i).map(ListRow::cell).unwrap_or_else(|| if i == 0 { r.label.clone() } else { String::new() });
         line = line.child(text(words.clone()).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().help_when_truncated(words).grow(1.0).min_w(0.0));
     }
-    match at.pick(cx, r) {
+    menued(cx, at, r, match at.pick(cx, r) {
         Some(run) => run.on(k.interactive(line).role("row").focusable(at.page)),
         None => line,
-    }
+    })
+}
+
+/// A right-click on a list tile's row, however the row is drawn (a line, a tree's, a table's, a lane's card): the
+/// list's cursor goes to the row, and the tile's menu is about it first (its own act and presses). A list on a page
+/// has no cursor: a right-click there is its reader's.
+fn menued(cx: &TileCx, at: &Place, r: &ListRow, row: El) -> El {
+    if at.page { return row }
+    let (tile, id) = (cx.name.clone(), r.id.clone());
+    row.on_secondary_press(move |s: &mut App, press: rune::PointerPress, _: &mut rune::Tx| for line in crate::shell::menu_lines(crate::shell::Under::Row(&id), press) { s.act_in(&line, &tile, crate::actions::Actor::Person); })
 }
 
 /// A group's header: its name and, when the list counted it, how many it holds.

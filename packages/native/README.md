@@ -594,7 +594,9 @@ src/ (Rust, Rune)                                      the outline host
   link answers from `stories/recorded.json` (`client::Recorded`): every ask the story's lines made of a scratch
   host, with its answer, written by `cargo test -- --ignored record_the_stories` and read where the window was
   built (nothing of it is compiled in). So a story draws real answers with no host, and a headless
-  `--playground "<story>" --snap out.png` needs none either.
+  `--playground "<story>" --snap out.png` needs none either (its stage alone; `--whole-window` takes the list of
+  stories and the side column too, where the story's own words for what it shows are said). The recording is made
+  again by the wave that changes what a window asks: an ask the recording has no answer for is refused there.
 - **What is about a note is a list that follows a reader** (`extensions/screens`: the `threads`, `proposals` and
   `revisions` kinds, each the list drawer over a producer of `lists.read`, with `source: tile:<reader>` and
   `subject: follows`, as the links tile has). The window has no code for any of them. The desk holds the three as
