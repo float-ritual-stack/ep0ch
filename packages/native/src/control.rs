@@ -166,7 +166,7 @@ pub fn peek(s: &App) -> Value {
     let mut tiles: Vec<Value> = s.layout.all().iter().map(|id| {
         let (name, kind) = (s.layout.name(id), s.spec(id).map_or("", |spec| spec.kind.as_str()));
         let facts = s.cx(id).and_then(|cx| tiles::drawer_of(cx.row).map(|drawer| (drawer.facts)(&cx))).unwrap_or(Value::Null);
-        json!({ "id": id, "name": name, "kind": kind, "shown": shown.contains(id), "focused": s.layout.focus == *id, "facts": facts, "asks": s.store().asks_of(id), "problems": s.problems_of(id) })
+        json!({ "id": id, "name": name, "kind": kind, "shown": shown.contains(id), "focused": s.layout.focus == *id, "facts": facts, "opens": s.opens_said(id), "asks": s.store().asks_of(id), "problems": s.problems_of(id) })
     }).collect();
     if s.bar.open {
         let rows = bar::rows(s);
@@ -192,7 +192,9 @@ pub fn peek(s: &App) -> Value {
             // The outlines this window left, each kept as it was, and the form open over it.
             "parked": s.parked.keys().map(|at| json!({ "outline": at.outline, "machine": at.machine })).collect::<Vec<_>>(),
             "form": s.form.as_ref().map(|form| json!({ "extension": form.extension, "said": form.said, "fields": form.fields.iter().map(|field| json!({ "name": field.name, "text": field.edit.words(), "was": field.was })).collect::<Vec<_>>() })),
-            "focus": person.focus, "whereabouts": person.json(), "watches": s.store().peek(), "tiles": tiles,
+            "focus": person.focus, "whereabouts": person.json(),
+            // The wire being set on screen, when one is: from which tile, which verb, and where it lands now.
+            "linking": s.linking.as_ref().map(|linking| json!({ "tile": s.layout.name(&linking.from), "verb": linking.verb, "lands": s.wire_words(&linking.from, &linking.verb) })), "watches": s.store().peek(), "tiles": tiles,
             // The arrangement as it would be saved, with each container's id, and how far `layout.undo` goes back.
             "layout": s.layout.save(), "revision": s.layout.rev, "undo": s.journal.len(),
             "screens": s.screens().iter().map(|screen| json!({ "name": screen.name, "title": screen.title, "problems": screen.problems.iter().map(|p| json!({ "tile": p.tile, "said": p.said })).collect::<Vec<_>>() })).collect::<Vec<_>>(),

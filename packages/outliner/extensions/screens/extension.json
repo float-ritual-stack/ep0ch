@@ -12,7 +12,8 @@
       "description": "the outline as a tree; a pick opens a note where the tile's opens land",
       "drawer": "list",
       "fields": {
-        "from": "children"
+        "from": "children",
+        "handsKeys": true
       },
       "replaces": [
         "tree"

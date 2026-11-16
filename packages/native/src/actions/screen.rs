@@ -79,7 +79,7 @@ fn save(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     // (What the screen says of itself now, as the service lists it: a save never writes back a copy grown old.)
     let mut spec = app.spec_now().map(|spec| spec.0.clone()).filter(Value::is_object).unwrap_or_else(|| json!({}));
     match &named { Some(typed) => { spec["name"] = json!(typed); spec["title"] = json!(typed) } None => { spec["name"] = json!(app.screen.name); spec["title"] = json!(app.screen.title) } }
-    spec["layout"] = app.layout.save();
+    spec["layout"] = app.saved_layout();
     let base = app.screen.note().filter(|_| named.is_none()).map(|(id, revision)| json!({ "id": id, "revision": revision }));
     let at = app.at.clone();
     app.store.write(&at, "screens.save", json!({ "spec": spec, "base": base }), by, saved, json!({ "spec": spec }));

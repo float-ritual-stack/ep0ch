@@ -81,15 +81,15 @@ fn a_pick_in_a_tree_is_the_one_pick_of_a_row() {
     let wrong = act(&mut g.app, "tree.pick id=beans tile=found");
     assert!(!wrong.ok && wrong.said.contains("found is no list arranged as a tree"), "{}", wrong.said);
     assert_eq!(note_in(&g.app, "bed"), before);
-    // The person's pick of a folder opens it and unfolds it; picked again while it is the open note, it folds: by
-    // either name, in the tree it was picked in.
+    // The person's pick of a folder opens it and unfolds it, by either name, in the tree it was picked in; picked
+    // again it stays unfolded (folding is `tree.fold`: the mark's own press, and the keys).
     let rows = g.app.layout.named("rows").unwrap();
     assert!(act(&mut g.app, "list.pick id=plot tile=rows").ok);
     assert_eq!((note_in(&g.app, "bed").as_deref(), g.app.ui(&rows).unfolded.contains("plot")), (Some("plot"), true), "a pick by the list's name opens the folder and unfolds it");
+    assert!(act(&mut g.app, "tree.fold id=plot tile=rows").ok);
+    assert!(!g.app.ui(&rows).unfolded.contains("plot"), "folded by its own act");
     assert!(act(&mut g.app, "tree.pick id=plot tile=rows").ok);
-    assert!(!g.app.ui(&rows).unfolded.contains("plot"), "picked again by the door's name, it folds");
-    assert!(act(&mut g.app, "list.pick id=plot tile=rows").ok);
-    assert!(g.app.ui(&rows).unfolded.contains("plot"), "and again by the list's, it unfolds");
+    assert!(g.app.ui(&rows).unfolded.contains("plot"), "and picked again by the door's name, it unfolds");
     // An agent's pick runs the row's act line as itself and folds nothing.
     let unfolded = g.app.ui(&rows).unfolded.clone();
     let theirs = g.app.act("tree.pick id=shed tile=rows", agent());
@@ -121,8 +121,8 @@ fn an_act_that_names_no_tile_is_about_the_one_with_the_keys_whatever_the_noun() 
 
 // ── where a screen's `lands` points: one reading, for an agent's open, the person's and the reader an act means ─────
 
-/// `lands` naming a container: an agent's open goes into it (the layout's rule), and so does the person's open
-/// from a list that names no tile of its own, and the reader an act about the open note means is the one in it.
+/// `lands` naming a container: an agent's open goes into it (the layout's rule), and the reader an act about the
+/// open note means is the one in it. The person's open from the tree goes by the tree's own route.
 #[test]
 fn lands_naming_a_container_is_where_every_open_and_every_act_about_the_open_note_goes() {
     let layout = json!({ "focus": "beds", "root": { "t": "split", "dir": "row", "weights": [0.2, 0.4, 0.4], "kids": [leaf("tree", "beds"), leaf("reader", "almanac"), { "t": "columns", "key": "readers", "weights": [1], "kids": [leaf("reader", "bed")] }] } });
@@ -130,9 +130,11 @@ fn lands_naming_a_container_is_where_every_open_and_every_act_about_the_open_not
     assert_eq!(g.app.reader().map(|id| g.app.layout.name(&id)).as_deref(), Some("bed"), "the reader an act means is where the screen says opens land");
     let theirs = g.app.act("open id=shed", agent());
     assert_eq!((theirs.ok, theirs.answer["tile"].as_str()), (true, Some("bed")), "{}", theirs.said);
+    // The person's open from the tree goes as the tree's opens go (the door's rule for a list that hands its keys
+    // on: its wire, its container's rule, else the first reader not pinned), and the screen's `lands` is not asked.
     let mine = act(&mut g.app, "open id=beans tile=beds");
-    assert_eq!((mine.ok, mine.answer["tile"].as_str()), (true, Some("bed")), "the person's open from the tree lands there too: {}", mine.said);
-    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (None, Some("beans")), "the first reader of the screen is left as it was: told no note");
+    assert_eq!((mine.ok, mine.answer["tile"].as_str()), (true, Some("almanac")), "the person's open from the tree: {}", mine.said);
+    assert_eq!((note_in(&g.app, "almanac").as_deref(), note_in(&g.app, "bed").as_deref()), (Some("beans"), Some("shed")), "the reader where opens land keeps what the agent opened");
 }
 
 // ── which new-note rule applies: asked once, with the kind the tile is ───────────────────────────────────────────────

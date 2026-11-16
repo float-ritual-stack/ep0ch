@@ -160,7 +160,7 @@ fn an_open_lands_where_the_layout_says_from_the_tile_it_comes_from() {
     let note = |rt: &Runtime<App>, tile: &str| rt.state.note_of(&rt.state.layout.named(tile).unwrap());
     assert_eq!((note(&rt, "bed"), note(&rt, "seeds")), (None, None), "a reader shows the note it was told, and these were told none");
     // From the tree: the first reader that takes it.
-    press(&mut rt, "tile/beds/row/shed");
+    open_row(&mut rt, "tile/beds/row/shed");
     assert_eq!((note(&rt, "bed").as_deref(), note(&rt, "seeds").as_deref()), (Some("shed"), None));
     // From a reader's own row: that reader. The first note it is told replaces none, so there is no way back yet.
     assert!(opened(&mut rt, "open id=plot tile=seeds", Actor::Person).ok);
@@ -197,10 +197,10 @@ fn an_agent_s_open_lands_without_the_person_s_keys_and_beside_a_reader_that_hold
 #[test]
 fn an_open_on_a_screen_with_no_reader_makes_one_and_says_so() {
     let mut rt = laid(json!({ "focus": "beds", "root": leaf("tree", "beds") }));
-    press(&mut rt, "tile/beds/row/shed");
+    open_row(&mut rt, "tile/beds/row/shed");
     assert_eq!(sits_as_laid(&rt), ["beds", "reader"], "a reader opened for it, at the right edge");
     assert_eq!(rt.state.note_of("reader").as_deref(), Some("shed"));
-    assert!(rt.state.notice.as_ref().is_some_and(|n| n.said == "no reader here: a new one opened for it"), "{:?}", rt.state.notice);
+    assert!(rt.state.notice.as_ref().is_some_and(|n| n.said == "opened in reader \u{b7} no reader here: a new one opened for it"), "{:?}", rt.state.notice);
 }
 
 // ── the wave's sentence ───────────────────────────────────────────────────────────────────────────────────────
@@ -386,7 +386,7 @@ fn a_reader_told_no_note_draws_as_empty_in_its_kind_s_own_words() {
     assert!(rt.state.bar.open, "the button is the action's: it opened the bar");
     opened(&mut rt, "bar.close", Actor::Person);
     // A note opened in it is drawn in its place, and the lists about it list.
-    press(&mut rt, "tile/tree/row/shed");
+    open_row(&mut rt, "tile/tree/row/shed");
     assert!(rt.find("tile/reader/empty").is_none() && rt.find("tile/reader/note").is_some() && rt.find("tile/props/empty").is_none());
     assert_eq!((rt.state.note_of(&id).as_deref(), rt.state.facts(&id).showing.as_deref()), (Some("shed"), Some("shed")));
 }

@@ -23,7 +23,7 @@ pub mod tree;
 
 use serde_json::{Map, Value, json};
 
-pub use placement::{Destination, Request, place};
+pub use placement::{Destination, Placement, Request, Route, place, placement};
 
 /// Where a screen's opens land: one tile, or whichever tile of a keyed container an open into it takes.
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +142,8 @@ pub struct Facts {
     pub follower: bool,
     pub opens_out: bool,
     pub home: Option<String>,
+    /// A list whose open, when nothing routes it, gives the reader its keys (the door's `TileKind.handsKeys`).
+    pub hands_keys: bool,
 }
 
 impl Facts {
@@ -152,7 +154,7 @@ impl Facts {
             kind: text("kind").unwrap_or_else(|| "tile".into()), showing: text("showing"), lists: flag("lists"), pinned: flag("pinned"), available: v.get("available").and_then(Value::as_bool),
             policy: v.get("policy").map(|p| Policy::of(Some(p))), tabs: v.get("tabs").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()),
             notes: flag("notes"), history: flag("history"), held: flag("held"), deliberate: flag("deliberate"), clears_on_close: flag("clearsOnClose"), keeps: text("keeps"), stays: text("stays"),
-            editing: text("editing"), holds: flag("holds"), running: text("running"), placeholder: flag("placeholder"), follower: flag("follower"), opens_out: flag("opensOut"), home: text("home"),
+            editing: text("editing"), holds: flag("holds"), running: text("running"), placeholder: flag("placeholder"), follower: flag("follower"), opens_out: flag("opensOut"), home: text("home"), hands_keys: flag("handsKeys"),
         }
     }
 }

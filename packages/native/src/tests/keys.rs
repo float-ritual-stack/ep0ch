@@ -53,7 +53,7 @@ fn a_tree_s_cursor_moves_by_letters_and_arrows_folds_climbs_and_opens_its_row() 
     key(&mut rt, Key::Right);
     assert!(rt.state.ui("tree").unfolded.contains("plot"), "the right arrow unfolded it");
     // On a row that folds nothing, h climbs to the row it is under.
-    run(&mut rt, "list.pick id=beans tile=tree");
+    run(&mut rt, "list.press id=beans tile=tree");
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("beans"));
     key(&mut rt, Key::Left);
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("plot"), "the left arrow went to the row beans is under");
@@ -113,7 +113,7 @@ fn a_board_s_lanes_are_crossed_by_h_and_l_its_groups_by_shift_and_a_lane_s_page_
     assert!(rt.find("tile/lanes/lane/plot").is_some() && rt.find("tile/lanes/lane/bed").is_some(), "two lanes, side by side");
     // The first step is on the first lane's first card; l is the same place in the next lane, h back. It stops at
     // the last lane, and nothing is opened by moving.
-    let open = rt.state.note_of("reader");
+    let (open, from) = (rt.state.note_of("reader"), rt.state.steps.len());
     letter(&mut rt, "j");
     assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"));
     letter(&mut rt, "l");
@@ -130,7 +130,10 @@ fn a_board_s_lanes_are_crossed_by_h_and_l_its_groups_by_shift_and_a_lane_s_page_
     assert_eq!(cursor(&rt, "lanes").as_deref(), Some("onions"));
     chord(&mut rt, Key::Text("H".into()), Mods { shift: true, ..Mods::default() });
     assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"));
-    assert_eq!(rt.state.note_of("reader"), open, "the cursor opened nothing");
+    // (K2: nothing is opened by moving, and the reader the lanes' select wire names shows the card the cursor is on.)
+    assert!(!rt.state.steps[from..].iter().any(|step| step.action == "open" || step.action == "list.pick"), "the cursor opened nothing: {:?}", rt.state.steps[from..].iter().map(crate::actions::Step::line).collect::<Vec<_>>());
+    assert_ne!(open.as_deref(), Some("beans"));
+    assert_eq!(rt.state.note_of("reader").as_deref(), Some("beans"), "the reader follows the cursor by the lanes' select wire");
     // The cursor's card is marked in its lane, and Return opens it where the board's opens land.
     assert_eq!(rt.state.hinted().iter().filter(|hint| hint.does == "the next lane of a board").count(), 1, "the lanes' keys are said: {:?}", does(&rt));
     // A lane's page is the rows its own view shows, told as a list's is: PgDn is no single row there.

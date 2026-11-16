@@ -56,6 +56,7 @@ mod lists;
 mod live;
 mod margin;
 mod one_owner;
+mod opens;
 mod owners;
 #[cfg(feature = "pty")]
 mod pty_live;

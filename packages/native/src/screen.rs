@@ -85,6 +85,9 @@ impl<'a> Spec<'a> {
     pub fn lands(&self) -> Option<&'a str> { self.0["lands"].as_str() }
     /// Where the keys go back to when nothing else takes them (the spec's `home`): a tile's name, or a container's key.
     pub fn home(&self) -> Option<&'a str> { self.0["home"].as_str() }
+    /// The action the screen runs for an open fresh from one of its tiles (the spec's `fresh`), in place of a tile
+    /// made beside: placement answers it (`Ctx.fresh_action`).
+    pub fn fresh(&self) -> Option<&'a str> { self.0["fresh"].as_str() }
     /// A window with no arrangement of its own opens on it.
     pub fn starts(&self) -> bool { self.0["start"] == true }
     /// Its toolbar: act lines, one a button.
