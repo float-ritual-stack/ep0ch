@@ -245,3 +245,34 @@ return await tools.outline_edit({ ref: this.id, expectedRevision: this.revision,
   expect(findOutputRegions(text)[0]?.body).toBe("Sowed beans");
   expect(text.indexOf("Sowed beans")).toBeLessThan(text.indexOf("Leave this below."));
 });
+
+const PLACER = "Placer [script::placer] [effects::write]\n```js\nawait place(\"The result.\");\n```";
+const REPORT = '::button{label="Report" of=[placer]}';
+
+// CodeRabbit on #1523: a press's caller is the button's line as the open edit has it. The saved note has the button on line
+// 4; the edit a door holds has two lines written above it, so its line 4 is another passage.
+for (const [named, line] of [["the saved note's line", 4], ["the edit's line", 6]] as const) test(`a pressed button's place() lands under the button in the open edit, the press naming ${named}`, async () => {
+  const { store, client, create } = await setup();
+  create(PLACER);
+  const note = create(`Plan\n\nAn unrelated passage.\n\n${REPORT}\n\nBelow the button.`);
+  const door = await fakeDoor(client, "door-c", note, true);
+  door.text = note.text.replace("An unrelated passage.", "Written in the edit.\nAnd this.\nAn unrelated passage.");
+  await client.request({ action: "scripts.sequence", blockId: note.id, line, label: "Report", act: "placer", clientId: "door-c", mutation: { author: "user" } });
+  await until("the output in the edit", () => findOutputRegions(door.text).length === 1);
+  expect(door.text).toContain(`${REPORT}\n\n> [!output]`);
+  expect(door.text).not.toContain("An unrelated passage.\n\n> [!output]");
+  expect(store.get(note.id)!.text).toBe(note.text);
+});
+
+// CodeRabbit on #1523: a button only in the open edit, on a line where the saved note has another, is refused in the
+// service too (outline-core's buttonPressed, its typed path), as the door refuses it: the saved one's words never run for it.
+test("a button in the open edit on the line where the saved note has another is refused: save the note to press it", async () => {
+  const { client, create } = await setup();
+  create(PLACER);
+  const note = create('Plan\n\n::button{label="Old" of=[placer]}\n\nBelow the button.');
+  const door = await fakeDoor(client, "door-d", note, true);
+  door.text = note.text.replace('label="Old"', 'label="New"');
+  const pressed = client.request({ action: "scripts.sequence", blockId: note.id, line: 2, label: "New", act: "placer", clientId: "door-d", mutation: { author: "user" } });
+  await expect(pressed).rejects.toThrow("New is in your open edit on the line where the saved note has Old: save the note to press it");
+  expect(door.requests.some(r => r.kind === "patch")).toBe(false);
+});
