@@ -37,9 +37,14 @@
 //! - `typing.rs`: writing a block as in the door (H1): Tab and Shift+Tab move a line or a selection a level as one
 //!   step each, a paste is taken by the window and keeps its lines, and the list that completes a word says what
 //!   its lit row is and how many there are.
+//! - `complete.rs`: completing (H5): `::` at a line's start with a lit row whose example lists notes (the crash),
+//!   the popover's place and size, a row's anatomy, every key of the list by real key events, what accepting chains
+//!   into, a skeleton's stops, a key that chooses pressed before the list has caught up with the words, and a list
+//!   that opens under a pointer at rest.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod arrange;
+mod complete;
 mod contract;
 mod control;
 mod drafts;

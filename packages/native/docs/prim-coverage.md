@@ -80,7 +80,7 @@ Each primitive type and how this window draws it (`tiles/prim.rs`, `PRIMS`: the 
 | `box` | a bordered box, its title when it has one, then its children in order |
 | `stack` | its children, one under the other |
 | `row` | its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own |
-| `band` | a heading, sized by its level; the glyph tracks of a heading style aren't drawn |
-| `track` | a ruled line; a heading style's glyph pattern isn't drawn |
+| `band` | a heading, sized by its level, on the rows of its style's glyph track when it says a pattern: shades, bars, dots or ruled lines as small boxes, fading in from the edges the words aren't at |
+| `track` | one row of a glyph pattern's cells, as wide as it is given; a pattern nobody here knows is a ruled line |
 | `diff` | a change to a text as the service found it: the two sides named, how many lines each way, then each line in the code face, written lines and lines taken out marked and tinted, a long run both sides share said in words; nothing is compared here |
 | `list` | the one list, drawn as a list tile draws it: rows under their group headers (a table's as cells under its columns, lanes side by side), built only where they are in view; a row with an act line is a press, its cells as badges, its chips questions for the bar, its detail under it; no filter, selection or preview pane here |

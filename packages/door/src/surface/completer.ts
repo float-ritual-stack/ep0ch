@@ -36,7 +36,7 @@ import { ActionRefused, shownLine } from "./actions";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
-import { completionSaid, insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { asksAgain, completionSaid, insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import type { CompletionPickedRequest, CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
@@ -902,7 +902,7 @@ export class Completer {
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
       // An action chosen in a note's edit lists its arguments next, as an editor's signature help does (esc closes them, ⏎ then runs).
-      if (!item.querySuggestion && s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
+      if (asksAgain(s.target.kind, item) && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
       return true;
     } catch (e) {
       if (this.current(turn)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
