@@ -155,11 +155,21 @@ fn walked(cx: &TileCx, page: Option<&Page>, draft: Option<&DraftSession>, k: &Ki
 /// The reading line: the part of the page the keys are on (`TileUi.reading`, moved by `reading.step`), marked by a
 /// bar beside it that hangs in the page's own padding, so nothing of the part moves when the line does. Bright
 /// while the reader has the keys, dim when it has not: it stays where it was left. Every other part is as built.
+///
+/// What is brought into view when the line moves is the part's head (`reading/<part>/head`): the part whole when
+/// the page's view holds it, else as much of it from its first line as the view shows. Rune reveals an element
+/// taller than its viewport by its end when it comes from above (`runtime/scroll/edge.rs`, `reveal`), which for
+/// a run of prose many windows long would be its last words; one no taller than the viewport lands by its start.
 fn reading_line(cx: &TileCx, part: usize, built: El, k: &Kit) -> El {
     if cx.ui.reading != Some(part) { return built }
     let ink = if cx.focused { k.c.border_focus } else { k.c.border_hover };
-    el().key(cx.key(format!("reading/{part}"))).w_full().child(built).child(el().key(cx.key("reading")).absolute(-READING_GAP, 0.0).w(READING_BAR).h_full().radius(READING_BAR / 2.0).fill(ink))
+    // (The view's height as the page's scroll was last laid out; before a first layout, a window's usual.)
+    let view = rune::memo::layout_with(&cx.key("scroll"), |at| at[3]).filter(|height| *height > 0.0).unwrap_or(READING_VIEW);
+    let head = el().key(cx.key(format!("reading/{part}/head"))).absolute(0.0, 0.0).w_full().h_full().max_h(view);
+    el().key(cx.key(format!("reading/{part}"))).w_full().child(head).child(built).child(el().key(cx.key("reading")).absolute(-READING_GAP, 0.0).w(READING_BAR).h_full().radius(READING_BAR / 2.0).fill(ink))
 }
+/// The view a reading line's head is cut to before the page's scroll has been laid out once.
+const READING_VIEW: f32 = 480.0;
 /// The reading line's bar, and how far to the left of its part it hangs (inside the page's padding).
 const READING_BAR: f32 = 3.0;
 const READING_GAP: f32 = 12.0;

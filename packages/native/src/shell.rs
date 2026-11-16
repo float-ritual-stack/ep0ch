@@ -383,15 +383,22 @@ fn notice(s: &App, k: &Kit) -> Option<El> {
 }
 
 /// The hint row under the tiles: the keys that matter where the person's keys are, each with what it does, as the
-/// key table says them (`App::hinted`: the keys of what the tile with the keys draws, what Escape steps back out
-/// of, and while a sequence is begun every row it can still become). Nothing here names a key or words one. It
-/// keeps its room while it has nothing to say, so the tiles never move when the keys do.
+/// key table says them (`App::hinted`: what Escape steps back out of here, then the keys of what the tile with the
+/// keys draws, and while a sequence is begun every row it can still become). Nothing here names a key or words
+/// one. A row longer than the window is cut at its end. It keeps its room while it has nothing to say, so the
+/// tiles never move when the keys do.
 fn foot(s: &App, k: &Kit) -> El {
     let c = &k.c;
     let mut line = row().key("hints").role("status").label("What the keys do here").w_full().h(FOOT).gap(14.0).center_y().px(10.0).clip_rounded(0.0);
+    for (i, hint) in s.hinted().into_iter().enumerate() {
+        let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
+        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
+    }
     // Where the keys just said land, for the tile that has them: its select, open and open fresh, in the layout's
-    // own words (`App::wire_words`, the answer its title's controls read), before the keys. A press picks another
-    // tile for its opens on screen.
+    // own words (`App::wire_words`, the answer its title's controls read). After the keys: the row is cut at its
+    // end, and what Escape does here and the key that opens a row are never what is cut (K1), so on a window with
+    // no room past the keys this is, and the tile's own title says the same. A press picks another tile for its
+    // opens on screen.
     let focus = &s.layout.focus;
     let person = s.person();
     if s.linking.is_none() && person.typing_in.is_none() && !person.takes_keys && s.has_wires(focus) {
@@ -399,10 +406,6 @@ fn foot(s: &App, k: &Kit) -> El {
         let said = verbs.iter().map(|verb| format!("{verb} \u{2192} {}", s.wire_words(focus, verb))).collect::<Vec<_>>().join(" \u{b7} ");
         let pick = format!("wire.pick verb=open tile={}", word(&s.layout.name(focus)));
         line = line.child(k.interactive(text(said).font(k.ty.small).color(c.text_muted)).key("lands").role("button").label(actions::label(&pick)).help("Where this tile's select, open and open fresh land: press, then press the tile its opens go to").on_press(act(pick)));
-    }
-    for (i, hint) in s.hinted().into_iter().enumerate() {
-        let caps = hint.caps.iter().fold(row().gap(3.0).center_y(), |caps, cap| caps.child(Keybind::new(&[cap.as_str()]).build(k)));
-        line = line.child(row().key(format!("hints/{i}")).gap(5.0).center_y().child(caps).child(text(hint.does).font(k.ty.small).color(c.text_faint)));
     }
     line
 }
@@ -434,7 +437,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let over = |id: &str| if s.layout.is_float(id) { 2 } else if slid.iter().any(|dock| dock.placed.rect(id).is_some()) { 1 } else { 0 };
     let mut order: Vec<&(String, Rect)> = rects.iter().filter(|(_, r)| r.cols > 0.0 && r.rows > 0.0).collect();
     order.sort_by_key(|(id, _)| over(id));
-    let mut area = el().key("tiles").w_full().grow(1.0).min_h(0.0).on_layout(|s: &mut App, r: [f32; 4]| s.resized(r[2], r[3]));
+    // (Cut at its own box: the tiles are placed by the area as it was last measured, so the frame that first draws a
+    // notice, and a headless render's one frame, has them a notice taller than their room, over the hint row.)
+    let mut area = el().key("tiles").w_full().grow(1.0).min_h(0.0).clip_rounded(0.0).on_layout(|s: &mut App, r: [f32; 4]| s.resized(r[2], r[3]));
     // (A float that is held is drawn where the hand has it.)
     let lifted = |id: &str, r: Rect| s.moving.as_ref().filter(|held| held.tile == id).and_then(|held| held.lifted).map_or(r, |(col, row)| Rect { col, row, ..r });
     // Where the keys stop, in the order Tab goes round: each tile's title says its number.

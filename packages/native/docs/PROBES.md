@@ -880,6 +880,20 @@ What the window found on the way:
 - **`mod+w` is Ctrl+W off a Mac.** The door's window prefix (`^W` then a key) cannot be a sequence here while
   `mod+w` closes a tile: on Linux and Windows the two are the same chord, and the table has no row that holds on
   one platform alone. Not built; the directions keep `mod+alt+arrows`.
+- **`scroll_into_view` shows the end of an element taller than its viewport.** Coming from above, Rune's reveal
+  (`crates/rune/src/runtime/scroll/edge.rs:23-30`: `end - viewport`, and its own test, "a row taller than the
+  viewport, below: its end") lands on the last lines; a run of prose is one part however long, so the reading line
+  stepped onto one showed its last words. Rune has no reveal by an element's start. Built: the part the line is on
+  holds a head, an empty box over it cut to the view's height, and that is what is revealed (`tiles/page.rs`,
+  `reading_line`). Worth raising upstream: a reveal that prefers the start. Run:
+  `the_reading_line_on_a_part_taller_than_the_view_shows_where_the_part_begins`.
+- **The hint row is cut at its end, so it leads with what matters.** A tree has more keys than a window's width
+  holds: what Escape does here is said first, then the key that opens a row, then the ones that move
+  (`the_hint_row_leads_with_the_way_out_and_the_key_that_opens_so_a_window_of_the_usual_width_shows_them`).
+- **The tiles are cut at their area's box.** They are placed by the area as it was last measured, so the frame
+  that first draws a notice (and a headless render's one frame) has them a notice taller than their room: without
+  the cut a tile's border ran through the hint row's words in a picture drawn with a notice up. Seen in a
+  headless render, not held by a test.
 - **A hint that takes room moves every tile once.** The row under the tiles is always drawn, a fixed 22 points,
   so the tiles' area never changes when the keys move; the area a window is taken to have before its first layout
   is a row shorter for it.

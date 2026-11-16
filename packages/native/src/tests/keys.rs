@@ -57,6 +57,7 @@ fn a_tree_s_cursor_moves_by_letters_and_arrows_folds_climbs_and_opens_its_row() 
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("beans"));
     key(&mut rt, Key::Left);
     assert_eq!(cursor(&rt, "tree").as_deref(), Some("plot"), "the left arrow went to the row beans is under");
+    assert_eq!(rt.state.parent_of("beans").as_deref(), Some("plot"), "and the folder a note is listed in is that same row, by the one rule");
     // Space folds or unfolds; the cursor stays on its row by its id while the rows change under it.
     key(&mut rt, Key::End);
     let last = cursor(&rt, "tree").unwrap();
@@ -103,6 +104,46 @@ fn a_page_of_a_long_list_is_the_rows_in_view_and_the_cursor_s_row_is_brought_int
 }
 
 #[test]
+fn a_board_s_lanes_are_crossed_by_h_and_l_its_groups_by_shift_and_a_lane_s_page_is_its_view() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    run(&mut rt, "screen.open name=board");
+    run(&mut rt, "list.group by=area tile=lanes");
+    run(&mut rt, "tile.focus tile=lanes");
+    assert!(rt.find("tile/lanes/lane/plot").is_some() && rt.find("tile/lanes/lane/bed").is_some(), "two lanes, side by side");
+    // The first step is on the first lane's first card; l is the same place in the next lane, h back. It stops at
+    // the last lane, and nothing is opened by moving.
+    let (open, from) = (rt.state.note_of("reader"), rt.state.steps.len());
+    letter(&mut rt, "j");
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"));
+    letter(&mut rt, "l");
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("onions"), "l crossed to the next lane");
+    key(&mut rt, Key::Right);
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("onions"), "the last lane is the last");
+    key(&mut rt, Key::Left);
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"), "the left arrow crossed back");
+    // In a lane j and k stay in it: a lane is a list.
+    letter(&mut rt, "j");
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"), "the lane's one card is its last");
+    // Shift with l and h is the next group and the one before: its first card.
+    chord(&mut rt, Key::Text("L".into()), Mods { shift: true, ..Mods::default() });
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("onions"));
+    chord(&mut rt, Key::Text("H".into()), Mods { shift: true, ..Mods::default() });
+    assert_eq!(cursor(&rt, "lanes").as_deref(), Some("beans"));
+    // (K2: nothing is opened by moving, and the reader the lanes' select wire names shows the card the cursor is on.)
+    assert!(!rt.state.steps[from..].iter().any(|step| step.action == "open" || step.action == "list.pick"), "the cursor opened nothing: {:?}", rt.state.steps[from..].iter().map(crate::actions::Step::line).collect::<Vec<_>>());
+    assert_ne!(open.as_deref(), Some("beans"));
+    assert_eq!(rt.state.note_of("reader").as_deref(), Some("beans"), "the reader follows the cursor by the lanes' select wire");
+    // The cursor's card is marked in its lane, and Return opens it where the board's opens land.
+    assert_eq!(rt.state.hinted().iter().filter(|hint| hint.does == "the next lane of a board").count(), 1, "the lanes' keys are said: {:?}", does(&rt));
+    // A lane's page is the rows its own view shows, told as a list's is: PgDn is no single row there.
+    let room = rt.state.ui("lanes").room.expect("a lane told its tile how many rows its view shows");
+    assert!(room >= 4.0, "{room}");
+    key(&mut rt, Key::Enter);
+    assert_eq!(rt.state.note_of("reader").as_deref(), Some("beans"));
+}
+
+#[test]
 fn a_reader_s_keys_move_a_reading_line_scroll_its_page_and_go_back_forward_and_up() {
     let g = garden(ok());
     let mut rt = window(g.app);
@@ -141,6 +182,46 @@ fn a_reader_s_keys_move_a_reading_line_scroll_its_page_and_go_back_forward_and_u
     letter(&mut rt, "u");
     assert_eq!(rt.state.note_of("reader").as_deref(), Some("plot"), "u opened the note beans is under");
     assert_eq!(rt.state.ui("reader").history.last().map(String::as_str), Some("beans"));
+}
+
+#[test]
+fn the_reading_line_on_a_part_taller_than_the_view_shows_where_the_part_begins() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    run(&mut rt, &format!("open id={ALMANAC}"));
+    assert_eq!(rt.state.shown_of("reader").unwrap().parts.len(), 3);
+    let view = rect_of(&rt, "tile/reader/scroll").unwrap();
+    // j, then j again: the reading line is on the year of weeks, a run of prose many windows tall.
+    letter(&mut rt, "j");
+    letter(&mut rt, "j");
+    rest(&mut rt);
+    assert_eq!(rt.state.ui("reader").reading, Some(1));
+    let part = rect_of(&rt, "tile/reader/reading/1").expect("the reading line's part is drawn");
+    assert!(part[3] > view[3] * 2.0, "the part is taller than the view: {part:?} in {view:?}");
+    // What comes into view is where the part begins: the person reads on from its first words, not from its last.
+    assert!(part[1] >= view[1] - 1.0 && part[1] < view[1] + view[3], "the part's first line is in view: {part:?} in {view:?}");
+    // The part after it, and back: the long part's beginning again, never its end.
+    letter(&mut rt, "j");
+    rest(&mut rt);
+    let last = rect_of(&rt, "tile/reader/reading/2").expect("the last part has the line");
+    assert!(last[1] >= view[1] - 1.0 && last[1] + last[3] <= view[1] + view[3] + 1.0, "a part that fits is in view whole: {last:?} in {view:?}");
+    letter(&mut rt, "k");
+    rest(&mut rt);
+    let part = rect_of(&rt, "tile/reader/reading/1").unwrap();
+    assert!(part[1] >= view[1] - 1.0 && part[1] < view[1] + view[3], "back on the long part, from below: its first line is in view: {part:?} in {view:?}");
+}
+
+#[test]
+fn a_press_in_the_part_the_reading_line_is_on_is_still_the_part_s() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    run(&mut rt, "tile.focus tile=reader");
+    for _ in 0..4 { letter(&mut rt, "j"); }
+    assert_eq!(rt.state.ui("reader").reading, Some(3));
+    assert!(rt.find("tile/reader/reading/3/head").is_some(), "the part's head is what the line brings into view");
+    // The head lies under the part: a row of the part's list is pressed as it is in any part.
+    press(&mut rt, "tile/reader/part/3/fork");
+    assert_eq!(rt.state.page().unwrap().title, "Take the fork", "the row under the reading line opened its note");
 }
 
 #[test]
@@ -260,6 +341,29 @@ fn the_hint_row_says_the_keys_of_the_tile_that_has_them_from_the_table() {
     assert_eq!(waits[0].caps, ["C"], "the key left to press: {:?}", waits[0].caps);
     letter(&mut rt, "c");
     assert!(rt.state.draft_on(&rt.state.layout.focus.clone()).is_some(), "the sequence ran its row");
+}
+
+#[test]
+fn the_hint_row_leads_with_the_way_out_and_the_key_that_opens_so_a_window_of_the_usual_width_shows_them() {
+    let g = garden(ok());
+    let mut rt = window(g.app);
+    let row = rect_of(&rt, "hints").expect("the hint row is drawn");
+    // Each line whole inside the row: what is past its edge is cut, and a person never reads it. (A tree has more
+    // keys than a row this wide holds: what is cut is the end of the list, the pages and the ends, never these.)
+    let whole = |rt: &Runtime<App>, does: &str| {
+        let at = rt.state.hinted().iter().position(|hint| hint.does == does).unwrap_or_else(|| panic!("no hint says {does:?}: {:?}", rt.state.hinted()));
+        let line = rect_of(rt, &format!("hints/{at}")).unwrap();
+        (at, line[0] >= row[0] && line[0] + line[2] <= row[0] + row[2] + 0.5, line)
+    };
+    for (tile, said) in [("tree", vec!["step back: the keys to the screen's home tile", "open the row the cursor is on", "the next row", "unfold the row"]), ("reader", vec!["step back: the keys to the screen's home tile", "the next part of the page", "back to the note before"])] {
+        run(&mut rt, &format!("tile.focus tile={tile}"));
+        for does in said {
+            let (at, shown, line) = whole(&rt, does);
+            assert!(shown, "on {tile}, {does:?} (line {at}) is cut by the row's edge: {line:?} in {row:?}");
+        }
+        // What Escape does here is the first thing said, as it is under the bar, a form and the editor.
+        assert_eq!(rt.state.hinted()[0].line, rt.state.person().json()["esc"].as_str().unwrap(), "on {tile}");
+    }
 }
 
 #[test]

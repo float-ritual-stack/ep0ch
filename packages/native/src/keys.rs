@@ -329,9 +329,10 @@ fn lines<'a>(binds: impl Iterator<Item = &'a &'static Bind>, from: usize) -> Vec
 
 impl App {
     /// What the hint row under the tiles says: the keys that matter where the person's are. While a sequence is
-    /// begun (`a` over picked words), every row it can still become, by the keys left to press. Else the keys of what the tile
-    /// with the keys draws (its tree's and its list's, or its reader's), then what Escape steps back out of here,
-    /// then the keys that move between tiles: all read from the table, in its order, and nothing is worded here.
+    /// begun (`a` over picked words), every row it can still become, by the keys left to press. Else what Escape
+    /// steps back out of here, then the keys of what the tile with the keys draws (its tree's and its list's, or
+    /// its reader's; a tile with none of its own, the keys every tile has): all read from the table, in its order,
+    /// and nothing is worded here.
     /// Empty while the keys are somewhere that says its own (the bar, a form, a block being written, a program).
     pub fn hinted(&self) -> Vec<Hint> {
         let held = self.held_now();
@@ -347,8 +348,10 @@ impl App {
         let shown = if own.is_empty() { vec![Layer::Tile] } else { own };
         let mut rows: Vec<&'static Bind> = Vec::new();
         for bind in shown.iter().flat_map(|layer| table().iter().filter(move |bind| bind.layer == Some(*layer) && !bind.is_escape())) { if !rows.iter().any(|taken| taken.spec == bind.spec) { rows.push(bind) } }
+        // What Escape does here comes first, as under the bar, a form and the editor (`hints`): a row longer than
+        // the window is cut at its end, and the way out is never what is cut.
         let esc: Vec<&'static Bind> = esc_in(&stack, true).into_iter().collect();
-        lines(rows.iter().chain(esc.iter()), 0)
+        lines(esc.iter().chain(rows.iter()), 0)
     }
 }
 

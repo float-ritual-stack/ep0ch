@@ -1,6 +1,6 @@
 // The made-up notes the `cursor` scene moves through by key: an allotment's beds, a bed with rows under it, a shed.
 // Written into a scratch outline (never a real one: the socket is a scratch host's, named outright), after the
-// notes a new outline starts with, so the scene finds the beds fourth from the end of the tree.
+// notes a new outline starts with. The scene finds the beds by their words, never by their place in the tree.
 //   bun scenes/cursor.seed.ts <a scratch host's socket> <outline>
 import { OutlinerClient } from "../../outliner/src/client";
 
