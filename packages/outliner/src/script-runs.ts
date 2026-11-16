@@ -340,12 +340,18 @@ export class ScriptRuns {
    * where it is in the note now (outline-core's `buttonPressed`, the door's own rule): on the line the request names, else
    * the one button with those words and that line, moved by a save that landed after the presser read the note (PIE-1803:
    * an answer written above it). The run is of the line it is found on.
-   * `typed`: the note's text in the edit a door holds open (draft.read), read when the saved note has no such button: one not saved yet (PIE-1699).
+   * `typed`: the note's text in the edit a door holds open (draft.read), read when the saved note has no such button: one not
+   * saved yet (PIE-1699). `buttonPressed` refuses it when the saved note has another button on its line: the lines a run reads
+   * are the saved note's, so that one's words would be read for it.
    */
   async startSequence(request: ExtensionActRequest, pressed: { label: string; act: string }, typed?: () => Promise<string | undefined>): Promise<ExtensionActResult> {
     const press = { line: request.line!, ...pressed };
-    const note = this.store.require(request.blockId!), saved = buttonPressed(note.text, press), text = saved || !typed ? undefined : await typed();
-    const button = saved ?? (text === undefined ? null : buttonPressed(text, press));
+    let note = this.store.require(request.blockId!), button = buttonPressed(note.text, press);
+    if (!button && typed) {
+      const text = await typed();
+      note = this.store.require(request.blockId!);   // as it is once the edit has answered
+      button = buttonPressed(note.text, press, text);
+    }
     if (!button || button.problem) throw new Error(button?.problem ?? "No button on that line; read the note and press its current button");
     if (button.empty.length) throw new Error(`${button.label} has no ${button.empty.join(" or ")} yet: write ${button.empty[0]}= on its line (the door asks for it on a press, button.slot fills it)`);
     return this.start({ id: `button:${note.id}:${button.line}`, name: button.label, script: {
@@ -575,9 +581,12 @@ export class ScriptRuns {
         if (site.thisId && request.line !== undefined) {
           // Read before executing: the run itself can insert text above the line that asked it.
           const draft = await client.request<{ text: string }>({ action: "drafts.read", blockId: site.thisId });
-          const lines = draft.text.split("\n"), observed = lines[request.line];
+          // A press's caller is its button where the edit has it: lines written above it there put it on another line than
+          // the saved note's, which `request.line` is (CodeRabbit on #1523).
+          const at = sequence?.act ? buttonPressed(draft.text, { line: request.line, label: sequence.label, act: sequence.act })?.line ?? request.line : request.line;
+          const lines = draft.text.split("\n"), observed = lines[at];
           if (observed !== undefined) {
-            const start = lines.slice(0, request.line).reduce((n, line) => n + line.length + 1, 0);
+            const start = lines.slice(0, at).reduce((n, line) => n + line.length + 1, 0);
             caller = { text: draft.text, span: { observed, replacement: observed, range: { start, end: start + observed.length } } };
           }
         }
