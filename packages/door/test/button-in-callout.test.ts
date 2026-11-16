@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
 import { SocketBoard, USER } from "../src/socket";
+import { pressState } from "../src/surface/button";
 import type { Key } from "../src/term";
 import { Scratch, outliner } from "./scratch";
 
@@ -43,6 +44,35 @@ describe.skipIf(!outliner)("a sequence button inside a callout (PIE-1693)", () =
     // The person's refusal is said where they look, never thrown: the log holds it.
     expect(app.messages.rows.slice(said).map(m => m.message).join("\n")).not.toContain("key=value");
     expect(r.extension).toBe(`button:${note.id}:5`);
+  }, 30_000);
+
+  // PIE-1803: the door reads the note to find the button's line, then asks the service to run it. A save that lands between
+  // the two (yo answering an ask above it, as ask-yo's find test had it) moved the button off the line the door named, and
+  // the service refused the press. The press says which button it is, so the service finds it where it is now.
+  for (const how of ["in its reader", "by note="] as const) test(`pressed ${how} as a save above it lands between the door's read and the service's, it still runs its steps`, async () => {
+    const desk = app.keysScreen() as any;
+    const note = await board.createBlock(null, 'Shelf\n\n> [!note]+ answered\n> ::button{label="Twice" act=["theme.cycle", "theme.cycle"]}');
+    await app.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+    const reader = desk.dispatch.tile("focused");
+    for (let i = 0; i < 100 && !desk.pane(reader.name).surface.describeElements().some((e: { label: string }) => e.label.includes("Twice")); i++) await Bun.sleep(50);
+    // The save lands after the door has read the note and before its request reaches the service: every time, not by chance.
+    const request = board.request.bind(board) as (action: string, payload: unknown) => Promise<unknown>;
+    let landed = false;
+    (board as unknown as { request: typeof request }).request = async (action, payload) => {
+      if (action === "scripts.sequence" && !landed) {
+        landed = true;
+        const now = (await board.get(note.id))!;
+        await board.update(note.id, `Top line\nanother\n${now.text}`, now.revision!, { kind: "agent", id: "test-agent" });
+      }
+      return request(action, payload);
+    };
+    const said = app.messages.rows.length;
+    const r = await desk.dispatch.act({ action: "button.press", ...(how === "by note=" ? { args: { note: note.id, label: "Twice" } } : { tile: reader.name, args: { label: "Twice" } }) }, USER)
+      .finally(() => { delete (board as unknown as { request?: unknown }).request; }) as { extension?: string } | undefined;
+    expect(landed).toBe(true);
+    expect(app.messages.rows.slice(said).map(m => m.message).join("\n")).not.toContain("No button on that line");
+    expect(pressState(note.id, 5, "Twice").state).not.toBe("failed");
+    expect(r?.extension).toBe(`button:${note.id}:5`);
   }, 30_000);
 
   for (const [where, prefix] of [["outside a callout", ""], ["in a callout", "> "]] as const) {
