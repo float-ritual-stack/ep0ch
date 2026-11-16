@@ -14,13 +14,14 @@ use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use rune::{El, Icon, ScrollSpec, col, el, row, text};
+use rune::{El, Icon, ScrollSpec, Tx, col, el, row, text};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, ControlSize, Kit, glyphs};
 use serde_json::{Value, json};
 
 use super::prim::{self, PrimCx};
 use super::{Drawer, TileCx};
 use crate::actions::{App, word};
+use crate::keys;
 use crate::list::{self, Rows};
 use crate::page::{ListAnswer, ListGroup, ListRow, ListView, Section};
 use crate::store::Ask;
@@ -60,6 +61,24 @@ fn version(cx: &TileCx) -> u64 {
     h.finish()
 }
 
+/// What a press on a row runs, with what the pointer held: the primary button and the middle one are both the row's.
+#[derive(Clone)]
+struct Pressed { line: String, from: String, page: bool }
+
+impl Pressed {
+    /// The line a press with these modifiers and this button runs, at this time of the window's clock.
+    fn line(&self, tx: &Tx, button: u32) -> String {
+        let bits = keys::held_bits(tx);
+        if self.page { keys::pressed(&self.line, bits, button) } else { format!("{} mods={bits} button={button} at={}", self.line, (tx.clock() * 1000.0) as u64) }
+    }
+    /// The row's presses on `row`.
+    fn on(self, row: El) -> El {
+        let middle = self.clone();
+        row.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.pressed_in(&self.line(tx, 0), &self.from); })
+            .on_middle_press(move |s: &mut App, tx: &mut Tx| { s.pressed_in(&middle.line(tx, crate::press::MIDDLE), &middle.from); })
+    }
+}
+
 /// Where a list is drawn, and what a press in it runs there. One list, two places: a list tile (its own answer,
 /// `lists.read`) and a part of a page (a `list` primitive of a note: a view, its links, the notes under it). The
 /// rows, their sections and their headers are drawn by the same functions in both; what differs is said here once.
@@ -85,14 +104,17 @@ impl Place {
     /// What a press on a row runs. In a list tile, the tile's pick of it (`list.pick`, which runs the row's own act
     /// line, folds a folder's row that is already open, and opens or folds a row that only folds); on a page, the
     /// row's own act line, from the page's tile. A row with no act line that folds nothing is words.
-    fn pick(&self, cx: &TileCx, r: &ListRow) -> Option<impl Fn(&mut App) + Clone + 'static> {
+    /// It is a press as the pointer says it: in a list tile `list.press`, which asks the one rule what the press is
+    /// (the press that brings the keys, a select, an open on the second, an open fresh with a modifier held or the
+    /// middle button); on a page the row's line, run fresh when the pointer says so (`keys::pressed`).
+    fn pick(&self, cx: &TileCx, r: &ListRow) -> Option<Pressed> {
         let line = match (&r.act, self.page) {
             (Some(act), true) => act.clone(),
-            (Some(_), false) => format!("list.pick id={}", word(&r.id)),
-            (None, false) if r.folds && self.unfolds(cx) => format!("list.pick id={}", word(&r.id)),
+            (Some(_), false) => format!("list.press id={}", word(&r.id)),
+            (None, false) if r.folds && self.unfolds(cx) => format!("list.press id={}", word(&r.id)),
             (None, _) => return None,
         };
-        Some(cx.act(line))
+        Some(Pressed { line, from: cx.name.clone(), page: self.page })
     }
     /// What a press on a chip (a property and one of its values) runs: a list tile's question is narrowed by it
     /// (`facets.set`); on a page it is a question of its own, in the bar (`bar.narrow`, as the page's own chips are).
@@ -124,7 +146,11 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, mark: Mark, k: &Kit)
     let mut line = row().w_full().gap(6.0).center_y();
     // The fold's mark is the row's own word (`folds`, the service's: in a list of notes, that a note is under it), so
     // a mark drawn always opens onto something; a row that folds nothing has a dot in a tree, and nothing elsewhere.
-    let fold = || rune::icon(if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 14.0).color(c.text_faint).key(format!("{}/fold", at.row_key(cx, &r.id)));
+    // (In a list tile whose folders unfold the mark is a press of its own: it folds at once, and selects nothing.)
+    let fold = || {
+        let mark = rune::icon(if r.open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 14.0).color(c.text_faint).key(format!("{}/fold", at.row_key(cx, &r.id)));
+        if tree && !at.page && at.unfolds(cx) { k.interactive(mark).role("button").label("Fold or unfold").on_press(cx.act(format!("tree.fold id={}", word(&r.id)))) } else { mark }
+    };
     if tree {
         line = line.child(el().w(r.depth.min(12) as f32 * 14.0)).child(if r.folds { fold() } else { rune::icon(&DOT, 14.0).color(c.text_faint) });
     } else if r.folds && at.unfolds(cx) {
@@ -147,7 +173,7 @@ fn row_el(cx: &TileCx, at: &Place, r: &ListRow, tree: bool, mark: Mark, k: &Kit)
     let fill = mark.fill(k).unwrap_or(if r.tone.is_some() { c.layer_02 } else { rune::Color::TRANSPARENT });
     let head = mark.edge(head.px(8.0).py(if tree { 0.0 } else { 4.0 }).radius(k.radius.sm).fill(fill), k);
     let head = match at.pick(cx, r) {
-        Some(run) => k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page).on_press(run),
+        Some(run) => run.on(k.interactive(head).role(if tree { "treeitem" } else { "option" }).focusable(at.page)),
         None => head,
     };
     if !tall { return head.h(height(r, tree)).key(at.row_key(cx, &r.id)) }
@@ -194,7 +220,7 @@ fn table_row(cx: &TileCx, at: &Place, r: &ListRow, columns: usize, mark: Mark, k
         line = line.child(text(words).font(k.ty.ui).color(if i == 0 { c.text_base } else { c.text_muted }).truncate().grow(1.0).min_w(0.0));
     }
     match at.pick(cx, r) {
-        Some(run) => k.interactive(line).role("row").focusable(at.page).on_press(run),
+        Some(run) => run.on(k.interactive(line).role("row").focusable(at.page)),
         None => line,
     }
 }

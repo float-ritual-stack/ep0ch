@@ -39,7 +39,7 @@ fn the_board_opens_from_the_bar_as_lanes_grouped_by_a_property_name_and_a_card_o
     assert!(bed[0] >= plot[0] + plot[2] - 1.0 && (plot[1] - bed[1]).abs() < 1.0, "the lanes sit side by side: {plot:?} {bed:?}");
     assert!(beans[0] >= plot[0] && beans[0] + beans[2] <= plot[0] + plot[2] + 1.0, "a card sits in its lane");
     // A card pressed runs its own act line from the lanes: the layout lands it in the reader their select feeds.
-    press(&mut rt, "tile/lanes/row/onions");
+    open_row(&mut rt, "tile/lanes/row/onions");
     assert_eq!(rt.state.note_of("reader").as_deref(), Some("onions"));
     assert!(rt.state.steps.iter().any(|step| step.line() == "list.pick id=onions tile=lanes" && step.ok), "{:?}", rt.state.steps.iter().map(crate::actions::Step::line).collect::<Vec<_>>());
     // Arranged another way, by the list's own word: the same rows under their groups.
@@ -58,7 +58,7 @@ fn the_navigator_s_facets_are_rows_and_chips_that_narrow_what_the_matches_list()
     for key in ["tile/facets/group/area", "tile/facets/row/area=plot", "tile/matches/row/beans", "tile/matches/row/onions"] { assert!(rt.find(key).is_some(), "{key} is on screen") }
     // A facet's row is the service's, and so is what a pick runs: the tile's question narrows, and the list that
     // follows it asks the narrowed question.
-    press(&mut rt, "tile/facets/row/area=plot");
+    open_row(&mut rt, "tile/facets/row/area=plot");
     assert_eq!((rt.state.question_of("facets").as_str(), rt.state.question_of("matches").as_str()), ("area=plot", "area=plot"));
     assert_eq!(asked_lists(&asked, "query").pop().unwrap()["query"], "area=plot");
     assert!(rt.find("tile/matches/row/beans").is_some() && rt.find("tile/matches/row/onions").is_none(), "only what the pick leaves is listed");
@@ -70,7 +70,7 @@ fn the_navigator_s_facets_are_rows_and_chips_that_narrow_what_the_matches_list()
     press(&mut rt, "tile/matches/facet/area/bed");
     assert_eq!((rt.state.question_of("matches").as_str(), rt.state.question_of("facets").as_str()), ("area=bed", ""));
     // A match pressed opens where the tile's wires say.
-    press(&mut rt, "tile/matches/row/onions");
+    open_row(&mut rt, "tile/matches/row/onions");
     assert_eq!(rt.state.note_of("reader").as_deref(), Some("onions"));
 }
 
@@ -79,7 +79,7 @@ fn last_callers_opens_from_the_bar_and_a_change_s_row_opens_its_note() {
     let mut rt = window(garden(ok()).app);
     open_from_the_bar(&mut rt, "lastcall");
     assert_eq!(names(&rt.state), ["activity", "reader"]);
-    press(&mut rt, "tile/activity/row/beans");
+    open_row(&mut rt, "tile/activity/row/beans");
     assert_eq!(rt.state.note_of("reader").as_deref(), Some("beans"));
 }
 
@@ -101,7 +101,7 @@ fn a_table_s_columns_are_the_list_s_and_a_header_sorts_by_its_property() {
     rt.update(|s, _| { s.act("screen.open name=desk", Actor::Person); });
     rest(&mut rt);
     assert!(rt.find("tile/props/column/property").is_some() && rt.find("tile/props/group/record").is_some());
-    press(&mut rt, "tile/props/row/room=north#0");
+    open_row(&mut rt, "tile/props/row/room=north#0");
     assert_eq!((rt.state.bar.open, rt.state.bar.scope.as_str(), rt.state.bar.edit.words()), (true, "query", "room=north"));
 }
 
@@ -163,20 +163,20 @@ fn the_tree_marks_a_fold_only_on_a_row_that_opens_onto_notes() {
     let mut rt = window(g.app);
     let opened = |asked: &Asked| -> Vec<String> { asked_lists(asked, "children").iter().flat_map(|ask| ask["open"].as_array().cloned().unwrap_or_default()).filter_map(|id| id.as_str().map(str::to_string)).collect() };
     // The plot is the open note and a folder: a press on its row unfolds it.
-    press(&mut rt, "tile/tree/row/plot");
+    open_row(&mut rt, "tile/tree/row/plot");
     assert_eq!(listed(&rt.state), [(0, "Plot".to_string()), (1, "Lift the onions".to_string()), (1, "Water the beans".to_string()), (0, "Shed".to_string())]);
     let marked: Vec<String> = keyed(&rt, "tile/tree/row/").into_iter().filter(|key| key.ends_with("/fold")).collect();
     assert_eq!(marked, ["tile/tree/row/plot/fold", "tile/tree/row/onions/fold"], "a mark on the rows the service says fold, and on no other");
     // The beans: a comment is under them (their thread is listed where comments are), and no note.
-    press(&mut rt, "tile/tree/row/beans");
+    open_row(&mut rt, "tile/tree/row/beans");
     assert_eq!(rt.state.subject().as_deref(), Some("beans"));
     assert_eq!(asked_lists(&asked, "threads").pop().map(|ask| ask["of"].clone()), Some(json!("beans")), "their comments are asked for, as a list about them");
-    press(&mut rt, "tile/tree/row/beans");
+    open_row(&mut rt, "tile/tree/row/beans");
     let tree = rt.state.layout.named("tree").unwrap();
     assert!(!rt.state.ui(&tree).unfolded.contains("beans") && !opened(&asked).contains(&"beans".to_string()), "a row with no fold opens its note and unfolds nothing: {:?}", rt.state.ui(&tree).unfolded);
     assert!(rt.find("tile/tree/row/beans/fold").is_none());
     // The onions: the mark opens onto their note.
-    press(&mut rt, "tile/tree/row/onions");
+    open_row(&mut rt, "tile/tree/row/onions");
     assert!(rt.state.ui(&tree).unfolded.contains("onions") && opened(&asked).contains(&"onions".to_string()));
     assert_eq!(listed(&rt.state), [(0, "Plot".to_string()), (1, "Lift the onions".to_string()), (2, "Take the fork".to_string()), (1, "Water the beans".to_string()), (0, "Shed".to_string())]);
     assert!(rt.find("tile/tree/row/fork").is_some() && rt.find("tile/tree/row/fork/fold").is_none(), "what the fold opened onto is on screen: {:?}", keyed(&rt, "tile/tree/row/"));

@@ -259,6 +259,8 @@ fn a_press_in_a_tile_s_body_gives_it_the_keys() {
     assert_eq!(rt.state.layout.name(&rt.state.layout.focus), "seeds", "a press on bare ground in a tile");
     press(&mut rt, "tile/beds/row/plot");
     assert_eq!(rt.state.layout.name(&rt.state.layout.focus), "beds", "a press on a list's row");
+    // (That press brought the keys and put the cursor on the row; pressed twice, the row opens its note.)
+    open_row(&mut rt, "tile/beds/row/plot");
     // On a note's own words, which can be selected: the press is the tile's too.
     let reader = rt.state.layout.all().into_iter().find(|id| rt.state.note_of(id).as_deref() == Some("plot")).map(|id| rt.state.layout.name(&id)).expect("the row opened the plot in a reader");
     let tile = rect_of(&rt, &format!("tile/{reader}")).unwrap();
@@ -268,7 +270,9 @@ fn a_press_in_a_tile_s_body_gives_it_the_keys() {
     rt.pointer_up(at.0, at.1);
     rest(&mut rt);
     assert_eq!(rt.state.layout.name(&rt.state.layout.focus), reader, "a press on a note's words");
-    assert!(rt.state.steps.iter().filter(|step| step.action == "tile.focus").count() >= 3);
+    // (Bare ground and the row's press each said `tile.focus`; the row opened twice handed the keys to the reader by
+    // the layout's own rule, so the press on its words found them there.)
+    assert!(rt.state.steps.iter().filter(|step| step.action == "tile.focus").count() >= 2);
 }
 
 /// Fold, zoom, float and lock are actions, each with its key and, where a tile's title or the toolbar has one, its
