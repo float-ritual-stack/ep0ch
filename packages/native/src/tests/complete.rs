@@ -27,6 +27,8 @@ fn writing_in(size: (f32, f32)) -> (Runtime<App>, Asked) {
     let g = garden(ok());
     let asked = g.asked.clone();
     let mut rt = window_sized(g.app, size);
+    // (At a size of the test's own the tiles move to their places from the first frame's guess: pressed once they stand.)
+    rest(&mut rt);
     press(&mut rt, "tile/reader/edit");
     chord(&mut rt, Key::Enter, Mods::default());
     (rt, asked)
