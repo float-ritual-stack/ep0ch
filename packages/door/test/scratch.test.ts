@@ -1,7 +1,7 @@
 // The scratch helpers themselves: a killed run's temp dirs are cleared by the next one, and nothing else is.
 import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, scratchDir, scratchRoot, testSlack, until } from "./scratch";
 
@@ -65,12 +65,18 @@ test("scratchDir removes its prefix's dirs whose test process is gone, and keeps
   }
 });
 
-test("scratchRoot: the temp folder when it is short and names no outline above it; else a short private folder of /tmp", () => {
-  const uid = process.getuid?.() ?? 0, fallback = `/tmp/ep0ch-${uid}`;
-  const clean = mkdtempSync("/tmp/ep0ch-r-");
-  const marked = mkdtempSync("/tmp/ep0ch-m-");
+test("scratchRoot: the temp folder when it is short, outside /tmp and names no outline above it; else a short private folder of /var/tmp", () => {
+  const uid = process.getuid?.() ?? 0, fallback = `/var/tmp/ep0ch-${uid}`;
+  const clean = mkdtempSync("/var/tmp/ep0ch-r-");
+  const marked = mkdtempSync("/var/tmp/ep0ch-m-");
   try {
     expect(scratchRoot(clean)).toBe(clean);
+    // Bun lists every folder above a program as it starts it, and /tmp is where every run leaves its folders: a scratch
+    // folder anywhere under it made each extension process read all of /tmp (514,517 entries on float-box, PIE-1799).
+    expect(scratchRoot("/tmp")).toBe(fallback);
+    const inTmp = mkdtempSync("/tmp/ep0ch-r-");
+    try { expect(scratchRoot(inTmp)).toBe(fallback); } finally { rmSync(inTmp, { recursive: true, force: true }); }
+    for (let d = scratchRoot("/tmp"); d !== "/"; d = dirname(d)) expect(d).not.toBe("/tmp");
     // Too long for a session's sockets under it.
     expect(scratchRoot(join(clean, "a-folder-name-long-enough"))).toBe(fallback);
     // A .ep0ch above it names an outline (as the person's ~/.ep0ch does).
@@ -79,7 +85,7 @@ test("scratchRoot: the temp folder when it is short and names no outline above i
     Bun.spawnSync(["mkdir", below]);
     expect(scratchRoot(below)).toBe(fallback);
     // A short symlink to it is judged where it really is.
-    const link = `/tmp/ep0ch-l-${process.pid}`;
+    const link = `/var/tmp/ep0ch-l-${process.pid}`;
     Bun.spawnSync(["ln", "-s", below, link]);
     try { expect(scratchRoot(link)).toBe(fallback); } finally { rmSync(link, { force: true }); }
   } finally {

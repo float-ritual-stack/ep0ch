@@ -137,12 +137,12 @@ const backup = sub("backup", "Install and health");
 export const BACKUP_COMMANDS: readonly CliCommand[] = [
   backup("status", "The verdict first, then each outline and the history", "status [--json | --verbose]", [["--verbose", "Include raw reasons"], json], ["status", "status --verbose"]),
   backup("run", "The backup job as its timer runs it: archive each log, upload, announce", "run [--drill] [--verbose]", [["--drill", "Include a restore drill"], ["--verbose", "Include raw reasons"]], ["run", "run --drill"]),
-  backup("snapshot", "Archive and upload the outlines whose log moved", "snapshot [--force] [--verbose]", [["--force", "Unchanged outlines too"], ["--verbose", "Include raw reasons"]], ["snapshot", "snapshot --force"]),
+  backup("snapshot", "Archive and upload the outlines whose log moved", "snapshot [--force] [--verbose] [--wait <seconds>]", [["--force", "Unchanged outlines too"], ["--verbose", "Include raw reasons"], ["--wait <seconds>", "Wait that long for a backup already running, instead of stopping (install waits 600)"]], ["snapshot", "snapshot --wait 600"]),
   backup("follow", "Follow other machines' outlines here, applying each log as it changes", "follow [--once]", [["--once", "Catch up once and exit"]], ["follow", "follow --once"]),
-  backup("drill", "Replay the newest archives somewhere harmless and check them", "drill [--machine <name>]", [["--machine <name>", "That machine's repository, from here"]], ["drill", "drill --machine box-a"]),
+  backup("drill", "Replay the newest archives somewhere harmless and check them", "drill [--serve] [--machine <name>]", [["--serve", "Also open each with a scratch host and read it, timed (install's proof)"], ["--machine <name>", "That machine's repository, from here"]], ["drill --serve", "drill --machine box-a"]),
   backup("list", "An outline's archive snapshots", "list <outline> [--machine <name>]", [["--machine <name>", "Read that machine's repository"]], ["list garden", "list garden --machine box-a"]),
   backup("copy", "A consistent copy of a live outline, made by its host", "copy <outline> <file>", [], ["copy garden ./garden-copy.sqlite", "copy garden /tmp/garden-before-the-move.sqlite"]),
-  backup("restore", "Replay an outline's archive to a new file, never over an outline in use", "restore <outline> [--at <time>] --to <path>", [["--machine <name>", "Read that machine's repository"], ["--at <time>", "Replay up to this time (ISO, 3h, 2d)"], ["--to <path>", "The new file"]], ["restore garden --to ./garden-restored.sqlite", "restore garden --at 2d --to ./garden-2d.sqlite"]),
+  backup("restore", "Replay an outline's archive to a new file, never over an outline in use", "restore <outline> [--at <time> | --log <id> --entry <n>] --to <path>", [["--machine <name>", "Read that machine's repository"], ["--at <time>", "Replay up to this time (ISO, 3h, 2d)"], ["--log <id>", "With --entry: that log (install's rollback point)"], ["--entry <n>", "Replay exactly to that entry, checked"], ["--to <path>", "The new file"]], ["restore garden --to ./garden-restored.sqlite", "restore garden --at 2d --to ./garden-2d.sqlite"]),
 ];
 
 const ext = sub("ext", "Extensions");

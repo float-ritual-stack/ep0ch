@@ -688,6 +688,8 @@ test("content that comes back under the same `updated` (A, B, then A again) read
 test("a ticket whose first read failed is read by the next poll, though Jira hasn't changed it", async () => {
   const { fake, store, server, client, create, recordOf } = await setup();
   await recordOf((await create("PC-1 Rollout [jira::PC-1]")).id);
+  // A note names PC-2 on a list item: the poll asks only about tickets a note names (PIE-1796).
+  await create("Printer notes\nSecond shift.\n\n- [jira::PC-2]");
   const receipt = await client.request<{ resource: { id: string } }>({
     action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" },
     mutation: { author: "agent", actorId: "helper-agent" },
@@ -701,4 +703,139 @@ test("a ticket whose first read failed is read by the next poll, though Jira has
   const described = store.resources.describe(receipt.resource.id, false);
   expect(described.remoteStatus?.freshness).toBe("fresh");
   expect(described.remoteEntity?.title).toBe("Label printer drops the last line");
+});
+
+// PIE-1796: a refresh that lost to a version conflict left its row at `refreshing` (one such row on the laptop's
+// float-hub, seen before #1499). The poll reads directly every copy not read well, `refreshing` among them, so the
+// next poll settles it with Jira unchanged; this pins that.
+test("a resource stuck at refreshing is read again by the next poll, and settles", async () => {
+  const { fake, store, server, create, recordOf, recordsFor } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  fake.requests.length = 0;
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+  store.database.query("UPDATE remote_entity_resource_state SET freshness = 'refreshing', checked_at = ? WHERE resource_id = ?").run(tenMinutesAgo, resourceId);
+  // Jira hasn't changed it, so no search names it: only its being stuck brings it back.
+  await server.extensionSync.for("jira")!.poll();
+  expect(store.resources.describe(resourceId, false).remoteStatus?.freshness).toBe("fresh");
+  expect(fake.requests.some(r => r.startsWith("GET /rest/api/3/issue/20001?"))).toBe(true);
+});
+
+// PIE-1796 (Codex on #1499): the poll asked about every registered ticket, so one no note names any more (its line
+// taken out, its note trashed) was still searched and read every poll. It asks only about tickets a live note names.
+test("the poll stops asking about a ticket once no note names it, and asks again when one does", async () => {
+  const ctx = await setup();
+  const { fake, server, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date().toISOString();
+  fake.requests.length = 0;
+
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 0, changed: 0 });
+  expect(fake.requests.filter(r => r.includes("PC-1") || r.includes("/issue/20001"))).toEqual([]);
+
+  // Named again on a list item: the next poll asks about it.
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  expect((await server.extensionSync.for("jira")!.poll()).checked).toBe(1);
+});
+
+// Codex on #1503: the poll's "named" filter compared the key exactly and knew only properties and askers, so a note
+// naming the ticket as `- [jira::pc-1]` or as a Resource link `[PC-1](pi-outliner://resource/<id>)` got no checks.
+// Named is what the authored links resolve to, as a reader resolves them.
+for (const [form, line] of [["a lowercase key", "- [jira::pc-1]"], ["a Resource link", "[PC-1](pi-outliner://resource/{id})"]] as const) {
+  test(`the poll asks about a ticket a note names by ${form}`, async () => {
+    const ctx = await setup();
+    const { fake, store, server, create, edit, recordOf, recordsFor, until } = ctx;
+    const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+    await recordOf(page.id);
+    const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+    await edit(page.id, () => `PC-1 Rollout\nOur plan.\n\n${line.replace("{id}", resourceId)}`);
+    await until("the record to go", () => recordsFor("PC-1").length === 0);
+    const issue = fake.issues.get("PC-1")!;
+    issue.status = "Blocked";
+    issue.updated = new Date().toISOString();
+
+    expect((await server.extensionSync.for("jira")!.poll()).checked).toBe(1);
+    expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+  });
+}
+
+// Codex on #1503: polls went on while no note named the ticket, so the window moved past what changed meanwhile;
+// named again, it was searched only from the last poll. A ticket that joins the poll is read from its own last read.
+test("a ticket named again after a while is caught up from its own last read", async () => {
+  const ctx = await setup();
+  const { fake, store, server, create, edit, recordOf, recordsFor, until } = ctx;
+  const page = await create("PC-1 Rollout [jira::PC-1]\nOur plan.");
+  await recordOf(page.id);
+  const resourceId = recordsFor("PC-1")[0]!.resourceId!;
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.");
+  await until("the record to go", () => recordsFor("PC-1").length === 0);
+  const sync = server.extensionSync.for("jira")!;
+  await sync.poll();   // no note names it: not asked about, and the window moves on
+  // Read two hours ago; changed in Jira an hour ago, while nothing named it.
+  store.database.query("UPDATE remote_entity_resource_state SET checked_at = ? WHERE resource_id = ?").run(new Date(Date.now() - 2 * 60 * 60_000).toISOString(), resourceId);
+  const issue = fake.issues.get("PC-1")!;
+  issue.status = "Blocked";
+  issue.updated = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  await edit(page.id, () => "PC-1 Rollout\nOur plan.\n\n- [jira::PC-1]");
+  await sync.poll();
+  expect(store.resources.describe(resourceId, false).remoteEntity?.metadata.status).toBe("Blocked");
+});
+
+// Codex on #1504: the poll retried a never-fetched ticket by materializing its whole note, so two failing tickets in one
+// note made four reads a poll (N made N²). Each failed key is fetched once a poll, by itself; one waiting for its hourly
+// recheck isn't (the next tests).
+test("each never-fetched ticket is fetched once a poll, by itself", async () => {
+  const { fake, server, create, until } = await setup();
+  fake.status = 500;
+  const page = await create("Depot board [jira::PC-1] [jira::PC-2]");
+  const sync = server.extensionSync.for("jira")!;
+  await sync.materialize(page.id);
+  await until("both failed", () => !!sync.stateFor("PC-1")?.error && !!sync.stateFor("PC-2")?.error);
+  fake.requests.length = 0;
+  await sync.poll();   // still refused: each tried once, by itself
+  const reads = fake.requests.filter((r) => r.startsWith("GET /rest/api/3/issue/") && !r.includes("/comment"));
+  expect(reads.length).toBe(2);
+  fake.status = null;
+}, 20_000);
+
+// Codex on #1504: a registered ticket deleted at Jira said "R tries again" while every poll still read it. The poll's
+// own reads keep the same policy: it waits for the hourly recheck, and r reads it now.
+test("a registered ticket Jira no longer has waits for its hourly recheck, in the poll too", async () => {
+  const { fake, server, client, create, recordOf } = await setup();
+  const page = await create("PC-1 Rollout [jira::PC-1]");
+  await recordOf(page.id);
+  fake.issues.delete("PC-1");
+  await client.request({ action: "resources.projection.refresh", blockId: page.id });
+  const sync = server.extensionSync.for("jira")!;
+  expect(sync.stateFor("PC-1")).toMatchObject({ retry: "hourly", error: "Jira has no PC-1, or you can't see it" });
+  fake.requests.length = 0;
+  await sync.poll();
+  await sync.poll();
+  expect(fake.requests.filter((r) => r.startsWith("GET /rest/api/3/issue/20001"))).toEqual([]);
+});
+
+// Codex on #1504: Jira answers 404 for a ticket the caller can't view too, so a fetch made before access is granted
+// would never be tried again. It's rechecked hourly, by the poll and an open.
+test("a ticket Jira said it doesn't have is asked again after an hour", async () => {
+  const { fake, store, create } = await setup();
+  let now = Date.now();
+  const sync = new ExtensionSync(store, "jira", { pollMs: 0, now: () => now });
+  fake.status = null;
+  const page = await create("Ghost [jira::PC-9]");
+  await sync.materialize(page.id);
+  expect(sync.stateFor("PC-9")?.retry).toBe("hourly");
+  fake.requests.length = 0;
+  await sync.materialize(page.id);
+  expect(fake.requests).toEqual([]);   // within the hour: not asked
+  now += 61 * 60_000;
+  fake.issues.set("PC-9", { id: "20009", key: "PC-9", summary: "Access granted at last", updated: new Date(now).toISOString() });
+  await sync.materialize(page.id);
+  expect(sync.stateFor("PC-9")).toBeUndefined();
 });

@@ -7,10 +7,10 @@ import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
-import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock } from "./jobs";
+import { drill, drillHere, hostCopy, hostStartCommand, integrity, maintain, runAll, snapshot, takeLock, waitForLock } from "./jobs";
 import { replayArchive, type Replayed } from "@ep0ch/outliner/log-archive";
 import { hostUnitCommands } from "@ep0ch/outliner/schema";
-import { restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
+import { folderFor, restoreArchive, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
 import { programStatusEmitter } from "@ep0ch/outliner/program-status-emit";
@@ -48,7 +48,8 @@ export function statusLines(c: BackupConfig, now = Date.now(), o: { verbose?: bo
   if (s.netmail?.pull) { const p = s.netmail.pull; netmail.push(`netmail from ${p.hub}: pulled ${moment(p.at)}, ${p.ok ? "ok" : `failed: ${plainReason(p.detail, { hub: p.hub })}`}`); }
   else if (c.hub) netmail.push(`netmail from ${c.hub}: not pulled yet (ep0ch mcp pull)`);
   const note = c.machineFrom === "hostname" ? `from the host name; set EP0CH_BACKUP_MACHINE in ${c.file} to change it` : c.machineFrom === "file" ? c.file : "EP0CH_BACKUP_MACHINE";
-  return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail });
+  const notes = Object.values(s.chainsWait ?? {}).map(w => `· ${w.why} (since ${moment(w.since)})`);
+  return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail, notes });
 }
 
 async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
@@ -64,7 +65,7 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
     case "drill": {
       // From here, or through the hub when the repository is out of reach (jobs.ts drillHere).
       const s = readBackupState(c.state);
-      const d = await drillHere(c, { say });
+      const d = await drillHere(c, { say, ...(args.includes("--serve") ? { serve: true } : {}) });
       if ("waiting" in d) {
         s.drillWaiting = { since: s.drillWaiting?.since ?? new Date().toISOString(), why: d.waiting };
         writeBackupState(c.state, s);
@@ -83,11 +84,11 @@ async function stateful(sub: "snapshot" | "drill", args: readonly string[], c: B
 /** The flags each subcommand takes (`value`: followed by one). An unknown one is refused, never ignored (PIE-660's rule). */
 export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> = {
   run: { bare: ["--drill", "--verbose"], value: [] },
-  snapshot: { bare: ["--force", "--verbose"], value: [] },
-  drill: { bare: ["--json"], value: ["--machine"] },
+  snapshot: { bare: ["--force", "--verbose"], value: ["--wait"] },
+  drill: { bare: ["--json", "--serve"], value: ["--machine"] },
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
-  restore: { bare: [], value: ["--machine", "--at", "--to"] },
+  restore: { bare: [], value: ["--machine", "--at", "--to", "--log", "--entry"] },
   copy: { bare: [], value: [] },
   receive: { bare: [], value: ["--machine", "--outline", "--sha256"] },
   follow: { bare: ["--once"], value: [] },
@@ -121,13 +122,16 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     const answer = (x: unknown) => { io.out(JSON.stringify(x)); };
     if (!MACHINE_NAME.test(machine) || machine === c.machine) { answer({ error: `${machine} isn't another machine's name` }); return 2; }
     if (!c.mirrors.some(m => m.machine === machine)) { answer({ error: `${c.machine} doesn't mirror ${machine}: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` }); return 2; }
-    const d = await drill(c, { machine, say: args.includes("--json") ? () => {} : say });
+    const d = await drill(c, { machine, say: args.includes("--json") ? () => {} : say, ...(args.includes("--serve") ? { serve: true } : {}) });
     if (args.includes("--json")) answer(d); else say(`${d.ok ? "✓" : "✗"} ${d.detail}`);
     return d.ok ? 0 : 1;
   }
   // The parts that write the job's state run one at a time, as the timer's run does (takeLock).
   if (sub === "snapshot" || sub === "drill") {
-    const release = takeLock(c);
+    // `--wait <seconds>` (install's rollback point, PIE-1800): a backup already running is waited for, said once.
+    const wait = sub === "snapshot" && flag(args, "--wait") !== undefined ? Number(flag(args, "--wait")) : 0;
+    if (!Number.isFinite(wait) || wait < 0) { io.err("ep0ch backup snapshot: --wait takes a number of seconds"); return 2; }
+    const release = wait > 0 ? await waitForLock(c, wait * 1000, pid => say(`· waiting for another backup command (pid ${pid}) to finish, up to ${wait} s`)) : takeLock(c);
     if (typeof release === "string") { io.err(`ep0ch backup: ${release}`); return 1; }
     try { return await stateful(sub, args, c, io); } finally { release(); }
   }
@@ -194,7 +198,9 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     }
     case "restore": {
       const outline = args[2], to = flag(args, "--to"), at = flag(args, "--at"), machine = flag(args, "--machine") ?? c.machine;
-      if (!outline || !OUTLINE_NAME.test(outline) || !to) { io.err(`ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>`); return 2; }
+      // `--log <id> --entry <n>` (install's rollback point, Codex on #1502): exactly that entry of that log, checked.
+      const logId = flag(args, "--log"), entryText = flag(args, "--entry"), entry = entryText === undefined ? undefined : Number(entryText);
+      if (!outline || !OUTLINE_NAME.test(outline) || !to || (entry !== undefined && (!Number.isSafeInteger(entry) || entry < 1 || !logId)) || (logId !== undefined && entry === undefined) || (entry !== undefined && at !== undefined)) { io.err(`ep0ch backup restore <outline> [--machine <name>] [--at <time> | --log <id> --entry <n>] --to <path>`); return 2; }
       const dest = resolve(to);
       if (existsSync(dest) || (() => { try { lstatSync(dest); return true; } catch { return false; } })()) { io.err(`ep0ch backup: ${dest} exists; restore writes a new file (pick another --to, or move that one away)`); return 2; }
       if (isInside(c.outlines, dest) || isInside(c.mirrorsDir, dest)) {
@@ -220,17 +226,22 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const skipped: string[] = [];
       try {
         for (const candidate of [...list].reverse()) {
+          // An exact entry: only a snapshot that reaches it in that log, its own or an older chain it holds (PIE-1806).
+          const folder = entry !== undefined ? folderFor(candidate, logId!, entry) : candidate.logId;
+          if (entry !== undefined && !folder) continue;
           const tmp = join(stage, `${candidate.id}.sqlite`);
           const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
           if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; skipped.push(why); continue; }
-          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(candidate.logId ? { logId: candidate.logId } : {}) }); snap = candidate; }
+          try { replayed = replayArchive(got.root, outline, tmp, { ...(when === null ? {} : { until: when }), ...(entry !== undefined ? { through: entry } : {}), ...(folder ? { logId: folder } : {}) }); snap = candidate; }
           catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; skipped.push(why); continue; }
+          // Short of it (a transaction the entry is in ran on past it in this snapshot): an older one may end there exactly.
+          if (entry !== undefined && replayed.lsn !== entry) { why = `the replay of ${candidate.id.slice(0, 8)} ends at entry ${replayed.lsn}, not ${entry}`; replayed = null; continue; }
           const verdict = integrity(tmp);
           if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
           try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
           break;
         }
-        if (!replayed) { io.err(`ep0ch backup: ${why}`); return 1; }
+        if (!replayed) { io.err(`ep0ch backup: ${why || (entry !== undefined ? `no snapshot of log ${logId} reaches entry ${entry}` : "nothing to restore")}`); return 1; }
       } finally { rmSync(stage, { recursive: true, force: true }); }
       say(`✓ ${outline} from ${machine}'s archive ${snap.id.slice(0, 8)}, replayed to entry ${replayed.lsn}${replayed.at ? ` (${hhmm(replayed.at)})` : ""}, ${replayed.rows.blocks ?? "?"} blocks → ${dest}; integrity ok`);
       // Not the newest: said, with how far it reaches, so a restore that falls short of --at never reads as complete.

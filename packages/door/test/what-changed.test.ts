@@ -76,16 +76,28 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(listed.changed.map((x: any) => [x.title, x.who, x.kind, x.agent, x.seen])).toEqual([
       ["Compost", "moss-agent", "edited", true, false], ["Beans", "fern-agent", "edited", true, false], ["Hens", "fern-agent", "edited", true, false],
     ]);
-    // Only the person marks them seen.
-    await expect(app.act({ action: "changes.seen", args: {}, as: "test-agent" })).rejects.toThrow();
+    // Only the person's own look marks them seen (no action does: changes.seen went with PIE-1506). An agent's second
+    // open, the tab already there, marks nothing either, and neither open raised the drawer.
+    expect(await app.act({ action: "changes.open", args: {}, as: "test-agent" })).toMatchObject({ changed: 3, seen: false });
     expect(app.whatChanged.count()).toBe(3);
+    expect(app.drawer.open).toBe(false);
   });
 
   test("a click on +N new opens the list in the drawer, the person's looking clears the count, the rows keep their mark", async () => {
-    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "new")!;
-    expect(at).not.toBeNull();
+    // While the agent's "opened what changed in the drawer" is up, the bar says it whole and holds its chips in +N
+    // (PIE-1598): +3 new is back when the message goes, and that is when the person clicks it. Where it is comes from
+    // the frame just painted, as the click's own hit does: asked of an older frame, the chip had no place and the click
+    // opened the message log (red in the nightly and after answer-pair in one process, PIE-1805).
+    (app as any).messageUntil = 0;   // the message has been read
+    await until(() => bar().includes("+3 new"), "+3 new back on the bar once the agent's message went");
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number; to?: number }[] }).items.find(i => i.id === "new")!;
+    expect([typeof at?.from, typeof at?.to]).toEqual(["number", "number"]);
     key({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 39 });
-    await until(() => app.whatChanged.count() === 0, "seen once the person looked");
+    // A timeout says where the click went, what the bar and the drawer were showing, and the bar's message whole.
+    await until(() => app.whatChanged.count() === 0, "seen once the person looked").catch(e => {
+      const drawn = bar();
+      throw new Error(`${e.message}: clicked ${at.from! + 1},39 for the new item at ${at.from}-${at.to}; count ${app.whatChanged.count()}; drawer open ${app.drawer.open}, tabs ${app.drawer.tabs().map(t => t.kind).join(",")}; the bar: ${drawn}; its message: ${(app as any).messageSaid?.text ?? "none"}`);
+    });
     expect(app.drawer.open).toBe(true);
     const tab = app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
     expect(tab).toBeDefined();

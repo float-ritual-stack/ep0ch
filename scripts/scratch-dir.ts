@@ -1,6 +1,6 @@
 // Scratch folders for tests, shared by every package's tests (the door's test/scratch.ts re-exports them, the
 // outliner's test/scratch-outline.ts uses them): a temp folder short enough for the sockets a test makes under it,
-// under any TMPDIR (agent-env's is long), with no .ep0ch above it. PIE-1654.
+// under any TMPDIR (agent-env's is long), with no .ep0ch above it (PIE-1654) and out of /tmp (PIE-1799).
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -16,28 +16,36 @@ export const alive = (pid: number) => {
  */
 const pidSpace = () => { try { return readlinkSync("/proc/self/ns/pid"); } catch { return ""; } };
 
+/** The short private folder scratch dirs go in when the temp folder can't hold them: `/var/tmp/ep0ch-<uid>`. */
+export const scratchFallback = () => `/var/tmp/ep0ch-${process.getuid?.() ?? 0}`;
+
 /**
- * Where scratch dirs go: the temp folder, unless it can't hold one. Two things make it unfit, both met under
- * `scripts/agent-env` (TMPDIR=~/.agent-env/<name>/tmp):
+ * Where scratch dirs go: the temp folder, unless it can't hold one. Three things make it unfit:
  * - a path so long that a session's sockets under it pass the unix socket limit, so its place is hashed into
- *   `sessions/~/` instead of the folder the tests check;
+ *   `sessions/~/` instead of the folder the tests check (agent-env's TMPDIR, ~/.agent-env/<name>/tmp or
+ *   /tmp/ep0ch-agent-<uid>/<name>);
  * - a `.ep0ch` above it (the person's `~/.ep0ch` names their real outline), which a folder that should name no
- *   outline would find walking up.
- * Then a short private folder of /tmp is used: `/tmp/ep0ch-<uid>` (mode 700, this user's).
+ *   outline would find walking up;
+ * - /tmp, or anywhere under it: bun lists every folder above a program as it starts it, and /tmp is where every run
+ *   leaves its folders, so each extension process a scratch host started read all of /tmp (514,517 entries on
+ *   float-box, Nov 13: "board: detail" spent its 60 s on it, PIE-1799).
+ * Then `scratchFallback()` is used (mode 700, this user's), whose folders above hold little.
  */
 export function scratchRoot(base = tmpdir()): string {
   // The folder as it is on disk (a symlinked temp folder is checked where it really is), in bytes, as sockets count.
   const real = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
   const named = (dir: string): boolean => existsSync(join(dir, ".ep0ch")) || (dirname(dir) !== dir && named(dirname(dir)));
-  const fits = (p: string) => Buffer.byteLength(p) <= SCRATCH_BASE_MAX && !named(real(p));
+  const inTmp = (p: string) => ["/tmp", "/private/tmp"].some(t => p === t || p.startsWith(`${t}/`));
+  const fits = (p: string) => Buffer.byteLength(p) <= SCRATCH_BASE_MAX && !named(real(p)) && !inTmp(resolve(p)) && !inTmp(real(p));
   if (fits(base) && fits(real(base))) return base;
-  const uid = process.getuid?.() ?? 0, dir = `/tmp/ep0ch-${uid}`;
+  const uid = process.getuid?.() ?? 0, dir = scratchFallback();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const st = lstatSync(dir);
   if (!st.isDirectory() || st.uid !== uid || (st.mode & 0o077)) throw new Error(`${dir} isn't this user's alone (no access for others): scratch dirs can't go there`);
   if (named(dir)) throw new Error(`a .ep0ch above ${dir} names an outline: scratch dirs can't go under it`);
   return dir;
 }
+
 /**
  * The longest temp folder (bytes) a scratch dir goes in: the deepest socket the tests make under it,
  * `<base>/ep0ch-scratch-XXXXXX/door/sessions/socket-<10 hex>/scratch/door-<7 digits>.sock`, is 79 bytes past it, so

@@ -116,7 +116,8 @@ describe.skipIf(!outliner)("the home base", () => {
       h.type("n");
       await Bun.sleep(300);
       h.type("\x15meadow\r");
-      await h.on(p => p.text?.some((line: string) => line.includes("service manager refused")), "the start failure on the status line", 5000);
+      // The failure names the unit's path, so where it wraps follows the scratch folder's length: read it across its rows.
+      await h.on(p => p.text?.join(" ").replace(/\s+/g, " ").includes("service manager refused"), "the start failure on the status line", 5000);
       expect(existsSync(join(home, "outlines/meadow.sqlite"))).toBe(false);
       unlinkSync(join(home, "fail"));
       h.type("r");

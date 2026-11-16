@@ -1,0 +1,7 @@
+### A deploy at any hour marks rollback points, and the nightly keeps /tmp clear by itself (PIE-1800, PIE-1799)
+
+- **Install waits for a running backup:** with the scheduled backup holding the job's lock, install's rollback point waits for it (up to 10 min, `ep0ch backup snapshot --wait 600`), saying "waiting for another backup command (pid N) to finish" live and in its record, then archives its own point. It copies only past the wait, saying the backup was still running. `EP0CH_INSTALL_BACKUP_WAIT` (seconds) overrides the wait.
+- **One lock waiter:** `waitForLock` serves the relay and the snapshot; `lockOrHolder` gives the holder's pid, so no caller reads the refusal's words.
+- **Scratch folders are out of /tmp:** `scripts/scratch-dir.ts` puts them in `/var/tmp/ep0ch-<uid>` whenever the temp folder is /tmp or under it. Bun lists every folder above a program as it starts, so each extension process a scratch host started read all of /tmp: 24 ms a start at today's 32,546 entries, against 4 ms under the new root. Traced, "board: detail" listed /tmp 86 times before and none after.
+- **The nightly sweeps first:** `scripts/nightly-main` runs `scripts/scratch-clean --old` before the suite; a failed sweep is said in the journal and the night goes on. `--old`, `scratch-clean` and the repository mod's cleanup know the new root and keep the old one for its leftovers.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; no PROTOCOL, GRAMMAR or schema change. float-box's nightly picks the sweep up from `~/projects/ep0ch` once it moves.

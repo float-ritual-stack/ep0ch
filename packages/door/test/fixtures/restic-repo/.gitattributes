@@ -1,0 +1,2 @@
+config binary
+keys/* -diff

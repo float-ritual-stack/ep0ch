@@ -104,7 +104,9 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
     if (!whole.length) { out.push(""); joins?.push(undefined); continue; }
     // A property token that fits a row is not broken across two: colourBody colours a row alone, so a half of a
     // chip would be drawn as plain text. Its spaces are held as NBSP-like placeholders while the line is cut.
-    const raw = whole.includes("::") ? replacePropertyTokens(whole, t => (len(t.raw) <= w ? t.raw.replace(/\s/g, HELD) : t.raw)) : whole;
+    // A no-break space (U+00A0) holds its two words on one row the same way ("R now", PIE-1802), drawn as a space.
+    const tokens = whole.includes("::") ? replacePropertyTokens(whole, t => (len(t.raw) <= w ? t.raw.replace(/\s/g, HELD) : t.raw)) : whole;
+    const raw = tokens.includes("\u00a0") ? tokens.replaceAll("\u00a0", HELD) : tokens;
     // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
     // long paragraph's wrap quadratic).
     let line = "", n = 0;

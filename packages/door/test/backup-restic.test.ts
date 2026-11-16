@@ -6,14 +6,15 @@
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { alertMark, type BackupState, CHECK_LATE_MS, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
+import { alertMark, type BackupState, CHECK_LATE_MS, drillStandsIn, followedCopies, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseMirrors, RUN_LIMIT_MS } from "../src/backup/config";
 import { backupCommand, parseAt, pick, statusLines } from "../src/backup/cli";
 import { archiveRoot, ensureRepo, hostCopy, runAll, snapshot, takeLock } from "../src/backup/jobs";
+import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
 import { canonicalDump } from "@ep0ch/outliner/change-log";
-import { forget, parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
+import { forget, HELD_CHAINS, KEEP, parseSnapshots, resticArgv, runRestic, snapshots, summaryId } from "../src/backup/restic";
 import { verdict } from "../src/backup/verdict";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -76,16 +77,26 @@ function machine(name: string, extra: Record<string, string> = {}): BackupConfig
 }
 
 /**
- * The repositories the tests below back up to, made together before them (PIE-1762): restic's init is about 3 s of
- * one core each, and fourteen in turn were 41 s of this file. laptop's own is left to its first run, which makes it.
+ * The repositories the tests below back up to, there before them: copies of `fixtures/restic-repo`, an empty
+ * repository restic made, whose key costs 0.04 s of a core to open. One restic makes on a quiet machine costs 0.5 s for
+ * every command, by design (its key is tuned to the machine at init), and 3 s to make: the 130 commands of this file
+ * were most of its time, more or less of it with the load each repository happened to be made under (PIE-1804; the
+ * fixture's README says how it was made). The first test's other repository is left to its first run, which makes it.
  */
-const MADE_AHEAD = ["shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault"];
+const MADE_AHEAD = ["laptop", "shed", "harbor", "allotment", "cold-frame", "greenhouse", "orchard", "quince", "medlar", "pear", "damson", "vinery", "vault", "bothy", "croft"];
+const EMPTY_REPO = join(import.meta.dir, "fixtures", "restic-repo");
 beforeAll(async () => {
   if (!RESTIC) return;
-  const repos = MADE_AHEAD.map(name => { const c = machine(name); return [c, c.repoOf(name)] as const; });
-  repos.push([machine("laptop"), join(root, "repos-other", "laptop")]);   // the first test's other repository
-  const made = await Promise.all(repos.map(([c, repo]) => ensureRepo(c, repo, () => {})));
-  expect(made.filter(Boolean)).toEqual([]);
+  for (const name of MADE_AHEAD) {
+    const repo = machine(name).repoOf(name);
+    for (const dir of ["data", "index", "keys", "locks", "snapshots"]) mkdirSync(join(repo, dir), { recursive: true });
+    cpSync(join(EMPTY_REPO, "config"), join(repo, "config"));
+    cpSync(join(EMPTY_REPO, "keys"), join(repo, "keys"), { recursive: true });
+  }
+  // Each is a repository restic opens with the tests' password: nothing is made again.
+  const said: string[] = [];
+  const made = await Promise.all(MADE_AHEAD.map(name => { const c = machine(name); return ensureRepo(c, c.repoOf(name), l => said.push(l)); }));
+  expect([made.filter(Boolean), said]).toEqual([[], []]);
 }, 120_000);
 
 describe("settings", () => {
@@ -222,9 +233,10 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     // The archive is the log, as segments of whole ranges, in the job's state.
     expect(existsSync(join(archiveRoot(laptop, "laptop"), "garden", s.outlines.garden!.logId!))).toBe(true);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [], relayed: [] });
-    // Another repository starts every outline over: nothing counts as backed up there.
+    // Another repository starts every outline over: nothing counts as backed up there. Nobody made this one: the run does.
     const elsewhere = { ...laptop, repoOf: (m: string) => join(root, "repos-other", m) };
     expect((await snapshot(elsewhere, { ...s, outlines: { ...s.outlines } }, { say })).uploaded).toEqual(["garden", "pantry"]);
+    expect(said.filter(l => l.startsWith("made the repository"))).toEqual([`made the repository ${join(root, "repos-other", "laptop")}`]);
     await write(laptop, "garden", ["Stake the peas"]);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden"], failed: [], relayed: [] });
     expect(s.outlines.garden!.seq).toBeGreaterThan(first);
@@ -248,6 +260,57 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(err.at(-1)).toContain("no genesis");
     expect(await backupCommand(["backup", "list", "garden"], io, env)).toBe(0);
     expect(out.filter(l => /log entry \d/.test(l)).length).toBeGreaterThanOrEqual(2);
+  }, 120_000);
+
+  test("a snapshot asked to wait waits for a backup already running, says so, and stops only when it outlasts the wait (PIE-1800)", async () => {
+    const out: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => out.push(l) };
+    // The scheduled run holds the job's lock (as the timer's would while install deploys), and lets go once the
+    // snapshot has said it waits.
+    let release = takeLock(laptop) as () => void;
+    expect(typeof release).toBe("function");
+    const waited = { out: (l: string) => { out.push(l); if (l.includes("waiting for another backup command")) release(); }, err: io.err };
+    expect(await backupCommand(["backup", "snapshot", "--wait", "2"], waited, laptop.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/waiting for another backup command \(pid \d+\) to finish, up to 2 s/);
+    // One that outlasts the wait: stopped, saying it was still running.
+    out.length = 0;
+    release = takeLock(laptop) as () => void;
+    try { expect(await backupCommand(["backup", "snapshot", "--wait", "1"], io, laptop.env)).toBe(1); } finally { release(); }
+    expect(out.join("\n")).toMatch(/another backup command \(pid \d+\) was still running after 1 s/);
+  }, 120_000);
+
+  test("a rollback point restores to exactly its entry, however much was archived after it (Codex on #1502)", async () => {
+    const s = readBackupState(laptop.state);
+    await write(laptop, "garden", ["Sow the radishes"]);
+    expect((await snapshot(laptop, s, { say })).uploaded).toContain("garden");
+    writeBackupState(laptop.state, s);
+    const point = { logId: s.outlines.garden!.logId!, seq: s.outlines.garden!.seq! };
+    // Later writes, archived in a later snapshot: the point still restores to its own entry, not the newest.
+    await write(laptop, "garden", ["Thin the radishes", "Net the carrots"]);
+    expect((await snapshot(laptop, s, { say })).uploaded).toContain("garden");
+    writeBackupState(laptop.state, s);
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const to = join(root, "point", "garden.sqlite");
+    expect(await backupCommand(["backup", "restore", "garden", "--log", point.logId, "--entry", String(point.seq), "--to", to], io, laptop.env)).toBe(0);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    expect(holds(to, "Sow the radishes")).toBe(true);
+    expect(holds(to, "Net the carrots")).toBe(false);
+    // An entry no snapshot of that log reaches, or another log: nothing written.
+    expect(await backupCommand(["backup", "restore", "garden", "--log", point.logId, "--entry", String(s.outlines.garden!.seq! + 1000), "--to", join(root, "point", "beyond.sqlite")], io, laptop.env)).toBe(1);
+    expect(err.at(-1)).toContain("reaches entry");
+    expect(await backupCommand(["backup", "restore", "garden", "--entry", String(point.seq), "--to", join(root, "point", "nolog.sqlite")], io, laptop.env)).toBe(2);
+    // Install's check of the points after its archive: every outline uploaded, or why not.
+    const { rollbackPoints } = await import("../src/setup/apply");
+    expect(rollbackPoints(s, ["garden", "pantry"])).toMatchObject({ points: [{ name: "garden", seq: s.outlines.garden!.seq }, { name: "pantry" }] });
+    expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, snapshot: undefined, relayed: { via: "hub", uploaded: false } } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("relayed to hub, not uploaded") });
+    expect(rollbackPoints({ outlines: { ...s.outlines, garden: { ...s.outlines.garden!, pendingSince: "2026-11-13T00:00:00Z" } } }, ["garden"])).toMatchObject({ why: expect.stringContaining("changes not uploaded") });
+    expect(rollbackPoints(s, ["garden", "cellar"])).toMatchObject({ why: expect.stringContaining("cellar (not archived)") });
+    // The drill rechecked against the logs this archive took: one it never replayed is no rollback point (Codex on #1502).
+    const drilled = { at: new Date().toISOString(), ok: true, detail: "served", repo: "/scratch/repo", machine: "laptop", served: [{ outline: "garden", logId: s.outlines.garden!.logId!, restoreMs: 1, replayMs: 1, serveMs: 1, blocks: 1 }, { outline: "pantry", logId: "a-log-restored-since", restoreMs: 1, replayMs: 1, serveMs: 1, blocks: 1 }] };
+    const gate = { repo: "/scratch/repo", machine: "laptop", now: Date.now() };
+    expect(rollbackPoints({ ...s, drill: drilled }, ["garden", "pantry"], gate)).toMatchObject({ why: expect.stringContaining("didn't cover pantry") });
+    expect(rollbackPoints({ ...s, drill: { ...drilled, served: drilled.served.map(t => ({ ...t, logId: s.outlines[t.outline]!.logId! })) } }, ["garden", "pantry"], gate)).toMatchObject({ points: [{ name: "garden" }, { name: "pantry" }] });
   }, 120_000);
 
   test("a restore from the archive holds what the live outline holds", async () => {
@@ -301,6 +364,30 @@ describe.skipIf(!RESTIC)("archives and restores against a local restic repositor
     expect(out.join("\n")).toMatch(/garden ok \(\d+ blocks, entry \d+/);
     expect(out.join("\n")).toMatch(/pantry ok \(\d+ blocks/);
     expect(readBackupState(join(root, "laptop", "state", "backup")).drill?.ok).toBe(true);
+  }, 120_000);
+
+  test("a served drill opens each restored outline with a scratch host of its own and reads it, timed; install then stops copying (PIE-1786)", async () => {
+    const out: string[] = [];
+    const env = laptop.env;
+    const code = await backupCommand(["backup", "drill", "--serve"], { out: s => out.push(s), err: s => out.push(s) }, env);
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/garden ok \(\d+ blocks.*served by a scratch host: \d+ notes read \(restore [\d.]+ s, replay [\d.]+ s, open and read [\d.]+ s\)/);
+    const drill = readBackupState(join(root, "laptop", "state", "backup")).drill!;
+    expect(drill.ok).toBe(true);
+    expect(drill.served?.map(t => t.outline).sort()).toEqual(["garden", "pantry"]);
+    expect(drill.served!.every(t => t.serveMs >= 0 && t.blocks !== null && t.blocks > 0)).toBe(true);
+    // The gate install reads: a passing served drill stands in for its copies, for 7 days, for what it covered.
+    expect(drill.repo).toBeTruthy();
+    const at = Date.parse(drill.at);
+    const inventory = { repo: drill.repo!, machine: drill.machine!, outlines: drill.served!.map(t => ({ name: t.outline, logId: t.logId })) };
+    expect(drillStandsIn({ drill }, at, inventory)).toEqual({ ok: true });
+    expect(drillStandsIn({ drill }, at + 8 * 86_400_000, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("more than 7 days ago") });
+    expect(drillStandsIn({ drill: { ...drill, served: undefined } }, at, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("didn't serve") });
+    expect(drillStandsIn(null, 0, inventory)).toMatchObject({ ok: false, why: expect.stringContaining("no restore drill") });
+    // Codex on #1502: an outline made since the drill, a log begun again, another repository: each copies.
+    expect(drillStandsIn({ drill }, at, { ...inventory, outlines: [...inventory.outlines, { name: "cellar" }] })).toMatchObject({ ok: false, why: expect.stringContaining("didn't cover cellar") });
+    expect(drillStandsIn({ drill }, at, { ...inventory, outlines: inventory.outlines.map(o => o.name === "garden" ? { ...o, logId: "another-log" } : o) })).toMatchObject({ ok: false, why: expect.stringContaining("didn't cover garden") });
+    expect(drillStandsIn({ drill }, at, { ...inventory, repo: "/elsewhere/repo" })).toMatchObject({ ok: false, why: expect.stringContaining("not ") });
   }, 120_000);
 
   test("`backup run` at a terminal: each step spins and ends with its time, as install's do; piped, the plain lines", async () => {
@@ -510,6 +597,112 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     expect(r.ok).toBe(true);
     expect(said.filter(l => /✓ damsons \(log entry/.test(l))).toHaveLength(1);
     expect(said.some(l => l.startsWith("cleared a stale restic lock"))).toBe(true);
+  }, 120_000);
+
+  test("a log begun again: once a snapshot holds the old chain, it leaves local staging; restic still restores it, and the drill passes (PIE-1806)", async () => {
+    const c = await served(machine("bothy"));
+    await write(c, "seeds", ["Sort the seed packets", "Label the trays"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.seeds!;
+    const old = { logId: was.logId!, seq: was.seq! };
+    // Archived here past its last upload (that upload failed), then made again (as a migration or an import begins a
+    // new log): a new log id, and the old chain's last entries are only here and in the snapshot that holds it next.
+    const broken = machine("bothy", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "seeds", ["Water the trays"]);
+    expect((await job(broken)).ok).toBe(false);
+    const tail = archivedCursor(archiveRoot(c, c.machine), "seeds", old.logId)!.lsn;
+    expect(tail).toBeGreaterThan(old.seq);
+    await hostRequest(c.host, "outlines.delete", { name: "seeds" });
+    await write(c, "seeds", ["Sow the chard"]);
+    const staged = join(archiveRoot(c, c.machine), "seeds");
+    // An upload that fails confirms nothing: the old chain stays.
+    expect((await job(broken)).ok).toBe(false);
+    expect(readdirSync(staged)).toContain(old.logId);
+    // (A copy of the old chain, to put back below as a quiet outline's leftover.)
+    cpSync(join(staged, old.logId), join(root, "bothy-aside", old.logId), { recursive: true });
+    // The upload confirmed: the snapshot took every chain, and the old one goes from here, said with its size.
+    const said: string[] = [];
+    expect((await job(c, { say: l => said.push(l) })).ok).toBe(true);
+    const s = readBackupState(c.state);
+    expect(s.outlines.seeds!.logId).not.toBe(old.logId);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    expect(said.filter(l => l.includes("old log chain"))).toEqual([expect.stringMatching(new RegExp(`^✓ seeds: let go of 1 old log chain here \\(${old.logId.slice(0, 8)} [\\d.]+ [kM]?B\\); the repository holds it$`))]);
+    expect(s.lastRun!.detail).toMatch(new RegExp(`let go seeds's ${old.logId.slice(0, 8)} [\\d.]+ [kM]?B here`));
+    // A quiet outline (its log didn't move) whose newest snapshot is confirmed lets go too, on a run that uploads nothing:
+    // float-2's first run after the deploy, for outlines nobody wrote to.
+    cpSync(join(root, "bothy-aside", old.logId), join(staged, old.logId), { recursive: true });
+    const quiet: string[] = [];
+    expect((await job(c, { say: l => quiet.push(l) })).ok).toBe(true);
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([expect.stringContaining(`✓ seeds: let go of 1 old log chain here (${old.logId.slice(0, 8)} `)]);
+    expect(readBackupState(c.state).lastRun!.detail).toContain(`let go seeds's ${old.logId.slice(0, 8)} `);
+    expect(readdirSync(staged)).toEqual([s.outlines.seeds!.logId!]);
+    // Then there is nothing more to let go.
+    quiet.length = 0;
+    await job(c, { say: l => quiet.push(l) });
+    expect(quiet.filter(l => l.includes("old log chain"))).toEqual([]);
+    // The old log's history is restic's now: its exact entry restores from the repository.
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const to = join(root, "bothy-restored", "seeds.sqlite");
+    const code = await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(old.seq), "--to", to], io, c.env);
+    expect([code, err]).toEqual([0, []]);
+    expect(holds(to, "Label the trays")).toBe(true);
+    expect(holds(to, "Water the trays")).toBe(false);
+    expect(holds(to, "Sow the chard")).toBe(false);
+    // The snapshot that let it go names the chain to its last entry, and retention keeps every such snapshot for good.
+    const list = await snapshots(c, c.repoOf(c.machine), { all: true, outline: "seeds" });
+    expect("error" in list ? list : list.filter(x => x.chains?.[old.logId] === tail).length).toBeGreaterThan(0);
+    expect(KEEP.slice(-2)).toEqual(["--keep-tag", HELD_CHAINS]);
+    // Its last entries, which only the new log's snapshot holds (CodeRabbit on #1522): that snapshot names the chain.
+    const last = join(root, "bothy-restored", "seeds-tail.sqlite");
+    expect(await backupCommand(["backup", "restore", "seeds", "--log", old.logId, "--entry", String(tail), "--to", last], io, c.env)).toBe(0);
+    expect(holds(last, "Water the trays")).toBe(true);
+    expect(holds(last, "Sow the chard")).toBe(false);
+    // And the served drill still passes on the current chain.
+    expect(await backupCommand(["backup", "drill", "--serve"], io, c.env)).toBe(0);
+    expect(out.join("\n")).toMatch(/seeds ok \(\d+ blocks.*served by a scratch host/);
+  }, 120_000);
+
+  test("every rollback point of an old log restores from the snapshot that let it go: a chain set aside at a gap, an entry inside a transaction that ran on (Codex on #1522)", async () => {
+    const c = await served(machine("croft"));
+    await write(c, "beds", ["Dig the beds", "Rake the beds"]);
+    expect((await job(c)).ok).toBe(true);
+    const was = readBackupState(c.state).outlines.beds!;
+    const point = { logId: was.logId!, seq: was.seq! };
+    // Archived past that point by a run whose upload failed.
+    const broken = machine("croft", { EP0CH_RESTIC: "/bin/false" });
+    await write(c, "beds", ["Edge the beds"]);
+    expect((await job(broken)).ok).toBe(false);
+    const root0 = archiveRoot(c, c.machine), staged = join(root0, "beds");
+    const entries = archivedRanges(root0, "beds", point.logId).flatMap(r => r.entries);
+    const tail = entries.at(-1)!.lsn;
+    // The point's transaction ran on into the next write (the log's txn ids, as the host writes them): a replay that
+    // keeps whole transactions alone would stop short of it.
+    const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
+    expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
+    // Set aside at a gap (`<log>~<entry>`, as the job names a chain the host compacted past), then a new log begun.
+    renameSync(join(staged, point.logId), join(staged, `${point.logId}~${tail}`));
+    await hostRequest(c.host, "outlines.delete", { name: "beds" });
+    await write(c, "beds", ["Sow the leeks"]);
+    expect((await job(c)).ok).toBe(true);
+    expect(readdirSync(staged)).toEqual([readBackupState(c.state).outlines.beds!.logId!]);
+    // Retention let the old log's own snapshots go: the one that let the chain go is all there is of it.
+    const repo = c.repoOf(c.machine);
+    const list = await snapshots(c, repo, { all: true, outline: "beds" });
+    if ("error" in list) throw new Error(list.error);
+    for (const x of list.filter(x => x.logId === point.logId)) expect((await runRestic(c, repo, ["forget", x.id])).code).toBe(0);
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const restore = (entry: number, file: string) => backupCommand(["backup", "restore", "beds", "--log", point.logId, "--entry", String(entry), "--to", join(root, "croft-restored", file)], io, c.env);
+    expect([await restore(tail, "tail.sqlite"), err]).toEqual([0, []]);
+    expect(holds(join(root, "croft-restored", "tail.sqlite"), "Edge the beds")).toBe(true);
+    expect([await restore(point.seq, "point.sqlite"), err]).toEqual([0, []]);
+    expect(out.at(-1)).toContain(`replayed to entry ${point.seq} `);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Rake the beds")).toBe(true);
+    expect(holds(join(root, "croft-restored", "point.sqlite"), "Edge the beds")).toBe(false);
+    // The restored outline is forked from the old log under its own id, not the folder's set-aside name.
+    const db = new Database(join(root, "croft-restored", "point.sqlite"), { readonly: true });
+    try { expect(JSON.parse((db.query("SELECT forked_from FROM log_state").get() as { forked_from: string }).forked_from).logId).toBe(point.logId); } finally { db.close(); }
   }, 120_000);
 
   test("a prune that finishes is once a day; two failed in a row is an incident", async () => {

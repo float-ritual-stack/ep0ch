@@ -251,11 +251,14 @@ test("an unanswered link falls through to SSH and an unreachable machine explain
   } finally { connector.stop(); await server.stop(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
 
-test("a silent broken connection is replaced within a minute", async () => {
+// The default heartbeat (a ping every 10 s, ended after 25 s of silence) replaces a silent link within a minute; this
+// drives the same machinery at a tenth of it, so the file stays inside its budget (PIE-1788).
+test("a silent broken connection is replaced within its heartbeat's dead time", async () => {
   const here = new ScratchHost(), laptop = new ScratchHost();
   await here.start(); await laptop.start(); await laptop.create("garden");
   const messages: string[] = [];
-  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {} });
+  const heartbeat = { everyMs: 1_000, deadMs: 2_500 };
+  const server = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, heartbeat });
   const sockets = new Set<Socket>();
   let cut = () => {};
   const proxy = createServer(client => {
@@ -272,17 +275,17 @@ test("a silent broken connection is replaced within a minute", async () => {
   });
   await new Promise<void>(resolve => proxy.listen(0, "127.0.0.1", resolve));
   const port = (proxy.address() as import("node:net").AddressInfo).port;
-  const connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "travel", key: "fictional-key", host: laptop.sock, log: line => messages.push(line) });
+  const connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "travel", key: "fictional-key", host: laptop.sock, heartbeat, log: line => messages.push(line) });
   try {
     await until(() => messages.filter(m => m.includes(" up since ")).length === 1, "initial link");
     cut();
-    await until(() => messages.filter(m => m.includes(" up since ")).length === 2, "silent link replaced within a minute", 59_000);
+    await until(() => messages.filter(m => m.includes(" up since ")).length === 2, "silent link replaced", 10_000);
     await untilAsync(() => hostAnswers(join(here.outlines, ".remote/travel.sock")), "the link carries the machine's socket");
   } finally {
     connector.stop(); for (const socket of sockets) socket.destroy(); proxy.close();
     await server.stop(); await here.dispose(); await laptop.dispose();
   }
-}, 65_000);
+}, 30_000);
 
 test("the connector recovers after a refused dial and status keeps the last connection on both ends", async () => {
   const here = new ScratchHost(), laptop = new ScratchHost();

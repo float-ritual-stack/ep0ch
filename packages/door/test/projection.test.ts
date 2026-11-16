@@ -14,7 +14,7 @@ import { subject, type Msg } from "../src/board";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
-import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { drawingPending, drawnPresses, fetchFailedWords, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import { bindExtensions, type ExtensionList } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu, MessageReader } from "../src/screens";
@@ -29,6 +29,7 @@ import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
+import { wrap } from "../src/text";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;:]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -551,4 +552,18 @@ describe("the presses a note's render scripts drew (button.press note=)", () => 
     expect(drawingPending(read(line(1, { output: drawing(view) })))).toBe(false);
     expect(drawingPending(read(line(1, { status: "error", reason: "boom" })))).toBe(false);
   });
+});
+
+// PIE-1802: "R now" is one thing to read, so no width breaks it; every failure line keeps it on one row.
+test("a failed fetch's line keeps its key and 'now' on one row at every width", () => {
+  for (const fetchError of ["Jira answered 500", "provider request failed", "Jira didn't answer in time", "Jira has no PC-9, or you can't see it"]) {
+    for (const fetchRetry of ["poll", "hourly"] as const) {
+      const line = `  ${fetchFailedWords({ fetchError, fetchRetry })}`;
+      for (let w = 20; w <= 100; w++) {
+        const rows = wrap(line, w);
+        expect({ w, rows: rows.filter(r => /(^|\s)R$/.test(r.trimEnd())) }).toEqual({ w, rows: [] });
+        expect(rows.join(" ")).not.toContain(" ");
+      }
+    }
+  }
 });

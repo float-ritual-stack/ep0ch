@@ -17,13 +17,13 @@ import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { archivedCursor, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
+import { archivedCursor, letGoOtherChains, otherChains, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
 import { type Alert, type BackupState, followedCopies, type Commands, DRILL_EVERY_MS, type ForgetState, hhmm, type Incident, incidents, FORGET_EVERY_MS, nextAlert, PRUNE_EVERY_MS, PRUNE_RETRY_MS, readAlert, readBackupState, readDiskIncidents, writeAlert, writeBackupState } from "./alert";
 import { type BackupConfig, RUN_LIMIT_MS } from "./config";
 import { plainReason, repoHost } from "./plain";
-import { failedLine, moment, relayedLine } from "./verdict";
+import { chainsLine, failedLine, letGoLine, moment, relayedLine } from "./verdict";
 import { backupFolder, complaint, forget, LOCKED, lockHolder, NO_REPO, prune, type Ran, restoreArchive, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
@@ -116,8 +116,12 @@ export async function newRanges(c: Pick<BackupConfig, "host" | "state" | "machin
  * repository can't be reached (a probe of its host fails, or restic's upload does) and a hub is named (EP0CH_MCP_HUB),
  * the new entries go to the hub instead, over ssh: it archives them and uploads them on this machine's behalf
  * (relay.ts). A relayed outline is `relayed`, not `failed`: its log is off this machine and checked.
+ * An outline whose folder still holds an older chain (an earlier log, PIE-1806) is uploaded whatever its log did, with
+ * each such chain named in the snapshot's tags (to its newest entry here), and once that upload lands the chains it
+ * names leave this machine: a restore of that log finds them there. A relay doesn't: it sends the current chain only.
+ * `trimmed` says which went, with their sizes.
  */
-export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ uploaded: string[]; failed: string[]; relayed: string[] }> {
+export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<Snapshotted> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [], relayed: string[] = [];
@@ -142,6 +146,8 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   o.step?.(`archiving the log of ${outlines.length} outline${outlines.length === 1 ? "" : "s"}`);
   // Each outline's new entries into its archive, here, first: what is archived is kept whatever the upload does.
   const changed: { name: string; logId: string; lsn: number; schema: number; ranges: LogRange[] }[] = [];
+  const trimmed: NonNullable<Snapshotted["trimmed"]> = [];
+  const done = (): Snapshotted => ({ uploaded, failed, relayed, ...(trimmed.length ? { trimmed } : {}) });
   for (const x of outlines) {
     const st = s.outlines[x.name] ??= {};
     try {
@@ -149,12 +155,14 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       writeSegment(archiveRoot(c, c.machine), x.name, got.ranges);
       const lsn = got.ranges.flatMap(r => r.entries).at(-1)?.lsn ?? got.held;
       // Moved: entries the repository doesn't hold yet (this run's, or an earlier run's whose upload failed).
-      const moved = o.force || st.relayed?.uploaded === false || st.logId !== got.logId || st.seq !== lsn || st.schema !== got.schema;
+      // An older chain still here is uploaded once more, named, so it can go (not while relaying: the hub gets the current chain only).
+      const leftover = !st.relayed && otherChains(archiveRoot(c, c.machine), x.name, got.logId).length > 0;
+      const moved = o.force || leftover || st.relayed?.uploaded === false || st.logId !== got.logId || st.seq !== lsn || st.schema !== got.schema;
       if (moved) { st.pendingSince ??= new Date(now()).toISOString(); changed.push({ name: x.name, logId: got.logId, lsn, schema: got.schema, ranges: got.ranges }); }
       else { delete st.pendingSince; delete st.error; note(`${x.name}: unchanged since entry ${st.seq ?? "?"}${st.at ? ` (${moment(st.at)})` : ""}, nothing to send`); }
     } catch (e) { st.pendingSince ??= new Date(now()).toISOString(); st.error = `archiving ${x.name}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); }
   }
-  if (!changed.length) { if (!failed.length) say(`no outline's log moved since its newest upload (${outlines.map(x => x.name).join(", ") || "none here"})`); return { uploaded, failed, relayed }; }
+  if (!changed.length) { if (!failed.length) say(`no outline's log moved since its newest upload (${outlines.map(x => x.name).join(", ") || "none here"})`); return done(); }
   // The repository, or why not: a quick look at its host first when there's a hub to relay through (restic itself waits minutes).
   let direct: string | null = (c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null) ?? null;
   if (!direct) direct = await ensureRepo(c, repo, say);
@@ -166,13 +174,17 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     if (!why) {
       o.step?.(`${x.name}: uploading its archive to restic`);
       const began = Date.now();
-      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema, c.machine, x.logId);
+      // The older chains as they are now: the snapshot names each to its newest entry, and only those go after it lands.
+      const held = otherChains(archiveRoot(c, c.machine), x.name, x.logId);
+      const r = await backupFolder(c, repo, join(archiveRoot(c, c.machine), x.name), x.name, x.lsn, x.schema, c.machine, x.logId, held);
       if ("error" in r) { why = direct = r.error; note(`${x.name}: direct upload to ${repoHost(repo)} failed after ${((Date.now() - began) / 1000).toFixed(1)}s: ${r.error}`); }
       else {
         if (r.cleared) say(`cleared a stale restic lock (${r.cleared})`);
         Object.assign(st, { seq: x.lsn, logId: x.logId, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
         // Uploaded: what came before the newest genesis is in the repository's earlier snapshots, and goes from here.
         trimArchive(archiveRoot(c, c.machine), x.name, x.logId);
+        const gone = letGoOtherChains(archiveRoot(c, c.machine), x.name, x.logId, held);
+        if (gone.length) { trimmed.push({ outline: x.name, chains: gone }); say(letGoLine(x.name, gone)); }
         delete st.pendingSince; delete st.error; delete st.relayed;
         uploaded.push(x.name);
         note(`${x.name}: sent direct to ${repoHost(repo)} in ${((Date.now() - began) / 1000).toFixed(1)}s`);
@@ -191,6 +203,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
         delete st.snapshot; delete st.pendingSince; delete st.error;
         relayed.push(x.name);
         say(relayedLine(x.name, x.lsn, c.hub, why!, !!r.snapshot, { repo, ...(r.uploadError ? { uploadError: r.uploadError } : {}) }));
+        if (r.trimmed?.length) say(`· ${c.hub} let go of ${x.name}'s older log chains there (${chainsLine(r.trimmed)}); the repository holds them`);
         continue;
       }
       st.error = `${why}; relaying through ${c.hub} failed: ${r.error ?? "?"}`;
@@ -198,8 +211,11 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     failed.push(x.name);
     say(failedLine(x.name, st.error!, { repo, hub: c.hub }));
   }
-  return { uploaded, failed, relayed };
+  return done();
 }
+
+/** What a snapshot did: the outlines uploaded, failed and relayed, and the old chains let go here, when any were. */
+export interface Snapshotted { uploaded: string[]; failed: string[]; relayed: string[]; trimmed?: { outline: string; chains: { chain: string; bytes: number }[] }[] }
 
 /** What a run stopped before its forget or prune returned (systemd's limit, a reboot, a deploy) leaves on record. */
 export const INTERRUPTED = "stopped before it finished (the run's time limit, a reboot or a deploy)";
@@ -264,7 +280,15 @@ function counted(was: ForgetState | undefined, r: Ran & { cleared?: string; unlo
 }
 
 /** Each outline's newest archive (this machine's repository) restored into a temp folder, replayed and checked. */
-export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string } = {}): Promise<{ ok: boolean; detail: string }> {
+/** A served drill's times for one outline (PIE-1786): restic's restore, the replay, and a scratch host opening it to read. */
+export interface DrillTimes { outline: string; logId: string | null; restoreMs: number; replayMs: number; serveMs: number; blocks: number | null }
+
+/**
+ * The restore drill: each outline's newest archive restored into a temp folder, replayed and checked. `serve` (PIE-1786)
+ * also opens each replayed file with a scratch outline host of its own (its own folder and socket, read-only) and reads
+ * its notes through it, timing each part: the proof install needs before it stops copying outlines.
+ */
+export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string; serve?: boolean } = {}): Promise<{ ok: boolean; detail: string; served?: DrillTimes[]; repo?: string; machine?: string }> {
   const say = o.say ?? (() => {});
   // Another machine's (the hub drilling for one that can't reach its repository): that machine's repository.
   const repo = c.repoOf(o.machine ?? c.machine);
@@ -272,27 +296,55 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
   if ("error" in list) return { ok: false, detail: `can't list ${repo}: ${list.error}` };
   if (!list.length) return { ok: false, detail: `${repo} holds no outline archives` };
   const dir = mkdtempSync(join(tmpdir(), "ep0ch-drill-"));
-  const said: string[] = [];
+  const said: string[] = [], served: DrillTimes[] = [];
   let ok = true;
   try {
     for (const snap of list) {
-      const out = join(dir, `${snap.outline}.sqlite`);
+      const folder = join(dir, `served-${snap.outline}`), out = join(folder, `${snap.outline}.sqlite`);
+      mkdirSync(folder, { recursive: true, mode: 0o700 });
       const target = mkdtempSync(join(dir, "archive-"));
+      const t0 = performance.now();
       const got = await restoreArchive(c, repo, snap, target);
-      let verdict: string, blocks: number | null = null;
+      const t1 = performance.now();
+      let verdict: string, blocks: number | null = null, t2 = t1;
       if ("error" in got) verdict = got.error;
       else {
-        try { const r = replayArchive(got.root, snap.outline, out, snap.logId ? { logId: snap.logId } : {}); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
+        try { const r = replayArchive(got.root, snap.outline, out, snap.logId ? { logId: snap.logId } : {}); t2 = performance.now(); blocks = r.rows.blocks ?? null; verdict = r.lsn === snap.seq || snap.seq === null ? integrity(out) : `the replay ends at entry ${r.lsn}, and the archive was taken at ${snap.seq}`; }
         catch (e) { verdict = (e as Error).message; }
       }
-      const line = verdict === "ok" ? `${snap.outline} ok (${blocks ?? "?"} blocks, entry ${snap.seq ?? "?"}, ${hhmm(snap.time)})` : `${snap.outline} FAILED: ${verdict}`;
+      let line = verdict === "ok" ? `${snap.outline} ok (${blocks ?? "?"} blocks, entry ${snap.seq ?? "?"}, ${hhmm(snap.time)})` : `${snap.outline} FAILED: ${verdict}`;
+      if (verdict === "ok" && o.serve) {
+        const s = await serveDrilled(folder, snap.outline);
+        if ("error" in s) { verdict = s.error; line = `${snap.outline} FAILED to serve: ${s.error}`; }
+        else {
+          const times = { outline: snap.outline, logId: snap.logId ?? null, restoreMs: Math.round(t1 - t0), replayMs: Math.round(t2 - t1), serveMs: s.ms, blocks: s.blocks };
+          served.push(times);
+          // The host serves the notes out of the Trash: the file's own count of those is what it must read.
+          const live = (() => { const db = new Database(out, { readonly: true }); try { return (db.query("SELECT COUNT(*) AS n FROM blocks WHERE effective_deleted_root_id IS NULL").get() as { n: number }).n; } finally { db.close(); } })();
+          if (s.blocks !== live) { verdict = `served ${s.blocks} notes, and the replayed file holds ${live} out of the Trash`; line = `${snap.outline} FAILED: ${verdict}`; }
+          else line += `; served by a scratch host: ${s.blocks} notes read (restore ${(times.restoreMs / 1000).toFixed(1)} s, replay ${(times.replayMs / 1000).toFixed(1)} s, open and read ${(times.serveMs / 1000).toFixed(1)} s)`;
+        }
+      }
       if (verdict !== "ok") ok = false;
       said.push(line); say(`${verdict === "ok" ? "✓" : "✗"} ${line}`);
-      rmSync(out, { force: true });
+      rmSync(folder, { recursive: true, force: true });
       rmSync(target, { recursive: true, force: true });
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
-  return { ok, detail: `replayed ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}` };
+  return { ok, detail: `${o.serve ? "restored, replayed and served" : "replayed"} ${list.length} outline archive${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}`, ...(o.serve ? { served, repo, machine: o.machine ?? c.machine } : {}) };
+}
+
+/** A replayed outline opened by a scratch host of its own (read-only, in `folder`), its notes read through its socket. */
+async function serveDrilled(folder: string, outline: string): Promise<{ blocks: number; ms: number } | { error: string }> {
+  const { OutlineHost } = await import("@ep0ch/outliner/outline-host");
+  const started = performance.now();
+  const host = new OutlineHost({ outlinesFolder: folder, readOnly: true, log: () => {} });
+  try {
+    await host.start();
+    const index = await hostSend(host.socketPath, "tree.index", { outline }, 120_000) as { blocks?: unknown[] };
+    return { blocks: index.blocks?.length ?? 0, ms: Math.round(performance.now() - started) };
+  } catch (e) { return { error: (e as Error).message }; }
+  finally { await host.close().catch(() => {}); }
 }
 
 /**
@@ -300,15 +352,15 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say;
  * the hub, which restores this machine's snapshots from the same repository (`ep0ch backup drill --machine <this>`
  * there); when neither can, it waits, said, and the last drill stands.
  */
-export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string } } | { waiting: string }> {
+export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null>; serve?: boolean } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string; served?: DrillTimes[]; repo?: string; machine?: string } } | { waiting: string }> {
   const repo = c.repoOf(c.machine);
   const why = c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null;
   if (!why) return { drill: await drill(c, o) };
   const { drillVia } = await import("./relay");
-  const r = await drillVia(c, c.hub!);
+  const r = await drillVia(c, c.hub!, undefined, !!o.serve);
   if ("error" in r) return r.unreachable ? { waiting: `${plainReason(why, { repo })}, and ${r.error}` }
     : { drill: { ok: false, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.error}`, via: c.hub! } };
-  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub! } };
+  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub!, ...(r.served ? { served: r.served, repo: r.repo, machine: r.machine } : {}) } };
 }
 
 /** How the job is run and read on this platform (what a fix says). */
@@ -388,7 +440,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     // The followers' word on their copies, for the alert (a copy that stopped following is an incident).
     s.follows = followedCopies(c.mirrorsDir, c.following);
     // Each part stands alone: one failing never stops the others.
-    const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
+    const snap: Snapshotted = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
     writeBackupState(c.state, s);
     // The remote MCP gateway's queued writes: those held here for other machines, and this machine's own pull (PIE-615).
     const { netmailStep } = await import("./netmail");
@@ -424,7 +476,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
       s.route = { via: c.hub!, since: s.route?.since ?? new Date(now()).toISOString(), why };
     } else if (snap.uploaded.length) delete s.route;
     const ok = !snap.failed.length;
-    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [...(snap.failed.length ? [`failed: ${snap.failed.join(", ")}`] : []), ...(snap.uploaded.length ? [`uploaded ${snap.uploaded.join(", ")}`] : []), ...(snap.relayed.length ? [`relayed ${snap.relayed.join(", ")} via ${c.hub}`] : []), ...(!snap.failed.length && !snap.uploaded.length && !snap.relayed.length ? ["nothing changed"] : [])].join("; ") };
+    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [...(snap.failed.length ? [`failed: ${snap.failed.join(", ")}`] : []), ...(snap.uploaded.length ? [`uploaded ${snap.uploaded.join(", ")}`] : []), ...(snap.relayed.length ? [`relayed ${snap.relayed.join(", ")} via ${c.hub}`] : []), ...(snap.trimmed?.length ? [`let go ${snap.trimmed.map(t => `${t.outline}'s ${chainsLine(t.chains)}`).join(", ")} here`] : []), ...(!snap.failed.length && !snap.uploaded.length && !snap.relayed.length ? ["nothing changed"] : [])].join("; ") };
     writeBackupState(c.state, s);
     o.step?.("checking what's stale");
     const alert = await watch(c, s, { now, announce: o.announce });
@@ -438,20 +490,47 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
  * One backup command at a time on a machine: `run.lock` made exclusively (O_EXCL), holding its pid. A lock whose
  * process is gone is taken over. Returns the release, or why it can't run now.
  */
-export function takeLock(c: Pick<BackupConfig, "state">, name = "run.lock", who = "another backup command"): (() => void) | string {
+/**
+ * The job's lock (`run.lock` in its state folder): a release, or the pid of the live backup command that holds it, or why
+ * it couldn't be taken. A lock whose process is gone is taken over.
+ */
+export function lockOrHolder(c: Pick<BackupConfig, "state">, name = "run.lock"): { release: () => void } | { holder: number } | { error: string } {
   mkdirSync(c.state, { recursive: true, mode: 0o700 });
   const lock = join(c.state, name);
   for (let tries = 0; tries < 2; tries++) {
     try {
       const fd = openSync(lock, "wx", 0o600);
       writeSync(fd, String(process.pid)); closeSync(fd);
-      return () => { try { if (readFileSync(lock, "utf8") === String(process.pid)) rmSync(lock); } catch { /* gone */ } };
+      return { release: () => { try { if (readFileSync(lock, "utf8") === String(process.pid)) rmSync(lock); } catch { /* gone */ } } };
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return `can't make ${lock}: ${(e as Error).message}`;
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return { error: `can't make ${lock}: ${(e as Error).message}` };
       const pid = Number(readFileSync(lock, "utf8").trim() || 0);
-      if (pid && alive(pid)) return `${who} (pid ${pid}) is running; this one stops`;
+      if (pid && alive(pid)) return { holder: pid };
       rmSync(lock, { force: true });   // its process is gone
     }
   }
-  return `couldn't take ${lock}`;
+  return { error: `couldn't take ${lock}` };
+}
+
+export function takeLock(c: Pick<BackupConfig, "state">, name = "run.lock", who = "another backup command"): (() => void) | string {
+  const got = lockOrHolder(c, name);
+  return "release" in got ? got.release : "holder" in got ? `${who} (pid ${got.holder}) is running; this one stops` : got.error;
+}
+
+/**
+ * The job's lock, waited for while another backup command holds it (a relay arriving during the hub's run; install's
+ * rollback point during the scheduled run, PIE-1800), up to `waitMs`. `waiting` is told once, with the holder's pid,
+ * when it has to wait; past the wait, the refusal says the holder was still running.
+ */
+export async function waitForLock(c: Pick<BackupConfig, "state">, waitMs: number, waiting?: (pid: number) => void): Promise<(() => void) | string> {
+  const until = Date.now() + waitMs;
+  let told = false;
+  for (;;) {
+    const got = lockOrHolder(c);
+    if ("release" in got) return got.release;
+    if ("error" in got) return got.error;
+    if (Date.now() >= until) return `another backup command (pid ${got.holder}) was still running after ${Math.round(waitMs / 1000)} s; this one stops`;
+    if (!told) { told = true; waiting?.(got.holder); }
+    await Bun.sleep(Math.min(2_000, Math.max(50, waitMs / 10)));
+  }
 }

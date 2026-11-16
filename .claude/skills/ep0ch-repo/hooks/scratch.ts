@@ -11,7 +11,8 @@ export type ScratchContext = { uid: string; home: string; cwd: string }
 
 /** The scratch roots, `scripts/scratch-clean`'s (a worktree under ~/wt goes by `git worktree remove`, not here). */
 export function scratchRoots(ctx: ScratchContext): string[] {
-  return [`/tmp/claude-${ctx.uid}`, `/tmp/ep0ch-agent-${ctx.uid}`, `/tmp/ep0ch-${ctx.uid}`, `${ctx.home}/.agent-env`]
+  // /var/tmp/ep0ch-<uid> is scratch-dir's root since PIE-1799; /tmp/ep0ch-<uid> was until then, and its leftovers go too.
+  return [`/tmp/claude-${ctx.uid}`, `/tmp/ep0ch-agent-${ctx.uid}`, `/var/tmp/ep0ch-${ctx.uid}`, `/tmp/ep0ch-${ctx.uid}`, `${ctx.home}/.agent-env`]
 }
 
 /** Whether the resolved `path` is inside one of the roots (not a root itself). */

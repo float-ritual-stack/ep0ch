@@ -115,7 +115,9 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     for (let i = 0; i < SECTIONS.length; i++) {
       if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else ch("j");   // past ten: the next one down
       const s = SECTIONS[i]!;
-      await until(() => marks[s.key]!.every(m => screen().includes(m)), `section ${s.key}: ${marks[s.key]!.filter(m => !screen().includes(m)).join(" | ")}`, 8000);
+      // The marks still missing when the wait ends (not when it starts, which is all of them).
+      await until(() => marks[s.key]!.every(m => screen().includes(m)), `section ${s.key}`, 8000)
+        .catch(e => { throw new Error(`${e.message}: ${marks[s.key]!.filter(m => !screen().includes(m)).join(" | ")}`); });
       const text = screen();
       expect(text).toContain(`${i + 1} · ${s.need} · ${s.part}`.slice(0, 120));
       expect(text).toContain(s.files.slice(0, 60));

@@ -163,7 +163,7 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     }
     status = 200;
     status = 408;
-    await expect(client.observe(resource, source)).rejects.toThrow("timed out");
+    await expect(client.observe(resource, source)).rejects.toThrow("Jira didn't answer in time");
     status = 200;
     const before = requests;
     await expect(client.resolveLocator(source, "OTHER-1")).rejects.toThrow(
@@ -171,7 +171,7 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     );
     expect(requests).toBe(before);
     wrongIdentity = true;
-    await expect(client.observe(resource, source)).rejects.toThrow("invalid");
+    await expect(client.observe(resource, source)).rejects.toThrow("Jira's answer couldn't be read");
     wrongIdentity = false;
     config.providers.jira.config.authMode = "basic";
     config.providers.jira.config.email = "";

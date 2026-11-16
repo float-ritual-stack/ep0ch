@@ -2,7 +2,7 @@
 // widening anything, at 44 columns as at 177. A real tmux pane over a scratch service, his keys. Made-up notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { TallyDoors } from "./tally-pane";
+import { TallyDoors, idle } from "./tally-pane";
 
 describe.skipIf(!outliner || !Bun.which("tmux"))("a composer refusal shows what to type (PIE-1790)", () => {
   const doors = new TallyDoors();
@@ -63,7 +63,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a composer refusal shows what 
   test("at 44×16 the draft's text stays in the box beside a long refusal", async () => {
     const p = await doors.pane(hub, "Doing", 44, 16, { screen: ["--screen", "board", hub] });
     try {
-      await Bun.sleep(2200);
+      await idle();
       expect(p.act("tile.focus", "tile=Bench").ok).toBe(true);
       p.keys("n"); await until(() => p.capture().includes("new card in"), "the composer");
       await until(() => !p.capture().includes("asking the outline"), "the lane's plan");
@@ -81,7 +81,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a composer refusal shows what 
     const p = await doors.pane(hub, "Doing", 177, 40, { screen: ["--screen", "board", hub] });
     try {
       const tiles = () => JSON.parse(p.act("layout.get").out).layers.find((l: { drawer: boolean }) => !l.drawer).tiles as { name: string; kind: string }[];
-      await Bun.sleep(2200);
+      await idle();
       const before = tiles().length, opened = p.act("tile.open", "kind=reader", "where=right");
       expect([opened.ok, opened.out]).toEqual([true, expect.stringContaining("so it went beside")]);
       await until(() => tiles().length === before + 1, "the reader open");
@@ -96,7 +96,7 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a composer refusal shows what 
   test("tile.open naming a lane (tile=) is refused there, as to= is", async () => {
     const p = await doors.pane(hub, "Doing", 177, 40, { screen: ["--screen", "board", hub] });
     try {
-      await Bun.sleep(2200);
+      await idle();
       for (const named of ["tile=Doing", "to=Doing"]) {
         const r = p.act("tile.open", "kind=reader", named, "where=right");
         expect([named, r.ok, r.out]).toEqual([named, false, expect.stringContaining("takes only query")]);
