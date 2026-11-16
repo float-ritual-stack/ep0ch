@@ -4480,7 +4480,7 @@ export class NoteSurface {
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = INVITES.pressed(press);
         const r = await host.ctx.board.request("scripts.sequence", {
-          blockId: note!.id, line: button.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
+          blockId: note!.id, line: button.line, label: button.label, act: p.act, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor), // label, act: the service finds it where it is now, if a save lands meanwhile (PIE-1803)
         });
         if (invitation && r.undo) INVITES.bind(invitation, r.undo);
         if (r.undo) EXT_UNDO.push({ undo: r.undo, label: button.label, by: partyOf(actor), context: note!.id });

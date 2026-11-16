@@ -6,7 +6,7 @@ import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-par
 import { DEFAULT_MACHINERY, isMachinery } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
-import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import { buttonCallAt, buttonPressed, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { SourceEntry } from "@ep0ch/outline-core/sources";
 import { scriptsAt } from "./script-sources";
 import { actRequestOf, lineWords, slotPairs } from "@ep0ch/outline-core/action-line";
@@ -335,16 +335,23 @@ export class ScriptRuns {
     };
   }
 
-  /** `typed`: the note's text in the edit a door holds open (draft.read), read when the saved note has no button on that line: one not saved yet (PIE-1699). */
-  async startSequence(request: ExtensionActRequest, typed?: () => Promise<string | undefined>): Promise<ExtensionActResult> {
-    const note = this.store.require(request.blockId!), saved = buttonCallAt(note.text.split("\n"), request.line!), text = saved || !typed ? undefined : await typed();
-    const button = saved ?? (text === undefined ? null : buttonCallAt(text.split("\n"), request.line!));
+  /**
+   * `pressed`: which button the press means, its words and its action line as the presser read them. The button is found
+   * where it is in the note now (outline-core's `buttonPressed`, the door's own rule): on the line the request names, else
+   * the one button with those words and that line, moved by a save that landed after the presser read the note (PIE-1803:
+   * an answer written above it). The run is of the line it is found on.
+   * `typed`: the note's text in the edit a door holds open (draft.read), read when the saved note has no such button: one not saved yet (PIE-1699).
+   */
+  async startSequence(request: ExtensionActRequest, pressed: { label: string; act: string }, typed?: () => Promise<string | undefined>): Promise<ExtensionActResult> {
+    const press = { line: request.line!, ...pressed };
+    const note = this.store.require(request.blockId!), saved = buttonPressed(note.text, press), text = saved || !typed ? undefined : await typed();
+    const button = saved ?? (text === undefined ? null : buttonPressed(text, press));
     if (!button || button.problem) throw new Error(button?.problem ?? "No button on that line; read the note and press its current button");
     if (button.empty.length) throw new Error(`${button.label} has no ${button.empty.join(" or ")} yet: write ${button.empty[0]}= on its line (the door asks for it on a press, button.slot fills it)`);
     return this.start({ id: `button:${note.id}:${button.line}`, name: button.label, script: {
       code: "", effects: "write", keys: [], blockId: note.id, revision: note.revision,
       author: { author: note.author, actorId: note.actorId },
-    } }, request, button);
+    } }, { ...request, line: button.line, ...(request.button ? { button: { ...request.button, line: button.line } } : {}) }, button);
   }
 
   /** The `door.act` request (its grant named `agent`, src/server.ts `asExtension`): run it and answer when it has ended. */
