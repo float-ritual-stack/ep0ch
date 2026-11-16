@@ -3,8 +3,8 @@
 # pinned (the lock on its title), the links tile is held on the note it lists (its title says "held" and what on,
 # while the reader moves on), and the tree's opens are wired to the pinned reader, so the next row opened lands
 # beside it: the notice says where it landed, why, and the way back. Each title says where its tile's opens land,
-# a press on that picks another tile on screen, the tile a note just landed in is marked, and the row under the
-# tiles says where the keys of the tile that has them land.
+# a press on that picks another tile on screen, and the tile a note just landed in is marked. (The row under the
+# tiles leads with the keys; where they land is said after them, where a window has the room.)
 tile.focus tile=tree
 list.select n=-3
 list.pick

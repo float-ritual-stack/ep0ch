@@ -961,6 +961,24 @@ and `crates/rune/src/runtime/on_key_tests.rs` (how a press sees the modifiers he
 - A socket path under a long scratch folder is refused (`SUN_LEN`); a symlink to the socket from a short folder
   is how the scenes were drawn.
 
+**Found by the wave's review, each red first.**
+
+- **A held list came back following from a saved screen.** `screen.save` wrote a held list by leaving `subject`
+  off its tile. That reads as held only for a kind whose row says nothing: the comments, the proposals, the
+  revisions and the properties say `subject: follows` on their kind's row, so one of them held by hand and saved
+  followed its reader again when the screen was next opened. A held list is now written `subject: held`, the
+  door's own word for it (`a_list_held_by_hand_is_written_as_held_in_a_saved_screen_whatever_its_kind_says`).
+- **Where the keys land led the hint row, and cut the key that opens a row out of it.** K1's last fix (the row
+  leads with what Escape does and the key that opens, since it is cut at its end) merged while this wave was
+  built; with this wave's words before the keys, a window 1180 points wide showed a tree's Escape and its three
+  fold keys and nothing after. One row holds one or the other at that width. The keys lead; where they land is
+  said after them (on a window with room past the keys), and on every tile's own title. Left: a tree's keys fill
+  any window, so in practice the title is where it is read. A second line, or the landing said on the hint of the
+  key that lands, would say both.
+- **A step of a board's cursor now shows its card in the reader** the lanes' select wire names, where K1's test
+  held that the reader kept its note: the door's select, by this wave's design. The test asks that nothing was
+  opened (no `open`, no `list.pick`) and that the reader shows the card.
+
 ## The contract tables
 
 **What the door's layout answers is written down as data, for native's Rust `apply` and `place` to be tested against**

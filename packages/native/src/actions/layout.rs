@@ -249,7 +249,7 @@ impl App {
 
     /// The arrangement as a screen saves it: the layout's own form, with what somebody set on a tile here written
     /// on its leaf in the words a screen is written in (the door's): a reader's `mode: pinned`, a list's `subject`
-    /// (`follows`, or held) and the reader it was aimed at (`source: tile:<name>`). So a screen saved here opens
+    /// (`follows` or `held`) and the reader it was aimed at (`source: tile:<name>`). So a screen saved here opens
     /// the same way in every door, and here again.
     pub(super) fn saved_layout(&self) -> Value {
         fn stamp(app: &App, node: &mut Value) {
@@ -257,7 +257,9 @@ impl App {
                 let Some(tile) = node["name"].as_str().and_then(|name| app.layout.named(name)) else { return };
                 let ui = app.ui(&tile);
                 if let Some(pinned) = ui.pinned { node["mode"] = json!(if pinned { "pinned" } else { "held" }) }
-                if let Some(follows) = ui.follows { if follows { node["subject"] = json!("follows") } else if let Some(fields) = node.as_object_mut() { fields.remove("subject"); } }
+                // (Held is said, in the word screens are written in: left unsaid it is the kind's own word again, and
+                // a kind that follows, as the comments do, would follow when the screen is next opened.)
+                if let Some(follows) = ui.follows { node["subject"] = json!(if follows { "follows" } else { "held" }) }
                 if let Some(home) = ui.home.as_ref().filter(|home| app.layout.spec(home).is_some()) { node["source"] = json!(format!("tile:{}", app.layout.name(home))) }
                 return;
             }

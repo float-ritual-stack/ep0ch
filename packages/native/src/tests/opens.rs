@@ -30,6 +30,12 @@ fn press_with(rt: &mut Runtime<App>, key: &str, mods: Mods) {
     rt.frame(0.0);
 }
 
+/// A tile of a saved layout, by its name.
+fn leaf<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+    if node["t"] == "leaf" { return (node["name"] == name).then_some(node) }
+    ["kids", "tabs"].iter().flat_map(|key| node[*key].as_array().into_iter().flatten()).chain(node.get("kid")).find_map(|kid| leaf(kid, name))
+}
+
 /// The sentence, by the mouse: a press on a row selects it, a second opens it, and Option or the middle button opens
 /// it fresh, each landing where the layout says.
 #[test]
@@ -94,9 +100,16 @@ fn the_cursor_s_steps_show_where_the_select_wire_says_and_return_and_alt_return_
     let on = cursor(&rt, "tree").unwrap();
     assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("tree", Some(on.clone())));
     assert_eq!(rt.state.ui("reader").history, ["plot"], "a walk keeps one way back: where it began");
-    // The hint row says where each lands, in the layout's words, for the tile with the keys.
-    let lands = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("lands")).and_then(|e| e.text).unwrap_or_default();
-    assert_eq!(plain(&lands), "select \u{2192} reader \u{b7} open \u{2192} reader \u{b7} alt \u{2192} beside tree");
+    // Where each lands is said in the layout's words. The tree's own title says where its opens land, on screen
+    // whole; the row under the tiles says all three after the keys, where a window has room past them (the keys
+    // lead that row, and what is cut is its end).
+    let said = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).and_then(|e| e.text).map(|text| plain(&text)).unwrap_or_default();
+    assert!(said(&rt, "tile/tree/wire/open").ends_with("\u{2192} reader"), "the tree's title: {:?}", said(&rt, "tile/tree/wire/open"));
+    let (title, chip) = (rect_of(&rt, "tile/tree/bar").unwrap(), rect_of(&rt, "tile/tree/wire/open").unwrap());
+    assert!(chip[0] >= title[0] && chip[0] + chip[2] <= title[0] + title[2] + 0.5, "it is whole inside the title: {chip:?} in {title:?}");
+    assert_eq!(said(&rt, "lands"), "select \u{2192} reader \u{b7} open \u{2192} reader \u{b7} alt \u{2192} beside tree");
+    let last = rt.state.hinted().len() - 1;
+    assert!(rect_of(&rt, "lands").unwrap()[0] >= rect_of(&rt, &format!("hints/{last}")).unwrap()[0], "the keys come first in the row under the tiles");
     // Return opens the row where the tree's opens land: with no wire, the first reader not pinned, which takes the keys.
     key(&mut rt, Key::Enter);
     assert_eq!((focus(&rt).as_str(), shows(&rt, "reader")), ("reader", Some(on.clone())));
@@ -290,12 +303,8 @@ fn pins_holds_and_wires_are_kept_with_the_arrangement_and_written_with_a_saved_s
     let saved = g.asked.borrow().iter().rev().find(|ask| ask["action"] == "screens.save").cloned().expect("the screen was written");
     let text = saved["spec"]["layout"].to_string();
     assert!(text.contains("\"mode\":\"pinned\"") && text.contains("\"verb\":\"open\""), "{text}");
-    fn leaf<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
-        if node["t"] == "leaf" { return (node["name"] == name).then_some(node) }
-        ["kids", "tabs"].iter().flat_map(|key| node[*key].as_array().into_iter().flatten()).chain(node.get("kid")).find_map(|kid| leaf(kid, name))
-    }
     let links = leaf(&saved["spec"]["layout"]["root"], "backlinks").expect("the links tile is in the saved layout");
-    assert_eq!((links.get("subject"), links["source"].as_str()), (None, Some("tile:reader")), "held is a list with no `subject: follows`");
+    assert_eq!((links["subject"].as_str(), links["source"].as_str()), (Some("held"), Some("tile:reader")), "held is said in the word screens are written in");
     // The next launch, from the arrangement's file: the pin, the hold and its subject, the wire.
     drop(g);
     let again = garden_kept(ok(), &kept);
@@ -305,4 +314,24 @@ fn pins_holds_and_wires_are_kept_with_the_arrangement_and_written_with_a_saved_s
     assert_eq!(again.app.wire_words(&again.app.layout.named("tree").unwrap(), "open"), "reader2", "the tree's opens still go to the reader it was wired to");
     let _ = std::fs::remove_file(&kept);
     let _ = std::fs::remove_dir(&dir);
+}
+
+/// A list whose kind follows by its own word (the comments: their kind's row says `subject: follows`) and that the
+/// person holds is written as held in a saved screen, in the word screens are written in (the door's `held`): laid
+/// out again from what was written, it is still held. Left unsaid it was the kind's word again, and it followed.
+#[test]
+fn a_list_held_by_hand_is_written_as_held_in_a_saved_screen_whatever_its_kind_says() {
+    let mut g = garden(ok());
+    let threads = g.app.layout.named("threads").expect("the desk has the comments");
+    assert!(g.app.follows(&threads) && g.app.spec(&threads).is_some_and(|spec| !spec.fields.contains_key("subject")), "the comments follow by their kind's own word, not their tile's");
+    assert!(act(&mut g.app, "tile.hold on=true tile=threads").ok);
+    assert!(act(&mut g.app, "screen.save name=\"Garden desk\"").ok);
+    let saved = g.asked.borrow().iter().rev().find(|ask| ask["action"] == "screens.save").cloned().expect("the screen was written");
+    let written = leaf(&saved["spec"]["layout"]["root"], "threads").expect("the comments are in the saved layout").clone();
+    assert_eq!(written["subject"], "held", "held is said, over what the kind says: {written}");
+    // The screen as it was written, opened: the comments are held there, and say so.
+    let again = super::sweep2::laid(json!({ "layout": saved["spec"]["layout"] }));
+    let threads = again.app.layout.named("threads").expect("the comments are laid out again");
+    assert!(!again.app.follows(&threads), "the saved screen opens with the comments held");
+    assert_eq!(again.app.held_on(&threads).map(|(held, ..)| held), Some(true));
 }
