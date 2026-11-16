@@ -176,7 +176,8 @@ fn reading(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let to = cursor::stepped(step, app.ui(&reader).reading.map_or(-1, |at| at as i64), n, 0.0).max(0) as usize;
     let name = app.layout.name(&reader);
     app.ui_mut(&reader).reading = Some(to);
-    app.st.reveal = Some(format!("tile/{name}/reading/{to}"));
+    // (Its head: the part whole when the view holds it, else from its first line. The page drawer cuts it.)
+    app.st.reveal = Some(format!("tile/{name}/reading/{to}/head"));
     Outcome::answer(json!({ "tile": name, "reading": to + 1, "of": n }))
 }
 

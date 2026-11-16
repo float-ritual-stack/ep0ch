@@ -682,12 +682,14 @@ impl App {
     /// The first tree's rows.
     pub fn tree(&self) -> &[ListRow] { match self.tree_tile() { Some(tile) => self.list_of(&tile).map_or(&NO_ROWS, |answer| &answer.list.rows), None => &NO_ROWS } }
 
-    /// The folder a note is listed in, among the trees that have come: the row above it one level up.
+    /// The folder a note is listed in, among the trees that have come: the row its row is under, by the rule a
+    /// tree's cursor climbs by (`cursor::parent_row`, outline-core's `parentRow`).
     pub fn parent_of(&self, id: &str) -> Option<String> {
         self.layout.all().iter().filter(|tile| self.is_tree(tile)).find_map(|tile| {
             let rows = self.rows_of(tile);
             let at = rows.iter().position(|row| row.id == id)?;
-            rows[..at].iter().rev().find(|row| row.depth + 1 == rows[at].depth).map(|row| row.id.clone())
+            let depths: Vec<usize> = rows.iter().map(|row| row.depth).collect();
+            crate::cursor::parent_row(&depths, at).map(|parent| rows[parent].id.clone())
         })
     }
 

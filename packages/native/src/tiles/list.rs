@@ -386,8 +386,12 @@ fn draw(cx: &TileCx, k: &Kit) -> El {
         // A lane a group, side by side: each scrolls by itself and builds only its rows in view.
         let kit = k.clone();
         let name = cx.name.clone();
+        // (A lane is a list to the keys: how many cards its view shows is told as a list's rows are, and a page of
+        // the cursor in a lane is that many less one. The lanes are one height, so any of them says it.)
+        let id = cx.id.to_string();
         let scrolled = move |part: String, rows: Listed| {
-            el().w_full().grow(1.0).min_h(0.0).child(kit.scroll_bar(col().key(format!("tile/{name}/{part}/scroll")).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).child(list::rows(format!("tile/{name}/{part}/rows"), rows))))
+            let tile = id.clone();
+            el().w_full().grow(1.0).min_h(0.0).child(kit.scroll_bar(col().key(format!("tile/{name}/{part}/scroll")).w_full().h_full().min_h(0.0).padding(4.0).scroll(ScrollSpec { stick_bottom: false }).on_layout(move |s: &mut App, at: [f32; 4]| s.list_room(&tile, (at[3] / TWO).floor() as f64)).child(list::rows(format!("tile/{name}/{part}/rows"), rows))))
         };
         return body.child(lanes_el(cx, &at, &view, &sections, &scrolled, k).grow(1.0).h_full());
     }

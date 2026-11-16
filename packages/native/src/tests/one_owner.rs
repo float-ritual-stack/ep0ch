@@ -890,6 +890,10 @@ fn a_cursor_a_reading_line_and_a_tab_stop_each_have_one_mover_and_the_hint_row_o
     none("a reader's way forward written outside its own actions", strays("ui.ahead", |path| path == "actions/nav.rs" || path == "actions/app.rs" || path == "tiles/page.rs"));
     // Where a step lands, a row's parent and which tiles are one stop: one port each, held by the contract table.
     for rule in ["fn stepped(step", "fn parent_row(", "fn tab_stops(", "fn next_stop(", "fn page_rows("] { none(&format!("a second {rule}…): the rule is cursor.rs's, by outline-core's"), strays(rule, |path| path == "cursor.rs" || (rule == "fn tab_stops(" && path == "actions/layout.rs"))) }
+    // (Which folder a note is listed in is the same question as the row a tree's cursor climbs to: one answer.)
+    none("a row's parent asked outside a tree's fold and the folder a note is listed in", strays("cursor::parent_row(", |path| ["actions/tree.rs", "actions/app.rs"].contains(&path)));
+    none("the row a tree's row is under worked out beside the rule (`cursor::parent_row`)", strays("depth + 1 ==", |_| false));
+    assert!(code("actions/app.rs").contains("cursor::parent_row("), "`App::parent_of` asks the rule for the row a note's row is under");
     none("where a step lands asked outside the list's and the reader's own actions", strays("cursor::stepped(", |path| ["actions/list.rs", "actions/nav.rs"].contains(&path)));
     none("a page of rows worked out outside the rule", strays("page_rows(", |path| path == "cursor.rs"));
     none("the stops worked out outside `App::tab_stops`", strays("cursor::tab_stops(", |path| path == "actions/layout.rs"));
