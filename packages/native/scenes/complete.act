@@ -1,9 +1,9 @@
-# The list that completes what is typed, saying what its lit row is (scenes/parts.seed.ts writes the note into a
-# scratch outline): a block opened to be written, a property begun whose values its component knows,
-# and the second row lit. Beside the list: that row's own words, and what choosing it makes as the service drew
-# it; under the list: what it is a list of, and which row of how many is lit.
+# The list that completes what is typed (scenes/parts.seed.ts writes the note into a scratch outline): a block
+# opened to be written and a property's name begun. One box hung under the token's start: each row a tag for what
+# it is, its name with the typed letters set apart, and one quiet detail; in its foot, which row of how many is lit
+# and what the keys do. Beside it, the card: what the lit row says of itself.
 bar.open scope=search query="Frost fleece"
 bar.pick n=1
 edit
-draft.paste text=" [heading-pattern::"
+draft.paste text=" [hea"
 complete.move by=1

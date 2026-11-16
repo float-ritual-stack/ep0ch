@@ -51,7 +51,7 @@ fn tab_and_shift_tab_move_a_list_s_line_a_level_each_as_one_step_and_the_keys_st
     assert_eq!((words(&rt.state), rt.state.person().layer, rt.state.person().focus.as_str()), (flat.as_str(), Layer::Draft, "reader"));
     // The hint row under the field says both keys, from their rows.
     let hints: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
-    assert!(["indent the line, or the selected lines", "outdent the line, or the selected lines"].iter().all(|does| hints.iter().any(|said| said == does)), "{hints:?}");
+    assert!(["indent", "outdent"].iter().all(|does| hints.iter().any(|said| said == does)), "{hints:?}");
 }
 
 #[test]
@@ -165,10 +165,10 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     press(&mut rt, "tile/reader/edit");
     chord(&mut rt, Key::Enter, Mods::default());
     typed(&mut rt, "See [[s");
-    let said = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|key| key.contains("tile/reader/complete-"))).filter_map(|e| e.text).collect() };
+    let said = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter(|e| e.path.contains("tile/reader/complete")).filter_map(|e| e.text).collect() };
     let texts = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter_map(|e| e.text).collect() };
-    // Under the list: the service's heading and the lit row of how many.
-    assert!(rt.find("tile/reader/complete-count").is_some() && texts(&rt).iter().any(|said| said == "pages 1/3"), "{:?}", said(&rt));
+    // In the list's foot: the lit row of how many, and the service's heading.
+    assert!(rt.find("tile/reader/complete/count").is_some() && texts(&rt).iter().any(|said| said == "1 of 3 · pages"), "{:?}", said(&rt));
     // Beside it: the first row's own words, and its example as the service drew it (asked with the list itself).
     assert!(rt.find("tile/reader/complete-docs").is_some());
     let peek = |rt: &rune::Runtime<App>| crate::control::peek(&rt.state)["screen"]["tiles"].as_array().unwrap().iter().find(|tile| tile["name"] == "reader").unwrap()["facts"]["editing"]["completing"].clone();
@@ -178,7 +178,7 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     assert!(sent(&asked, "completion.rows").unwrap().get("lit").is_none(), "the list's own ask lights its first row");
     // Down: the count moves at once, the list stays as it is, and the service is asked what the row now lit makes.
     chord(&mut rt, Key::Down, Mods::default());
-    assert!(texts(&rt).iter().any(|said| said == "pages 2/3"));
+    assert!(texts(&rt).iter().any(|said| said == "2 of 3 · pages"));
     assert_eq!(rt.state.completing("reader").unwrap().rows.len(), 3);
     let lit = sent(&asked, "completion.rows").unwrap();
     assert_eq!((lit["lit"].as_u64(), lit["text"].as_str(), lit["near"].as_str()), (Some(1), Some(format!("{PLOT}\nSee [[s").as_str()), Some("plot")));
@@ -189,10 +189,10 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     let asks = asked.borrow().len();
     chord(&mut rt, Key::Up, Mods::default());
     assert_eq!((asked.borrow().len(), peek(&rt)["shows"]["children"][0]["children"][0]["text"].clone()), (asks, json!("[[seed-list]]")));
-    // A list with nothing to choose from has no row to speak of: no count, no panel.
+    // A list with nothing to choose from has no row to speak of: its box says the service's word, and no panel.
     typed(&mut rt, "zz");
     assert_eq!(rt.state.person().layer, Layer::Said);
-    assert!(rt.find("tile/reader/complete-count").is_none() && rt.find("tile/reader/complete-docs").is_none());
+    assert!(texts(&rt).iter().any(|said| said == "no page by that name yet") && texts(&rt).iter().any(|said| said == "pages") && rt.find("tile/reader/complete-docs").is_none(), "{:?}", said(&rt));
 }
 
 /// `::` typed at a line's start ended the window, and the kept draft ended it again at every launch: the first
@@ -210,13 +210,13 @@ fn a_lit_component_s_example_that_lists_notes_is_drawn_beside_the_completion_lis
     let beside = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter(|e| e.path.contains("tile/reader/complete-docs")).filter_map(|e| e.text).collect() };
     let texts = |rt: &rune::Runtime<App>| -> Vec<String> { rt.elements().into_iter().filter_map(|e| e.text).collect() };
     assert_eq!(rt.state.person().layer, Layer::Complete, "the list is open, with rows to choose from");
-    assert!(texts(&rt).iter().any(|said| said == "components 1/2"), "{:?}", texts(&rt));
+    assert!(texts(&rt).iter().any(|said| said == "1 of 18 · components"), "{:?}", texts(&rt));
     // The lit row's example lists a note: its row is drawn in the panel, and the window is still here to ask.
     assert!(rt.find("tile/reader/complete-docs").is_some());
     assert!(beside(&rt).iter().any(|said| said == "Water the beans") && beside(&rt).iter().any(|said| said == "As drawn"), "{:?}", beside(&rt));
     // Down to a row whose example lists nothing, and back up to the one that does: drawn again each time.
     chord(&mut rt, Key::Down, Mods::default());
-    assert!(beside(&rt).iter().any(|said| said == "beds") && !beside(&rt).iter().any(|said| said == "Water the beans"), "{:?}", beside(&rt));
+    assert!(beside(&rt).iter().any(|said| said == "Backlinks") && !beside(&rt).iter().any(|said| said == "Water the beans"), "{:?}", beside(&rt));
     chord(&mut rt, Key::Up, Mods::default());
     assert!(beside(&rt).iter().any(|said| said == "Water the beans"), "{:?}", beside(&rt));
     // The words typed are still the block's: nothing was chosen, and the keys are the list's.

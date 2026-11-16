@@ -862,6 +862,21 @@ export interface CompletionAtRow {
   enter?: "new line" | "applies";
   /** What the row says of itself, as its source wrote it (`SourceRow.docs`, Blockdown): drawn beside the list while it is lit. */
   docs?: string;
+  /** The characters of `label` (UTF-16 indexes) that what was typed matched, by the one matcher that ranked the rows: a client sets them apart and computes none. */
+  matches?: number[];
+  /** Every stop of what it writes (UTF-16 spans of `insert`, in order; the first is `select`): Tab steps them once it is in. */
+  slots?: { start: number; end: number }[];
+  /** How what it writes looks, one line high (`SourceRow.sample`): a primitive, drawn in the row. */
+  sample?: import("./primitive").Primitive;
+  /** Choosing it leaves the cursor in a token (a key's `::` opens its values): the list is asked again at once (outline-core's `asksAgain`). */
+  next?: boolean;
+  /** What of `insert` is still to come when it goes on from what is typed (the token's text up to the cursor, as typed, less what already stands after the cursor): a client shows it dimmed after the cursor, where Tab takes it. */
+  rest?: string;
+  /**
+   * Choosing it makes something first (a page nobody has written): the request to send, as whoever chose, before
+   * its `insert` is written; refused, nothing is written and the refusal is said.
+   */
+  makes?: { action: string; params: Record<string, unknown> };
   /**
    * What choosing it makes, on the row the request says is lit (`lit`) when its source gave an example
    * (`SourceRow.example`): the example as written and as a page would draw it, a primitive each. No client draws a
