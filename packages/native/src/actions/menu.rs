@@ -1,9 +1,13 @@
 //! A tile's menu: everything there is to do with a tile, and with what the pointer was on in it, as rows.
 //!
 //! - **The rows are the actions' own.** Each is a `menu` row of an action that acts in a tile of this one's sort
-//!   (its label, its group, the arguments it runs with), and before them what the pointer was on says of itself: a
-//!   list's row its own act and its own presses (the service's lines, as a pick runs them), a link the action that
-//!   follows it, words picked the actions the key table offers for them. Nothing is worded here.
+//!   (its label, its group, the arguments it runs with), and before them what the menu is about says of itself: the
+//!   row a list's cursor is on its own act and its own presses (the service's lines, as a pick runs them), a link
+//!   the pointer was on the action that follows it, words picked the actions the key table offers for them. Nothing
+//!   is worded here.
+//! - **A list's menu is about the row its cursor is on**, however it was asked for: a right-click on a row puts the
+//!   cursor there first (`list.press button=2`, the door's rule), and the menu's key finds it where the keys left
+//!   it. No second word on which row is the tile's.
 //! - **One model, drawn by what the platform has.** Where the window has menus of the platform's own (macOS,
 //!   Windows: Rune's `Tx::popup_menu`) the rows are that menu, at the pointer; everywhere, and whenever it is asked
 //!   with words to filter by, they are a source of the bar (typed into, filtered, picked by key). `keys::effects`
@@ -17,7 +21,7 @@ use crate::actline::{self, Args};
 use crate::layout::Id;
 use crate::page::ListRow;
 
-static MENU: ActionRow = ActionRow::new("tile.menu", Touches::Nothing, "a tile's menu (tile=, else the one with the keys): everything there is to do with it, each row an action's own menu row, and first what the pointer was on there (a list's row, a link, the words picked). The person's opens it, at at= when a right-click says where, and gives the tile the keys; q= opens it as a list to type in, with those words typed. An agent's opens nothing: it is answered the rows, each with the act it runs and why it would be refused")
+static MENU: ActionRow = ActionRow::new("tile.menu", Touches::Nothing, "a tile's menu (tile=, else the one with the keys): everything there is to do with it, each row an action's own menu row, and first what it is about there (the row a list's cursor is on, a link the pointer was on, the words picked). The person's opens it, at at= when a right-click says where, and gives the tile the keys; q= opens it as a list to type in, with those words typed. An agent's opens nothing: it is answered the rows, each with the act it runs and why it would be refused")
     .args(&[
         ("at", ArgSpec::text("col,row: the cell of the window (from 0, a fraction is a place inside one) the person's menu opens at; default under the tile's title").optional()),
         ("q", ArgSpec::text("only the rows that match these words, by label, group and act line; the person's menu opens as a list with them typed").optional()),
@@ -26,14 +30,11 @@ static MENU: ActionRow = ActionRow::new("tile.menu", Touches::Nothing, "a tile's
     .menu(&[MenuRow::new("Menu", "Tile", Some("mod+."))])
     .examples(&[Example { act: "tile.menu tile=reader", does: "answers an agent the reader's menu rows; opens the menu under the reader's title for the person", safe: Some(true) }]);
 
-static POINT: ActionRow = ActionRow::new("tile.point", Touches::Nothing, "say what in a tile (tile=, else the one with the keys) the pointer is on, for the menu a right-click opens next: a list's row (row=, by the row's id) or a link in a note's prose (link=). With neither, nothing. The person's: an agent names what it acts on in the act itself")
+static POINT: ActionRow = ActionRow::new("tile.point", Touches::Nothing, "say which link in a note's prose the pointer is on in a tile (tile=, else the one with the keys), for the menu a right-click opens next: link=. With none, nothing. (A row of a list needs no saying: a right-click puts the list's cursor on it, list.press button=2, and a list's menu is about the row its cursor is on.) The person's: an agent names what it acts on in the act itself")
     .person("what the pointer is on is the person's: an agent's tile.menu answers a tile's rows, and it runs a row's own act line itself")
-    .args(&[
-        ("row", ArgSpec::text("the row of the tile's list the pointer is on, by its id").optional()),
-        ("link", ArgSpec::text("the link the pointer is on, as the page carries it").optional()),
-    ])
-    .keys(&[KeyRow::via("a right-click on a row of a list or on a link in a note")])
-    .examples(&[Example { act: "tile.point row=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree", does: "the tree's next menu is about that row first", safe: Some(true) }]);
+    .args(&[("link", ArgSpec::text("the link the pointer is on, as the page carries it").optional())])
+    .keys(&[KeyRow::via("a right-click on a link in a note")])
+    .examples(&[Example { act: "tile.point link=ep0ch:b/7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=reader", does: "the reader's next menu is about that link first", safe: Some(true) }]);
 
 static COPY: ActionRow = ActionRow::new("note.copy-ref", Touches::Nothing, "copy the address of the note a reader shows (tile=, else the reader an act about the open note means), or of ref=: kind=id its full id, kind=link its web link as the service says it (notes.address). The person's copy goes to the clipboard and the notice says what was copied; an agent's is answered and the clipboard is left alone")
     .args(&[
@@ -59,9 +60,10 @@ pub static ACTIONS: &[Action] = &[Action { row: &MENU, run: menu, about: About::
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glance { pub tile: Id, pub row: String }
 
-/// What the pointer was on in a tile when its menu was asked for.
+/// What the pointer was on in a tile when its menu was asked for: a link in a note's prose. (A list's row is no
+/// such thing: the list's cursor is put on it, and the menu reads the cursor.)
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Pointed { pub row: Option<String>, pub link: Option<String> }
+pub struct Pointed { pub link: Option<String> }
 
 /// One row of a tile's menu: the act line it runs from its tile, and what it shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -78,7 +80,7 @@ impl MenuItem {
     fn json(&self) -> Value { json!({ "label": self.label, "group": self.group, "key": self.keycap, "act": self.line, "refused": self.refused }) }
 }
 
-/// The menu the person has open: its tile, what the pointer was on, and where it opens.
+/// The menu the person has open: its tile, the link the pointer was on, and where it opens.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Menu {
     pub tile: Id,
@@ -89,15 +91,16 @@ pub struct Menu {
     pub(in crate::actions) unshown: bool,
 }
 
-/// What the row under the pointer is called as a group, a link, and words picked: the three things a menu is about
+/// What the row the cursor is on is called as a group, a link, and words picked: the three things a menu is about
 /// before its tile. (The rest of a menu's groups are the action rows' own.)
 const ROW: &str = "Row";
 const LINK: &str = "Link";
 const PICKED: &str = "Selection";
 
 impl App {
-    /// A tile's menu as rows, for `by`: what the pointer was on first (`on`), then every action's menu rows that
-    /// can run as they are in a tile of this sort, under the groups the rows name, in the order the actions list them.
+    /// A tile's menu as rows, for `by`: what it is about first (a link the pointer was on, `on`; the row a list's
+    /// cursor is on; the words picked), then every action's menu rows that can run as they are in a tile of this
+    /// sort, under the groups the rows name, in the order the actions list them.
     pub fn menu_rows(&self, tile: &str, on: &Pointed, by: &Actor) -> Vec<MenuItem> {
         let (name, person, stands) = (self.layout.name(tile), self.person(), self.stands(by));
         let item = |line: String, label: Option<String>, group: &str| {
@@ -107,8 +110,9 @@ impl App {
         let mut items: Vec<MenuItem> = Vec::new();
         // A link: the action that follows one, as its row calls it.
         if let Some(link) = &on.link { items.push(item(format!("{} ref={}", super::nav::FOLLOW.id, word(link)), None, LINK)) }
-        // A list's row: what a pick runs and each press of its own, in the service's lines and the service's words.
-        if let Some(row) = on.row.as_ref().and_then(|id| self.rows_of(tile).iter().find(|row| row.id == *id)) {
+        // The row a list's cursor is on: what a pick runs and each press of its own, in the service's lines and the
+        // service's words.
+        if let Some(row) = self.ui(tile).cursor.as_ref().and_then(|id| self.rows_of(tile).iter().find(|row| row.id == *id)) {
             if let Some(act) = &row.act { items.push(item(act.clone(), None, ROW)) }
             for cell in &row.cells { if let Some(act) = ListRow::cell_act(cell) { items.push(item(act.to_string(), Some(ListRow::cell(cell)), ROW)) } }
         }
@@ -226,7 +230,7 @@ fn menu(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 
 fn point(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let tile = app.about().unwrap_or_else(|| app.layout.focus.clone());
-    let on = Pointed { row: args.text("row").map(str::to_string), link: args.text("link").map(str::to_string) };
+    let on = Pointed { link: args.text("link").map(str::to_string) };
     app.ui_mut(&tile).pointed = Some(on).filter(|on| *on != Pointed::default());
     Outcome::done()
 }

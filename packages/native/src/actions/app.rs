@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use super::{Actor, Step, About};
 use crate::client::{Link, PROTOCOL, Way};
 use crate::layout::{self, Id, Layout, Rect, TileSpec};
-use crate::draft::{DraftSession, Kept, Recovery};
+use crate::draft::{self, DraftSession, Held, Kept, Recovery};
 use crate::page::{Completion, CompletionRow, ListAnswer, ListRow, Page, Picture, SourceRow};
 use crate::screen::{KindRow, Screen, Served, Spec};
 use crate::store::{Ask, AskKey, Landed, OutlineAt, Reply, Store, Want};
@@ -50,10 +50,53 @@ pub struct TileUi {
     /// A terminal tile's program, by the key the run holds it under (`pty::Programs`): kept with the arrangement,
     /// so the tile finds the same program in another window, and the next launch where its host still runs it.
     pub program: Option<String>,
-    /// What the pointer was on here when it last asked for the tile's menu (a list's row, a link): the next menu's,
+    /// The link in a note's prose the pointer was on here when it last asked for the tile's menu: the next menu's,
     /// taken by it.
     pub pointed: Option<super::menu::Pointed>,
+    /// A list's cursor: the row the keys are on, by its id (never by its place: the rows change under it). Not the
+    /// pointer's hover, and not the mark of the note its reader shows. None: on no row yet.
+    pub cursor: Option<String>,
+    /// How many rows a list's view shows, as its drawer last laid it out: what a page of its cursor is.
+    pub room: Option<f64>,
+    /// A reader's reading line: the part of its page the keys are on, by its place among the parts.
+    pub reading: Option<usize>,
+    /// The notes a reader went back from, nearest last: where `forward` goes. A new open forgets them.
+    pub ahead: Vec<String>,
+    /// A reader's pin, where somebody set one here: pinned, it keeps the note it shows, and every open aimed at it
+    /// lands in a reader beside it. None: as its spec says (`mode: pinned`, the form a screen saves).
+    pub pinned: Option<bool>,
+    /// A list about one note holds its subject (false) or follows the note its home shows (true), where somebody
+    /// chose here: over its spec's `subject`. None: as its spec says.
+    pub follows: Option<bool>,
+    /// The reader a list speaks for, where it was aimed at one here: over its spec's `source`. By the tile's id.
+    pub home: Option<Id>,
+    /// The subjects a list about a note was aimed away from, oldest first.
+    pub trail: Vec<String>,
+    /// The person made this tile on purpose (a split, a preview beside a list): an open aimed elsewhere never takes
+    /// it because it happens to show the note (the layout's `Facts.deliberate`).
+    pub deliberate: bool,
+    /// The last landing in this tile: who opened or previewed which note here, and when. Said on its title until
+    /// it has been on screen long enough to be seen (`ARRIVAL`), or the tile is given the keys.
+    pub arrived: Option<Arrival>,
+    /// The walk a select wire is on here: the tile whose cursor it follows, when it last moved, and the note it
+    /// showed then. Successive picks from one tile replace each other, and the way back keeps where the walk began.
+    pub walk: Option<(Id, Instant, String)>,
 }
+
+/// A landing in a tile, as its title says it: who, and when. `preview`: by a select wire, not an open.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Arrival { pub note: String, pub by: Actor, pub at: Instant, pub preview: bool }
+
+/// How long a landing is marked on its tile's title (the door's ten seconds on screen).
+pub const ARRIVAL: Duration = Duration::from_secs(10);
+/// Picks from one tile within this long of each other are one walk: the reader that follows them keeps one way back
+/// (the door's `WALK_MS`).
+pub const WALK: Duration = Duration::from_millis(1000);
+
+/// A wire being set by hand (`tile.link ask=true`): from which tile, and which verb. While it is held every tile
+/// says what a press on it would do, and the keys are this mode's (`Layer::Linking`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Linking { pub from: Id, pub verb: String }
 
 /// What a press did, and where it was pressed: the note and the line of the part.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -204,6 +247,18 @@ pub struct State {
     pub dragging: Option<(String, usize)>,
     /// The tile held by its title, and where the layout's drop rule says it would land (`actions/carry.rs`).
     pub moving: Option<super::carry::Moving>,
+    /// The wire being set by hand, while one is (`actions/wires.rs`): the tile it is from and its verb.
+    pub linking: Option<Linking>,
+    /// The presses on rows, so a second one on the same row soon after is a double click (`press.rs`, the door's rule).
+    pub presses: crate::press::Presses,
+    /// The open being run is an open fresh (Alt+Return, a modifier held on the press): beside what is shown, never
+    /// over it. Set by the one place a gesture becomes a verb (`App::verb`) for the act it runs, and read by `nav::go`.
+    pub fresh: bool,
+    /// When this window began: what a press's time is counted from.
+    pub began: Instant,
+    /// The tile a press just gave the keys (`tile.focus` naming it), and when: the press on a row that follows at
+    /// once is the one that brought them, and only selects (`list.press`). Any other act of the person's lets it go.
+    pub focusing: Option<(Id, Instant)>,
     /// The page (its note, and which of its answers) whose pictures are held, a reader.
     pub pictured: HashMap<Id, (String, u64)>,
 
@@ -253,7 +308,17 @@ pub struct State {
     pub trashed: HashMap<String, String>,
     /// An element to bring into view on the next frame.
     pub reveal: Option<String>,
+    /// The window's clock, in seconds, as the last frame's poll read it: what the lit row of a completion list is timed by.
+    pub now: f64,
+    /// What the lit row says of itself is on screen beside the list (it had been lit long enough when the clock was last read).
+    pub carded: bool,
+    /// A scroll to move on the next frame, by its element: a reader's page, by pages or to an end.
+    pub scroll: Option<(String, Scroll)>,
 }
+
+/// How a scroll is moved by a key or an act: pages down (negative: up), or to an end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scroll { Pages(i32), Top, End }
 
 pub struct App {
     pub(in crate::actions) st: State,
@@ -288,7 +353,7 @@ impl Deref for App {
 /// about, the question asked. They are the list request's own words (outline-core's `ListsRequest`), never a
 /// property's or a kind's.
 const OPEN: &str = "open";
-const OF: &str = "of";
+pub(super) const OF: &str = "of";
 const QUERY: &str = "query";
 /// What the asker draws: the drawers this window has, and the kinds it draws itself (none: every kind is a served row's).
 const DRAWERS: &str = "drawers";
@@ -332,7 +397,9 @@ impl App {
                 screen: Screen::nowhere(),
                 tiles: HashMap::new(),
                 asked_screen: None,
-                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 40.0 },
+                // (Until the shell has measured the tiles' area: what a window of the usual size has under its
+                // toolbar, which is the title bar's band, and over its hint row.)
+                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 38.0 },
                 journal: Vec::new(), memory: Default::default(),
                 aimed: None,
                 about: None,
@@ -342,7 +409,7 @@ impl App {
                 screens_epoch: 0,
                 screen_wrote: false,
                 dragging: None,
-                moving: None,
+                moving: None, linking: None, presses: crate::press::Presses::default(), fresh: false, began: Instant::now(), focusing: None,
                 pictured: HashMap::new(),
                 drafts: Vec::new(),
                 recovered: Vec::new(),
@@ -366,6 +433,9 @@ impl App {
                 steps: Vec::new(),
                 trashed: HashMap::new(),
                 reveal: None,
+                now: 0.0,
+                carded: false,
+                scroll: None,
             },
             store,
             ways: None,
@@ -464,7 +534,12 @@ impl App {
     /// policy that takes only `reader` tiles is written with that name in every door.
     pub fn known_as(&self, kind: &str) -> String { self.kind_row(kind).and_then(KindRow::role).unwrap_or(kind).to_string() }
     /// A tile's kind's row.
-    pub fn kind_of(&self, tile: &str) -> Option<&KindRow> { self.spec(tile).and_then(|spec| self.kind_row(&spec.kind)) }
+    pub fn kind_of(&self, tile: &str) -> Option<&KindRow> {
+        // A list showing a note in its own place (its open wired to itself) is read as the kind that reads notes
+        // is, the list beneath (`App::in_place`): one drawer for a note, wherever it is read.
+        if self.in_place(tile) { let reads = |row: &&KindRow| tiles::drawer_of(row).is_some_and(|drawer| drawer.notes); return self.kinds().iter().filter(reads).find(|row| !row.serves.is_empty()).or_else(|| self.kinds().iter().find(reads)) }
+        self.spec(tile).and_then(|spec| self.kind_row(&spec.kind))
+    }
     /// The drawer that draws a tile, when its kind names one this window has.
     pub fn drawer_of(&self, tile: &str) -> Option<&'static tiles::Drawer> { self.kind_of(tile).and_then(tiles::drawer_of) }
     /// A tile reads notes: an open can land in it.
@@ -486,7 +561,8 @@ impl App {
     /// What a drawer is handed for a tile.
     pub fn cx<'a>(&'a self, tile: &'a str) -> Option<TileCx<'a>> {
         let spec = self.spec(tile)?;
-        Some(TileCx { app: self, id: tile, name: self.layout.name(tile), spec, ui: self.ui(tile), row: self.kind_row(&spec.kind)?, focused: self.layout.focus == tile })
+        // (Its kind's row as the tile stands: `kind_of`, which says the reading kind's for a list showing a note in place.)
+        Some(TileCx { app: self, id: tile, name: self.layout.name(tile), spec, ui: self.ui(tile), row: self.kind_of(tile)?, focused: self.layout.focus == tile })
     }
     /// The tiles on screen, in the order the layout lists them: the tree's shown ones, then the floats.
     pub fn shown_tiles(&self) -> Vec<Id> { self.layout.tree().visible().into_iter().chain(self.layout.floats.iter().map(|f| f.spec.id.clone())).collect() }
@@ -547,11 +623,16 @@ impl App {
     /// as open, the reader a press in it acts in and where its own opens land are all this tile (`home_note`,
     /// `act_from`, `facts`): never a list, and never one reader for one of them and another for the next.
     pub fn home_of(&self, tile: &str) -> Option<Id> {
-        self.source_of(tile).filter(|source| self.reads_notes(source))
+        self.named_home(tile)
             .or_else(|| self.layout.select_targets(tile).into_iter().find(|to| self.reads_notes(to)))
             .or_else(|| self.landing())
             .or_else(|| self.reader())
     }
+    /// The reader a tile names as its home (`source: tile:<a reader>`, or the one it was aimed at here): the first of
+    /// `home_of`'s answers, and the whole of it for a list that hands its keys on (the layout's `Facts.home`).
+    fn named_home(&self, tile: &str) -> Option<Id> { self.source_of(tile).filter(|source| self.reads_notes(source)) }
+    /// That reader's name, for what a tile says of itself (its title, a sentence about it).
+    pub fn home_name(&self, tile: &str) -> Option<String> { self.home_of(tile).map(|home| self.layout.name(&home)) }
     /// The note that reader shows: what a follower is about, and what a list marks as the one open.
     pub fn home_note(&self, tile: &str) -> Option<String> { self.home_of(tile).and_then(|reader| self.note_of(&reader)) }
     /// The words selected in a reader are let go, in every reader: the bar had the keys and is put away, and what
@@ -613,14 +694,17 @@ impl App {
 
     /// The tile another follows (`source: tile:<name>`), by the layout's resolver.
     pub fn source_of(&self, tile: &str) -> Option<Id> {
+        // The reader it was aimed at here (`tile.aim`) is its home from then, over the one its spec names.
+        if let Some(home) = self.ui(tile).home.as_ref().filter(|home| self.spec(home).is_some()) { return Some(home.clone()) }
         self.field_of(tile, "source").and_then(Value::as_str).and_then(|s| s.strip_prefix("tile:")).and_then(|address| self.layout.resolve(address, Some(tile), &self.screen.name).ok())
     }
 
     /// A tile's subject follows the note its home shows: its fields say so (`subject: follows`, its own or its
     /// kind's row's). Left unsaid, it keeps the subject it has, as it does in the door.
-    pub fn follows(&self, tile: &str) -> bool { self.field_of(tile, "subject").and_then(Value::as_str) == Some("follows") }
+    /// What somebody chose here (`tile.hold`, an aim) is over the spec's word.
+    pub fn follows(&self, tile: &str) -> bool { self.ui(tile).follows.unwrap_or_else(|| self.field_of(tile, "subject").and_then(Value::as_str) == Some("follows")) }
     /// A tile is another's: it names its home (`source`), or follows.
-    pub fn attached(&self, tile: &str) -> bool { self.field_of(tile, "source").is_some() || self.follows(tile) }
+    pub fn attached(&self, tile: &str) -> bool { self.field_of(tile, "source").is_some() || self.ui(tile).home.is_some() || self.field_of(tile, "subject").is_some() || self.follows(tile) }
     /// A tile's list is about one note: its source says it can't list without one (`of`, required).
     pub fn about_a_note(&self, tile: &str) -> bool {
         let from = self.field_of(tile, FROM).and_then(Value::as_str);
@@ -633,7 +717,8 @@ impl App {
     pub fn subject_of(&self, tile: &str) -> Option<String> {
         if let Some(of) = self.field_of(tile, OF).and_then(Value::as_str) { return Some(of.to_string()) }
         if self.follows(tile) { return self.home_note(tile) }
-        if self.about_a_note(tile) { return self.ui(tile).subject.clone().or_else(|| self.home_note(tile)) }
+        // Held: the note it was aimed at or held on, else (never aimed) the one its home shows.
+        if self.about_a_note(tile) || self.ui(tile).follows == Some(false) { return self.ui(tile).subject.clone().or_else(|| self.home_note(tile)) }
         None
     }
 
@@ -680,12 +765,14 @@ impl App {
     /// The first tree's rows.
     pub fn tree(&self) -> &[ListRow] { match self.tree_tile() { Some(tile) => self.list_of(&tile).map_or(&NO_ROWS, |answer| &answer.list.rows), None => &NO_ROWS } }
 
-    /// The folder a note is listed in, among the trees that have come: the row above it one level up.
+    /// The folder a note is listed in, among the trees that have come: the row its row is under, by the rule a
+    /// tree's cursor climbs by (`cursor::parent_row`, outline-core's `parentRow`).
     pub fn parent_of(&self, id: &str) -> Option<String> {
         self.layout.all().iter().filter(|tile| self.is_tree(tile)).find_map(|tile| {
             let rows = self.rows_of(tile);
             let at = rows.iter().position(|row| row.id == id)?;
-            rows[..at].iter().rev().find(|row| row.depth + 1 == rows[at].depth).map(|row| row.id.clone())
+            let depths: Vec<usize> = rows.iter().map(|row| row.depth).collect();
+            crate::cursor::parent_row(&depths, at).map(|parent| rows[parent].id.clone())
         })
     }
 
@@ -701,20 +788,120 @@ impl App {
     /// A save is out.
     pub fn saving(&self) -> bool { self.store.out_for(super::draft::saved) }
 
-    /// The list that completes what is being typed in a tile's draft, while it is open: the service's answer for the
-    /// text and the caret as they are now, when it found a token there and has rows or a word to say for it.
-    pub fn completing(&self, tile: &str) -> Option<&Completion> {
+    /// The list that completes what is being typed in a tile's draft, as the service answered it for the text and the
+    /// caret as they are now, when it found a token there and has rows or a word to say for it. What a choice is
+    /// written from: never a list for a text that has moved on.
+    pub fn completing_now(&self, tile: &str) -> Option<&Completion> {
         let draft = self.draft_on(tile)?;
         self.store.read::<Completion>(draft.completes()?).filter(|found| found.token.is_some() && (!found.rows.is_empty() || found.message.is_some()))
+    }
+
+    /// The list on screen over a tile's draft: the answer for the text as it is now, or, while that is on its way, the
+    /// list as it was before the last change (`Completing.held`), so it never blinks away between two letters.
+    pub fn completing(&self, tile: &str) -> Option<&Completion> {
+        let draft = self.draft_on(tile)?;
+        let ask = draft.completes()?;
+        if !self.store.waiting(ask) { return self.completing_now(tile) }
+        let held = draft.completing.held.as_ref()?;
+        self.store.read::<Completion>(&held.ask).filter(|found| found.token.is_some() && !found.rows.is_empty())
+    }
+
+    /// The list on screen over a tile's draft is the one held from before the last change: the answer for the text
+    /// as it is now is on its way. Its rows can be shown and lit; its token is the old text's, so none is written.
+    pub fn completing_behind(&self, tile: &str) -> bool {
+        self.draft_on(tile).and_then(|draft| draft.completes()).is_some_and(|ask| self.store.waiting(ask)) && self.completing(tile).is_some()
+    }
+
+    /// Which row of the list on screen is lit: the draft's own, or in a list held from before, the one lit then.
+    pub fn completing_at(&self, tile: &str) -> usize {
+        let Some(draft) = self.draft_on(tile) else { return 0 };
+        let waiting = draft.completes().is_none_or(|ask| self.store.waiting(ask));
+        match &draft.completing.held { Some(held) if waiting => held.lit, _ => draft.completing.lit }
     }
 
     /// The lit row of a tile's open completion list, as the list has it, and what choosing it makes when the
     /// service has drawn that (`CompletionRow.view`, on the answer asked with that row lit): what stands beside the list.
     pub fn completing_lit(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
-        let (draft, found) = (self.draft_on(tile)?, self.completing(tile)?);
+        let (draft, found) = (self.draft_on(tile)?, self.completing_now(tile)?);
         let row = found.rows.get(draft.completing.lit)?;
         let view = draft.shows().and_then(|ask| self.store.read::<Completion>(ask)).and_then(|shown| shown.rows.get(draft.completing.lit)).and_then(|row| row.view.as_ref());
         Some((row, view))
+    }
+
+    /// The words of the caret's line before the token being completed, and the token's own up to the caret: what the
+    /// list is hung by (its left edge at the token's start, under the line). None while no list is open there.
+    pub fn completing_words(&self, tile: &str) -> Option<(&str, &str)> {
+        let (draft, found) = (self.draft_on(tile)?, self.completing(tile)?);
+        let (text, caret) = (draft.buf.words(), draft.buf.ends().1);
+        let start = draft::byte_of(text, found.token.as_ref()?.start).filter(|start| *start <= caret)?;
+        let line = text[..start].rfind('\n').map_or(0, |at| at + 1);
+        Some((&text[line..start], &text[start..caret]))
+    }
+
+    /// What of the lit row is still to come after the caret, when the row goes on from what is typed (the service's
+    /// word on the row, `rest`) and nothing stands after the caret on its line: shown dimmed there, where Tab takes
+    /// it. None while the list on screen is one held from before the last change.
+    pub fn completing_rest(&self, tile: &str) -> Option<&str> {
+        let draft = self.draft_on(tile)?;
+        let (text, (anchor, caret)) = (draft.buf.words(), draft.buf.ends());
+        if anchor != caret || draft.buf.composing() || text[caret..].chars().next().is_some_and(|next| next != '\n') { return None }
+        self.completing_now(tile)?.rows.get(draft.completing.lit)?.rest.as_deref().filter(|rest| !rest.is_empty() && !rest.contains('\n'))
+    }
+
+    /// The lit row and its drawing, once it has been lit long enough for a card (`draft::CARD_QUIET`, on the window's
+    /// clock): what the popover draws beside its list. Moving down a list draws no card a row.
+    pub fn completing_card(&self, tile: &str) -> Option<(&CompletionRow, Option<&Value>)> {
+        let draft = self.draft_on(tile)?;
+        if self.now - draft.completing.since < draft::CARD_QUIET { return None }
+        self.completing_lit(tile).filter(|(row, view)| row.docs.is_some() || view.is_some())
+    }
+
+    /// The window's clock moved to `now` (the frame's poll). True when what is drawn changes with it: the lit row
+    /// has been lit long enough for its card. And how long until that, when a list is open and its card is not shown yet.
+    pub fn tick(&mut self, now: f64) -> (bool, Option<std::time::Duration>) {
+        // (The clock never goes back: a headless render is stepped past the quiet once, before its one frame.)
+        self.st.now = self.st.now.max(now);
+        let focus = self.layout.focus.clone();
+        let open = self.completing_now(&focus).is_some();
+        let carded = self.completing_card(&focus).is_some();
+        let changed = carded != self.carded;
+        if changed { self.st.carded = carded }
+        let due = (open && !carded).then(|| self.draft_on(&focus).map(|draft| (draft.completing.since + draft::CARD_QUIET - self.now).max(0.0))).flatten();
+        (changed, due.map(|due| std::time::Duration::from_secs_f64(due + 0.01)))
+    }
+
+    /// The list on screen now, as the next question holds it while its own answer is on its way: its question and
+    /// lit row, and what that row writes when the person chose it (it is lit again in the list that answers).
+    fn completion_shown(&self, tile: &str) -> Option<(Held, Option<String>)> {
+        let now = &self.draft_on(tile)?.completing;
+        let ask = now.ask.as_ref()?;
+        // Its own answer when that had landed (for the text as it was until this change); else the list it held.
+        let listed = |ask: &Ask| self.store.read::<Completion>(ask).filter(|found| found.token.is_some() && !found.rows.is_empty());
+        let fresh = !self.store.waiting(ask) && listed(ask).is_some();
+        let (ask, lit) = if fresh { (ask.clone(), now.lit) } else { let held = now.held.as_ref()?; (held.ask.clone(), held.lit) };
+        let kept = if fresh { now.moved.then(|| listed(&ask).and_then(|found| found.rows.get(lit)).map(|row| row.pick.clone())).flatten() } else { now.kept.clone() };
+        listed(&ask)?;
+        Some((Held { ask, lit }, kept))
+    }
+
+    /// The answer to what completes a draft landed: the row the person had chosen is lit again where it now sits,
+    /// and a key that chooses pressed while it was on its way is run now, in the list it brought.
+    fn completed(&mut self, key: &AskKey) {
+        let (at, now) = (self.at.clone(), self.now);
+        for index in 0..self.drafts.len() {
+            let Some(draft) = self.drafts.get(index) else { break };
+            if draft.completes().is_none_or(|ask| ask.key() != *key) { continue }
+            let tile = draft.tile.clone();
+            match draft.completing.kept.clone() {
+                Some(kept) => {
+                    let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.pick == kept)).unwrap_or(0);
+                    self.st.drafts[index].light(row, false, &at, now);
+                    self.pump();
+                }
+                None => self.st.drafts[index].completing.held = None,
+            }
+            if let Some(line) = self.st.drafts[index].completing.later.take() { super::draft::later(self, &tile, &line) }
+        }
     }
 
     // ── screens ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -747,7 +934,14 @@ impl App {
         // A tile that reads no notes has a home, where its own opens land when no wire or container says: the reader
         // it speaks for (`home_of`, the one answer), never a list it follows.
         let notes = drawer.is_some_and(|d| d.notes);
-        let home = if notes { None } else { self.home_of(tile).map(|id| self.layout.name(&id)) };
+        // A list whose kind hands its keys on (the outline tree) is the exception, as in the door: it has a home only
+        // when it names one (`source`). Its open goes by its wire, its container's rule, else to the first reader not
+        // pinned, which takes the keys: the layout's rule for an open nothing routes (`Facts.hands_keys`).
+        let hands_keys = !notes && self.field_of(tile, "handsKeys").and_then(Value::as_bool) == Some(true);
+        let home = if notes { None } else if hands_keys { self.named_home(tile).map(|id| self.layout.name(&id)) } else { self.home_of(tile).map(|id| self.layout.name(&id)) };
+        // A reader no list's cursor feeds is held: an open aimed at it keeps its old note as a spine beside it.
+        // (One opened fresh and kept out of the pile is the layout's own to say: its `alt_readers`.)
+        let held = notes && !self.in_place(tile) && !self.layout.alt_readers.iter().any(|alt| alt == tile) && !self.list_fed(tile);
         // The note a reader shows (`note_of`: the one it was told). One told none shows none and is drawn as empty:
         // it takes a closed reader's note, and no open is "already shown" in it.
         let showing = if notes { self.note_of(tile) } else { None };
@@ -755,7 +949,7 @@ impl App {
         // (What it runs, in the tile's own words: the line typed into it, else its kind as the kind calls itself.)
         let running = self.ui(tile).program.as_deref().filter(|key| self.detaching.as_deref() != Some(tile) && drawer.is_some_and(|d| d.takes_keys) && self.store.program_runs(key))
             .map(|_| self.field_of(tile, "command").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("its {}", self.kind_of(tile).map_or(kind.clone(), |row| row.name.to_lowercase()))));
-        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, running, ..layout::Facts::default() }
+        layout::Facts { kind, notes, lists: drawer.is_some_and(|d| d.lists), follower: !notes && self.attached(tile), showing, editing, home, running, pinned: self.pinned(tile), held, deliberate: self.ui(tile).deliberate, hands_keys, ..layout::Facts::default() }
     }
 
     /// Why a tile stays on its note: a block is being written in it. The fact is the one the layout's rules read
@@ -776,6 +970,8 @@ impl App {
             wants.push(Want { tile: draft.tile.clone(), role: "complete", ask: ask.clone() });
             // And what choosing the lit row makes, once the person lit another than the first.
             if let Some(shows) = draft.shows().filter(|shows| *shows != ask) { wants.push(Want { tile: draft.tile.clone(), role: "completes", ask: shows.clone() }) }
+            // And the list as it was before the last change, read until the one for the text as it is now lands.
+            if let Some(held) = draft.completing.held.as_ref().filter(|held| held.ask != *ask) { wants.push(Want { tile: draft.tile.clone(), role: "completed", ask: held.ask.clone() }) }
         }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
         // The note of the row the pointer rests on, for its card.
@@ -807,7 +1003,8 @@ impl App {
         self.recover();
         // What completes the words being typed is asked for the text and the caret as they are now.
         let (at, focus) = (self.at.clone(), self.layout.focus.clone());
-        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == focus) { draft.complete(&at) }
+        let (shown, now) = (self.completion_shown(&focus), self.now);
+        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == focus) { draft.complete(&at, shown, now) }
         let wants = self.wants();
         self.store.want(wants);
     }
@@ -932,6 +1129,7 @@ impl App {
 
     /// An answer landed in a slot. A reader's page in a shape this window can't read is said, not left blank.
     fn landed(&mut self, key: &AskKey) {
+        self.completed(key);
         for reader in self.shown_tiles() {
             if !self.reads_notes(&reader) { continue }
             let Some(note) = self.note_of(&reader) else { continue };
@@ -968,6 +1166,11 @@ impl App {
 
     /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).
     pub fn revealed(&mut self) -> Option<String> { self.st.reveal.take() }
+    /// The scroll an act asked the next frame to move, taken once (`keys::effects` is the one caller).
+    pub fn scrolled(&mut self) -> Option<(String, Scroll)> { self.st.scroll.take() }
+    /// How many rows a list tile's view shows, as its drawer laid it out: what a page of its cursor moves by. Told
+    /// by the list drawer when its scroll is laid out, as the window's size is told by the shell.
+    pub fn list_room(&mut self, tile: &str, rows: f64) { if self.spec(tile).is_some() && self.ui(tile).room != Some(rows) { self.ui_mut(tile).room = Some(rows) } }
 
     /// The windows this one asked for, each its whole state, taken once: the shell opens them (`shell::windows` is
     /// the one caller in a run; a test draws one itself).
@@ -992,10 +1195,29 @@ impl App {
     pub fn typed(&mut self, field: &Field) {
         match field {
             Field::Bar => self.st.bar.cursor = 0,
-            Field::Draft(tile) => self.wrote_in(tile),
+            Field::Draft(tile) => { self.typed_out(tile); self.wrote_in(tile) }
             Field::Form(_) => if let Some(form) = &mut self.st.form { form.said = None },
         }
         self.pump();
+    }
+
+    /// The person typed the rest of the lit row themselves (a value's closing bracket, a key's `::`): the characters
+    /// that end the token commit it. What was still to come is the service's word on the row (`rest`), and when
+    /// exactly that was typed at the caret the choice is counted as one made from the list, where every client's
+    /// are. Nothing is written for it: the words are the person's own, as typed.
+    fn typed_out(&mut self, tile: &str) {
+        let Some(draft) = self.draft_on(tile) else { return };
+        let Some(ask) = draft.completing.ask.as_ref() else { return };
+        let Some(found) = self.store.read::<Completion>(ask) else { return };
+        let (Some(token), Some(row), Some(key)) = (found.token.as_ref(), found.rows.get(draft.completing.lit), found.pick_key.as_ref()) else { return };
+        let (Some(rest), Some(was), Some(cursor)) = (row.rest.as_deref(), ask.params["text"].as_str(), ask.params["cursor"].as_u64()) else { return };
+        let Some(at) = draft::byte_of(was, cursor as usize) else { return };
+        // The text is the one the list was asked for, with the row's rest typed where the caret was.
+        let (now, caret) = (draft.buf.words(), draft.buf.ends().1);
+        if caret != at + rest.len() || now.len() != was.len() + rest.len() || now.get(at..caret) != Some(rest) || now[..at] != was[..at] || now[caret..] != was[at..] { return }
+        let counted = json!({ "key": key, "insert": row.pick, "outcome": "accepted", "source": row.from, "query": token.query, "row": { "id": row.id, "label": row.label, "insertion": row.insert } });
+        let at = self.at.clone();
+        self.store.request(&at, "completion.picked", counted, &Actor::Person, |_, _| {}, Value::Null);
     }
 
     /// What time does to what the window says, asked each turn (`poll`), by the door's rule for its status bar
@@ -1041,6 +1263,8 @@ impl App {
 
     /// The key table's memory of a sequence under way (`keys::press` is the one caller).
     pub fn held(&mut self) -> &mut crate::keys::Held { &mut self.held }
+    /// The same, read: what the hint row says of a sequence that is begun.
+    pub fn held_now(&self) -> &crate::keys::Held { &self.held }
 
     /// The window is this large, in points (the shell is the one caller): the area the layout fills, in cells.
     pub fn resized(&mut self, width: f32, height: f32) {
@@ -1070,6 +1294,9 @@ impl App {
         let ui = self.st.tiles.entry(tile.to_string()).or_default();
         // (Words selected in the note it showed are that note's: another note has none picked.)
         if was.as_deref() != Some(id) { ui.passage = None }
+        // Another note's page: the reading line is the page's own. A new open has nowhere forward of it.
+        if was.as_deref() != Some(id) { ui.reading = None }
+        if remember { ui.ahead.clear() }
         if remember && let Some(was) = was.filter(|was| was != id) { ui.history.push(was) }
         ui.note = Some(id.to_string());
     }

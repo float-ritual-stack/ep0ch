@@ -9,7 +9,7 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use rune::{El, col, el, row, text};
+use rune::{El, Tx, col, el, row, text};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, Keybind, Kit, glyphs};
 use serde_json::json;
 
@@ -45,7 +45,7 @@ pub const MENU: &str = "menu";
 
 fn own() -> [Source; 3] {
     [
-        Source { id: MENU.into(), about: "Menu".into(), placeholder: "What to do with this tile, or with what the pointer was on".into(), prefix: None, served: false, main: false, facets: false },
+        Source { id: MENU.into(), about: "Menu".into(), placeholder: "What to do with this tile, or with the row or link its menu is about".into(), prefix: None, served: false, main: false, facets: false },
         Source { id: ALL.into(), about: "Everything".into(), placeholder: "An action, or words in a note · > for actions alone".into(), prefix: None, served: false, main: false, facets: false },
         Source { id: ACTIONS.into(), about: "Actions".into(), placeholder: "An action's name or what it does; a whole act line runs as written".into(), prefix: Some('>'), served: false, main: false, facets: false },
     ]
@@ -214,18 +214,16 @@ fn empty(app: &App) -> Option<String> { answer(app).and_then(|answer| answer.lis
 /// The bar's question is out and nothing has answered it yet.
 fn asking(app: &App) -> bool { asks(app).iter().any(|ask| app.store().waiting(ask)) }
 
+/// A row of the bar: the one list's row (`list::line`), two lines tall: its label over its detail, its keycap at
+/// the right.
 fn row_el(row: &BarRow, lit: bool, k: &Kit) -> El {
-    let c = &k.c;
-    let words = col().gap(1.0).grow(1.0).min_w(0.0)
-        .child(text(row.label.clone()).font(k.ty.ui_medium).color(c.text_base).truncate().help_when_truncated(row.label.clone()))
-        .child(text(row.detail.clone()).font(k.ty.small).color(c.text_faint).truncate().help_when_truncated(row.detail.clone()));
-    let mut line = rune::row().w_full().gap(10.0).center_y().child(words);
-    if let Some(cap) = &row.keycap { line = line.child(Keybind::new(&[cap.as_str()]).build(k)) }
+    let line = list::line(list::Line { label: row.label.clone(), detail: Some(row.detail.clone()), keycap: row.keycap.clone(), tall: true, ..list::Line::default() }, lit, k);
     let pick = format!("bar.pick source={} key={}", row.source, word(&row.key));
-    k.interactive(line.px(10.0).py(6.0).h(ROW).radius(k.radius.sm).fill(if lit { c.surface_hover } else { rune::Color::TRANSPARENT }))
+    k.interactive(line.h(ROW))
         .key(row_key(row))
         .role("option")
-        .on_press(move |s: &mut App| { s.act(&pick, Actor::Person); })
+        // (Option or the shortcut modifier held is the row's other way: what it opens, it opens fresh.)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| { s.act(&format!("{pick}{}", if crate::press::fresh(keys::held_bits(tx), 0) { " alt=true" } else { "" }), Actor::Person); })
 }
 
 /// A button for an act line: its label is the action's, its keycap the key table's.

@@ -92,8 +92,8 @@ fn a_control_says_its_name_and_key_on_a_hover_and_the_window_s_parts_say_what_th
     assert_eq!((row.role, row.level), ("treeitem", Some(1)));
 }
 
-/// A right-click on a row of the tree, in a window with the platform's own menus: the tile takes the keys, and the
-/// menu is one of the platform's, at the pointer. Its first row is what a pick of that row runs, called what the
+/// A right-click on a row of the tree, in a window with the platform's own menus: the tile takes the keys, its
+/// cursor goes to the row, and the menu is one of the platform's, at the pointer. Its first row is what a pick of that row runs, called what the
 /// action's row calls it; then the tile's own actions under their groups, each a `menu` row of an action. Picking
 /// one runs its line from the tile, and leaves the step any press leaves.
 #[test]
@@ -106,6 +106,11 @@ fn a_right_click_on_a_row_opens_the_tile_s_menu_about_that_row_and_a_pick_runs_i
     assert_eq!(rt.state.layout.name(&rt.state.layout.focus), "reader");
     right_click(&mut rt, "tile/tree/row/beans");
     assert_eq!(rt.state.layout.name(&rt.state.layout.focus), "tree", "a right-click gives the tile the keys");
+    // The row under the pointer is the one the tree's cursor is on now, as a press that brings the keys puts it
+    // there (the door's rule): the menu is about the cursor's row, and nothing was opened or shown for it.
+    let tree = rt.state.layout.focus.clone();
+    assert_eq!(rt.state.ui(&tree).cursor.as_deref(), Some("beans"), "the cursor is on the row the menu is about");
+    assert_eq!(open_note(&rt.state).as_deref(), Some("plot"), "a right-click opens nothing");
     assert!(!rt.state.bar.open, "the menu is the platform's, not the bar's");
     let titles = menu_titles(&rt);
     assert_eq!(titles[0], (crate::actions::label("open"), true), "the row's own act comes first: {titles:?}");
@@ -159,6 +164,30 @@ fn where_the_platform_has_no_menus_the_tile_s_menu_is_the_bar_s_list_typed_into_
     assert!(!rt.state.bar.open && rt.state.menu.is_none(), "Escape puts the menu away with the bar");
 }
 
+/// The menu asked for by its key, in a list whose cursor is on a row: it is about that row first (what Return on it
+/// runs, and its own presses), as a right-click on the row is. One answer to which row a list's menu is about: the
+/// row its cursor is on.
+#[test]
+fn a_list_s_menu_asked_by_key_is_about_the_row_its_cursor_is_on() {
+    let mut g = garden(ok());
+    assert!(act(&mut g.app, "tree.fold id=plot open=true").ok);
+    assert!(act(&mut g.app, "tile.focus tile=tree").ok);
+    let mut rt = window(g.app);
+    rest(&mut rt);
+    let beans = rt.state.tree().iter().position(|row| row.id == "beans").expect("the beans are listed") + 1;
+    rt.update(|s, _| { assert!(s.act(&format!("list.select n={beans} tile=tree"), Actor::Person).ok); });
+    rest(&mut rt);
+    chord(&mut rt, rune::Key::Command('.'), primary());
+    assert!(rt.state.bar.open && rt.state.bar.scope == crate::bar::MENU);
+    let rows = crate::bar::rows(&rt.state);
+    // (The row's own act line, as the service wrote it: what Return on the row runs.)
+    let own = rt.state.tree().iter().find(|row| row.id == "beans").and_then(|row| row.act.clone()).expect("the row opens its note");
+    assert_eq!((rows[0].line.clone(), rows[0].label.clone()), (own.clone(), crate::actions::label("open")), "the cursor's row comes first: {:?}", rows.iter().map(|row| row.line.clone()).collect::<Vec<_>>());
+    // An agent is answered the same rows for the tile: what the cursor is on is the tile's state, not a pointer's.
+    let answered = rt.state.act("tile.menu tile=tree", agent());
+    assert_eq!(answered.answer["rows"][0]["act"].as_str(), Some(own.as_str()));
+}
+
 /// An agent's `tile.menu` opens nothing: it is answered the rows as data, each with the act it runs and why the
 /// agent would be refused it. What the pointer is on is the person's to say.
 #[test]
@@ -173,7 +202,7 @@ fn an_agent_s_tile_menu_is_answered_as_rows_and_opens_nothing() {
     let all = g.app.act("tile.menu tile=reader", agent()).answer["rows"].as_array().unwrap().clone();
     let edit = all.iter().find(|row| row["act"] == "edit").expect("a reader's menu has Edit");
     assert!(edit["refused"].as_str().is_some_and(|why| !why.is_empty()), "{edit}");
-    assert!(!g.app.act("tile.point row=beans tile=tree", agent()).ok, "what the pointer is on is the person's");
+    assert!(!g.app.act("tile.point link=ep0ch:b/beans tile=reader", agent()).ok, "what the pointer is on is the person's");
 }
 
 /// `note.copy-ref`: the person's copy of the open note's id is on its way to their clipboard and said in the
@@ -263,6 +292,25 @@ fn a_picture_pasted_into_a_block_is_kept_and_its_line_put_in() {
     assert_eq!(base64::Engine::decode(&base64::engine::general_purpose::STANDARD, kept["base64"].as_str().unwrap()).unwrap(), png);
     assert!(words(&rt.state).ends_with("\n[img::/made/up/garden/media/2026-11-14-clipboard.png]\n"), "{}", words(&rt.state));
     assert!(!rt.state.act("draft.image path=/made/up/bed.png", agent()).ok, "the editor is the person's");
+}
+
+/// A file copied in a file manager and pasted into a block being written. The clipboard then holds the file and,
+/// as words, its name (a Mac's Finder writes both, and the file's icon as a picture): the paste is the file, kept as
+/// a dropped one is, and never its name typed in.
+#[test]
+fn a_file_copied_in_a_file_manager_and_pasted_is_kept_as_a_file_and_its_name_is_not_typed() {
+    let picture = scratch_file("paste", "bed-at-dusk.png", &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1]);
+    let g = garden(ok());
+    let (asked, mut rt) = (g.asked.clone(), window(g.app));
+    rt.update(|s, _| { s.act("edit", Actor::Person); });
+    rest(&mut rt);
+    rt.paste_content(rune::ClipboardContent::new("bed-at-dusk.png").with_files([picture.clone()]));
+    rest(&mut rt);
+    let kept = asked.borrow().iter().find(|ask| ask["action"] == "media.keep").cloned().expect("the file is handed to the service");
+    assert_eq!((kept["name"].as_str(), kept["path"].as_str()), (Some("bed-at-dusk.png"), picture.to_str()));
+    assert!(words(&rt.state).ends_with("\n[img::/made/up/garden/media/2026-11-14-bed-at-dusk.png]\n"), "{}", words(&rt.state));
+    assert!(!words(&rt.state).contains("rain.bed-at-dusk.png"), "its name was typed in: {}", words(&rt.state));
+    let _ = std::fs::remove_dir_all(picture.parent().unwrap());
 }
 
 /// The pointer resting on a row of the tree: after the door's 300 ms of rest the note that row is keyed by is asked

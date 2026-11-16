@@ -36,7 +36,7 @@ fn a_revision_is_put_back_only_into_the_note_it_is_a_text_of() {
     assert!(g.asked.borrow()[before..].iter().all(|a| a["action"] != "block.revisions"), "no text was asked for");
     assert!(g.app.draft_on(&g.app.layout.named("bed").unwrap()).is_none(), "and no editor opened on the other note");
     // Back on its note, the same press puts the text in.
-    assert!(act(&mut g.app, "open id=plot").ok);
+    assert!(act(&mut g.app, "back tile=bed").ok);
     let put = g.app.act_in(&restore, "kept", Actor::Person);
     g.app.settle();
     assert!(put.ok, "{}", put.said);

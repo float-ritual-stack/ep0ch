@@ -40,19 +40,26 @@
 //! - `adopt.rs`: wave A1's: the toolbar as the window's own title bar, a tile's menu on a right-click (the
 //!   platform's own, and the bar's list), a control's name and key on a hover, a note's address copied, a file
 //!   dropped on a note, a row's note shown on a hover, and the playground's stories.
+//! - `complete.rs`: completing (H5): `::` at a line's start with a lit row whose example lists notes (the crash),
+//!   the popover's place and size, a row's anatomy, every key of the list by real key events, what accepting chains
+//!   into, a skeleton's stops, a key that chooses pressed before the list has caught up with the words, and a list
+//!   that opens under a pointer at rest.
 //! - `live.rs`: the same window against a real scratch host (ignored unless asked for).
 mod actline;
 mod adopt;
 mod arrange;
+mod complete;
 mod contract;
 mod control;
 mod drafts;
 mod ext;
 mod garden;
+mod keys;
 mod lists;
 mod live;
 mod margin;
 mod one_owner;
+mod opens;
 mod owners;
 #[cfg(feature = "pty")]
 mod pty_live;

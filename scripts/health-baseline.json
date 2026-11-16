@@ -100,7 +100,7 @@
         "packages/door/src/edit.ts:391ec4fdb5ffe796",
         "packages/door/src/edit.ts:27b8756068690aeb",
         "packages/door/src/edit.ts:6981dcaedc3487c4",
-        "packages/door/src/edit.ts:e008f2328f99db07",
+        "packages/door/src/edit.ts:1c4a63f243bcb5e7",
         "packages/door/src/edit.ts:590259cf22c4966c",
         "packages/door/src/edit.ts:590259cf22c4966c",
         "packages/door/src/edit.ts:b8f4c22c7a9c1b3b",
@@ -349,7 +349,7 @@
   },
   "files": {
     "packages/claude-mod/hooks/register.ts": 2896,
-    "packages/door/src/desk/desk.ts": 8260,
+    "packages/door/src/desk/desk.ts": 8257,
     "packages/door/src/desk/screen-layout.ts": 2305,
     "packages/door/src/screens.ts": 2230,
     "packages/door/src/showcase/showcase.ts": 2134,

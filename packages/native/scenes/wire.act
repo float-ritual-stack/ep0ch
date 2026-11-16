@@ -1,0 +1,10 @@
+# A wire set by picking its tile on screen (K2), on the notes `cursor.seed.ts` writes: a second reader is split
+# off, and the tree's open wire is being set (`wire.pick verb=open`, Alt+L then o). Every tile that can take it
+# says what a press on it does, the tree itself offers an open in place, the foot of the tiles says which wire it
+# is and where it lands now, and the row under the tiles lists the keys of the mode from the key table.
+tile.focus tile=tree
+list.select n=-3
+list.pick
+tile.split tile=reader
+tile.focus tile=tree
+wire.pick verb=open tile=tree

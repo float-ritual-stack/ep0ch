@@ -128,6 +128,10 @@ pub struct ListView {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Section { pub head: Option<ListGroup>, pub rows: Vec<usize> }
 
+/// A list arranged as lanes, in the list's own word (outline-core's `ListPrimitive.arrange`): a group a lane, side by
+/// side, each a list of its own to the keys.
+pub const LANES: &str = "lanes";
+
 impl ListView {
     /// The rows in the sections they are drawn in, every renderer's order (outline-core's `listSections`, and the one
     /// copy of it here: `fixtures/core-contract.json` holds what that answers, and `tests/contract.rs` asks every row).
@@ -346,7 +350,32 @@ pub struct CompletionRow {
     /// What choosing it makes, as the service drew it: a primitive, on the row its answer was asked to light.
     #[serde(default)]
     pub view: Option<Value>,
+    /// The section it sits in, when the list has some.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// The characters of `label` (UTF-16) that what was typed matched, as the service's one matcher found them.
+    #[serde(default)]
+    pub matches: Vec<usize>,
+    /// Every stop of what it writes (UTF-16 spans of `insert`, in order): stepped through once it is in.
+    #[serde(default)]
+    pub slots: Vec<Span>,
+    /// How what it writes looks, one line high: a primitive, drawn in the row.
+    #[serde(default)]
+    pub sample: Option<Value>,
+    /// Choosing it leaves more to complete: the list is asked again at once.
+    #[serde(default)]
+    pub next: bool,
+    /// Choosing it makes something first: the request to send before its `insert` is written.
+    #[serde(default)]
+    pub makes: Option<Makes>,
+    /// What of `insert` is still to come after what is typed, when it continues it: shown dimmed after the caret.
+    #[serde(default)]
+    pub rest: Option<String>,
 }
+
+/// A request a completion row asks to be sent before it is written (a page nobody has written is made first).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct Makes { pub action: String, #[serde(default)] pub params: Value }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
 pub struct Span { pub start: usize, pub end: usize }
