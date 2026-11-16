@@ -411,7 +411,11 @@ src/ (Rust, Rune)                                      the outline host
     in the door), and a value closes its bracket without doubling one that is there. What of the lit row is still
     to come is shown dimmed after the caret (`rest`, an overlay at the caret: never part of the field's words),
     and the characters that end a token count the row they finish as chosen. The row the person chose stays lit
-    by what it is while the list narrows, and the list never blinks away between two letters of a word.
+    by what it is while the list narrows, and the list never blinks away between two letters of a word: the one
+    for the words before stays on screen until the answer for the words as they are lands. Nothing is written
+    from that older list (its token is the older text's): Tab or Return pressed meanwhile is run when the answer
+    lands, in the list it brings. The pointer lights a row when it moves over one, never by resting where a list
+    then opens.
   - **The window is the draft's holder, and places nothing.** While the draft is open it is held on the service
     (`drafts.hold`, renewed every five seconds), so an agent's `draft.patch` on the note comes here. Asked to
     patch, the window answers with its draft as it stands (the text, where the caret is); the service decides

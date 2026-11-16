@@ -906,6 +906,18 @@ other examples and Moonframe were not read for this wave.
   letters is the list as it was (held), then the service's. Narrowing it here would be a second matcher.
 - **A hyphen is no matched letter:** typed `heading-pat`, the service marks ten letters of `heading-pattern`, not
   eleven.
+- **A held list's token is the old text's.** With the list for `[h` held while the answer for `[ha` was on its way
+  (10 to 40 ms on a scratch outline of a dozen notes, measured), Tab wrote the old first row over the old token and
+  left the last letter after it: `[heading-pattern::a`. A key that chooses pressed meanwhile is now kept and run when
+  the answer lands (`Completing.later`); Return with nothing left to complete types a line. Run: `cargo test
+  a_choice_made_before` (red before: exit 101; green: exit 0), and by real keys on a scratch host (a `--script`
+  typing `eading-r` and Tab at one instant after `[h`: `[heading-rows::`). Still as it was: Down or Up pressed in that moment
+  lights by the old list's place in the new one.
+- **A row that appears under a pointer at rest takes `on_hover`.** Rune gives the row under a still pointer its
+  hover once layout settles (`runtime/tests/layout_hover.rs`: "once they settle, the row under the pointer has it"),
+  so a list opening where the pointer was left lit that row and Tab took it. The rows light on `on_pointer_move`
+  instead, which only a real move sends. The kit's `PopupList` lights on `on_hover` too (`popup_list.rs:273`): to
+  raise upstream. Run: `cargo test a_list_opening_under` (red before: exit 101; green: exit 0).
 - **An act line holds no line break,** so a scene can't type Return: `draft.paste` puts words on the caret's line.
 - Not run on a Mac: every key, the placement and the pictures are Linux's, headless. `ctrl+space` on a Mac with
   more than one input source belongs to the input menu until that shortcut is turned off there.
