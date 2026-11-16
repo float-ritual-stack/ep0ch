@@ -7,13 +7,14 @@ use super::row::{ActionRow, ArgSpec, Example, KeyRow, MenuRow, Scalar, Touches};
 use super::{Action, Actor, App, Notice, Outcome, About};
 use crate::actline::Args;
 use crate::layout::tree::{self, Node};
-use crate::layout::{self, Ctx, Dir, Kinds, Layout, Op, Place};
+use crate::layout::{self, Ctx, Dir, Id, Kinds, Layout, Op, Place};
 use crate::tiles;
 use crate::screen::{From, Screen};
 
-static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a dock open or shut: the first dock on that edge of the screen")
-    .args(&[("side", ArgSpec::text("the edge the dock is on").choices(&["left", "right", "up", "down"]))])
+static DOCK: ActionRow = ActionRow::new("dock.toggle", Touches::Screen, "slide a dock open or shut: side= the first dock on that edge of the screen; left out, the dock the tile with the keys is in")
+    .args(&[("side", ArgSpec::text("the edge the dock is on (default: the dock the tile with the keys is in)").optional().choices(&["left", "right", "up", "down"]))])
     .keys(&[
+        KeyRow::on("escape q", "docked", "shut the dock the keys are in"),
         KeyRow::with("mod+shift+b", None, "show or hide the dock on the left", &[("side", Scalar::Text("left"))]),
         KeyRow::with("mod+i", None, "show or hide the dock on the right", &[("side", Scalar::Text("right"))]),
     ])
@@ -133,7 +134,7 @@ impl App {
         ctx.lands = spec.as_ref().and_then(|spec| spec.lands()).map(str::to_string);
         // Where the keys go back to when their tile goes: the screen's `home`, a tile by its name or the first tile
         // of the container keyed so (`Layout::lands` reads either word).
-        ctx.home = spec.as_ref().and_then(|spec| spec.home()).and_then(|home| match self.layout.lands(home)? { layout::Lands::Tile(tile) => Some(tile), layout::Lands::Container(key) => self.layout.within(&key).into_iter().next() });
+        ctx.home = self.home();
         // What placement remembers: the reader each tile opened beside itself, and what was opened into a container.
         ctx.beside = self.memory.beside.clone();
         ctx.opened = self.memory.opened_said();
@@ -146,6 +147,26 @@ impl App {
         // The tile an open makes is of the kind that reads notes here, known to the rules as a tile of it is (`App::facts`).
         ctx.sprout = self.note_kind().map(|row| row.role().unwrap_or(row.kind.as_str()).to_string());
         ask(&ctx)
+    }
+
+    /// Where the keys go back to when their tile goes, and on the last step back: the screen's `home`, a tile by its
+    /// name or the first tile of the container keyed so (`Layout::lands` reads either word). The one reading: the
+    /// layout's rules are told it (`asked`), and `keys.home` goes there.
+    pub(super) fn home(&self) -> Option<Id> {
+        self.spec_now().as_ref().and_then(|spec| spec.home()).and_then(|home| match self.layout.lands(home)? { layout::Lands::Tile(tile) => Some(tile), layout::Lands::Container(key) => self.layout.within(&key).into_iter().next() })
+    }
+
+    /// Where Tab stops, in reading order (`cursor::tab_stops`, the rule both doors ask): the tiles shown, each with
+    /// the set of columns or the dock it is in, then the floats; the one tile that fills the window while one does.
+    /// (Which tile of a set of columns was used last is not kept here: its lanes stop on their first.)
+    pub fn tab_stops(&self) -> Vec<Id> {
+        if let Some(zoom) = &self.layout.zoom { return vec![zoom.clone()] }
+        let root = self.layout.tree();
+        let shown: Vec<crate::cursor::Shown> = root.visible().into_iter().map(|id| {
+            let held = tree::chain_of(root, &id).into_iter().filter_map(|path| root.at(&path)).find(|node| matches!(node, Node::Columns { .. } | Node::Dock { .. }));
+            crate::cursor::Shown { within: held.map(|node| node.id().unwrap_or("").to_string()), columns: held.is_some_and(|node| matches!(node, Node::Columns { .. })), id }
+        }).collect();
+        crate::cursor::tab_stops(&shown, &self.layout.focus, |_| None, &self.layout.floats.iter().map(|float| float.spec.id.clone()).collect::<Vec<_>>())
     }
 
     /// One operation on the arrangement, as `by`: done and kept, or refused in the layout's words.
@@ -267,7 +288,12 @@ impl App {
 }
 
 fn dock(app: &mut App, args: &Args, by: &Actor) -> Outcome {
-    let Some(side) = args.text("side").and_then(Dir::read) else { return Outcome::refused("a dock is on the left, right, up or down edge") };
+    let Some(side) = args.text("side").and_then(Dir::read) else {
+        // No edge named: the dock the tile with the keys is in.
+        let tile = app.layout.focus.clone();
+        let Some(container) = tree::dock_of(app.layout.tree(), &tile).and_then(|path| app.layout.tree().at(&path)).map(|dock| dock.id().map(str::to_string)) else { return Outcome::refused("the tile with the keys is in no dock: name an edge with side= (left, right, up or down)") };
+        return app.reshape(&Op::Slide { tile, open: None, container, beside: false }, by);
+    };
     let found = tree::docks(app.layout.tree()).into_iter().filter_map(|path| app.layout.tree().at(&path).cloned()).find(|dock| matches!(dock, Node::Dock { side: s, .. } if *s == side));
     let Some(dock) = found else { return Outcome::refused(super::says(&layout::Refusal::new(format!("this screen has no dock on the {} edge", side.word())).way(layout::Way::new("tile.dock", "puts a tile in one").arg("edge", side.word())), by)) };
     let Some(tile) = dock.leaves().into_iter().next() else { return Outcome::refused("that dock holds no tile") };

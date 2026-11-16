@@ -126,7 +126,7 @@ fn the_bar_s_keys_move_its_lit_row_and_a_line_typed_whole_runs_as_written() {
 fn esc_closes_one_thing_at_a_time_the_bar_then_the_editor_then_the_notice() {
     let mut rt = window(garden(ok()).app);
     let steps: Vec<&str> = keys::esc_steps().iter().map(|bind| bind.line.as_str()).collect();
-    assert_eq!(steps, ["bar.close", "form.close", "layout.drop cancel=true", "complete.dismiss", "edit.close", "notice.dismiss"], "the list is the rows bound to Escape, by layer");
+    assert_eq!(steps, ["bar.close", "form.close", "layout.drop cancel=true", "complete.dismiss", "edit.close", "notice.dismiss", "tile.zoom on=false", "dock.toggle", "keys.home"], "the list is the rows bound to Escape, by layer: on a tile, the notice, then a zoom, then the dock the keys are in, then the keys home");
     rt.update(|s, _| { s.act("link.follow ref=ep0ch:p/Seed%20list", Actor::Person); s.act("edit", Actor::Person); s.act("bar.open", Actor::Person); });
     rest(&mut rt);
     assert_eq!(rt.state.person().layer, keys::Layer::Bar);

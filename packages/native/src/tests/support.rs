@@ -44,6 +44,8 @@ pub fn quotes() -> Value { serde_json::from_str(include_str!("../../../outline-c
 /// The made-up note those rows are about, as the page the service answers for its text (`quotedNote`): a link, bold
 /// and two paragraphs in its first part, a picture, and the first part's last words again in its third.
 pub const SOWING: &str = "sowing";
+/// A note whose page has a part taller than a window: a year of weeks in one run of prose.
+pub const ALMANAC: &str = "almanac";
 fn sowing() -> Value {
     let note = quotes()["quotedNote"].clone();
     // Its one thread (the stand-in garden lists `thread-sowing` for it) is on words of it: each part those words
@@ -88,6 +90,16 @@ pub fn quoted(text: &str, passage: &Value, body: &Value) -> Result<Value, (&'sta
 fn page(id: &str, title: &str, revision: u64, text: &str) -> Value {
     if id == SOWING { return sowing() }
     let mut page = plain_page(id, title, revision, text);
+    // The almanac's page is a few words, then a run of prose far longer than any window is tall (one part however
+    // long, as the service frames a run of prose), then a few words more.
+    if id == ALMANAC {
+        let long = (1..=80).map(|week| format!("Week {week}: turn the heap, water the frames, and note what came up.")).collect::<Vec<_>>().join("\n\n");
+        page["parts"] = json!([
+            part(id, "prose", 1, json!({}), json!({ "type": "markdown", "text": "What the beds asked for, week by week." })),
+            part(id, "prose", 3, json!({}), json!({ "type": "markdown", "text": long })),
+            part(id, "prose", 165, json!({}), json!({ "type": "markdown", "text": "Next year: more leeks." })),
+        ]);
+    }
     // The shed's page has pictures: a header image, a file, a fence's own text, and one the host can't read.
     if id == "shed" {
         page["hero"] = json!({ "path": "pictures/banner.svg", "width": "fit", "alt": "Dusk over the beds", "dim": 0.2 });

@@ -14,6 +14,7 @@ mod actline;
 mod bar;
 mod client;
 mod control;
+mod cursor;
 mod draft;
 mod ext;
 mod keys;

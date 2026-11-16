@@ -36,10 +36,11 @@ static UNTRASH: ActionRow = ActionRow::new("note.untrash", Touches::Nothing, "br
 static MOVE: ActionRow = ActionRow::new("note.move", Touches::Nothing, "move the open note one step in its list: up or down among its siblings, in under the sibling above, out after its parent. The service's move, checked at the revision read")
     .args(&[("step", ArgSpec::text("up or down one place among its siblings, in (last under the sibling above) or out (right after its parent)").choices(&["up", "down", "in", "out"]))])
     .keys(&[
+        // (Alt with left and right alone are never move keys, as in the door: a reader reads them as back and forward.)
         KeyRow::with("alt+up", Some("tile"), "move the note up", &[("step", Scalar::Text("up"))]),
         KeyRow::with("alt+down", Some("tile"), "move the note down", &[("step", Scalar::Text("down"))]),
-        KeyRow::with("alt+right", Some("tile"), "move the note in, under the one above", &[("step", Scalar::Text("in"))]),
-        KeyRow::with("alt+left", Some("tile"), "move the note out, after its parent", &[("step", Scalar::Text("out"))]),
+        KeyRow::with("alt+shift+right", Some("tile"), "move the note in, under the one above", &[("step", Scalar::Text("in"))]),
+        KeyRow::with("alt+shift+left", Some("tile"), "move the note out, after its parent", &[("step", Scalar::Text("out"))]),
     ])
     .examples(&[Example { act: "note.move step=up", does: "moves the open note one place up among its siblings", safe: None }]);
 
