@@ -84,6 +84,10 @@ pub struct Completing {
     /// When the lit row was lit, on the window's clock: what the lit row says of itself is shown beside the list once
     /// it has been lit a moment (`CARD_QUIET`), so moving down a list draws no card a row.
     pub since: f64,
+    /// A key that chooses (the act line it ran) pressed while the list on screen was still the one held from before
+    /// the last change: run again when the answer for the text as it is lands, in the list that brings. A held
+    /// list's token is the old text's, so nothing is ever written from it.
+    pub later: Option<String>,
 }
 
 /// A list shown past the change of the text it was asked for: its question, and the row that was lit in it.
@@ -519,7 +523,7 @@ impl DraftSession {
         });
         let (held, kept) = match shown { Some((held, kept)) if same_line(&held) => (Some(held), kept), _ => (None, None) };
         let moved = self.completing.moved && (kept.is_some() || self.quiet_at == u64::MAX);
-        self.completing = Completing { ask: Some(self.asks(at, None)), at: (self.changes, caret), lit: 0, moved, shows: None, held, kept, since: now };
+        self.completing = Completing { ask: Some(self.asks(at, None)), at: (self.changes, caret), lit: 0, moved, shows: None, held, kept, since: now, later: None };
     }
 
     /// `completion.rows` for the text and the caret as they are: the list, or (`lit`) the list with that row's drawn form.

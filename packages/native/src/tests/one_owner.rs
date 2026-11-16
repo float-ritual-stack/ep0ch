@@ -900,6 +900,11 @@ fn the_list_that_completes_a_word_is_the_one_list_and_reads_its_rows_as_served()
     assert_eq!((bound("tab", "complete"), bound("tab", "stops"), bound("tab", "draft")), (Some("complete.accept"), Some("snippet.next"), Some("draft.indent")));
     assert_eq!((bound("shift+tab", "stops"), bound("shift+tab", "draft"), bound("enter", "complete")), (Some("snippet.previous"), Some("draft.outdent"), Some("complete.enter")));
     assert_eq!((bound("escape", "said"), bound("escape", "stops"), bound("escape", "draft")), (Some("complete.dismiss"), Some("snippet.end"), Some("edit.close")));
+    // A key that chooses pressed while the list on screen is a letter behind is kept in one place and run in one:
+    // nothing is written from a held list. And a row is lit by a pointer that moves, never by one a list opened under.
+    none("a choice kept for later somewhere new", strays("completing.later", |path| path == "actions/draft.rs" || path == "actions/app.rs"));
+    assert!(text("actions/draft.rs").matches("completing_behind(&tile)").count() == 2 && text("actions/draft.rs").contains("fn choose(app: &mut App"), "both keys that choose ask whether the list has caught up");
+    none("a completion row lit by a hover a resting pointer gets", over.lines().filter(|line| line.contains(".on_hover(")).map(str::to_string).collect());
     // A heading style's cells are worked out in the model, once, and painted by the one builder of a band.
     none("a glyph track's cells worked out beside `band.rs`", strays("band::cell(", |path| path == "band.rs"));
     none("a track painted beside the band's builder", ["Ink::Shade", "Ink::Double", "band::Ink"].iter().flat_map(|word| strays(word, |path| path == "band.rs" || path == "tiles/band.rs")).collect());

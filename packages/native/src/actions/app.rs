@@ -709,6 +709,12 @@ impl App {
         self.store.read::<Completion>(&held.ask).filter(|found| found.token.is_some() && !found.rows.is_empty())
     }
 
+    /// The list on screen over a tile's draft is the one held from before the last change: the answer for the text
+    /// as it is now is on its way. Its rows can be shown and lit; its token is the old text's, so none is written.
+    pub fn completing_behind(&self, tile: &str) -> bool {
+        self.draft_on(tile).and_then(|draft| draft.completes()).is_some_and(|ask| self.store.waiting(ask)) && self.completing(tile).is_some()
+    }
+
     /// Which row of the list on screen is lit: the draft's own, or in a list held from before, the one lit then.
     pub fn completing_at(&self, tile: &str) -> usize {
         let Some(draft) = self.draft_on(tile) else { return 0 };
@@ -781,16 +787,23 @@ impl App {
         Some((Held { ask, lit }, kept))
     }
 
-    /// The answer to what completes a draft landed: the row the person had chosen is lit again where it now sits.
+    /// The answer to what completes a draft landed: the row the person had chosen is lit again where it now sits,
+    /// and a key that chooses pressed while it was on its way is run now, in the list it brought.
     fn completed(&mut self, key: &AskKey) {
         let (at, now) = (self.at.clone(), self.now);
         for index in 0..self.drafts.len() {
-            let draft = &self.drafts[index];
+            let Some(draft) = self.drafts.get(index) else { break };
             if draft.completes().is_none_or(|ask| ask.key() != *key) { continue }
-            let Some(kept) = draft.completing.kept.clone() else { self.st.drafts[index].completing.held = None; continue };
-            let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.pick == kept)).unwrap_or(0);
-            self.st.drafts[index].light(row, false, &at, now);
-            self.pump();
+            let tile = draft.tile.clone();
+            match draft.completing.kept.clone() {
+                Some(kept) => {
+                    let row = self.store.read::<Completion>(draft.completes().unwrap()).and_then(|found| found.rows.iter().position(|row| row.pick == kept)).unwrap_or(0);
+                    self.st.drafts[index].light(row, false, &at, now);
+                    self.pump();
+                }
+                None => self.st.drafts[index].completing.held = None,
+            }
+            if let Some(line) = self.st.drafts[index].completing.later.take() { super::draft::later(self, &tile, &line) }
         }
     }
 

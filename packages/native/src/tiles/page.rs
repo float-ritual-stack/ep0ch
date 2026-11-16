@@ -312,7 +312,7 @@ enum Listed { Header(usize, String, usize), Row(usize) }
 /// from the key table. It takes no keys: they stay in the field, and the list's own are the key table's rows.
 /// Beside it, once the lit row has been lit a moment, what that row says of itself and what choosing it makes.
 fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
-    let (Some(draft), Some(found)) = (draft_of(cx), cx.app.completing(cx.id)) else { return };
+    let Some(found) = cx.app.completing(cx.id) else { return };
     if !cx.focused { return }
     let lit = cx.app.completing_at(cx.id);
     let style = keys::area_style(k);
@@ -352,11 +352,10 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
         // Nothing to choose from: the service's word for why, in a line.
         body = body.child(text(found.message.clone().unwrap_or_default()).key(cx.key("complete/said")).font(k.ty.ui_compact).color(k.c.text_weak).px(10.0).py(6.0).wrap());
     } else {
-        let (from, at, kit, rows, listed) = (cx.name.clone(), cx.app.at.clone(), k.clone(), found.rows.clone(), std::rc::Rc::new(listed));
+        let (from, tile, kit, rows, listed) = (cx.name.clone(), cx.id.to_string(), k.clone(), found.rows.clone(), std::rc::Rc::new(listed));
         let (keyed, built, base, count) = (listed.clone(), listed.clone(), cx.key("complete"), listed.len());
         // A row's sample is a primitive built by the registry, under a row (so nothing in it is built in view only).
         let samples: Vec<Option<El>> = rows.iter().enumerate().map(|(n, row)| row.sample.as_ref().map(|sample| prim::build(sample, &PrimCx::of(cx).in_row().at(format!("complete/sample/{n}")), k))).collect();
-        let _ = at;
         body = body.child(list::fitted(&format!("{base}/rows"), crate::draft::LIST_ROWS, k, list::Rows::new(count, list::LINE,
             move |_: &App, i: usize| std::borrow::Cow::Owned(match &keyed[i] { Listed::Header(n, _, _) => format!("{base}/group/{n}"), Listed::Row(n) => format!("{base}/row/{n}") }),
             move |_: &App, i: usize| match &built[i] {
@@ -365,9 +364,11 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
                     let (n, row) = (*n, &rows[*n]);
                     let tag = row.kind.as_ref().and_then(|kind| kind.chars().next().map(|first| (first.to_uppercase().to_string(), kind.clone())));
                     let line = list::line(list::Line { tag, label: row.label.clone(), marks: row.matches.clone(), sample: samples[n].clone(), detail: row.detail.clone(), ..list::Line::default() }, n == lit, &kit);
-                    let (hover, press, hovered, pressed) = (format!("complete.light n={}", n + 1), format!("complete.accept n={}", n + 1), from.clone(), from.clone());
+                    let (hover, press, hovered, pressed, over) = (format!("complete.light n={}", n + 1), format!("complete.accept n={}", n + 1), from.clone(), from.clone(), tile.clone());
+                    // The pointer lights a row when it moves over it, never by resting where a list then opens (the
+                    // person is typing: the first row stays lit, and Tab takes it).
                     kit.interactive(line).role("option").label(row.label.clone()).description(row.detail.clone().unwrap_or_default())
-                        .on_hover(move |s: &mut App| { s.act_in(&hover, &hovered, Actor::Person); })
+                        .on_pointer_move(move |s: &mut App, _| { if s.completing_at(&over) != n { s.act_in(&hover, &hovered, Actor::Person); } })
                         .on_press(move |s: &mut App| { s.act_in(&press, &pressed, Actor::Person); })
                 }
             })));
@@ -381,7 +382,6 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
     // Beside it: what the lit row says of itself (its source's words, Blockdown) and what choosing it makes (the
     // service's drawing of its example), each a primitive built by the registry, once the row has been lit a
     // moment. A row that says neither has no card.
-    let _ = draft;
     let Some((said, shown)) = cx.app.completing_card(cx.id) else { return };
     // Over the window, in no scroll of the page's: a list in the row's example is built whole, as a list inside a
     // row is, never as the page's virtual rows (Rune panics on a virtual stack outside a scroll viewport).

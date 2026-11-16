@@ -600,6 +600,12 @@ fn made(app: &mut App, reply: Reply) {
 fn accept(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
     let row = args.number("n").map(|n| (n.max(1.0) as usize) - 1);
+    // The list on screen is the one from before the last letter: the key is run when the list for the words as
+    // they are lands. A row named by its place is a row of the old list, and is to be named again in the new one.
+    if app.completing_behind(&tile) {
+        if row.is_some() { return Outcome::refused("the list is still the one from before the last letter: choose the row again in the one that answers what is typed") }
+        return app.choose_later(&tile, ACCEPT.id);
+    }
     // A row that makes something, lit and never chosen (the lone offer of a page nobody has written): the key is
     // still the field's, as Return is, so nothing is made by a Tab meant to indent. Chosen, or named, it is made.
     let unchosen = row.is_none() && !app.draft_on(&tile).is_some_and(|draft| draft.completing.moved) && app.completing(&tile).is_some_and(|found| found.rows.get(app.completing_at(&tile)).is_some_and(|row| row.makes.is_some()));
@@ -609,14 +615,39 @@ fn accept(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 
 fn enter(app: &mut App, _: &Args, by: &Actor) -> Outcome {
     let tile = match written(app) { Ok(tile) => tile, Err(no) => return no };
+    if app.completing_behind(&tile) { return app.choose_later(&tile, ENTER.id) }
     if !app.enter_fields(&tile) { return choose(app, &tile, None, by) }
-    let field = Field::Draft(tile);
-    app.field(&field).insert("\n");
-    app.typed(&field);
+    line_typed(app, tile);
     Outcome::done()
 }
 
+/// Return as the field takes it: a line typed at the caret of the draft on `tile`.
+fn line_typed(app: &mut App, tile: Id) {
+    let field = Field::Draft(tile);
+    app.field(&field).insert("\n");
+    app.typed(&field);
+}
+
+/// The list for the words as they are landed, and a key that chooses was pressed while it was on its way (`line`,
+/// the act it ran): it is run now, as the person, in the list that landed. When nothing completes the words as
+/// they are, Return is the field's (a line is typed) and a key that only chooses does nothing.
+pub(super) fn later(app: &mut App, tile: &str, line: &str) {
+    if app.completing_now(tile).is_none_or(|found| found.rows.is_empty()) {
+        if line == ENTER.id { line_typed(app, tile.to_string()) }
+        return;
+    }
+    let from = app.layout.name(tile);
+    app.act_in(line, &from, Actor::Person);
+}
+
 impl App {
+    /// A key that chooses was pressed while the list on screen was the one from before the last change: kept on
+    /// the session, and run when the list for the text as it is lands (`App::completed`).
+    fn choose_later(&mut self, tile: &str, line: &str) -> Outcome {
+        if let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == tile) { draft.completing.later = Some(line.to_string()) }
+        Outcome::answer(json!({ "waits": "the list for the words as they are" }))
+    }
+
     /// Whether Return is the field's while the list over `tile`'s draft is open: until a deliberate choice, for a
     /// row that says so (`CompletionRow.enter`, the service's word: outline-core's `enterKeeps`), a line is typed.
     pub fn enter_fields(&self, tile: &str) -> bool {

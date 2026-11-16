@@ -397,3 +397,56 @@ fn the_hint_line_under_the_field_keeps_its_height_when_a_list_opens() {
     assert_eq!(((now[1], now[3]), rect(&rt, "tile/reader/save")), ((hints[1], hints[3]), under), "the line and what is beside it are where they were");
     assert!(texts(&rt).iter().any(|said| said == "accept"), "and it says the list's keys now");
 }
+
+/// A key that chooses, pressed before the list for the last letter has landed (the list on screen is still the one
+/// for the words before it): the choice is made in the list that answers the words as they are, when it lands.
+/// Never the old list's row over the old list's token, which would leave the last letter standing after it.
+#[test]
+fn a_choice_made_before_the_list_has_caught_up_is_made_in_the_list_for_the_words_as_typed() {
+    let key = |rt: &mut Runtime<App>, key: Key| rt.key(KeyEvent { key, mods: Mods::default() });
+    // Tab, a letter behind: the first row of the list for what is typed, over the whole of what is typed.
+    let (mut rt, _) = writing();
+    typed(&mut rt, "[h");
+    let before = labels(&rt);
+    assert_eq!(before, ["heading-pattern", "heading-style", "header", "harvest"]);
+    key(&mut rt, Key::Text("a".into()));
+    assert_eq!((labels(&rt), rt.state.person().layer), (before, Layer::Complete), "no frame since the letter: the list as it was is still the one on screen");
+    key(&mut rt, Key::Tab);
+    rest(&mut rt);
+    assert_eq!((words(&rt.state), labels(&rt)), (format!("{PLOT}\n[harvest::").as_str(), vec![]), "the row for `[ha`, and no letter left after it");
+    // Return, a letter behind, on a row the person chose: that row, where it sits in the list that answers.
+    let (mut rt, _) = writing();
+    typed(&mut rt, "[");
+    for _ in 0..4 { chord(&mut rt, Key::Down, Mods::default()); }
+    assert_eq!(labels(&rt)[lit(&rt)], "stage");
+    key(&mut rt, Key::Text("s".into()));
+    key(&mut rt, Key::Enter);
+    rest(&mut rt);
+    assert_eq!(words(&rt.state), format!("{PLOT}\n[stage::"));
+    // Return, a letter behind, and the words as they are complete to nothing: the key is the field's, a line.
+    let (mut rt, _) = writing();
+    typed(&mut rt, "[h");
+    key(&mut rt, Key::Text("q".into()));
+    key(&mut rt, Key::Enter);
+    rest(&mut rt);
+    assert_eq!((words(&rt.state), rt.state.person().layer), (format!("{PLOT}\n[hq\n").as_str(), Layer::Draft));
+}
+
+/// A list that opens under a pointer at rest lights its first row, not the row the pointer happens to be over:
+/// the person is typing, and Tab takes what the list offers first. The pointer lights a row once it moves.
+#[test]
+fn a_list_opening_under_a_resting_pointer_lights_its_first_row_until_the_pointer_moves() {
+    let (mut rt, _) = writing();
+    typed(&mut rt, "::");
+    let third = rect(&rt, "tile/reader/complete/row/2");
+    // The same window again, the pointer left at rest where the list's third row will be before anything is typed.
+    let (mut rt, _) = writing();
+    rt.pointer_move(third[0] + 40.0, third[1] + 10.0);
+    rest(&mut rt);
+    typed(&mut rt, "::");
+    assert_eq!(rect(&rt, "tile/reader/complete/row/2"), third, "the list hangs where it did, its third row under the pointer");
+    assert_eq!((rt.state.person().layer, lit(&rt)), (Layer::Complete, 0), "the pointer hasn't moved: the first row is lit");
+    rt.pointer_move(third[0] + 44.0, third[1] + 12.0);
+    rest(&mut rt);
+    assert_eq!(lit(&rt), 2, "moved, it lights the row it is over");
+}
