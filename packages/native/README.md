@@ -32,9 +32,10 @@ ships no screen and no tile kind of its own: the ones every door ships are one e
 ![A note's figures, a box and two buttons, one pressed and saying what it ran, dark](docs/parts-dark.png)
 ![A note's links on its page and in the links tile beside it: one list, drawn once, dark](docs/links-dark.png)
 ![A block written in place: an agent's edit lit above the caret and said on the tile, and the list that completes a note's name, dark](docs/draft-dark.png)
-
 ![The editor's keys: a list written by Return, a step ticked, a line moved, a word selected and wrapped, and the hint row offering what is done with a selection](docs/editor-dark.png)
-![The list that completes a property's value: the lit row's own words and what choosing it makes beside it, and the lit row of how many under it, dark](docs/complete-dark.png)
+![The list that completes a word: one box hung under the token's start, each row a tag for what it is, its name with the typed letters set apart and one quiet detail, the count and the keys in its foot, the lit row's own words in the card beside it, and the rest of the lit row dimmed after the caret, dark](docs/complete-dark.png)
+![A property's values, each with its look: every row draws its glyph track beside its name, and the card of the lit row draws that pattern as a band over an example heading, dark](docs/complete-values-dark.png)
+![A component chosen from the list: its skeleton written from its own schema with the first stop selected, and the line under the field saying which Tab this is, dark](docs/complete-component-dark.png)
 ![The kitchen screen, with the bar on the extensions and a name typed: open its page, its settings, install, remove, dark](docs/extensions-dark.png)
 ![An extension's own screen, its tile drawn from what its script answered, and the form its settings schema makes, dark](docs/settings-dark.png)
 ![A tile torn out into a second window over the same store, dark](docs/window-dark.png)
@@ -81,6 +82,7 @@ entry Rune adds to its own table is added here. What that rev changed for this w
 | Do | How |
 |---|---|
 | Walk the outline | The tree tile: a press opens a note, a press on the open note folds or unfolds it. A row has a fold's mark when notes are under it, and only then: a note with nothing under it but comments or an edit proposed beside it has none (they are in the Comments and Proposals tiles) |
+| Move without the mouse | **A list and a tree have a cursor row**: `j` `k` or the arrows step it, PgDn and PgUp move it a page (the rows in view less one), Home and End take it to the ends, Return opens its row where the tile's opens land. It is a row by its id, so it stays on its note while the rows change under it, and it is neither the pointer's hover nor the mark of the open note: an edge and a fill while its tile has the keys, a dim fill when it has not. In a tree `l` or → unfolds the row, `h` or ← folds it or, folded already, climbs to the row it is under, and Space does either; on a board `h` `l` cross the lanes and `H` `L` the groups. **A reader has a reading line**, the bar beside the part of its page the keys are on: `j` `k` move it (a part longer than the view is shown from its first line), PgDn or Space, PgUp, Home, End or `G` scroll the page and leave it where it is, alt+← or Backspace goes back, alt+→ forward again, `u` up to the note this one is under. **Tab and Shift+Tab** go round the tiles in the layout's reading order (a board's lanes are one stop, a dock one, the floats last), each title says its tile's number and that digit gives it the keys, and alt+`n` alt+`p` bring a tab set's next tab forward. **Esc steps back one thing at a time** (`q` on a tile too): the notice, a zoomed tile, the dock the keys are in, then the keys to the screen's home tile, and with nothing left it says so. **The row under the tiles says the keys that matter** in the tile that has them, read from the key table: what Esc does here first, then a tree's and a list's keys (the one that opens a row before the ones that move), or a reader's; a row longer than the window is cut at its end. While a sequence is begun it lists what the keys so far can still become. Every one of these is an action with an act line (`list.step`, `list.select`, `tree.fold`, `reading.step`, `scroll`, `forward`, `up`, `tile.focus by=`, `keys.stop n=`, `tab.select`, `keys.home`) |
 | Start from nothing | A reader shows the note it was told and no other. One told none is empty: it says what it is, in its kind's own words (written for the person at the tile), and what to do next under them, a line each: Find and New note as buttons, each with its key and what the key does, read from the action's own row |
 | Open a screen | The bar's Screens (`bar.open scope=screens`, the toolbar's Screens): the desk, the navigator, the board, last callers, who's online, the keys, the library, the kitchen sink (this window's parts on one screen), and every screen note the outline has. A row opens one (`screen.open name=`; `target=` is what it opens on, where its spec takes one) |
 | Read a board | The board's lanes: the matches of a question, a lane a value of the property the screen names. `list.group by=<any property>` groups them by another, `list.layout layout=rows\|table\|lanes` arranges them another way (a table whose tile names no `columns` shows the title and the properties its rows carry), `list.sort by=<any property>` orders them; a card pressed opens beside |
@@ -135,24 +137,48 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | Chord | Act line | Where | Does |
 |---|---|---|---|
 | `mod+[` | `back` | everywhere | back |
+| `alt+left` | `back` | page | back to the note before |
+| `backspace` | `back` | page | back to the note before |
+| `alt+right` | `forward` | page | forward again |
+| `u` | `up` | page | the note this one is under |
+| `j` | `reading.step by=1` | page | the next part of the page |
+| `down` | `reading.step by=1` | page | the next part of the page |
+| `k` | `reading.step by=-1` | page | the part before |
+| `up` | `reading.step by=-1` | page | the part before |
+| `pagedown` | `scroll by=1` | page | a page down |
+| `space` | `scroll by=1` | page | a page down |
+| `pageup` | `scroll by=-1` | page | a page up |
+| `home` | `scroll to=top` | page | the top of the page |
+| `end` | `scroll to=end` | page | the end of the page |
+| `shift+g` | `scroll to=end` | page | the end of the page |
 | `mod+n` | `note.new` | everywhere | a new note under the open one |
 | `mod+backspace` | `note.trash` | tile | move the open note to the Trash |
 | `alt+up` | `note.move step=up` | tile | move the note up |
 | `alt+down` | `note.move step=down` | tile | move the note down |
-| `alt+right` | `note.move step=in` | tile | move the note in, under the one above |
-| `alt+left` | `note.move step=out` | tile | move the note out, after its parent |
+| `alt+shift+right` | `note.move step=in` | tile | move the note in, under the one above |
+| `alt+shift+left` | `note.move step=out` | tile | move the note out, after its parent |
 | `mod+e` | `edit` | everywhere | edit the open note |
 | `mod+s` | `edit.save` | everywhere | save |
-| `mod+enter` | `edit.save` | draft | save, from the note's source |
-| `escape` | `edit.close` | draft | let go of a selection; then leave the editor, when everything is saved |
-| `mod+v` | `draft.paste` | draft | paste the clipboard |
-| `tab` | `draft.indent` | draft | indent the item, or the selected lines |
-| `shift+tab` | `draft.outdent` | draft | outdent the item, or the selected lines |
-| `tab` | `complete.accept` | complete | write the lit row |
-| `enter` | `complete.enter` | complete | write the lit row, or a line when the row says so |
-| `down` | `complete.move by=1` | complete | the next row |
-| `up` | `complete.move by=-1` | complete | the row before |
-| `escape` | `complete.dismiss` | said | put the list away |
+| `mod+enter` | `edit.save` | draft | save |
+| `escape` | `edit.close` | draft | done |
+| `tab` | `draft.indent` | draft | indent |
+| `shift+tab` | `draft.outdent` | draft | outdent |
+| `mod+v` | `draft.paste` | draft | paste |
+| `tab` | `complete.accept` | complete | accept |
+| `enter` | `complete.enter` | complete | accept |
+| `down` | `complete.move by=1` | complete | next |
+| `up` | `complete.move by=-1` | complete | previous |
+| `ctrl+n` | `complete.move by=1` | complete | next |
+| `ctrl+p` | `complete.move by=-1` | complete | previous |
+| `pagedown` | `complete.move by=8` | complete | a page down |
+| `pageup` | `complete.move by=-8` | complete | a page up |
+| `home` | `complete.jump to=first` | complete | the first row |
+| `end` | `complete.jump to=last` | complete | the last row |
+| `ctrl+space` | `complete.ask` | draft | complete here |
+| `escape` | `complete.dismiss` | said | close |
+| `tab` | `snippet.next` | stops | next stop |
+| `shift+tab` | `snippet.previous` | stops | previous stop |
+| `escape` | `snippet.end` | stops | leave the stops |
 | `enter` | `draft.newline` | draft | a new line; a list goes on, and ends on an empty item |
 | `shift+enter` | `draft.newline plain=true` | draft | a plain line break: no marker, no indent |
 | `alt+enter` | `draft.newline plain=true` | draft | a plain line break, the same |
@@ -196,16 +222,56 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `enter` | `bar.pick` | bar | pick the lit row |
 | `down` | `bar.move by=1` | bar | the next row |
 | `up` | `bar.move by=-1` | bar | the row before |
-| `escape` | `notice.dismiss` | tile | dismiss the notice |
+| `l` | `tree.fold open=true` | branches | unfold the row |
+| `right` | `tree.fold open=true` | branches | unfold the row |
+| `h` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `left` | `tree.fold open=false` | branches | fold the row, or go to the row it is under |
+| `space` | `tree.fold` | branches | fold or unfold the row |
+| `enter` | `list.pick` | rows | open the row the cursor is on |
+| `j` | `list.step by=1` | rows | the next row |
+| `down` | `list.step by=1` | rows | the next row |
+| `k` | `list.step by=-1` | rows | the row before |
+| `up` | `list.step by=-1` | rows | the row before |
+| `pagedown` | `list.step by=1 page=true` | rows | a page of rows down |
+| `pageup` | `list.step by=-1 page=true` | rows | a page of rows up |
+| `l` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `right` | `list.step axis=column by=1` | rows | the next lane of a board |
+| `h` | `list.step axis=column by=-1` | rows | the lane before |
+| `left` | `list.step axis=column by=-1` | rows | the lane before |
+| `shift+l` | `list.step axis=group by=1` | rows | the next group |
+| `shift+h` | `list.step axis=group by=-1` | rows | the group before |
+| `home` | `list.select n=1` | rows | the first row |
+| `end` | `list.select n=-1` | rows | the last row |
+| `escape` | `notice.dismiss` | noticed | dismiss the notice |
+| `alt+n` | `tab.select by=1` | tile | the next tab of this set |
+| `alt+p` | `tab.select by=-1` | tile | the tab before |
+| `escape` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `q` | `keys.home` | tile | step back: the keys to the screen's home tile |
+| `1` | `keys.stop n=1` | tile | the keys to tile 1 |
+| `2` | `keys.stop n=2` | tile | the keys to tile 2 |
+| `3` | `keys.stop n=3` | tile | the keys to tile 3 |
+| `4` | `keys.stop n=4` | tile | the keys to tile 4 |
+| `5` | `keys.stop n=5` | tile | the keys to tile 5 |
+| `6` | `keys.stop n=6` | tile | the keys to tile 6 |
+| `7` | `keys.stop n=7` | tile | the keys to tile 7 |
+| `8` | `keys.stop n=8` | tile | the keys to tile 8 |
+| `9` | `keys.stop n=9` | tile | the keys to tile 9 |
 | `mod+d` | `tile.split` | everywhere | split this tile: a new one on its right |
 | `mod+shift+d` | `tile.split dir=down` | everywhere | split this tile: a new one below |
 | `mod+w` | `tile.close` | everywhere | close this tile |
+| `tab` | `tile.focus by=1` | tile | the keys to the next tile |
+| `shift+tab` | `tile.focus by=-1` | tile | the keys to the tile before |
 | `mod+alt+left` | `tile.focus dir=left` | everywhere | the keys to the tile on the left |
 | `mod+alt+right` | `tile.focus dir=right` | everywhere | the keys to the tile on the right |
 | `mod+alt+up` | `tile.focus dir=up` | everywhere | the keys to the tile above |
 | `mod+alt+down` | `tile.focus dir=down` | everywhere | the keys to the tile below |
 | `mod+shift+c` | `tile.collapse` | everywhere | fold this tile to a spine, or open it again |
+| `minus` | `tile.collapse on=true` | tile | fold this tile to a spine |
+| `plus` | `tile.collapse on=false` | tile | open this tile from its spine |
+| `equal` | `tile.collapse on=false` | tile | open this tile from its spine |
 | `mod+shift+enter` | `tile.zoom` | everywhere | zoom this tile to the whole window, or back |
+| `escape` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
+| `q` | `tile.zoom on=false` | zoomed | put the zoomed tile back in its place |
 | `mod+shift+o` | `tile.float` | everywhere | pop this tile out as a float, or put it back |
 | `mod+j` | `terminal.open` | everywhere | a shell beside the note |
 | `mod+shift+j` | `terminal.open agent=true` | everywhere | an agent beside the note |
@@ -215,6 +281,8 @@ nowhere else in a tile, so `a` alone is nobody's key until words are picked.
 | `shift+pageup` | `terminal.scroll lines=-12` | program | up through what scrolled off |
 | `shift+pagedown` | `terminal.scroll lines=12` | program | back down |
 | `mod+shift+v` | `terminal.paste` | program | paste the clipboard into the program |
+| `escape` | `dock.toggle` | docked | shut the dock the keys are in |
+| `q` | `dock.toggle` | docked | shut the dock the keys are in |
 | `mod+shift+b` | `dock.toggle side=left` | everywhere | show or hide the dock on the left |
 | `mod+i` | `dock.toggle side=right` | everywhere | show or hide the dock on the right |
 | `mod+alt+z` | `layout.undo` | everywhere | undo the last change to the arrangement |
@@ -234,9 +302,19 @@ action as the person, in the tile it names, over the kinds of tile it says; the 
 
 `mod` is ⌘ on a Mac and Ctrl elsewhere. Where: a chord that is a tile's (`alt+up`) is the editor's own while a note
 is being written, and Esc closes one thing at a time (the bar, then a completion list, then the editor, then the
-notice). While the list that completes a word is open its keys come first and the editor's still hold (`complete`
+notice, a zoom, the dock the keys are in, and last the keys home). What the tile with the keys draws adds its
+own keys over `tile`'s, the nearest first: `branches` (a tree's) over `rows` (a list's), or `page` (a reader's), then what Escape steps back out of
+there (`noticed`, `zoomed`, `docked`). So `j` is the list's in a list and the reader's in a reader, and one chord
+never means two things where the keys are. `peek`'s whereabouts say the layers that hold (`layers`).
+
+![The window worked by keys: the tree's cursor on one row (an edge and a fill) and the open note's row marked quietly beside it, the reader's reading line a dim bar by its part, each title with its number among the stops, and under the tiles the keys of the tile that has them](docs/cursor-dark.png) While the list that completes a word is open its keys come first and the editor's still hold (`complete`
 is a layer over `draft`); a list with nothing to choose from, only the service's word (no such page yet), keeps
-Esc alone (`said`), and every other key is the editor's. Both docks resize by their inner edge.
+Esc alone (`said`), and every other key is the editor's. Tab is one key in three layers, and the line under the
+field (and the list's own foot) says which it is now: it writes the lit row while the list is open (`complete`),
+steps the stops of a skeleton a completion wrote while that is being filled in (`stops`: Shift+Tab steps back, Esc
+leaves them), and indents the line otherwise (`draft`). `ctrl+space` asks for the list where the caret is: it is
+Ctrl on a Mac too (⌘Space is Spotlight's), and a Mac with more than one input source gives ⌃Space to the input
+menu unless that shortcut is turned off there (not run on a Mac). Both docks resize by their inner edge.
 
 Capture comes first here too. What is typed is written to a file as it is typed
 (`native-<outline>.drafts.json`, beside the arrangement's), so a window that ends finds it back. Saving never ends
@@ -415,7 +493,27 @@ src/ (Rust, Rune)                                      the outline host
   reads no Blockdown to do any of it:
   - **Completions are a served list** (`completion.rows` with the text and the caret). The service finds the token,
     asks its sources and merges the rows as every client's are merged; the window draws them and writes the
-    chosen row's own `insert` over the token it was told.
+    chosen row's own `insert` over the token it was told. One box, built from the kit's popover parts
+    (`popover::anchored`, `raised`, `fit_scroll`) around the one list (`list.rs`): hung under the caret's line with
+    its left edge at the token's start (above the line when there is no room below, always inside the window), as
+    wide as its rows need and eight rows tall at most, scrolling inside itself. A row is `list::line`, the row the
+    bar's rows are too: a tag for what it is, its name with the letters the service matched set apart, how what it
+    writes looks (`sample`, a primitive built by the registry: a heading pattern's track), one quiet detail. The
+    foot, inside the box, says which row of how many and what the keys do there, from the key table and the row's
+    own word for Return. The card (the lit row's `docs` and its `view`) stands at the list's side once the row has
+    been lit a third of a second: at the right when the window has room, else at the left, else under it, never
+    over the line being typed.
+  - **Choosing a row does the next thing, each the row's own word:** a key's values open at once (`next`), a
+    component's skeleton is written with its first stop selected and Tab steps the rest (`slots`), a page nobody
+    has written is made first and then linked (`makes`; lit and never chosen, Tab and Return stay the field's, as
+    in the door), and a value closes its bracket without doubling one that is there. What of the lit row is still
+    to come is shown dimmed after the caret (`rest`, an overlay at the caret: never part of the field's words),
+    and the characters that end a token count the row they finish as chosen. The row the person chose stays lit
+    by what it is while the list narrows, and the list never blinks away between two letters of a word: the one
+    for the words before stays on screen until the answer for the words as they are lands. Nothing is written
+    from that older list (its token is the older text's): Tab or Return pressed meanwhile is run when the answer
+    lands, in the list it brings. The pointer lights a row when it moves over one, never by resting where a list
+    then opens.
   - **The window is the draft's holder, and places nothing.** While the draft is open it is held on the service
     (`drafts.hold`, renewed every five seconds), so an agent's `draft.patch` on the note comes here. Asked to
     patch, the window answers with its draft as it stands (the text, where the caret is); the service decides
@@ -468,8 +566,9 @@ src/ (Rust, Rune)                                      the outline host
   ends the list; Shift+Return is only the break. Tab indents a list item from any column, several selected lines,
   or any other line from its start: in the middle of a paragraph it moves nothing. Alt+Up and Alt+Down move the
   line, with Shift they copy it, `mod+shift+k` deletes it; `mod+shift+u` ticks a step or makes the line one;
-  `mod+shift+a` selects the line and `mod+shift+w` the word; a bracket typed over a selection wraps it, typed
-  alone it brings its closer, and the closer typed where it stands is typed over; Home and End are the line's;
+  `mod+shift+a` selects the line and `mod+shift+w` the word; a bracket typed over a selection wraps it; `(` and `{`
+  typed alone bring their closer and `[[` both of its own (a single `[` brings none: it opens a property, whose key
+  is completed in a bracket still open), and the closer typed where it stands is typed over; Home and End are the line's;
   Escape lets go of a selection before it leaves; an undo takes back a word. Each is an action with its key rows
   (`draft.newline`, `draft.go`, `draft.select`, `draft.line`, `draft.erase`, `draft.wrap`, `draft.check`,
   `draft.undo`, `draft.redo`, `draft.copy`, `draft.cut`), so the keys screen lists it, the hint row under the
@@ -478,7 +577,7 @@ src/ (Rust, Rune)                                      the outline host
   (a motion by word, undo, copy) stays its own and is a row all the same: listed with its keycap (`from: field` in
   `peek`), never bound, and run as an act by handing the editor the key. A chord a row names `word+…` or `line+…`
   is the platform's own for a word and a line's edge: Option and Command on a Mac; elsewhere Control for a word,
-  and no key for a line's edge (the row says so). [PROBES.md §19](docs/PROBES.md#19-the-editors-keys-k3) has what
+  and no key for a line's edge (the row says so). [PROBES.md §21](docs/PROBES.md#21-the-editors-keys-k3) has what
   Rune's editor gave and lacked.
 - **A draft says what it writes** (`draft.rs`, `Writes`): a block's own text, a comment on a note, a reply in a
   thread. One session type, one field (the page drawer's), the same list that completes a word, the same file that
@@ -665,7 +764,11 @@ the control socket, the lists (a board's lanes, the navigator's facets, a table,
 opened from the bar's own row), typing (`typing.rs`: Tab and Shift+Tab on a list's line and on a selection, each one
 step of the editor's undo and the list's while a list is open; a paste event with a carriage return between its
 lines taken by the window, once, as lines; the paste chord's row; the completion list's count, its lit row's words
-and the drawing asked with that row lit), the parts (every primitive type has a builder, a button runs here or is the service's,
+and the drawing asked with that row lit), completing (`complete.rs`, every step a key, a press or a frame: where the
+list hangs and that it stays there, its flip above the line and its card's side at the window's edges on laid-out
+rects, what a row shows, Tab through a key and its value, Return before and after a choice, the keys that move, a
+row kept lit by what it is, the character that finishes a row, the rest after the caret, a skeleton's stops, the
+pointer and the wheel, a page made when chosen, and the hint line's one height), the parts (every primitive type has a builder, a button runs here or is the service's,
 a script's act is run and answered, and every component's own example is drawn: the test writes
 [docs/prim-coverage.md](docs/prim-coverage.md)), the drafts (a block typed in, completed and saved by keys; held,
 read and patched under the caret by what the host says; kept as typed and found back by the next window; how the
@@ -791,7 +894,7 @@ A scene is a file of act lines, `scenes/<name>.act`: `arrange`, `bar`, `edit`, `
 outline's first note by picking the tree's first row: a window opens with its reader empty), `board`,
 `navigator`, `lastcall`, `table`, `keys`, `library`, `screenkeys` (a screen with keys of its own, which `about.seed.ts` saves as a note),
 `editor` (a block of `parts.seed.ts`'s being written by an editor's keys, each by its act: a list by Return, a step ticked, a line moved up, a word selected and wrapped, the hint row offering copy and cut while something is selected),
-`complete` (a block of `parts.seed.ts`'s being written with a property's value begun and the second row lit: its words and what it makes beside the list, the count under it),
+`complete` (a block of `parts.seed.ts`'s being written with a property's name begun and the second row lit: the list under the token's start, its card beside it, the rest of the row after the caret), `complete-values` (a heading pattern's values, each row with its glyph track, the lit one's card a band), `complete-component` (a component chosen by keys: run it with `--script scenes/complete-component.keys.json --at 2` before the first `--`, a Rune script that types Return, `::graph-met` and Tab, since an act line holds no line break; the skeleton stands with its first stop selected),
 `terminal` (a shell and an agent beside `parts.seed.ts`'s note, their programs a made-up shell: run it with `--programs scenes/terminal.programs.json` after the second `--`, the script a scripted host plays, since a headless render has no pty to wait on),
 `heir` (two readers `about.seed.ts` saves as a screen, the first's opens wired to the second: the first is closed and its note stays on screen in the second),
 `caret` (the same screen with the seed list opened in the first reader: the way to it unfolds in the tree, the bean rows beside it have no fold's mark, and the second reader, told no note, is empty),
@@ -801,7 +904,7 @@ outline's first note by picking the tree's first row: a window opens with its re
 `extensions` (the kitchen screen with the bar on the extensions), `settings`
 (Waiting's screen and its settings form), `window` (a tile torn out: run it with `--act scenes/window.act --torn
 reader` after the second `--` to draw the second window, since a headless run opens none), and `plan`, `figures`, `callouts` (which open notes of the showcase outline by
-title), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
+title), `cursor` (K1: the notes `bun scenes/cursor.seed.ts <socket> <outline>` writes into a new outline, moved through by the keys' own acts: the tree's cursor, the open note's mark, the reading line, the stops' numbers and the hint row), and `parts`, `links` and `draft` (notes `bun scenes/parts.seed.ts <a scratch host's socket> <outline>` writes: figures, a
 box, a live list, two buttons, the first pressed; a note whose `::links` and the links tile beside it list the
 same groups; and a note written in place, with a name begun and an agent's edit landed above it), and `about` and
 `pictures` (notes `bun scenes/about.seed.ts <socket> <outline> <a scratch folder>` writes: a note with three texts
@@ -818,7 +921,7 @@ first frame; a line that says who (`as=tidy-agent`) runs as that agent. A Rune `
 a list `tile/<name>/row/<id>`, `tile/<name>/group/<group>`, `tile/<name>/lane/<group>`,
 `tile/<name>/column/<column>`, `tile/<name>/facet/<key>/<value>` and `tile/<name>/narrowed/<key>/<value>`), in a
 block being written `tile/reader/source` (its field), `tile/reader/save`, `tile/reader/done` or `tile/reader/discard`,
-`tile/reader/told` (who changed it), `tile/reader/held`, `tile/reader/on` (what a comment or a reply is on), `tile/reader/on-problem` (why its words are no passage of the note), `tile/reader/editor` (the field's frame, where it stands in the page), `tile/reader/picked/<act line>` (an action of the words picked, by them), `tile/reader/mark/<thread>/<part's line>/<n>` (the words a thread is on, a line of them), `tile/reader/card/<thread>` (the thread beside them; its line `tile/reader/margin/<thread>` folded and `…/head` whole, its own presses `…/press/<n>`) and `tile/reader/complete-option-<n>` (a row of the list at the caret); in a
+`tile/reader/told` (who changed it), `tile/reader/held`, `tile/reader/on` (what a comment or a reply is on), `tile/reader/on-problem` (why its words are no passage of the note), `tile/reader/editor` (the field's frame, where it stands in the page), `tile/reader/picked/<act line>` (an action of the words picked, by them), `tile/reader/mark/<thread>/<part's line>/<n>` (the words a thread is on, a line of them), `tile/reader/card/<thread>` (the thread beside them; its line `tile/reader/margin/<thread>` folded and `…/head` whole, its own presses `…/press/<n>`) and, for the list that completes a word, `tile/reader/complete` (its box), `tile/reader/complete/row/<n>` (a row, from 0; its sample `tile/reader/complete/sample/<n>`, a section's header `…/group/<n>`), `tile/reader/complete/foot` (its `…/count` and `…/keys`), `tile/reader/complete-docs` (the card), `tile/reader/complete-at` (the mark it hangs by) and `tile/reader/complete-rest` (the rest of the lit row, after the caret); in a
 list whose rows hold more than a line `tile/<name>/row/<id>/head` (the row's own line), `tile/<name>/row/<id>/press/<n>` (a press of its own) and
 `tile/<name>/row/<id>/view` (what it shows under itself: a change's lines are `…/view/line/<n>`), in a terminal `tile/<name>/screen` (its screen), `tile/<name>/row/<n>` (a row; its pieces `…/at/<column>`, its grounds `…/ground/<column>`, the cursor `…/cursor`), `tile/<name>/kept` (what keeps its program), `tile/<name>/report` (what it reports of itself) and `tile/<name>/do/<act line>` (its buttons); a
 toolbar button is
@@ -828,7 +931,7 @@ toolbar button is
 ## Not here yet
 
 - The editor: an undo is the field's own, so its steps have no names, it goes straight past a save, and a person's
-  undo takes back an agent's patch (the door's history does all three; [PROBES.md §19](docs/PROBES.md#19-the-editors-keys-k3) says what it would take). Return does not close a
+  undo takes back an agent's patch (the door's history does all three; [PROBES.md §21](docs/PROBES.md#21-the-editors-keys-k3) says what it would take). Return does not close a
   component its line opens or title a page (both read the note's components, which only outline-core scans; a
   completion writes a component with its closer). No link opened from the source (`edit.follow`), no insert picker,
   preview, reload or `$EDITOR`, no big-paste notice, no keymap of the person's own. A wrapped list item is not hung
@@ -871,12 +974,16 @@ toolbar button is
   preview beside). A long block types as fast as its frame draws since the pin moved: Rune lays out the paragraph
   a key changed, not the field (6.7 ms a key at a thousand lines, 13 ms at three thousand, where it was 38 and
   113: PROBES.md §12). The editor's own keys (undo, word motion, select all) are Rune's and have no act line; Return
-  types a line and continues no list (the door's `draft.newline` does), and Tab moves no snippet's slot. A
-  completion row that makes something when chosen (a page nobody wrote yet, an anchor on a heading, a new
-  component) isn't offered, nor are a row's variations; the list shows what the service sent, with no Jev
-  re-ranking asked, and its docs don't scroll. A value whose example needs a note that declares what it uses (a
-  heading style's pattern) is drawn without that note: its heading shows its style's token and no glyph track
-  (the door draws the pattern itself; the `band` primitive here draws none). A picture on the clipboard isn't
+  types a line and continues no list (the door's `draft.newline` does). A completion row for an anchor on a
+  heading or a new component (each needs more than one request and a check between them) isn't offered, nor are
+  a row's variations, the copy of a component's source or the jump to an agent's definition; the list shows what the service sent, with no Jev
+  re-ranking asked, and its docs don't scroll. A value whose look a primitive draws (a
+  heading style's pattern) is drawn, in its row and on the card: the `band` and `track` primitives draw a glyph
+  track's cells as small boxes (the door's rule for which cell holds what, ported in `band.rs`; no contract table
+  holds the two together yet). A page still draws a styled heading as a plain one: `notes.page` serves no `band`
+  for it. A note's line that holds only properties (`[ctx::…]` under its title) is still drawn as a paragraph of
+  those tokens: `proseMarkdown` keeps a property that styles nothing as the note's words, and the page's walk has
+  no part for a line of properties. A picture on the clipboard isn't
   pasted as a file (the door's `draft.image`): a paste is its words. A save refused because the note changed keeps the text and says so,
   and offers no merge. An `@agent` line typed in a draft is told to the service once the keys go quiet (`drafts.touch`);
   what an agent answers there was not run in this wave, and no progress is shown on the line. A draft stays in its tile: closing the
@@ -932,6 +1039,15 @@ toolbar button is
   A kind that runs a program is a terminal tile, in a window built with its terminal.
 - A connection keeps at most 64 watched answers (the host's bound): the page, the bar's query and one per unfolded
   folder. Past the budget an answer is read unwatched and registered when a key is free (`peek` says which).
+- Keys, from the door's, not here yet: the window prefix (`^W` and what follows it: move, swap, resize, even,
+  gather, widen, hold; `mod+w` is Ctrl+W off a Mac, and the table has no row for one platform alone), a list
+  filtered by typing (`/`), stepping through a page's elements and following the link the keys are on (`[` `]`
+  Return), sections stepped and folded (`(` `)` `f` `F` `z`), Return opened beside (alt+Return: where an open
+  lands is the next wave's), a links tile aimed by `b`, a float moved by `H J K L`, a spine opened by Return, the
+  keys screen on `?`, and the letters that move a note (`K J I O`: only the alt chords do). A press on a part of a
+  page does not put the reading line there yet: `j` and `k` do. Which lane of a board was used last is not kept, so
+  Tab into a board stops on its first lane. The Mac's own handling of alt+`n` and alt+`p` (Option types a
+  character there) is read, not run.
 - Keys are the rows' defaults and the open screen's own (its spec's `keys`, asked first while a tile has the keys);
   the person's `keybindings.json` isn't read yet, so nothing is rebound and the keys screen lists no key of
   theirs, and a button's keycap is its row's default even where a screen binds another key to the same line. A

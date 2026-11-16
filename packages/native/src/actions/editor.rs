@@ -2,7 +2,7 @@
 //!
 //! - **Every rule is asked of `crate::edit`**, outline-core's by contract (the door's `Draft` asks the same
 //!   functions): this file finds the draft, asks, and puts the answer in the field as one step of its way back
-//!   (`App::put`). Nothing here decides how a list goes on or which lines a key takes.
+//!   (`App::ruled`). Nothing here decides how a list goes on or which lines a key takes.
 //! - **Each is an action with its key rows**, so the key table, the keys screen, the hint row and `act` say it
 //!   without anybody writing it again; a label in the bar is its menu row.
 //! - **What the field's own editor does better stays its own**: a motion by word and a word erased need the field's
@@ -108,7 +108,7 @@ static ERASE: ActionRow = ActionRow::new("draft.erase", Touches::Draft, "erase t
 static WRAP: ActionRow = ActionRow::new("draft.wrap", Touches::Draft, "wrap the selected text of the block being written: with=[[ makes [[text]], with=** makes **text**, the text left selected so the same again wraps again. Typing ( [ { \" ' ` * _ ~ over a selection does it a key at a time. One step of the editor's undo")
     .person(THEIRS)
     .args(&[("with", ArgSpec::text("what opens it; the closer is its mirror"))])
-    .keys(&[KeyRow::via("( [ { \" ' ` * _ ~ typed over a selection"), KeyRow::via("( [ { typed with nothing selected bring their closer, and the closer typed there is typed over")])
+    .keys(&[KeyRow::via("( [ { \" ' ` * _ ~ typed over a selection"), KeyRow::via("( and { typed with nothing selected bring their closer and [[ both of its own, and the closer typed there is typed over")])
     .examples(&[Example { act: "draft.wrap with=[[", does: "turns the selected text into a [[page]] link", safe: None }]);
 
 static CHECK: ActionRow = ActionRow::new("draft.check", Touches::Draft, "a checklist's box on the caret's line, or on every line the selection touches: an open step is done, a step in any other state is open again, a list item with no box gets an open one, and any other line becomes an item with one. One step of the editor's undo")
@@ -153,7 +153,7 @@ impl App {
     /// What an editor's rule made of the draft on `tile`, put in its field: the one span between the two texts as
     /// one step of the field's way back, the selection's two ends where the rule says. True when anything moved.
     /// The one way a key's change goes in (a paste is `paste_in`, somebody else's patch `DraftSession::land`).
-    pub(super) fn put(&mut self, tile: &str, did: Change) -> bool {
+    pub(super) fn ruled(&mut self, tile: &str, did: Change) -> bool {
         let Some(draft) = self.st.drafts.iter_mut().find(|draft| draft.tile == tile) else { return false };
         draft.filled = None;
         let Some((start, end, with)) = did.span(draft.buf.words()) else {
@@ -178,7 +178,7 @@ impl App {
     /// list's when its lit row leaves Return to the field, and a Return the table didn't take all come here.
     pub(crate) fn break_line(&mut self, tile: &str, plain: bool) -> bool {
         let Some((text, anchor, caret)) = self.reads(tile) else { return false };
-        self.put(tile, edit::newline(&text, anchor, caret, plain))
+        self.ruled(tile, edit::newline(&text, anchor, caret, plain))
     }
 
     /// A character about to be typed in the block being written on `tile` (the field's adapter asks, before its
@@ -198,9 +198,9 @@ impl App {
         };
         if spaced || draft.typed_at.is_some_and(|at| now.duration_since(at) >= PAUSE) { draft.buf.rest() }
         draft.typed_at = Some(now);
-        let filled = draft.filled == Some((anchor, caret));
+        let filled = draft.filled_in();
         let Some(did) = edit::typed(draft.buf.words(), anchor, caret, ch, filled) else { return false };
-        self.put(tile, did);
+        self.ruled(tile, did);
         true
     }
 
@@ -225,7 +225,7 @@ fn landed(app: &App, tile: &str) -> serde_json::Value {
 
 fn newline(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (tile, text, anchor, caret) = match read(app) { Ok(read) => read, Err(no) => return no };
-    app.put(&tile, edit::newline(&text, anchor, caret, args.flag("plain") == Some(true)));
+    app.ruled(&tile, edit::newline(&text, anchor, caret, args.flag("plain") == Some(true)));
     Outcome::answer(landed(app, &tile))
 }
 
@@ -233,7 +233,7 @@ fn go(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (tile, text, anchor, caret) = match read(app) { Ok(read) => read, Err(no) => return no };
     let (to, extend) = (args.text("to").unwrap_or(""), args.flag("extend") == Some(true));
     match (to, edit::go(&text, anchor, caret, to, extend)) {
-        (_, Some((anchor, caret))) => { app.put(&tile, Change { text, anchor, caret }); Outcome::answer(landed(app, &tile)) }
+        (_, Some((anchor, caret))) => { app.ruled(&tile, Change { text, anchor, caret }); Outcome::answer(landed(app, &tile)) }
         // By word is the field's own (its editor has the word breaks): it is handed the key, and moves on the next frame.
         ("word-back" | "word-forward", None) => { app.st.sending.push(Sent::Word { forward: to == "word-forward", extend }); Outcome::answer(json!({ "sent": "the field's own key" })) }
         _ => Outcome::refused(format!("draft.go takes to={}, not {to}", GOES.join("|"))),
@@ -245,7 +245,7 @@ fn select(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let what = args.text("what").unwrap_or("");
     let Some((anchor, caret)) = edit::select(&text, anchor, caret, what) else { return Outcome::refused(format!("draft.select takes what=word|line|all, not {what}")) };
     let picked = text[anchor..caret].to_string();
-    app.put(&tile, Change { text, anchor, caret });
+    app.ruled(&tile, Change { text, anchor, caret });
     Outcome::answer(json!({ "text": picked }))
 }
 
@@ -254,7 +254,7 @@ fn line(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let op = args.text("op").unwrap_or("");
     let Some(did) = edit::line_op(&text, anchor, caret, op) else { return Outcome::refused(format!("draft.line takes op={}, not {op}", edit::LINE_OPS.join("|"))) };
     let changed = did.text != text;
-    app.put(&tile, did);
+    app.ruled(&tile, did);
     let mut answer = landed(app, &tile);
     answer["changed"] = json!(changed);
     Outcome::answer(answer)
@@ -264,7 +264,7 @@ fn erase(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (tile, text, anchor, caret) = match read(app) { Ok(read) => read, Err(no) => return no };
     let to = args.text("to").unwrap_or("");
     match (to, edit::erase(&text, anchor, caret, to)) {
-        (_, Some(did)) => { let erased = did.text != text; app.put(&tile, did); Outcome::answer(json!({ "erased": erased })) }
+        (_, Some(did)) => { let erased = did.text != text; app.ruled(&tile, did); Outcome::answer(json!({ "erased": erased })) }
         ("word-back" | "word-forward", None) => { app.st.sending.push(Sent::EraseWord { forward: to == "word-forward" }); Outcome::answer(json!({ "sent": "the field's own key" })) }
         _ => Outcome::refused(format!("draft.erase takes to=word-back|word-forward|line-start|line-end, not {to}")),
     }
@@ -274,13 +274,13 @@ fn wrap(app: &mut App, args: &Args, _: &Actor) -> Outcome {
     let (tile, text, anchor, caret) = match read(app) { Ok(read) => read, Err(no) => return no };
     let Some(did) = edit::wrap(&text, anchor, caret, args.text("with").unwrap_or("")) else { return Outcome::refused(format!("nothing is selected in the block being written: select text (Shift with the arrows, a drag, {}), then wrap it", super::label("draft.select what=word"))) };
     let inner = did.text[did.anchor.min(did.caret)..did.anchor.max(did.caret)].to_string();
-    app.put(&tile, did);
+    app.ruled(&tile, did);
     Outcome::answer(json!({ "text": inner }))
 }
 
 fn check(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     let (tile, text, anchor, caret) = match read(app) { Ok(read) => read, Err(no) => return no };
-    app.put(&tile, edit::check(&text, anchor, caret));
+    app.ruled(&tile, edit::check(&text, anchor, caret));
     Outcome::answer(landed(app, &tile))
 }
 

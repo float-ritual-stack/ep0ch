@@ -91,7 +91,7 @@ fn tab_in_the_middle_of_a_paragraph_moves_nothing_and_the_keys_stay() {
     typed(&mut rt, "beans");
     chord(&mut rt, Key::Tab, PLAIN);
     assert_eq!(at(&rt).0, format!("{PLOT}\n- peas\n  - beans"));
-    assert!(said(&rt).iter().any(|does| does == "indent the item, or the selected lines"), "the hint says what Tab is for: {:?}", said(&rt));
+    assert!(said(&rt).iter().any(|does| does == "indent"), "the hint says what Tab is for: {:?}", said(&rt));
 }
 
 #[test]
@@ -186,6 +186,11 @@ fn escape_lets_go_of_a_selection_before_it_leaves() {
     assert_eq!((&text[caret..anchor], last_step(&rt).0), ("Before the rain.", "draft.go extend=true to=line-start".to_string()), "Shift+Home selects to the line's start");
     // With something selected the hint row offers what is done with it, from the rows that say so.
     assert!(said(&rt).iter().any(|does| does == "copy") && said(&rt).iter().any(|does| does == "cut"), "{:?}", said(&rt));
+    // Where they can be read: the row is one line cut at its end, and what holds only now comes before the keys
+    // that are always there (after the way out and the save), inside the row as drawn.
+    let row = super::support::rect_of(&rt, "tile/reader/editor-keys").expect("the hint row under the field");
+    let drawn = |does: &str| rt.elements().into_iter().find(|e| e.path.contains("tile/reader/editor-keys") && e.text.as_deref() == Some(does)).map(|e| e.rect).unwrap_or_else(|| panic!("the hint row says {does}"));
+    for does in ["copy", "cut"] { assert!(drawn(does)[0] + drawn(does)[2] <= row[0] + row[2] + 0.5 && drawn(does)[0] < drawn("indent")[0], "{does} is offered inside the row, before the keys that always hold: {:?} in {row:?}, indent at {:?}", drawn(does), drawn("indent")) }
     chord(&mut rt, Key::Escape, PLAIN);
     let (_, (anchor, caret)) = at(&rt);
     assert_eq!((anchor, caret, draft(&rt.state).is_some()), (caret, caret, true), "the first Escape let go of the selection and nothing else");

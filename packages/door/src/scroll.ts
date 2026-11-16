@@ -6,6 +6,8 @@
 // a mouse wheel), so the door adds no timing of its own: a slow read moves one row per report, evenly, and a
 // fast swipe stops when the reports stop.
 
+import { cursorStepped, pageRows, type CursorStep } from "@ep0ch/outline-core/list-cursor";
+
 /**
  * Rows one wheel report scrolls: `EP0CH_SCROLL_ROWS` (a whole number, 1 to 20), 1 by default. 1 moves the
  * text with the fingers on a trackpad and 3 rows a notch in Ghostty, whose mouse wheel sends three reports a
@@ -70,13 +72,13 @@ export const scrollOff = (room: number) => Math.min(3, Math.floor(room / 4));
  * Rows PgUp and PgDn move, everywhere: the view's rows less one, so the row at the edge stays in sight across the turn
  * (as less and vim do); at least one. A list moves its cursor by this many rows, a reader or a preview scrolls by it.
  */
-export const pageRows = (room: number) => Math.max(1, Math.floor(room) - 1);
+export { pageRows };
 
 /** Of `steps` drawn over `drawn` rows, how many a view of `view` rows shows (an arrangement's page: cards and table rows). */
 export const stepsShown = (steps: number, drawn: number, view = drawn) => Math.min(steps, Math.floor(Math.max(1, view) * steps / Math.max(1, drawn)));
 
 /** A key's step through a list, or null when `k` isn't one: ↑ ↓ j k a row, PgUp PgDn a page, Home End the ends. */
-export function listStep(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }): { by: number } | { page: 1 | -1 } | { edge: "first" | "last" } | null {
+export function listStep(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }): CursorStep | null {
   const c = k.kind === "char" && !k.ctrl && !k.alt ? k.ch : undefined;
   if (k.kind === "up" || c === "k") return { by: -1 };
   if (k.kind === "down" || c === "j") return { by: 1 };
@@ -93,10 +95,8 @@ export function listStep(k: { kind: string; ch?: string; ctrl?: boolean; alt?: b
  */
 export function listMove(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }, o: { at: number; n: number; room: number }): number | null {
   const step = listStep(k);
-  if (!step) return null;
-  if (!o.n) return o.at;
-  const by = "by" in step ? step.by : "page" in step ? step.page * pageRows(o.room) : step.edge === "first" ? -Infinity : Infinity;
-  return clamp(o.at + by, 0, o.n - 1);
+  // Where the step lands is outline-core's rule (`cursorStepped`), which the native window asks too.
+  return step ? cursorStepped(step, o) : null;
 }
 
 /** `top` moved just far enough that row `sel` is in a view of `room` rows. */

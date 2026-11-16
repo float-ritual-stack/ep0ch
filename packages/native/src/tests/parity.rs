@@ -16,13 +16,21 @@ use crate::keys::{self, Bind};
 fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
     let mut lines = match (action, line) {
         ("back", _) => vec!["open id=shed"],
+        ("forward", _) => vec!["open id=shed", "back"],
+        ("up", _) => vec!["open id=beans"],
+        // A tab comes forward in a tab set; a spine is opened once a tile is folded; every digit has its tile.
+        ("tab.select", _) => vec!["layout.move tile=props to=backlinks where=tabs", "tile.focus tile=backlinks"],
+        ("tile.collapse", "tile.collapse on=false") => vec!["tile.collapse on=true"],
+        ("keys.stop", _) => vec!["tile.split", "tile.split dir=down", "tile.split tile=tree dir=down", "tile.split tile=reader", "tile.split tile=reader dir=down", "tile.split tile=tree", "tile.split tile=tree dir=down", "tile.focus tile=reader"],
         ("note.untrash", _) => vec!["note.trash ref=beans"],
         ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
         ("edit.save" | "edit.close" | "draft.paste" | "draft.indent" | "draft.outdent", _) => vec!["edit"],
         // What is done with a selection needs one: the word the caret is on.
         ("draft.wrap" | "draft.copy" | "draft.cut", _) => vec!["edit", "draft.select what=word"],
         // The list's own keys need the list: a block being written, with a page's name begun in it.
-        ("complete.accept" | "complete.enter" | "complete.move" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[se\""],
+        ("complete.accept" | "complete.enter" | "complete.move" | "complete.jump" | "complete.light" | "complete.ask" | "complete.dismiss", _) => vec!["edit", "draft.paste text=\"See [[s\""],
+        // A skeleton's stops are stepped once a component's skeleton is written: one chosen from the list.
+        ("snippet.next" | "snippet.previous" | "snippet.end", _) => vec!["edit", "draft.paste text=\"\n::links\"", "complete.accept"],
         // The keys go to the tile above or below from one that has a tile there; a dock is toggled where one is.
         ("tile.focus", "tile.focus dir=up") => vec!["tile.focus tile=backlinks"],
         ("tile.focus", "tile.focus dir=down") => vec!["tile.focus tile=props"],
@@ -38,7 +46,7 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         // An extension's screen is saved under a name of the person's own first.
         ("screen.save", _) => vec!["screen.save name=Beds"],
         // A list's own actions run on a list tile: the garden's own screen has one, named as the examples name it.
-        ("list.pick" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
+        ("list.pick" | "list.step" | "list.select" | "list.sort" | "list.group" | "list.layout" | "facets.set", _) => vec!["screen.open name=garden-work"],
         // An extension's settings are changed, and it is removed, once it is installed; a form's keys need the form.
         ("extensions.uninstall" | "extensions.configure", _) => vec!["extensions.install id=waiting"],
         ("form.save" | "form.close", _) => vec!["extensions.install id=waiting", "extensions.configure id=waiting"],
@@ -51,7 +59,14 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("terminal.jump", _) => vec!["terminal.open", "terminal.open agent=true"],
         _ => vec![],
     };
-    match on { Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), Some("program") if !lines.contains(&"terminal.open") => lines.push("terminal.open"),
+    match on {
+        // What the tile with the keys adds to them: a list's keys need a list with the keys and its cursor on a row,
+        // a tree's the tree; what Escape steps back out of needs it open.
+        Some("rows") => lines.extend(["tile.focus tile=beds", "list.select n=1"]),
+        Some("branches") => lines.extend(["tile.focus tile=tree", "list.select n=1"]),
+        Some("zoomed") => lines.push("tile.zoom on=true"),
+        Some("docked") => lines.extend(["tile.dock edge=left tile=tree", "tile.focus tile=tree"]),
+        Some("bar") => lines.push("bar.open"), Some("draft") if !lines.contains(&"edit") => lines.push("edit"), Some("program") if !lines.contains(&"terminal.open") => lines.push("terminal.open"),
         // The keys of words picked in a reader need words picked there.
         Some("selection") => lines.push("passage.select quote=\"Before the rain.\""), _ => {} }
     lines
@@ -181,7 +196,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "draft.wrap", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "tree.fold", "list.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "note.untrash", "draft.patch", "complete.light", "draft.wrap", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

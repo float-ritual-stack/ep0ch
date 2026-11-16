@@ -51,8 +51,8 @@ pub static PRIMS: &[Prim] = &[
     Prim { ty: "box", describe: "a bordered box, its title when it has one, then its children in order", fills: true, build: boxed },
     Prim { ty: "stack", describe: "its children, one under the other", fills: true, build: stack },
     Prim { ty: "row", describe: "its children side by side, wrapping when the tile is narrow; a child that fills shares the width, a control keeps its own", fills: true, build: beside },
-    Prim { ty: "band", describe: "a heading, sized by its level; the glyph tracks of a heading style aren't drawn", fills: true, build: band },
-    Prim { ty: "track", describe: "a ruled line; a heading style's glyph pattern isn't drawn", fills: true, build: track },
+    Prim { ty: "band", describe: "a heading, sized by its level, on the rows of its style's glyph track when it says a pattern: shades, bars, dots or ruled lines as small boxes, fading in from the edges the words aren't at", fills: true, build: super::band::band },
+    Prim { ty: "track", describe: "one row of a glyph pattern's cells, as wide as it is given; a pattern nobody here knows is a ruled line", fills: true, build: super::band::track },
     Prim { ty: "diff", describe: "a change to a text as the service found it: the two sides named, how many lines each way, then each line in the code face, written lines and lines taken out marked and tinted, a long run both sides share said in words; nothing is compared here", fills: true, build: super::diff::build },
     Prim { ty: "list", describe: "the one list, drawn as a list tile draws it: rows under their group headers (a table's as cells under its columns, lanes side by side), built only where they are in view; a row with an act line is a press, its cells as badges, its chips questions for the bar, its detail under it; no filter, selection or preview pane here", fills: true, build: listed },
 ];
@@ -139,7 +139,7 @@ fn sized(base: TextStyle, size: f32, line: f32) -> TextStyle { TextStyle { size,
 fn quiet(said: &str, k: &Kit) -> El { text(said.to_string()).font(k.ty.small).color(k.c.text_faint).wrap() }
 
 /// A tone's colour: a theme role, never a colour of its own.
-fn tone(v: &Value, k: &Kit) -> rune::Color {
+pub(super) fn tone(v: &Value, k: &Kit) -> rune::Color {
     match v["tone"].as_str() { Some("good") => k.c.success.fg, Some("warn") => k.c.warning.fg, Some("bad") => k.c.danger.fg, Some("dim") => k.c.text_faint, Some("accent") => k.c.text_accent, _ => k.c.text_base }
 }
 
@@ -337,13 +337,6 @@ fn beside(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
         line.child(if find(parts::ty(child)).is_none_or(|prim| prim.fills) { built.min_w(least).grow(1.0) } else { built })
     })
 }
-
-fn band(prim: &Value, cx: &PrimCx, k: &Kit) -> El {
-    let (size, line) = match prim["level"].as_u64() { Some(1) => (26.0, 32.0), Some(3) => (16.0, 22.0), _ => (20.0, 26.0) };
-    text(words(prim)).key(cx.key()).font(sized(k.ty.body_medium, size, line)).color(tone(prim, k)).wrap().selectable(true)
-}
-
-fn track(_: &Value, cx: &PrimCx, k: &Kit) -> El { el().key(cx.key()).w_full().h(1.0).fill(k.c.border_muted) }
 
 /// A list: the list drawer's own (`tiles/list.rs`), so a view in a note, its links and the notes under it draw as
 /// a list tile draws the same rows.
