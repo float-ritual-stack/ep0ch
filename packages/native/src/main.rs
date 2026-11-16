@@ -17,6 +17,7 @@ mod client;
 mod control;
 mod cursor;
 mod draft;
+mod edit;
 mod ext;
 mod keys;
 mod layout;

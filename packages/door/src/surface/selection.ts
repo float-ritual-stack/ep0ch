@@ -164,24 +164,8 @@ export function wordAt(rows: SelectRows, p: Pos): Selection {
   return new Selection({ row: p.row, col: a }, { row: p.row, col: b });
 }
 
-/**
- * The one word rule for text being written (PIE-1542): the word at UTF-16 offset `offset` of `line`, by grapheme (an accent
- * or an emoji's parts stay inside), a run of non-blanks or the blank run it's in, as `wordAt` reads drawn cells. Every
- * field's double click (a draft, a comment, an inspector value, a line field) reads this.
- */
-const SEGMENTS = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-export function wordIn(line: string, offset: number): { start: number; end: number } {
-  const gs = [...SEGMENTS.segment(line)];
-  if (!gs.length) return { start: 0, end: 0 };
-  let i = gs.findIndex(g => g.index + g.segment.length > offset);
-  if (i < 0) i = gs.length - 1;
-  const blank = (n: number) => /^\s+$/u.test(gs[n]!.segment);
-  const kind = blank(i);
-  let a = i, b = i;
-  while (a > 0 && blank(a - 1) === kind) a--;
-  while (b + 1 < gs.length && blank(b + 1) === kind) b++;
-  return { start: gs[a]!.index, end: gs[b]!.index + gs[b]!.segment.length };
-}
+// The one word rule for text being written (PIE-1542) is outline-core's, read by every field's double click.
+export { wordIn } from "@ep0ch/outline-core/graphemes";
 
 /** Triple click: the drawn row's text, without the margin, its indent or trailing blanks. */
 export function lineAt(rows: SelectRows, row: number): Selection {

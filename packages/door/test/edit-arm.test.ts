@@ -276,8 +276,9 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
         await Bun.sleep(100);
         expect(rd.surface.draft).toBeNull();
       } else {
-        key(char("a")); key(char("b")); key({ kind: "backspace" });
-        key({ kind: "tab" }); key(ENTER); key({ kind: "paste", text: "kept" });
+        // (Tab first, at the empty line's start: from the middle of a word it moves nothing, outline-core's tabTakes, native K3.)
+        key({ kind: "tab" }); key(char("a")); key(char("b")); key({ kind: "backspace" });
+        key(ENTER); key({ kind: "paste", text: "kept" });
         release();
         await until(() => message().includes("scratch read interrupted"), "read failure explained");
         expect(rd.surface.draft).toBeNull();

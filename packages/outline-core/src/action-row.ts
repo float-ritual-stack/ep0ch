@@ -92,7 +92,7 @@ export type Touches = "nothing" | "tile" | "shape" | "draft" | "screen";
  * keys differ by them (backlinks.view's K is step=kind): so a part answering "how do I group by kind" names that key alone
  * (yo, PIE-1712).
  */
-export type KeyRow = { keys: string; does: string; says?: string; on?: string; args?: Readonly<Record<string, string | number | boolean>> } | { via: string };
+export type KeyRow = { keys: string; does: string; says?: string; on?: string; args?: Readonly<Record<string, string | number | boolean>>; /** Whose keys these are when no table binds them (`field`: the editor's own, listed and never bound). */ own?: string; /** Listed, and left out of a hint row. */ quiet?: boolean; /** What must hold for a hint row to offer them (`selection`). */ when?: string } | { via: string };
 /** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
 export type Keys = string | readonly KeyRow[];
 /** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */

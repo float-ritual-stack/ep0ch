@@ -284,13 +284,15 @@ fn editor(cx: &TileCx, draft: &DraftSession, k: &Kit) -> El {
     // end), the comment it answers; and, when the service says those words are no passage of the note, why.
     let on = draft.writes.on().map(|on| text(on).key(cx.key("on")).font(k.ty.small).color(c.text_muted).wrap());
     let unfound = draft.writes.quoted().and_then(|quoted| quoted.refused()).map(|why| text(why.to_string()).key(cx.key("on-problem")).font(k.ty.small).color(c.danger.fg).wrap());
+    // What holds where they write, for the rows that are offered only then (a row's own `when`): something selected.
+    let holds: &[&str] = if draft.buf.ends().0 != draft.buf.ends().1 { &["selection"] } else { &[] };
     // What the keys do where they are now, from the table, on one line of one height whatever layer they are in (a
     // list opening over the block moves nothing under it): the key that leaves this layer, the save that keeps you
     // here, then the layer's own, each once, as many as the line holds. The keys screen has them all.
     let mut shown: Vec<&str> = Vec::new();
     let hints = keys::esc(cx.app.writing(cx.id)).map(|bind| (bind.cap(), bind.does, bind.line.as_str())).into_iter()
         .chain(keys::bind_of("edit.save").map(|bind| (bind.cap(), bind.does, bind.line.as_str())))
-        .chain(keys::layer_keys(cx.app.writing(cx.id)))
+        .chain(keys::layer_keys(cx.app.writing(cx.id), holds))
         .filter(|(_, _, line)| if shown.contains(line) { false } else { shown.push(line); true })
         .fold(row().key(cx.key("editor-keys")).grow(1.0).min_w(0.0).h(22.0).gap(12.0).center_y().clip_soft(0.0), |line, (cap, does, _)| {
             line.child(row().gap(4.0).center_y().child(Keybind::new(&[cap.as_str()]).build(k)).child(text(does).font(k.ty.small).color(c.text_faint)))
@@ -348,7 +350,12 @@ fn over(cx: &TileCx, caret: Option<[f32; 4]>, k: &Kit, layer: &mut Vec<El>) {
             let at = match left { Some(left) if (left + wide(&format!("{before}{typed}")) - x).abs() <= 3.0 => left + wide(before), _ => (x - wide(typed)).max(left.unwrap_or(0.0)) };
             layer.push(el().key(cx.key("complete-at")).absolute(at, y).w(1.0).h(h).inert());
             // What of the lit row is still to come, dimmed after the caret: not part of the field's words.
-            if let Some(rest) = cx.app.completing_rest(cx.id) { layer.push(text(rest.to_string()).key(cx.key("complete-rest")).absolute(x + 1.0, y).h(h).font(style).color(k.c.text_faint).a11y_hidden().inert()) }
+            // Closers a bracket brought stand after the caret: they are drawn again after the rest, over their own
+            // place on the field's ground, so the line reads as it will once the row is taken.
+            if let Some((rest, stands)) = cx.app.completing_rest(cx.id) {
+                let ahead = text(rest.to_string()).key(cx.key("complete-rest")).h(h).font(style).color(k.c.text_faint).a11y_hidden().inert();
+                layer.push(if stands.is_empty() { ahead.absolute(x + 1.0, y) } else { row().key(cx.key("complete-ahead")).absolute(x + 1.0, y).h(h).fill(k.c.bg_base).inert().child(ahead).child(text(stands.to_string()).key(cx.key("complete-stands")).h(h).font(style).color(k.c.text_base).a11y_hidden().inert()) });
+            }
             cx.key("complete-at")
         }
         (Some([x, y, w, h]), None) => { layer.push(el().key(cx.key("complete-at")).absolute(x, y).w(w.max(1.0)).h(h).inert()); cx.key("complete-at") }

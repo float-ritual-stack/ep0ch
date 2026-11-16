@@ -181,7 +181,7 @@ fn the_completion_list_says_what_its_lit_row_is_and_which_of_how_many() {
     assert!(texts(&rt).iter().any(|said| said == "2 of 3 · pages"));
     assert_eq!(rt.state.completing("reader").unwrap().rows.len(), 3);
     let lit = sent(&asked, "completion.rows").unwrap();
-    assert_eq!((lit["lit"].as_u64(), lit["text"].as_str(), lit["near"].as_str()), (Some(1), Some(format!("{PLOT}\nSee [[s").as_str()), Some("plot")));
+    assert_eq!((lit["lit"].as_u64(), lit["text"].as_str(), lit["near"].as_str()), (Some(1), Some(format!("{PLOT}\nSee [[s]]").as_str()), Some("plot")));
     assert_eq!((peek(&rt)["lit"].clone(), peek(&rt)["shows"]["children"][0]["children"][0]["text"].clone()), (json!(2), json!("[[shed]]")));
     assert!(texts(&rt).iter().any(|said| said == "[[shed]]") && !texts(&rt).iter().any(|said| said == "[[seed-list]]"));
     assert_eq!(rt.state.person().layer, Layer::Complete, "the keys are still the list's");
