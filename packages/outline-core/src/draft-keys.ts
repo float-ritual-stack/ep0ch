@@ -162,7 +162,11 @@ export function lineOpText(text: string, anchor: number, cursor: number, op: Lin
  * one over a word mostly means to replace it.
  */
 export const WRAPS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "`": "`", "*": "*", "_": "_", "~": "~" };
-/** What a bracket typed with nothing selected brings its closer with: the three that open a Blockdown form. Quotes and marks don't pair (an apostrophe, a bullet, a code fence are typed alone far more often). */
+/**
+ * What a bracket typed with nothing selected brings its closer with: the three that open a Blockdown form. Quotes and
+ * marks don't pair (an apostrophe, a bullet, a code fence are typed alone far more often). A square bracket pairs only
+ * as a link's `[[` (`typedText`): alone it opens a property, a checklist's box or a link's text.
+ */
 export const PAIRS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
 const CLOSERS = new Set(Object.values(PAIRS));
 
@@ -192,8 +196,11 @@ export function typedMarker(line: string): string | null {
  *   the item's (`- ` then `* ` is `* `, never `- * `).
  * - A closing bracket typed where the same one stands is typed over: the cursor steps past it.
  * - An opening bracket typed before the line's end, a blank or a closing bracket brings its closer, the cursor
- *   between them. So `[[` is `[[]]` with the cursor inside, where a completion's token ends at the closer that is
- *   already there and writes none again.
+ *   between them: `(` and `{` each time, so `((` is `(())`. A square bracket brings none alone and both as the
+ *   second of two, so `[[` is `[[]]` with the cursor inside, where a completion's token ends at the closers that
+ *   are already there and writes none again. Alone it opens a property (`[key::value]`), and the one detector of
+ *   what is being completed reads a key only in a bracket still open (`propertyAtCursor`: a closed `[word]` is a
+ *   link's text): a closer brought there would take the list of keys away, and the row chosen writes it anyway.
  */
 export function typedText(text: string, anchor: number, cursor: number, ch: string, filled = false): Keyed | null {
   if (anchor !== cursor) return !filled && Object.hasOwn(WRAPS, ch) ? wrapText(text, anchor, cursor, ch) : null;
@@ -204,7 +211,11 @@ export function typedText(text: string, anchor: number, cursor: number, ch: stri
     if (made !== null) return put(text.slice(0, start) + made + " " + text.slice(cursor), start + made.length + 1);
   }
   if (CLOSERS.has(ch) && next === ch) return { text, anchor: cursor + 1, cursor: cursor + 1, spans: [] };
-  if (Object.hasOwn(PAIRS, ch) && (next === undefined || /\s/.test(next) || CLOSERS.has(next))) return put(text.slice(0, cursor) + ch + PAIRS[ch] + text.slice(cursor), cursor + 1);
+  if (Object.hasOwn(PAIRS, ch) && (next === undefined || /\s/.test(next) || CLOSERS.has(next))) {
+    if (ch !== "[") return put(text.slice(0, cursor) + ch + PAIRS[ch] + text.slice(cursor), cursor + 1);
+    // The second of two, and only of two: `[[`.
+    if (text[cursor - 1] === "[" && text[cursor - 2] !== "[") return put(text.slice(0, cursor) + "[]]" + text.slice(cursor), cursor + 1);
+  }
   return null;
 }
 

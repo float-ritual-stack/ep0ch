@@ -202,7 +202,7 @@ pub fn line_op(text: &str, anchor: usize, caret: usize, op: &str) -> Option<Chan
 
 /// What wraps a selection when typed over it, with its closer (`WRAPS`).
 pub const WRAPS: [(char, char); 9] = [('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\''), ('`', '`'), ('*', '*'), ('_', '_'), ('~', '~')];
-/// What a bracket typed with nothing selected brings its closer with (`PAIRS`).
+/// What a bracket typed with nothing selected brings its closer with (`PAIRS`); a square one only as `[[` (`typed`).
 pub const PAIRS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('{', '}')];
 
 fn closer_of(table: &[(char, char)], open: char) -> Option<char> { table.iter().find(|(o, _)| *o == open).map(|(_, close)| *close) }
@@ -228,7 +228,8 @@ fn typed_marker(line: &str) -> Option<String> {
 /// the editor types it. Over a selection the person made a wrap character wraps it (over one the window `filled` in
 /// for typing over, it replaces it as any character does); a space at the end of an empty item that has another
 /// marker typed on it makes that marker the item's; a closing bracket typed where the same one stands is typed over;
-/// an opening bracket before the line's end, a blank or a closing bracket brings its closer.
+/// an opening bracket before the line's end, a blank or a closing bracket brings its closer: `(` and `{` each time,
+/// `[` only as the second of `[[` (alone it opens a property, and a key is completed in a bracket still open).
 pub fn typed(text: &str, anchor: usize, caret: usize, ch: char, filled: bool) -> Option<Change> {
     if anchor != caret { return if !filled && closer_of(&WRAPS, ch).is_some() { wrap(text, anchor, caret, ch.encode_utf8(&mut [0; 4])) } else { None } }
     let next = text[caret..].chars().next();
@@ -243,7 +244,9 @@ pub fn typed(text: &str, anchor: usize, caret: usize, ch: char, filled: bool) ->
     if closes(ch) && next == Some(ch) { return Some(Change { text: text.to_string(), anchor: caret + ch.len_utf8(), caret: caret + ch.len_utf8() }) }
     if let Some(close) = closer_of(&PAIRS, ch) && next.is_none_or(|next| next.is_whitespace() || closes(next)) {
         let at = caret + ch.len_utf8();
-        return Some(Change { text: format!("{}{ch}{close}{}", &text[..caret], &text[caret..]), anchor: at, caret: at });
+        // A square bracket brings none alone and both as the second of two, and only of two: `[[` is `[[]]`.
+        let brought = match ch { '[' if text[..caret].ends_with('[') && !text[..caret].ends_with("[[") => "]]".to_string(), '[' => return None, _ => close.to_string() };
+        return Some(Change { text: format!("{}{ch}{brought}{}", &text[..caret], &text[caret..]), anchor: at, caret: at });
     }
     None
 }
