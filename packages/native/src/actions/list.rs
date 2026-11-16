@@ -45,9 +45,9 @@ static OPEN: ActionRow = ActionRow::new("list.open", Touches::Nothing, "open a r
     .keys(&[KeyRow::with("alt+enter", Some("rows"), "open it fresh: beside what is shown", &[("where", Scalar::Text("new"))]), KeyRow::via("a press on a row with Option or the shortcut modifier held, or the middle button (list.press)")])
     .examples(&[Example { act: "list.open n=1 where=new tile=beds", does: "opens the first bed fresh: in a reader beside the one the tile's opens land in", safe: None }]);
 
-static PRESS: ActionRow = ActionRow::new("list.press", Touches::Tile, "a press on a row of a list tile (tile=, else the one with the keys), as the pointer says it: id= the row, mods= the modifiers held (8 Option, 16 the shortcut modifier, 4 Shift; added together), button= 1 for the middle button. What it asks for is the one rule every door's lists answer a press with: the press that gives the tile the keys puts the cursor on the row and nothing else; a press selects (the cursor, and what the tile's select wires show, as list.select does); a second on the same row soon after opens (list.pick); Option or the shortcut modifier held, or the middle button, opens fresh (list.open where=new). A row that runs nothing and only folds is opened by a press at once. The person's: it is their pointer")
+static PRESS: ActionRow = ActionRow::new("list.press", Touches::Tile, "a press on a row of a list tile (tile=, else the one with the keys), as the pointer says it: id= the row, mods= the modifiers held (8 Option, 16 the shortcut modifier, 4 Shift; added together), button= 1 for the middle button, 2 for the right. What it asks for is the one rule every door's lists answer a press with: the press that gives the tile the keys puts the cursor on the row and nothing else; a press selects (the cursor, and what the tile's select wires show, as list.select does); a second on the same row soon after opens (list.pick); Option or the shortcut modifier held, or the middle button, opens fresh (list.open where=new). A row that runs nothing and only folds is opened by a press at once. The right button puts the cursor on the row and nothing else: the tile's menu, which it asks for next, is about the row the cursor is on. The person's: it is their pointer")
     .person("a press is the person's pointer: an agent says what it wants of the row \u{b7} list.select n=, list.pick id=, list.open id= where=new")
-    .args(&[("id", ArgSpec::text("the row's id, as the list gives it")), ("mods", ArgSpec::number("the modifiers held, as bits: 4 Shift, 8 Option, 16 the shortcut modifier").optional()), ("button", ArgSpec::number("0 the primary button (default), 1 the middle").optional()), ("at", ArgSpec::number("when, in milliseconds of the window's clock: two presses on a row within 400 are a double press (default: now)").optional())])
+    .args(&[("id", ArgSpec::text("the row's id, as the list gives it")), ("mods", ArgSpec::number("the modifiers held, as bits: 4 Shift, 8 Option, 16 the shortcut modifier").optional()), ("button", ArgSpec::number("0 the primary button (default), 1 the middle, 2 the right").optional()), ("at", ArgSpec::number("when, in milliseconds of the window's clock: two presses on a row within 400 are a double press (default: now)").optional())])
     .keys(&[KeyRow::via("a press on a row of a list: once to select, twice to open; with Option or the shortcut modifier held, or the middle button, to open fresh")])
     .examples(&[Example { act: "list.press id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree", does: "selects that row, as one press on it does: the reader the tree's select wire names shows its note", safe: Some(true) }]);
 
@@ -228,6 +228,14 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     let tile = match target(app) { Ok(tile) => tile, Err(no) => return no };
     let Some(row) = args.text("id").map(str::to_string) else { return Outcome::refused("list.press names the row pressed: id=") };
     let Some(listed) = app.rows_of(&tile).iter().find(|listed| listed.id == row).cloned() else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
+    // The right button asks for the tile's menu, which is about the row the cursor is on: the cursor goes to the row
+    // pressed and nothing else does (the door's rule for it: picked as the press that brings the keys picks one, and
+    // never opened, shown or folded). It is no first press of a double one.
+    if args.number("button").is_some_and(|button| button as u32 == crate::press::RIGHT) {
+        let Some(at) = app.rows_of(&tile).iter().position(|listed| listed.id == row) else { return Outcome::refused(format!("{} lists no such row", app.layout.name(&tile))) };
+        let moved = cursor_to(app, &tile, at);
+        return Outcome { answer: json!({ "gesture": Gesture::Focus.word(), "answer": moved.answer }), ..moved };
+    }
     // The press that gave the tile the keys: the tile had them not, when the pointer went down (`App::pressed_in`
     // gives them before the line runs, and says so here).
     let focusing = app.st.focusing.take().is_some_and(|(given, at)| given == tile && at.elapsed() < std::time::Duration::from_secs(1));

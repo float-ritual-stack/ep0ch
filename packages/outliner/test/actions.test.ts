@@ -33,8 +33,9 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 test("each list main kept is now one column of the table", () => {
   // screens.list and screens.save are answered by their own module, which asks the service for what it reads and writes;
   // so are lists.read, tiles.view (a rendered tile's view), outlines.known (the host's listing, else the module's) and
-  // passages.find (where a quoted passage is, before a comment is written on it).
-  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read", "tiles.view", "outlines.known", "passages.find"]));
+  // passages.find (where a quoted passage is, before a comment is written on it), and media.keep (a picture a client
+  // puts into a draft, kept in the outline's folder: a write to its folder, so no copy and no extension answers it).
+  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read", "screens.list", "screens.save", "lists.read", "tiles.view", "outlines.known", "passages.find", "media.keep"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
   expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", "properties.patch", ...MARKS.writes]));
   expect(sorted(DECLARED.events)).toEqual(sorted([...MAIN.events, ...MARKS.writes]));

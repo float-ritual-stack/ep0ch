@@ -2381,7 +2381,7 @@ export class OutlinerServer {
       }
       return this.answered(request, result);
     }
-    { const elsewhere = answeredInModule(request, connection, { own: this.own, watches: this.watches, sequence: () => this.store.sequence, require: id => this.store.require(id), address: () => ({ outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }) }); if (elsewhere) return elsewhere; }
+    { const elsewhere = answeredInModule(request, connection, { own: this.own, watches: this.watches, sequence: () => this.store.sequence, require: id => this.store.require(id), address: () => ({ outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }), folder: () => this.store.workspaceRoot }); if (elsewhere) return elsewhere; }
     if (request.action === "notes.address") {
       if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
       return this.answered(request, wired(request.action, await this.noteAddress(request.blockId)));

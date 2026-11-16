@@ -24,7 +24,9 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
         ("keys.stop", _) => vec!["tile.split", "tile.split dir=down", "tile.split tile=tree dir=down", "tile.split tile=reader", "tile.split tile=reader dir=down", "tile.split tile=tree", "tile.split tile=tree dir=down", "tile.focus tile=reader"],
         ("note.untrash", _) => vec!["note.trash ref=beans"],
         ("notice.dismiss", _) => vec!["link.follow ref=ep0ch:p/Seed%20list"],
-        ("edit.save" | "edit.close" | "draft.paste" | "draft.indent" | "draft.outdent", _) => vec!["edit"],
+        ("edit.save" | "edit.close" | "draft.paste" | "draft.indent" | "draft.outdent" | "draft.image", _) => vec!["edit"],
+        // A row is glanced at where the tree lists it: under the folder that is open.
+        ("glance", _) => vec!["tree.fold id=plot open=true"],
         // What is done with a selection needs one: the word the caret is on.
         ("draft.wrap" | "draft.copy" | "draft.cut", _) => vec!["edit", "draft.select what=word"],
         // The list's own keys need the list: a block being written, with a page's name begun in it.
@@ -79,7 +81,15 @@ fn setup(action: &str, line: &str, on: Option<&str>) -> Vec<&'static str> {
 }
 
 /// The examples name notes by ids nobody has: here they are the garden's.
-fn here(line: &str) -> String { line.replace("7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", "beans").replace("confirm=7d9a1f40", "confirm=beans") }
+fn here(line: &str) -> String { line.replace("7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", "beans").replace("confirm=7d9a1f40", "confirm=beans").replace(MADE_UP, &picture()) }
+
+/// The file the examples name is nowhere: here it is a made-up picture in the system's scratch folder, written once.
+const MADE_UP: &str = "/made/up/bed-at-dusk.png";
+fn picture() -> String {
+    let path = std::env::temp_dir().join(format!("ep0ch-native-parity-{}-bed-at-dusk.png", std::process::id()));
+    if !path.exists() { std::fs::write(&path, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1]).expect("the scratch folder takes a file") }
+    path.to_string_lossy().into_owned()
+}
 
 struct Case { action: &'static str, line: String, bind: Option<&'static Bind>, on: Option<&'static str> }
 
@@ -205,7 +215,7 @@ fn every_action_leaves_the_same_step_by_its_chord_by_its_bar_row_and_by_its_act_
         }
     }
     assert!(three >= 12, "most actions run all three ways: {three}");
-    assert_eq!(no_chord, ["open", "link.follow", "fresh", "note.untrash", "draft.patch", "complete.light", "draft.wrap", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "list.press", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "tile.link", "reader.follow", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
+    assert_eq!(no_chord, ["open", "link.follow", "fresh", "note.untrash", "draft.image", "note.drop", "draft.patch", "complete.light", "draft.wrap", "passage.select", "reply", "resolve", "proposal.apply", "proposal.dismiss", "revision.restore", "threads", "thread.toggle", "bar.narrow", "tree.pick", "list.press", "list.sort", "list.group", "list.layout", "facets.set", "tile.dock", "float.place", "tile.agent", "tile.point", "glance", "tile.type", "tile.restart", "terminal.attach", "terminal.jump", "terminal.fit", "layout.get", "layout.resize", "layout.move", "layout.swap", "layout.policy", "tile.link", "reader.follow", "layout.carry", "screen.open", "button.press", "extensions.install", "extensions.uninstall", "extensions.configure", "extensions.act", "outline.switch", "tile.return", "window.close"], "the actions no key reaches, each by a press its row names ({two} cases ran two ways)");
 }
 
 #[test]

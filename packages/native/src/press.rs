@@ -17,6 +17,9 @@ pub const ALT: u32 = 8;
 pub const CTRL: u32 = 16;
 /// The middle button (0 the primary).
 pub const MIDDLE: u32 = 1;
+/// The right button (outline-core's `MOUSE_RIGHT`): a tile's menu. No gesture of a row's: the list puts its cursor
+/// on the row first, as the press that brings the keys does, and the menu is about that row.
+pub const RIGHT: u32 = 2;
 
 /// What a press on a row asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -15,6 +15,7 @@ pub(super) static OPEN: ActionRow = ActionRow::new("open", Touches::Tile, "open 
     ])
     .typing()
     .keys(&[KeyRow::via("Return or a double press on a row of a list, a press on a link"), KeyRow::via("a note picked in the bar")])
+    .menu(&[MenuRow::new("Open", "Note", None)])
     .examples(&[
         Example { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "shows that note in the reader", safe: None },
         Example { act: "open fresh=true from=tree id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens it fresh from the tree: beside the reader its opens land in, which keeps its note", safe: None },
@@ -61,10 +62,11 @@ static SCROLL: ActionRow = ActionRow::new("scroll", Touches::Tile, "scroll a rea
     ])
     .examples(&[Example { act: "scroll by=1 tile=reader", does: "scrolls the reader's page one page down", safe: Some(true) }]);
 
-static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow a link written in a note: a note's opens it (`ep0ch:b/<id>`), a page nobody has made yet and a web address say so")
+pub(super) static FOLLOW: ActionRow = ActionRow::new("link.follow", Touches::Tile, "follow a link written in a note: a note's opens it (`ep0ch:b/<id>`), a page nobody has made yet and a web address say so")
     .args(&[("ref", ArgSpec::text("the link as the page carries it: ep0ch:b/<id>, ep0ch:p/<page> or a URL")), ("fresh", ArgSpec::flag("an open fresh: beside the reader it is written in, which keeps its note").optional())])
     .typing()
     .keys(&[KeyRow::via("a press on a link in a note's prose")])
+    .menu(&[MenuRow::new("Follow link", "Note", None)])
     .examples(&[Example { act: "link.follow ref=ep0ch:b/7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens the note the link names", safe: None }]);
 
 // (An open's note is placed by the layout: aimed at no tile, it is about none until it lands. A link is followed

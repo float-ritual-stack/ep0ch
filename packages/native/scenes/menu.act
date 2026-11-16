@@ -1,0 +1,6 @@
+# A tile's menu (wave A1). The outline's first note is opened, then the reader's menu: everything there is to do with
+# the tile, each row an action's own menu row under its group, its key beside it from the key table. Here it is the
+# bar's list, typed into and picked by key; a window on a Mac draws the same rows as the system's own menu at the
+# pointer (a headless render has no system menu to draw).
+list.pick n=1 tile=tree
+tile.menu tile=reader

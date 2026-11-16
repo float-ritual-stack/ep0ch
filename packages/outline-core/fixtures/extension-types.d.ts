@@ -97,7 +97,10 @@ declare module "@ep0ch/outline-core/action-row" {
       does: string;
       says?: string;
       on?: string;
-      args?: Readonly<Record<string, string | number | boolean>>;
+      args?: Readonly<Record<string, string | number | boolean>>; /** Whose keys these are when no table binds them (`field`: the editor's own, listed and never bound). */
+      own?: string; /** Listed, and left out of a hint row. */
+      quiet?: boolean; /** What must hold for a hint row to offer them (`selection`). */
+      when?: string;
   } | {
       via: string;
   };

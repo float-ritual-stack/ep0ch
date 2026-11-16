@@ -86,7 +86,8 @@ pub fn marked(label: &str, marks: &[usize], font: rune::TextStyle, k: &Kit) -> E
         byte += ch.len_utf8();
     }
     let ink = if marks.is_empty() { k.c.text_base } else { k.c.text_weak };
-    if spans.is_empty() { text(label.to_string()).font(font).color(k.c.text_base).truncate() } else { rich(label.to_string(), spans).font(font).color(ink).truncate() }
+    // (Cut short, it is read whole by a pointer resting on it.)
+    if spans.is_empty() { text(label.to_string()).font(font).color(k.c.text_base).truncate().help_when_truncated(label.to_string()) } else { rich(label.to_string(), spans).font(font).color(ink).truncate().help_when_truncated(label.to_string()) }
 }
 
 /// The row: its parts in their places, lit when it is the one the keys are on. Whoever lists gives it its key and
@@ -95,7 +96,7 @@ pub fn line(line: Line, lit: bool, k: &Kit) -> El {
     let c = &k.c;
     let tag = line.tag.map(|(tag, whole)| el().w(TAG).min_w(TAG).center().child(text(tag).font(k.ty.small).color(c.text_faint)).help(whole));
     let label = marked(&line.label, &line.marks, if line.tall { k.ty.ui_medium } else { k.ty.ui_compact }, k);
-    let detail = line.detail.filter(|detail| !detail.is_empty()).map(|detail| text(detail).font(k.ty.small).color(c.text_faint).truncate());
+    let detail = line.detail.filter(|detail| !detail.is_empty()).map(|detail| text(detail.clone()).font(k.ty.small).color(c.text_faint).truncate().help_when_truncated(detail));
     let sample = line.sample.map(|sample| row().w(SAMPLE).min_w(SAMPLE).center_y().clip_soft(0.0).child(sample));
     let cap = line.keycap.map(|cap| Keybind::new(&[cap.as_str()]).build(k));
     let fill = if lit { c.surface_hover } else { rune::Color::TRANSPARENT };

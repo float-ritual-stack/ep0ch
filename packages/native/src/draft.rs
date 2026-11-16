@@ -326,6 +326,13 @@ pub struct DraftSession {
 /// A byte offset of `text` as a UTF-16 offset, as the wire counts.
 pub fn utf16_of(text: &str, byte: usize) -> usize { text[..text.floor_char_boundary(byte.min(text.len()))].encode_utf16().count() }
 
+/// The line of `text` (from 1) that a span ending at UTF-16 offset `end` ends on: the line before a break it ends
+/// at, which is where something put in after the span goes.
+pub fn line_ending_at(text: &str, end: usize) -> Option<u64> {
+    let upto = text[..byte_of(text, end)?].trim_end_matches('\n');
+    Some(upto.matches('\n').count() as u64 + 1)
+}
+
 /// A UTF-16 offset of `text` as a byte offset. None: it is past the end, or inside a character.
 pub fn byte_of(text: &str, utf16: usize) -> Option<usize> {
     let mut units = 0;

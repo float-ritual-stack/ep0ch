@@ -9,7 +9,7 @@
 //! shape, words or act: those are the layout's drop rule (`layout/drop.rs`, the door's by contract).
 use std::hash::{Hash, Hasher};
 
-use rune::{Align, Cx, Drag, El, Phase, Tx, col, el, memo, row, text};
+use rune::{Align, Cx, Drag, El, LiveRegion, Phase, PointerPress, Tx, col, el, memo, row, text};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, IconButton, IconButtonVariant, Keybind, Kit, glyphs};
 
 use crate::actions::{self, Actor, App, CELL, Moving, Tone, word};
@@ -30,6 +30,17 @@ fn button(line: &str, variant: ButtonVariant) -> Button {
     let b = Button::new(actions::label(line)).variant(variant).on_press(act(line));
     match keys::cap(line) { Some(cap) => b.shortcut(cap), None => b }
 }
+
+/// What a control that runs `line` says to a pointer resting on it: what its action's row calls it, and the keycap
+/// the key table binds to it. Nothing here words a control: the row and the table do (`base`: the line less the
+/// tile it names, which is how the table knows it).
+fn tipped(control: El, base: &str) -> El {
+    let said = control.help(actions::label(base));
+    match keys::cap(base) { Some(cap) => said.help_keys([cap]), None => said }
+}
+
+/// Three dots, for a tile's own menu.
+static MORE: rune::Icon = rune::Icon { name: "ep0ch-more", view: 16.0, body: r#"<circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/>"# };
 
 /// A tile's title bar, in points.
 const TITLE: f32 = 26.0;
@@ -81,10 +92,10 @@ fn spine(s: &App, id: &str, at: [f32; 4], fold: &Fold, frame: Frame, k: &Kit) ->
     let name = s.layout.name(id);
     let line = format!("tile.collapse on=false tile={}", word(&name));
     let ink = if s.layout.focus == id { c.text_base } else { c.text_muted };
-    let said = if fold.flat { row().w_full().h_full().center_y().px(8.0).child(text(name.clone()).font(k.ty.small).color(ink).truncate()) } else { name.chars().fold(col().w_full().h_full().items_center().py(6.0), |spine, letter| spine.child(text(letter.to_string()).font(k.ty.small).color(ink))) };
+    let said = if fold.flat { row().w_full().h_full().center_y().px(8.0).child(text(name.clone()).font(k.ty.small).color(ink).truncate().help_when_truncated(name.clone())) } else { name.chars().fold(col().w_full().h_full().items_center().py(6.0), |spine, letter| spine.child(text(letter.to_string()).font(k.ty.small).color(ink))) };
     keys::tile(k.interactive(said.key(format!("tile/{name}")).role("button").label(format!("{name}: {}", actions::label(&line))).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.sm).fill(c.layer_01).border(1.0, if s.layout.focus == id { c.border_focus } else { c.border_muted }))
         .opacity(if s.moving.as_ref().is_some_and(|held| held.tile == id) { 0.4 } else { 1.0 })
-        .on_press(act(line)).on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &name, frame) { s.act(&line, Actor::Person); }))
+        .on_press(act(line)).on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &name, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() }))
 }
 
 /// One tile in its box: its title bar (its name, or its set's tabs; held and dragged to move it), then what its
@@ -100,16 +111,16 @@ fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: boo
     // Its tab set's tabs, when it is the one in front of a set: each label takes the cells the model says, so a tile
     // let go over one lands before that tab. A tab is held by its own label, and the title's bare part holds the one in front.
     let tabs = s.tab_cells(id, r);
-    let mut title = row().center_y().grow(1.0).min_w(0.0).child(el().w(((tabs.first().map_or(r.col, |tab| tab.from) - r.col) as f32 * CELL.0 - 6.0).max(0.0)));
+    let mut title = row().role("tablist").label(name.clone()).center_y().grow(1.0).min_w(0.0).child(el().w(((tabs.first().map_or(r.col, |tab| tab.from) - r.col) as f32 * CELL.0 - 6.0).max(0.0)));
     // Its number among the stops the keys go round (`App::tab_stops`): the digit that gives it the keys, where one
     // key says it. Bright on the tile that has them.
     if let Some(n) = stop.filter(|n| *n < 9) { title = title.child(text((n + 1).to_string()).key(format!("tile/{name}/stop")).font(k.ty.small).color(if focused { c.text_base } else { c.text_faint }).pl(2.0).pr(2.0)) }
     for tab in &tabs {
         let (here, tab_name, alone) = (tab.id == id, s.layout.name(&tab.id), tabs.len() == 1);
-        let label = text(tab_name.clone()).font(if here { k.ty.ui_medium } else { k.ty.ui }).color(if here { c.text_base } else { c.text_muted }).truncate().px(6.0).py(3.0).radius(k.radius.sm);
+        let label = text(tab_name.clone()).font(if here { k.ty.ui_medium } else { k.ty.ui }).color(if here { c.text_base } else { c.text_muted }).truncate().help_when_truncated(tab_name.clone()).px(6.0).py(3.0).radius(k.radius.sm);
         let label = if alone { label.min_w(0.0) } else { label.w((tab.to - tab.from) as f32 * CELL.0) };
-        title = title.child(k.interactive(label).key(format!("tile/{name}/tab/{tab_name}")).role("tab").on_press(act(format!("tile.focus tile={}", word(&tab_name))))
-            .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &tab_name, frame) { s.act(&line, Actor::Person); }));
+        title = title.child(k.interactive(label).key(format!("tile/{name}/tab/{tab_name}")).role("tab").focus_selected(here).on_press(act(format!("tile.focus tile={}", word(&tab_name))))
+            .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &tab_name, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() }));
     }
     let floats = s.layout.is_float(id);
     // A set whose tabs take the whole title has no room for more than its close: the model says where the labels end.
@@ -133,14 +144,17 @@ fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: boo
     // What kind of tile it is, in the kind's own word for itself (its row's name), else as its spec names it.
     if kind_shown { bar = bar.child(Badge::new(s.kind_of(id).map(|row| row.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| kind.to_string())).variant(BadgeVariant::Subtle).build(k)) }
     // The tile with the keys says what can be done with it where it is: fold it, pop it out. A float says the way back.
-    let control = |glyph: &'static rune::Icon, line: String, part: &str| IconButton::new(glyph).variant(IconButtonVariant::GhostMuted).label(actions::label(&line)).on_press(act(line)).build(k).key(format!("tile/{name}/{part}"));
-    if focused && roomy && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, format!("tile.collapse tile={}", word(&name)), "fold")) }
+    // (Each says, to a pointer resting on it, what its action's row calls it and the key the table binds to it.)
+    let control = |glyph: &'static rune::Icon, base: &str, part: &str| { let line = format!("{base} tile={}", word(&name)); tipped(IconButton::new(glyph).variant(IconButtonVariant::GhostMuted).label(actions::label(base)).on_press(act(line)).build(k).key(format!("tile/{name}/{part}")), base) };
+    if focused && roomy && !floats && s.layout.zoom.is_none() { bar = bar.child(control(&glyphs::DASH, "tile.collapse", "fold")) }
     // In a window torn from another, the way back to the window it came from.
-    if s.torn() { bar = bar.child(control(&glyphs::ARROW_RIGHT, format!("tile.return tile={}", word(&name)), "return")) }
-    if (focused && roomy) || floats { bar = bar.child(control(&glyphs::COPY, format!("tile.float tile={}", word(&name)), "float")) }
-    let bar = bar.child(control(&glyphs::CLOSE, format!("tile.close tile={}", word(&name)), "close"));
+    if s.torn() { bar = bar.child(control(&glyphs::ARROW_RIGHT, "tile.return", "return")) }
+    if (focused && roomy) || floats { bar = bar.child(control(&glyphs::COPY, "tile.float", "float")) }
+    // Everything there is to do with this tile, as a menu: what a right-click anywhere in it opens too.
+    if roomy { bar = bar.child(control(&MORE, "tile.menu", "menu")) }
+    let bar = bar.child(control(&glyphs::CLOSE, "tile.close", "close"));
     let dragged = name.clone();
-    let bar = bar.on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &dragged, frame) { s.act(&line, Actor::Person); });
+    let bar = bar.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &dragged, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() });
     let problems = s.problems_of(id);
     let mut body = col().w_full().grow(1.0).min_h(0.0);
     // What the service says is wrong with this tile is said on it, in its words.
@@ -156,8 +170,26 @@ fn tile(s: &App, id: &str, r: Rect, stop: Option<usize>, frame: Frame, dark: boo
     // The tile that is held is dimmed where it stands until it is let go.
     keys::tile(col().key(format!("tile/{name}")).role("group").label(name.clone()).absolute(at[0], at[1]).w(at[2]).h(at[3]).radius(k.radius.md).fill(c.surface_base).border(1.0, if focused { c.border_focus } else { c.border_muted })
         .opacity(match s.moving.as_ref().filter(|held| held.tile == id) { Some(held) if held.lifted.is_none() => 0.4, Some(_) => 0.9, None => 1.0 })
+        .on_secondary_press({ let from = name.clone(); move |s: &mut App, press: PointerPress, _: &mut Tx| for line in menu_lines(Under::Ground, press) { s.act_in(&line, &from, Actor::Person); } })
         .child(bar)
         .child(body.child(el().w_full().grow(1.0).min_h(0.0).child(drawn))))
+}
+
+/// What a right-click landed on in a tile: its own ground, a row of its list (by the row's id), or a link in a
+/// note's prose (as the page carries it).
+pub(crate) enum Under<'a> { Ground, Row(&'a str), Link(&'a str) }
+
+/// What a right-click in a tile says, as act lines run from that tile: first what it landed on (a list's row takes
+/// the list's cursor, as the door picks the row under a right-click: `list.press` with the right button; a link is
+/// said, `tile.point`), then the menu where the pointer is (`tile.menu`, which gives the tile the keys), as the door
+/// names a place: a cell of the window, here with the fraction the pointer is inside it.
+pub(crate) fn menu_lines(under: Under, press: PointerPress) -> Vec<String> {
+    let first = match under {
+        Under::Ground => None,
+        Under::Row(id) => Some(format!("list.press button={} id={}", crate::press::RIGHT, word(id))),
+        Under::Link(href) => Some(format!("tile.point link={}", word(href))),
+    };
+    first.into_iter().chain([format!("tile.menu at={}", word(&format!("{:.2},{:.2}", press.x / CELL.0, press.y / CELL.1)))]).collect()
 }
 
 /// What a tile's title says of where things open, each a press: the landing still marked on it (whose, until it has
@@ -175,7 +207,7 @@ fn opens(s: &App, id: &str, name: &str, room: f64, mut bar: El, frame: Frame, k:
         let dragged = name.to_string();
         k.interactive(text(words).font(k.ty.small).color(if on { c.text_base } else { c.text_muted }).truncate().px(5.0).py(2.0).radius(k.radius.sm).fill(if on { c.surface_hover } else { rune::Color::TRANSPARENT }))
             .key(format!("tile/{name}/{part}")).role("button").label(help.clone()).help(help).on_press(act(line))
-            .on_drag(move |s: &mut App, d: &mut Drag, _: &mut Tx| if let Some(line) = carried(d, s.moving.as_ref(), &dragged, frame) { s.act(&line, Actor::Person); })
+            .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match carried(d, s.moving.as_ref(), &dragged, frame) { Some(line) => { s.act(&line, Actor::Person); } None => tx.live_only() })
     };
     // What a control costs of the title's room, in cells: a glyph, or its words in the small face.
     let (glyph, worded) = (3.0, |words: &str| words.chars().count() as f64 * 0.85 + 2.0);
@@ -329,28 +361,38 @@ fn dock_strip(strip: &actions::Strip, k: &Kit) -> El {
         .key(format!("dock/{}", strip.side.word())).role("button").label(actions::label(&line)).help(actions::label(&line)).on_press(act(line))
 }
 
-/// The toolbar's own room at its sides, and the room it leaves after the window's buttons where they sit over it.
+/// The toolbar's own room at its sides, and the room it leaves beside the window's own controls where they sit over it.
 const TOOLBAR_PAD: f32 = 10.0;
 const AFTER_BUTTONS: f32 = 12.0;
+/// The toolbar's height: the band the window's title bar is (`titlebar`), so the window's own controls sit in its middle.
+pub const TOOLBAR: f32 = 40.0;
 
-/// Where the toolbar's first word starts: its own room, or past the window's own buttons when they are drawn over
-/// the content (`inset`: Rune's `Cx::titlebar_inset`, the trailing edge of macOS's traffic lights in a window whose
-/// content fills it under the title bar; 0 in full screen, in a titled window and on every other platform).
+/// The room the toolbar keeps at an end: its own, or past the window's own controls when they are drawn over it
+/// (`inset`: an end of Rune's `Cx::chrome_insets`: the trailing edge of macOS's traffic lights at the leading end,
+/// the start of Windows' caption buttons at the trailing one; 0 in full screen and where the native frame stays).
 pub(crate) fn toolbar_lead(inset: f32) -> f32 { if inset > 0.0 { (inset + AFTER_BUTTONS).max(TOOLBAR_PAD) } else { TOOLBAR_PAD } }
 
-/// The frame every window of the run has. Rune's default on macOS: the content fills the window under a clear title
-/// bar, and the toolbar is that bar's row (it starts past the traffic lights: `toolbar_lead`). Elsewhere the native
-/// frame stays whatever this says, so it says so: a headless render then reports the inset this platform's window
-/// has (none), where Rune's default reports a Mac's on every platform.
+/// The frame every window of the run has, where it draws no title bar of its own. On macOS the content fills the
+/// window under a clear title bar. Elsewhere the native frame stays whatever this says, so it says so: a headless
+/// render then reports the inset this platform's window has (none), where Rune's default reports a Mac's everywhere.
 pub fn frame() -> rune::Chrome { rune::Chrome { full_size_content: cfg!(target_os = "macos"), ..rune::Chrome::DEFAULT } }
 
+/// The title bar every window of the run draws itself (Rune's `App::titlebar`): the toolbar's row is the band. On
+/// macOS the traffic lights are centred in it and only what says `window_drag` moves the window, so a button on
+/// the toolbar keeps its press (AppKit's own title band took a press meant for one); on Windows Rune draws the
+/// caption buttons over its trailing end; elsewhere the native frame stays. What the window's own controls take of
+/// the row is Rune's to say (`Cx::chrome_insets`), read in `view` alone.
+pub fn titlebar() -> rune::Titlebar { rune::Titlebar::new(TOOLBAR) }
+
 /// The screen's toolbar: who answers, then one button an act line of the screen's own list.
-fn toolbar(s: &App, lead: f32, k: &Kit) -> El {
+fn toolbar(s: &App, ends: (f32, f32), k: &Kit) -> El {
     let c = &k.c;
     // A press on the toolbar leaves the words selected in a note selected, and the keys where they are: its button
     // that comments is pressed for those words (a press anywhere else in the window lets a selection go first).
-    let mut bar = row().key("toolbar").w_full().gap(8.0).center_y().pl(lead).pr(TOOLBAR_PAD).py(6.0).keeps_text_selection()
-        .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate())
+    // The row is the window's title bar: held where nothing on it takes a press, it moves the window (a double
+    // press zooms it, as the system's setting says), and every control on it keeps its own press.
+    let mut bar = row().key("toolbar").role("toolbar").label(s.screen.title.clone()).w_full().h(TOOLBAR).gap(8.0).center_y().pl(ends.0).pr(ends.1).window_drag().keeps_text_selection()
+        .child(text(s.at.outline.clone()).key("outline-name").font(k.ty.body_medium).color(c.text_base).truncate().help_when_truncated(s.at.outline.clone()))
         .child(text(if s.online { format!("on {}", if s.machine.is_empty() { "…" } else { &s.machine }) } else { "offline".to_string() }).font(k.ty.small).color(if s.online { c.text_faint } else { c.danger.fg }).truncate())
         .child(Badge::new(s.screen.title.clone()).variant(BadgeVariant::Subtle).build(k).key("screen-name"));
     // The outlines this window left, each a press back to it as it was left.
@@ -363,23 +405,24 @@ fn toolbar(s: &App, lead: f32, k: &Kit) -> El {
     // short name was cut to "…" for as long as the line was up). A toolbar full of buttons cuts it short, so the whole
     // of it is what a pointer resting on it reads.
     let mut free = row().grow(1.0).min_w(0.0).center_y();
-    if let Some(said) = &s.agent_said { free = free.child(text(said.clone()).key("status").font(k.ty.small).color(c.text_muted).truncate().help(said.clone())) }
+    if let Some(said) = &s.agent_said { free = free.child(text(said.clone()).key("status").role("status").live_region(LiveRegion::Polite).font(k.ty.small).color(c.text_muted).truncate().help(said.clone())) }
     bar = bar.child(free);
     // The screen's own toolbar, as the service lists it now: a screen note changed since the window opened is followed.
     for line in s.spec_now().map(|spec| spec.toolbar()).unwrap_or_default() { bar = bar.child(button(&line, ButtonVariant::Ghost).build(k).key(format!("tool/{line}"))) }
     // The arrangement's lock: lit while its shape is fixed, a press the other way.
     let locked = s.layout.policy.flag("locked") == Some(true);
-    bar.child(IconButton::new(&glyphs::LOCK).variant(if locked { IconButtonVariant::Neutral } else { IconButtonVariant::GhostMuted }).label(actions::label("layout.lock")).on_press(act("layout.lock")).build(k).key("tool/lock"))
+    bar.child(tipped(IconButton::new(&glyphs::LOCK).variant(if locked { IconButtonVariant::Neutral } else { IconButtonVariant::GhostMuted }).label(actions::label("layout.lock")).on_press(act("layout.lock")).build(k).key("tool/lock"), "layout.lock"))
 }
 
 fn notice(s: &App, k: &Kit) -> Option<El> {
     let notice = s.notice.as_ref()?;
     let colors = match notice.tone { Tone::Info => &k.c.info, Tone::Problem => &k.c.danger };
-    let mut bar = row().key("notice").w_full().px(12.0).py(8.0).gap(10.0).radius(k.radius.md).fill(colors.bg).border(1.0, colors.border).center_y()
+    // (Read out as it arrives: a problem at once, anything else when the person is idle.)
+    let mut bar = row().key("notice").role(match notice.tone { Tone::Info => "status", Tone::Problem => "alert" }).live_region(match notice.tone { Tone::Info => LiveRegion::Polite, Tone::Problem => LiveRegion::Assertive }).w_full().px(12.0).py(8.0).gap(10.0).radius(k.radius.md).fill(colors.bg).border(1.0, colors.border).center_y()
         .child(text(notice.said.clone()).font(k.ty.small).color(colors.fg).wrap().grow(1.0));
     // What it did can be taken back: the notice carries the act line that does.
     if let Some(undo) = &notice.undo { bar = bar.child(button(undo, ButtonVariant::Ghost).build(k).key("notice-undo")) }
-    Some(bar.child(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("notice.dismiss")).on_press(act("notice.dismiss")).build(k).key("notice-close")))
+    Some(bar.child(tipped(IconButton::new(&glyphs::CLOSE).variant(IconButtonVariant::GhostMuted).label(actions::label("notice.dismiss")).on_press(act("notice.dismiss")).build(k).key("notice-close"), "notice.dismiss")))
 }
 
 /// The hint row under the tiles: the keys that matter where the person's keys are, each with what it does, as the
@@ -417,7 +460,7 @@ const FOOT: f32 = 22.0;
 /// poll: `main.rs` says them once). Agents reach it by its name while it is open. A headless run opens nothing.
 pub fn open(born: App, made: rune::AppSpec<App>) {
     let name = born.window();
-    let window = rune::App::new(made).chrome(frame()).init(move || born).on_close(crate::control::gone);
+    let window = rune::App::new(made).chrome(frame()).titlebar(titlebar()).init(move || born).on_close(crate::control::gone);
     crate::control::here(&name, window.handle());
     rune::open_window(rune::WindowSpec::from_app(format!("window/{name}"), window));
 }
@@ -463,7 +506,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     // A wire being set: what a press on each tile does, over everything in the tiles' area.
     if s.linking.is_some() { area = linking(s, &order, area, &k) }
     // (The window's own ground is the theme's page: a light theme's translucent surfaces read as light over it.)
-    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child(toolbar(s, toolbar_lead(cx.titlebar_inset()), &k));
+    let mut body = col().key("shell").w_full().h_full().fill(k.c.page).child({ let rune::ChromeInsets { leading, trailing, .. } = cx.chrome_insets(); toolbar(s, (toolbar_lead(leading), toolbar_lead(trailing)), &k) });
     if let Some(n) = notice(s, &k) { body = body.child(el().w_full().px(10.0).pb(6.0).child(n)) }
     // What a tile draws over the window (the list that completes what is typed in it, at its caret), while the bar is
     // away. The caret is read only while there is something to hang on it: a view that reads it runs again when it moves.

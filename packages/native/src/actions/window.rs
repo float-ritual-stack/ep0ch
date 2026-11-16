@@ -37,6 +37,7 @@ impl App {
         app.st.machine = self.machine.clone();
         app.st.online = self.online;
         app.st.blocking = self.blocking;
+        app.st.native_menus = self.native_menus;
         app.arrangement_put(Layout::read(alone));
         app.st.screen = Screen { name: window.to_string(), title: window.to_string(), from: From::Torn, spec: None, problems: Vec::new() };
         if let Some(tile) = app.layout.all().first().cloned() { app.st.tiles.insert(tile, shown); }

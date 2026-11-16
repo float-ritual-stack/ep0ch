@@ -50,6 +50,9 @@ pub struct TileUi {
     /// A terminal tile's program, by the key the run holds it under (`pty::Programs`): kept with the arrangement,
     /// so the tile finds the same program in another window, and the next launch where its host still runs it.
     pub program: Option<String>,
+    /// The link in a note's prose the pointer was on here when it last asked for the tile's menu: the next menu's,
+    /// taken by it.
+    pub pointed: Option<super::menu::Pointed>,
     /// A list's cursor: the row the keys are on, by its id (never by its place: the rows change under it). Not the
     /// pointer's hover, and not the mark of the note its reader shows. None: on no row yet.
     pub cursor: Option<String>,
@@ -276,6 +279,8 @@ pub struct State {
     pub out_of: Option<Id>,
     /// The tile a paste was asked into with no words of its own, until the clipboard is read for it.
     pub pasting: Option<Id>,
+    /// The tile whose draft asked for the clipboard's picture (`draft.image` with no file named), until it is read.
+    pub pasting_picture: Option<Id>,
     /// Words an extension's action handed back for the person's clipboard, until the window's hands copy them.
     pub copying: Option<String>,
     /// Keys an action handed to the field's own editor, until the window's hands send them (`keys::effects`).
@@ -286,6 +291,13 @@ pub struct State {
     pub detaching: Option<Id>,
     /// The window was asked to close: the shell closes it on the next frame.
     pub closing: bool,
+    /// The tile menu the person has open (`actions/menu.rs`): drawn as the platform's own menu where the window has
+    /// those, else as the bar's list.
+    pub menu: Option<super::menu::Menu>,
+    /// The window has menus of the platform's own (said once, where the window is made).
+    pub native_menus: bool,
+    /// The row of a list whose note is shown in a card beside it, while the pointer rests there (`glance`).
+    pub glance: Option<super::menu::Glance>,
     pub notice: Option<Notice>,
     /// The last act an agent ran, as the status line says it: up for as long as it takes to read (`App::fade`).
     pub agent_said: Option<String>,
@@ -388,8 +400,8 @@ impl App {
                 tiles: HashMap::new(),
                 asked_screen: None,
                 // (Until the shell has measured the tiles' area: what a window of the usual size has under its
-                // toolbar and over its hint row.)
-                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 39.0 },
+                // toolbar, which is the title bar's band, and over its hint row.)
+                area: Rect { col: 0.0, row: 0.0, cols: 147.0, rows: 38.0 },
                 journal: Vec::new(), memory: Default::default(),
                 aimed: None,
                 about: None,
@@ -409,11 +421,15 @@ impl App {
                 parked: HashMap::new(),
                 out_of: None,
                 pasting: None,
+                pasting_picture: None,
                 copying: None,
                 sending: Vec::new(),
                 programs_seen: 0,
                 detaching: None,
                 closing: false,
+                menu: None,
+                native_menus: false,
+                glance: None,
                 notice: None,
                 agent_said: None,
                 heard: Heard::default(),
@@ -966,6 +982,8 @@ impl App {
             if let Some(held) = draft.completing.held.as_ref().filter(|held| held.ask != *ask) { wants.push(Want { tile: draft.tile.clone(), role: "completed", ask: held.ask.clone() }) }
         }
         wants.extend(crate::bar::asks(self).into_iter().map(|ask| Want { tile: "bar".into(), role: "rows", ask }));
+        // The note of the row the pointer rests on, for its card.
+        if let Some(ask) = self.glance_ask() { wants.push(Want { tile: "glance".into(), role: "page", ask }) }
         if self.online && !self.at.outline.is_empty() {
             wants.push(Want { tile: "screens".into(), role: "list", ask: self.screens_ask() });
             wants.push(Want { tile: "sources".into(), role: "list", ask: self.sources_ask() });
@@ -1141,6 +1159,17 @@ impl App {
         self.st.notice = Some(Notice::info("Back online."));
         self.start();
         true
+    }
+
+    /// What the window is called in its title bar and the system's list of windows: the note its reader shows and
+    /// the outline it is on (`keys::effects` tells the window when it changes).
+    pub fn window_title(&self) -> String {
+        let note = self.shown().map(|page| page.title.trim()).filter(|title| !title.is_empty());
+        match (note, self.at.outline.as_str()) {
+            (_, "") => "ep0ch".to_string(),
+            (Some(note), outline) => format!("{note} \u{b7} {outline}"),
+            (None, outline) => outline.to_string(),
+        }
     }
 
     /// What an act asked of the next frame: the element to bring into view, taken once (`keys::effects` is the one caller).

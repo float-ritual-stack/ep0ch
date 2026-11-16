@@ -92,6 +92,8 @@ fn open(app: &mut App, args: &Args, by: &Actor) -> Outcome {
 fn close(app: &mut App, _: &Args, _: &Actor) -> Outcome {
     if !app.bar.open { return Outcome::refused("the bar isn't open") }
     app.st.bar.open = false;
+    // (A tile's menu listed there is put away with it.)
+    app.st.menu = None;
     app.unselect();
     Outcome::done()
 }
@@ -124,7 +126,9 @@ fn pick(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     if app.stands(by) { app.st.bar.open = false }
     // The other way (Alt+Return, a modifier held on the press): what the row opens, it opens fresh.
     let outer = std::mem::replace(&mut app.st.fresh, args.flag("alt") == Some(true));
-    let ran = app.act(&row.line, by.clone());
+    // A row of a tile's menu runs from its tile, as a press in the tile does; any other row runs as written.
+    let from = app.st.menu.take().filter(|_| row.source == bar::MENU && app.stands(by)).map(|menu| app.layout.name(&menu.tile));
+    let ran = match from { Some(from) => app.act_in(&row.line, &from, by.clone()), None => app.act(&row.line, by.clone()) };
     app.st.fresh = outer;
     // (The words selected in a reader when the bar opened were the row's to use: a comment took them.)
     if app.stands(by) { app.unselect() }

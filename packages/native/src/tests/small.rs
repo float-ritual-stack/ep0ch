@@ -128,13 +128,15 @@ fn a_refusal_s_notice_goes_when_the_person_next_acts_and_never_before_it_can_be_
 }
 
 /// The run, on a Mac: the outline's name was drawn under the window's red, yellow and green buttons. Where they sit
-/// over the content Rune says how far they reach (`Cx::titlebar_inset`), and the toolbar starts past them. Run here
-/// by telling the runtime the inset a Mac's window reports; on a Mac itself this was not run.
+/// over the content Rune says how far they reach (the leading end of `Cx::chrome_insets`, since A1: the window draws
+/// its own title bar), and the toolbar starts past them. Run here by telling the runtime the inset a Mac's window
+/// reports; on a Mac itself this was not run.
 #[test]
 fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     let g = garden(ok());
     let mut rt = window(g.app);
     let name = |rt: &rune::Runtime<crate::actions::App>| rect_of(rt, "outline-name").expect("the outline's name is on the toolbar");
+    let lead = |points: f32| { let mut insets = rune::ChromeInsets::default(); insets.leading = points; insets };
     // No buttons over the content (a titled window, full screen, every other platform): the toolbar's own room.
     let plain = name(&rt);
     assert_eq!(plain[0], 10.0);
@@ -142,7 +144,7 @@ fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     // pitch, the last 14 wide), and the name starts after them with room between.
     let buttons = rune::Chrome::DEFAULT.titlebar_inset();
     assert_eq!(buttons, 67.0);
-    rt.set_titlebar_inset(buttons);
+    rt.set_chrome_insets(lead(buttons));
     rest(&mut rt);
     let past = name(&rt);
     assert!(past[0] >= buttons + 8.0, "the name starts at {} and the buttons end at {buttons}", past[0]);
@@ -151,7 +153,7 @@ fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     let width = rect_of(&rt, "toolbar").unwrap()[2];
     assert!(rt.elements().iter().filter(|e| e.key.as_deref().is_some_and(|key| key.starts_with("tool/"))).all(|e| e.rect[0] + e.rect[2] <= width), "a button left the row");
     // Full screen takes the buttons off the content: the name is back at the edge.
-    rt.set_titlebar_inset(0.0);
+    rt.set_chrome_insets(lead(0.0));
     rest(&mut rt);
     assert_eq!(name(&rt)[0], 10.0);
     // A window torn from this one has the same row over its tile (the outline's name, with no button of a screen's),
@@ -160,7 +162,7 @@ fn the_toolbar_starts_past_the_window_s_own_buttons_where_they_sit_over_it() {
     assert!(act(&mut app, "tile.tear tile=reader").ok);
     let mut torn = window(app.born().pop().expect("the act asked for a window"));
     assert_eq!(name(&torn)[0], 10.0);
-    torn.set_titlebar_inset(buttons);
+    torn.set_chrome_insets(lead(buttons));
     rest(&mut torn);
     assert!(name(&torn)[0] >= buttons + 8.0, "a torn window's name starts at {} and its buttons end at {buttons}", name(&torn)[0]);
     // On this platform the frame asks for nothing over the content, so a headless render reports none either.
