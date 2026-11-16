@@ -7,6 +7,10 @@
 // - A list item goes under the item above it, by that item's marker and gap (its text's column), or back to its
 //   parent's level.
 // - Anything else moves two spaces, or one tab where the line is indented with tabs.
+// - Tab moves lines only where it can mean that (`tabTakes`, native K3): on a list item from any column, on several
+//   selected lines, or with the cursor at the line's start or in its indent. In the middle of a paragraph or a
+//   heading it moves nothing: a person writing a sentence never meant the line. Shift+Tab takes a level off from
+//   any column, as every editor's does, and lines named outright (`indentShifts`) always move.
 // - Every line moves by the first line's step, so the nesting inside a selection is kept; blank lines in a
 //   selection of several stay as they are.
 // - The caret stays on its text: it moves with its line, and never before the line's start.
@@ -88,6 +92,16 @@ export function indentShifts(lines: readonly string[], dir: 1 | -1, from: number
   return { put, shifts };
 }
 
+/**
+ * Whether Tab with the cursor at `col` of its line moves lines `from`..`to` in: several lines do, a list item does
+ * from any column, and any other line does only from its start or inside its indent. What the key asks before
+ * `indentShifts`; lines an act names outright (`draft.indent from= to=`) are not asked.
+ */
+export function tabTakes(lines: readonly string[], from: number, to: number, col: number): boolean {
+  const line = lines[from] ?? "";
+  return from !== to || !!listLead(line) || col <= indentOf(line).length;
+}
+
 /** Where a column of a line that moved `by` is after: with its text, and never before the line's start. */
 export const shiftedCol = (col: number, by: number): number => Math.max(0, col + by);
 
@@ -105,6 +119,7 @@ export interface IndentedText {
 /**
  * The line the cursor is on, or every line the selection touches (from `anchor` to `cursor`, either way round), one
  * level in or out: `indentShifts` over the text's lines, as spans of the text, with both ends kept on their text.
+ * A level in is the Tab key's, and asks `tabTakes` first: nothing moves from the middle of a paragraph.
  */
 export function indentText(text: string, dir: 1 | -1, anchor: number, cursor: number): IndentedText {
   const lines = text.split("\n"), starts: number[] = [];
@@ -117,7 +132,8 @@ export function indentText(text: string, dir: 1 | -1, anchor: number, cursor: nu
     return { row, col: o - starts[row]! };
   };
   const a = place(anchor), c = place(cursor);
-  const { put, shifts } = indentShifts(lines, dir, Math.min(a.row, c.row), Math.max(a.row, c.row));
+  const from = Math.min(a.row, c.row), to = Math.max(a.row, c.row);
+  const { put, shifts } = dir > 0 && !tabTakes(lines, from, to, c.col) ? { put: "", shifts: [] } : indentShifts(lines, dir, from, to);
   const spans = shifts.map(({ row, by }): LocatedSpan => by > 0
     ? { start: starts[row]!, end: starts[row]!, replacement: put }
     : { start: starts[row]!, end: starts[row]! - by, replacement: "" });

@@ -52,6 +52,7 @@ mod complete;
 mod contract;
 mod control;
 mod drafts;
+mod editor;
 mod ext;
 mod garden;
 mod keys;

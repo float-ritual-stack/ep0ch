@@ -283,6 +283,8 @@ pub struct State {
     pub pasting_picture: Option<Id>,
     /// Words an extension's action handed back for the person's clipboard, until the window's hands copy them.
     pub copying: Option<String>,
+    /// Keys an action handed to the field's own editor, until the window's hands send them (`keys::effects`).
+    pub sending: Vec<crate::keys::Sent>,
     /// What the run's programs had shown when the window last looked (`Store::programs_moved`).
     pub programs_seen: u64,
     /// The terminal tile being closed with its program left running (`terminal.detach`): a close of it ends nothing.
@@ -421,6 +423,7 @@ impl App {
                 pasting: None,
                 pasting_picture: None,
                 copying: None,
+                sending: Vec::new(),
                 programs_seen: 0,
                 detaching: None,
                 closing: false,
@@ -839,13 +842,18 @@ impl App {
     }
 
     /// What of the lit row is still to come after the caret, when the row goes on from what is typed (the service's
-    /// word on the row, `rest`) and nothing stands after the caret on its line: shown dimmed there, where Tab takes
-    /// it. None while the list on screen is one held from before the last change.
-    pub fn completing_rest(&self, tile: &str) -> Option<&str> {
+    /// word on the row, `rest`): shown dimmed there, where Tab takes it. With it, what stands after the caret on its
+    /// line when that is only the closers a bracket brought (`edit::PAIRS`: `[sta` is `[sta]` with the caret inside),
+    /// which whoever draws the rest draws again after it. Anything else after the caret, and there is no room for
+    /// it: None. None too while the list on screen is one held from before the last change.
+    pub fn completing_rest(&self, tile: &str) -> Option<(&str, &str)> {
         let draft = self.draft_on(tile)?;
         let (text, (anchor, caret)) = (draft.buf.words(), draft.buf.ends());
-        if anchor != caret || draft.buf.composing() || text[caret..].chars().next().is_some_and(|next| next != '\n') { return None }
-        self.completing_now(tile)?.rows.get(draft.completing.lit)?.rest.as_deref().filter(|rest| !rest.is_empty() && !rest.contains('\n'))
+        if anchor != caret || draft.buf.composing() { return None }
+        let stands = &text[caret..text[caret..].find('\n').map_or(text.len(), |end| caret + end)];
+        if !stands.chars().all(|ch| crate::edit::PAIRS.iter().any(|(_, close)| *close == ch)) { return None }
+        let rest = self.completing_now(tile)?.rows.get(draft.completing.lit)?.rest.as_deref().filter(|rest| !rest.is_empty() && !rest.contains('\n'))?;
+        Some((rest, stands))
     }
 
     /// The lit row and its drawing, once it has been lit long enough for a card (`draft::CARD_QUIET`, on the window's
@@ -1212,6 +1220,9 @@ impl App {
         let (Some(token), Some(row), Some(key)) = (found.token.as_ref(), found.rows.get(draft.completing.lit), found.pick_key.as_ref()) else { return };
         let (Some(rest), Some(was), Some(cursor)) = (row.rest.as_deref(), ask.params["text"].as_str(), ask.params["cursor"].as_u64()) else { return };
         let Some(at) = draft::byte_of(was, cursor as usize) else { return };
+        // A row whose end already stands after the caret (the closers `[[` brought) is not typed out by its last
+        // letter: the word may go on (`[[shed` on the way to `[[shedding`), and nothing is counted for a guess.
+        if draft::byte_of(was, token.end).and_then(|end| was.get(at..end)).is_some_and(|stands| !stands.is_empty() && row.insert.ends_with(stands)) { return }
         // The text is the one the list was asked for, with the row's rest typed where the caret was.
         let (now, caret) = (draft.buf.words(), draft.buf.ends().1);
         if caret != at + rest.len() || now.len() != was.len() + rest.len() || now.get(at..caret) != Some(rest) || now[..at] != was[..at] || now[caret..] != was[at..] { return }

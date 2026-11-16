@@ -356,6 +356,57 @@ fn the_pointer_lights_a_row_the_wheel_scrolls_the_list_and_a_press_accepts() {
     assert_eq!((words(&rt.state), last_step(&rt)), (format!("{PLOT}\n[[shed]]").as_str(), ("complete.accept n=2 tile=reader".to_string(), true)));
 }
 
+/// A bracket typed over what the window selected for typing over replaces it, as any character does (K3's rule,
+/// `filled`): the value a chosen row says to select, and each stop of a skeleton as Tab steps to it. Over words the
+/// person selected, the same key wraps them.
+#[test]
+fn a_bracket_typed_over_a_skeleton_s_stop_replaces_it_and_wraps_only_what_the_person_selected() {
+    let (mut rt, _) = writing();
+    typed(&mut rt, "::graph-st");
+    chord(&mut rt, Key::Tab, Mods::default());
+    let skeleton = format!("{PLOT}\n::graph-stat\n---\nvalue: 12\nlabel: Beds sown\n---");
+    assert_eq!(words(&rt.state), skeleton);
+    // The first stop, selected by the choice: a bracket is the value's first character, not a wrap of the example.
+    typed(&mut rt, "(");
+    let first = skeleton.replace("value: 12", "value: (");
+    assert_eq!((words(&rt.state), rt.state.person().layer), (first.as_str(), Layer::Stops));
+    // The next stop, selected by Tab: the same.
+    chord(&mut rt, Key::Tab, Mods::default());
+    typed(&mut rt, "[");
+    let second = first.replace("label: Beds sown", "label: [");
+    assert_eq!(words(&rt.state), second);
+    // What the person selects themselves is wrapped.
+    chord(&mut rt, Key::Escape, Mods::default());
+    typed(&mut rt, "x");
+    chord(&mut rt, Key::Left, SHIFT);
+    typed(&mut rt, "[");
+    assert_eq!(words(&rt.state), second.replace("label: [", "label: [[x]"));
+}
+
+/// A link begun brings its closers (K3: `[[` is `[[]]`, the caret inside), and the list is as good there as at a
+/// line's end: what of the lit row is still to come is shown dimmed after the caret with the closers drawn again
+/// after it, the row's last letter typed is no choice counted (the name may go on), and Tab writes the row over
+/// the closers that stand, never beside them.
+#[test]
+fn a_link_s_brought_closers_keep_the_rest_of_the_lit_row_after_the_caret_and_count_no_guess() {
+    let (mut rt, asked) = writing();
+    typed(&mut rt, "[[she");
+    assert_eq!((words(&rt.state), labels(&rt)), (format!("{PLOT}\n[[she]]").as_str(), vec!["Shed".to_string()]));
+    let shown = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| (e.text.unwrap_or_default(), e.rect));
+    let (ahead, stands) = (shown(&rt, "tile/reader/complete-rest").expect("the rest, after the caret"), shown(&rt, "tile/reader/complete-stands").expect("the closers, after the rest"));
+    assert_eq!((ahead.0.as_str(), stands.0.as_str()), ("d", "]]"));
+    assert!(stands.1[0] >= ahead.1[0] + ahead.1[2] - 0.5 && (stands.1[1] - ahead.1[1]).abs() <= 1.0, "the closers follow the rest on its line: {:?} after {:?}", stands.1, ahead.1);
+    // The last letter typed by hand: the words are the row's, and nothing is counted as chosen.
+    let before = sent_all(&asked, "completion.picked").len();
+    typed(&mut rt, "d");
+    assert_eq!((words(&rt.state), sent_all(&asked, "completion.picked").len()), (format!("{PLOT}\n[[shed]]").as_str(), before));
+    // Chosen with a letter still to come, the row is written over the closers.
+    let (mut rt, asked) = writing();
+    typed(&mut rt, "[[she");
+    chord(&mut rt, Key::Tab, Mods::default());
+    assert_eq!((words(&rt.state), sent_all(&asked, "completion.picked").len()), (format!("{PLOT}\n[[shed]]").as_str(), 1));
+}
+
 /// Nothing matches: the box says so in a line. A name long enough to be a page offers the row that makes it; lit
 /// and never chosen, Tab and Return are still the field's (nothing is made by a key meant for the text), and once
 /// chosen the page is made first, then linked. A page the service won't make is said, and nothing is written.
@@ -368,9 +419,9 @@ fn a_page_nobody_has_written_is_offered_and_made_when_its_row_is_chosen() {
     assert_eq!(labels(&rt), ["+ new page [[zzzz]]"]);
     chord(&mut rt, Key::Tab, Mods::default());
     assert_eq!((last_step(&rt).0.as_str(), sent_all(&asked, "pages.follow").len()), ("complete.accept", 0), "lit and not chosen, Tab is the field's: nothing is made");
-    assert!(!words(&rt.state).contains("[[zzzz]]"));
+    assert_eq!(words(&rt.state), format!("{PLOT}\n[[zzzz]]"), "the words are as typed, with the closers the brackets brought (K3)");
     // Chosen (the list asked for by its key), it is made, then written.
-    chord(&mut rt, Key::Command('z'), primary());
+    // (Tab in the middle of a line moved nothing, K3: there is no indent to take back first.)
     rt.key(KeyEvent { key: Key::Text(" ".into()), mods: CTRL });
     rest(&mut rt);
     assert_eq!(labels(&rt), ["+ new page [[zzzz]]"]);
@@ -382,7 +433,7 @@ fn a_page_nobody_has_written_is_offered_and_made_when_its_row_is_chosen() {
     rt.key(KeyEvent { key: Key::Text(" ".into()), mods: CTRL });
     rest(&mut rt);
     chord(&mut rt, Key::Enter, Mods::default());
-    assert!(words(&rt.state).ends_with(" [[compost-bin") && rt.state.notice.as_ref().is_some_and(|notice| notice.said.contains("deleted")), "{:?}", rt.state.notice.as_ref().map(|notice| notice.said.clone()));
+    assert!(words(&rt.state).ends_with(" [[compost-bin]]") && rt.state.notice.as_ref().is_some_and(|notice| notice.said.contains("deleted")), "{:?}", rt.state.notice.as_ref().map(|notice| notice.said.clone()));
 }
 
 /// The line under the field is one line of one height whatever layer the keys are in: a list opening over the

@@ -81,3 +81,21 @@ export function wordStartAfter(line: string, column: number): number | null {
   for (const w of words.segment(line)) if (w.isWordLike && w.index > column) return w.index;
   return null;
 }
+
+/**
+ * The one word rule for text being written (PIE-1542): the word at UTF-16 offset `offset` of `line`, by grapheme (an
+ * accent or an emoji's parts stay inside), a run of non-blanks or the blank run it's in. Every field's double click
+ * (a draft, a comment, an inspector value, a line field) and a draft's select-the-word key read this.
+ */
+export function wordIn(line: string, offset: number): { start: number; end: number } {
+  const gs = [...graphemes.segment(line)];
+  if (!gs.length) return { start: 0, end: 0 };
+  let i = gs.findIndex(g => g.index + g.segment.length > offset);
+  if (i < 0) i = gs.length - 1;
+  const blank = (n: number) => /^\s+$/u.test(gs[n]!.segment);
+  const kind = blank(i);
+  let a = i, b = i;
+  while (a > 0 && blank(a - 1) === kind) a--;
+  while (b + 1 < gs.length && blank(b + 1) === kind) b++;
+  return { start: gs[a]!.index, end: gs[b]!.index + gs[b]!.segment.length };
+}
