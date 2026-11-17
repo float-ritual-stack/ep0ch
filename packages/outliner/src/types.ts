@@ -2181,7 +2181,7 @@ export type OutlinerRequestAction =
    * `{ undone, extension, action, written }`.
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
-  | { id: string; action: "scripts.sequence"; blockId: string; line: number; clientId: string; invitation?: string; mutation: MutationProvenance }
+  | { id: string; action: "scripts.sequence"; blockId: string; /** Where the presser read the button. */ line: number; /** Which button it is, its words and action line as the note has them: the service finds it where it is now (`buttonPressed`), a save since that read may have moved it (PIE-1803). */ label: string; act: string; clientId: string; invitation?: string; mutation: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.run"; blockId: string; /** The note the run is about: the script's `this`, as a press in that note gives it (PIE-1272). */ this?: string; /** The slots' values, the script's props, as a button's line would fill them. */ slots?: Record<string, string>; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
   | { id: string; action: "door.act"; line: string; label?: string; door?: string; blockId?: string; tile?: string; note?: string; agent?: string; extension?: string; requestedBy?: MutationProvenance } | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }

@@ -2040,7 +2040,7 @@ export class OutlinerServer {
         clientId: request.clientId, invitation: request.invitation, button: { block: request.blockId, line: request.line },
         requestedBy: declaredRequester(request, "scripts.sequence") ?? { author: "user" },
       };
-      const result = await this.scriptRuns.answered(await this.scriptRuns.startSequence(asked, () => this.draftPatches.read(request.blockId).then(r => r.route === "draft" ? r.text : undefined, () => undefined)), asked); // a door's open edit holds a button not saved yet (PIE-1699)
+      const result = await this.scriptRuns.answered(await this.scriptRuns.startSequence(asked, { label: request.label, act: request.act }, () => this.draftPatches.read(request.blockId).then(r => r.route === "draft" ? r.text : undefined, () => undefined)), asked); // a door's open edit holds a button not saved yet (PIE-1699)
       return this.answered(request, result);
     }
     if (request.action === "door.act") return this.answered(request, await this.scriptRuns.doorAct(request));

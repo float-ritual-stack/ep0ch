@@ -316,7 +316,9 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.board.createBlock(null, "Compost notice [type::shed-item] [status::sent]");
     const where = "type=shed-item NOT status=sent";
     const lines = findAnswer({ words: "shed items that are not sent", where, read: [{ clause: "type=shed-item", from: ["shed items"] }, { clause: "NOT (status=sent)", from: ["not", "sent"] }], found: { notes: [{ id: a.id, title: "Seed swap flyer" }, { id: b.id, title: "Shed rota" }], more: false } });
-    const own = await h.board.createBlock(null, ["Find the shed items", "", "@yo find me the shed items that are not sent", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
+    // The answer alone, with no @yo line over it: a person's ask line in a new note is asked, and yo (no Jev here) would write
+    // "I couldn't read…" above these buttons while they are pressed (PIE-1803). That race is button-in-callout.test.ts's.
+    const own = await h.board.createBlock(null, ["Find the shed items", "", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
     await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
     if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
@@ -338,6 +340,8 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect(await press("▸ save as a view")).toEqual({ state: "done" });
     const views = await h.board.request("blocks.query", { query: { where: "type=virtual-branch", limit: 200 } });
     expect(views.blocks.map(b => (b.text ?? "").split("\n")[0]).some(t => !!t?.startsWith("Shed items that are not sent"))).toBe(true);
+    // Nobody else wrote in the note while its buttons were pressed: the lines pressed are the lines read.
+    expect((await h.board.get(own.id))!.text).toBe(text);
     await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
   }, 90_000);
 
@@ -348,7 +352,8 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
     const job = await h.board.createBlock(null, "Shed rota [type::shed-job] [status::queued]");
     const lines = findAnswer({ words: "shed jobs", where: "type=shed-job", found: { notes: [{ id: job.id, title: "Shed rota" }], more: false } });
-    const answer = await h.board.createBlock(null, ["Shed jobs, answered", "", "@yo find the shed jobs", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
+    // No @yo line over the answer, as above: yo would answer it again while the buttons are pressed.
+    const answer = await h.board.createBlock(null, ["Shed jobs, answered", "", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
     const own = await h.board.createBlock(null, "Typing a find\n\nWhere the person is typing.\n");
     await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
     if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
@@ -381,6 +386,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     for (const c of " NOT status=sent") h.ch(c);
     await until(() => facets()?.draft?.text === "type=shed-job NOT status=sent", "typed on the query line", 4000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(facets()?.draft?.text)} / edit ${JSON.stringify(draft()?.text.slice(-40))}`); });
     expect(draft()!.text).not.toContain("status=sent");
+    expect((await h.board.get(answer.id))!.text).toBe(answer.text);
     h.press({ kind: "esc" });
     await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
