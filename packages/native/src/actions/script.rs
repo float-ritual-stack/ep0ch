@@ -103,7 +103,9 @@ fn press(app: &mut App, args: &Args, by: &Actor) -> Outcome {
     app.store.set_blocking(false);
     app.store.pressing(&at);
     // The person's press invites the run (and so does a press made on an invitation of theirs); an agent's invites nothing.
-    let mut run = json!({ "blockId": block, "line": line, "clientId": client });
+    // Which button it is, by its words and act line as the page served them: the service finds it where it is now, a
+    // save since this window read the note may have moved it (outline-core's `buttonPressed`).
+    let mut run = json!({ "blockId": block, "line": line, "label": label, "act": act, "clientId": client });
     if app.stands(by) { run["invitation"] = json!(app.invite(&name)) }
     app.store.write(&at, "scripts.sequence", run, by, ran, json!({ "tile": tile, "block": block, "line": line, "label": label }));
     app.store.set_blocking(waits);

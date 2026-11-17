@@ -119,6 +119,8 @@ fn a_button_with_steps_is_the_service_s_to_run_and_what_its_script_asks_of_this_
     let run = asked.borrow().iter().rev().find(|a| a["action"] == "scripts.sequence").cloned().expect("the service is asked to run it");
     assert_eq!((run["blockId"].as_str(), run["line"].as_u64(), run["clientId"].as_str()), (Some("plot"), Some(13), Some(client.as_str())), "by its note and line, with this window named for its acts");
     assert_eq!(run["mutation"]["author"], "user", "recorded as whoever pressed");
+    assert_eq!(run["label"], "Tidy the shed", "and which button it is, so the service finds it where it is now");
+    assert!(run["act"].is_string(), "with its act line as the page served it: {run}");
     let invitation = run["invitation"].as_str().expect("the person's press invites the run it starts").to_string();
     let reader = rt.state.reader().unwrap();
     assert_eq!(rt.state.ui(&reader).said.as_ref().unwrap().words, "Tidy the shed: running…", "the service took it and is running it");

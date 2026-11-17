@@ -17,7 +17,7 @@ import type { RefusalKind } from "./refusal";
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 326;
+export const PROTOCOL = 327;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 49;
 
