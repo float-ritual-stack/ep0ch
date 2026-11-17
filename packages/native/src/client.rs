@@ -137,6 +137,9 @@ impl Link for Recorded {
             None => json!({ "ok": false, "kind": "failed", "error": format!("a recording answers this window: nobody recorded what a host says to this {}", ask["action"].as_str().unwrap_or("ask")) }),
         };
         line["id"] = request["id"].clone();
+        // A recording is this checkout's own answers, not a host that can be older or newer: where it says a protocol,
+        // it says this window's, so a `PROTOCOL` bump leaves the playground standing with nothing recorded again.
+        if line["result"]["protocolVersion"].is_number() { line["result"]["protocolVersion"] = json!(PROTOCOL) }
         self.said.push_back(line);
     }
     fn take(&mut self) -> Vec<Value> { self.said.drain(..).collect() }
