@@ -391,7 +391,7 @@ export const TILE_HEADERS = {
   full: "the crumbs, the title and the byline",
   title: "the title alone, on one line",
   none: "no header: the note starts on the first row",
-} as const;
+} as const satisfies Record<import("@ep0ch/outline-core/screen-spec").TileHeader, string>;
 export type TileHeader = keyof typeof TILE_HEADERS;
 export const isTileHeader = (v: unknown): v is TileHeader => typeof v === "string" && v in TILE_HEADERS;
 

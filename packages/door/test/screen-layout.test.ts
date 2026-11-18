@@ -3,6 +3,8 @@
 // review found broken one caller at a time (B7–B11, C3, C4) are the module's own, checked here with no App, no
 // Scratch, no desk: plain states, plain operations. Fictional tiles.
 import { describe, expect, test } from "bun:test";
+import { whySaid, type Why } from "@ep0ch/outline-core/way-out";
+import { shownLine } from "../src/surface/actions";
 import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";
 import {
@@ -26,8 +28,13 @@ const facts = (id: number): TileFacts => {
   const kind = ["tree", "thread", "activity", "query", "pty"].includes(n) ? n : n.startsWith("q") ? "query" : "reader";
   return { kind, notes: kind === "reader", ...extra[id] };
 };
+/**
+ * A refusal as these tests read it: its reason, then each way out as the act the layout named and what it does. The
+ * layout names no key: a door words one (test/way-out.test.ts holds the door's sayer to its key tables).
+ */
+const acts = (why: Why) => whySaid(why, w => `${shownLine(w.act, w.args ?? {}, w.tile)} ${w.does}`);
 const ctxOf = (actor: Actor, person: Partial<Person> = {}, area = AREA): Ctx => ({
-  actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent" && !person.yolo, area, tile: facts, person: { focus: 2, typingIn: null, busy: false, ...person },
+  says: acts, actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent" && !person.yolo, area, tile: facts, person: { focus: 2, typingIn: null, busy: false, ...person },
   kinds: { all: ["reader", "tree", "thread", "activity", "query", "pty", "preview"], notes: ["reader"] },
 });
 
@@ -284,7 +291,7 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
   test("the nearest policy wins, and a lock above locks everything below", () => {
     // The screen says tiles stay where they are; the column of thread and activity says they move, and is locked.
     let s = ok(fresh(), { op: "policy", node: "screen", set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles in place · \^W P there turns draggable on/);
+    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles in place · layout.policy node=screen draggable=true turns draggable on/);
     s = ok(s, { op: "policy", tile: 3, set: { draggable: true }, clear: [] }).state;
     expect(policyAt(s, 3, facts(3)).draggable).toBe(true);           // the nearest says it
     expect(policyAt(s, 2, facts(2)).draggable).toBe(false);
@@ -309,14 +316,14 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     const keyed = splitOf("col", [leaf(3), leaf(4)], [0.5, 0.5]);
     (keyed as { key?: string }).key = "lanes";
     const s = ok(fresh(splitOf("row", [leaf(1), leaf(2), keyed])), { op: "policy", tile: 3, set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles in place · \^W P there turns draggable on/);
+    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles in place · layout.policy node=[a-z]\d+ draggable=true turns draggable on/);
   });
 
   test("a policy that keeps tiles: closable off folds instead; accepts and droppable refuse with who said so", () => {
     extra = {};
     let s = ok(fresh(), { op: "policy", tile: 3, set: { closable: false, droppable: false }, clear: [] }).state;
-    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles · tile.collapse folds it to a spine · \^W P there turns closable on/);
-    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops: .* · \^W P there turns droppable on/);
+    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles · tile.collapse tile=activity on=true folds it to a spine, or layout.policy node=s\d+ closable=true turns closable on/);
+    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops: .* · layout.policy node=\S+ droppable=true turns droppable on/);
     extra = { 2: { keeps: "hub:fern supplies it, and it goes when its data does" } };
     no(fresh(), { op: "close", tile: 2 }, /reader stays: hub:fern supplies it/);
     extra = { 2: { editing: "an edit" } };
@@ -824,7 +831,7 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
     extra = { 2: { editing: "an edit" } };
     no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /reader holds an edit/);
     extra = { 3: { running: "nvim" } };
-    no(fresh(), { op: "replace", tile: 3, with: 9, kind: "tree" }, /thread is running nvim: \^W x ends it first/);
+    no(fresh(), { op: "replace", tile: 3, with: 9, kind: "tree" }, /thread is running nvim · tile.close tile=thread ends it first/);
     extra = {};
     const locked = ok(fresh(), { op: "lock", on: true }).state;
     no(locked, { op: "replace", tile: 3, with: 9, kind: "tree" }, /locked/);
@@ -1006,7 +1013,7 @@ describe("where an open lands: one table of requests and destinations (PIE-1522)
     ["the same with no reader in the drawer: the screen shown", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 1, note: "n", act: true }, { screen: "@desk/reader" }, { 1: LIST }, out, AGENT],
     ["an act's open from= a welcome tile, fresh: not the welcome's action (a new tile beside it, by the rule)", () => fresh(), { from: 1, note: "n", fresh: true, act: true }, { freshAction: "welcome.read" }, {}, { kind: "new", at: { kind: "split", target: 1, dir: "right" } }],
     ["a drawer list wired to its reader: the wire", () => ok(drawer(), { op: "link", tile: 1, to: 2 }).state, { from: 1, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, { kind: "swap", tile: 2 }],
-    ["a drawer list with no screen to take it: refused, said", () => drawer(), { from: 1, note: "n" }, { screen: null }, { 1: LIST }, { kind: "none", reason: "this screen has no tiles to open it in · q goes back to one", refused: true }],
+    ["a drawer list with no screen to take it: refused, said", () => drawer(), { from: 1, note: "n" }, { screen: null }, { 1: LIST }, { kind: "none", reason: "this screen has no tiles to open it in", ways: [{ act: "screen.back", does: "goes back to one" }], refused: true }],
     ["a screen with no reader (PIE-1641): a new one at its right edge, the person's keys in it", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n" }, {}, {}, { kind: "new", at: { kind: "edge", dir: "right" } }],
     ["the same on an empty screen (the focus a tile that left)", () => init({ tree: splitOf("row", [], []), names: new Map() }), { from: 9, note: "n", default: true }, {}, { 9: { kind: undefined, notes: false } }, { kind: "new", at: { kind: "edge", dir: "right" } }],
     ["a tile's open off the drawer (no Ctx.screen): its own reader", () => drawer(), { from: 1, note: "n" }, {}, { 1: LIST }, { kind: "swap", tile: 2 }],

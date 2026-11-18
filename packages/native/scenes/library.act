@@ -1,0 +1,5 @@
+# The library, opened from the bar's Screens: every component under its group, and one picked, with what it is,
+# its own example as written and that example drawn through the same builders a page's parts go through.
+bar.open scope=screens query=library
+bar.pick n=1
+list.pick id=callout tile=components

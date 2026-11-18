@@ -16,6 +16,8 @@ import { RECORDED_AS, USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { requesterOf } from "../socket";
 import { AGENT_WORDS, type AgentLevel } from "../surface/agent-level";
+import type { Way } from "@ep0ch/outline-core/way-out";
+import { waysOutSaid } from "../surface/way-out";
 import { EDGE_WORD, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import type { TileHeader } from "../surface/note";
@@ -950,7 +952,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "layout.lock on=false", does: "unlocks the screen so tiles can be moved and closed again" },
     ],
     run({ on }, { d }, actor) {
-      return d.step(null, () => ({ op: "lock", ...(on !== undefined ? { on } : {}) }), actor, r => ({ locked: !!r.answer.locked, changed: r.changed, layout: String(r.answer.layout), ...(r.answer.unlock ? { unlock: String(r.answer.unlock) } : {}) }));
+      return d.step(null, () => ({ op: "lock", ...(on !== undefined ? { on } : {}) }), actor, r => ({ locked: !!r.answer.locked, changed: r.changed, layout: String(r.answer.layout), ...(Array.isArray(r.answer.unlock) ? { unlock: waysOutSaid(r.answer.unlock as Way[], actor) } : {}) }));
     },
   }),
   "screen.delete": def({

@@ -1,12 +1,7 @@
 import { noteExcerpt } from "@ep0ch/outline-core/excerpt";
 import { blockDisplayTitle } from "./references";
-import {
-  BLOCK_READ_FIELDS,
-  DEFAULT_BLOCK_READ_FIELDS,
-  type Block,
-  type BlockReadField,
-  type ProjectedBlock,
-} from "./types";
+import { BLOCK_READ_FIELDS, DEFAULT_BLOCK_READ_FIELDS, type BlockReadField, type ProjectedBlock } from "./block-read-fields";
+import type { Block } from "./types";
 
 export const MAX_BLOCK_READ_IDS = 1000;
 
@@ -38,10 +33,15 @@ export function normalizeBlockReadIds(ids: unknown): string[] {
   return [...new Set(ids as string[])];
 }
 
+/**
+ * `block` reduced to `fields`. What is under it is the store's to say, asked for the rows of one read together
+ * (notes-under.ts): `hasChildren` any block, `hasNotes` a note (left out when the read didn't name it).
+ */
 export function projectBlock(
   block: Block,
   hasChildren: boolean,
   fields: readonly BlockReadField[],
+  hasNotes?: boolean,
 ): ProjectedBlock {
   const projected: ProjectedBlock = { id: block.id };
   for (const field of fields) {
@@ -73,6 +73,9 @@ export function projectBlock(
         break;
       case "hasChildren":
         projected.hasChildren = hasChildren;
+        break;
+      case "hasNotes":
+        projected.hasNotes = hasNotes === true;
         break;
       case "text":
         projected.text = block.text;

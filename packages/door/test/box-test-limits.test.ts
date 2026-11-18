@@ -42,8 +42,8 @@ function worktree(name: string) {
 }
 
 /** `box-test` from `dir`; the stub's marks go to out/<tag>.*, and it finishes when out/<tag>.go exists. */
-function box(dir: string, tag: string, flags: string[] = [], env: Record<string, string> = {}) {
-  const p = Bun.spawn([join(dir, "scripts/box-test"), "--on", "float-box", ...flags, "outline-core"], {
+function box(dir: string, tag: string, flags: string[] = [], env: Record<string, string> = {}, pkgs: string[] = ["outline-core"]) {
+  const p = Bun.spawn([join(dir, "scripts/box-test"), "--on", "float-box", ...flags, ...pkgs], {
     cwd: dir, stdout: "pipe", stderr: "pipe",
     env: {
       ...process.env, EP0CH_BOX_SSH: join(root, "ssh"), EP0CH_BOX_REPO: origin, EP0CH_BOX_LOCKS: locks, EP0CH_BOX_SLOTS: "2",
@@ -84,6 +84,14 @@ beforeAll(() => {
     '[ -z "$FIX_FAIL" ] || exit 1',
     "",
   ].join("\n"));
+  // The native window's package, as box-test meets it: a bun `check` and a cargo crate. `cargo` is a stand-in on the
+  // PATH (root/bin) that writes down where it ran, with what and under which build folder, and nothing is built.
+  mkdirSync(join(seed, "packages/native"), { recursive: true });
+  writeFileSync(join(seed, "packages/native/package.json"), JSON.stringify({ name: "fixture-native", version: "0.0.0", scripts: { check: 'echo checked >> "$FIX_OUT/$FIX_TAG.native"' } }));
+  writeFileSync(join(seed, "packages/native/Cargo.toml"), '[package]\nname = "fixture-native"\nversion = "0.0.0"\n');
+  mkdirSync(join(root, "bin"));
+  writeFileSync(join(root, "bin/cargo"), `#!/bin/sh\nprintf '%s\\n' "cwd=$(basename "$(dirname "$PWD")")/$(basename "$PWD")" "args=$*" "target=$CARGO_TARGET_DIR" "home=$CARGO_HOME" "icd=$VK_ICD_FILENAMES" >> "$FIX_OUT/$FIX_TAG.native"\nexit \${FIX_CARGO_EXIT:-0}\n`);
+  chmodSync(join(root, "bin/cargo"), 0o755);
   // The budget at the commit: the real comparison, a made-up budget (any file 2 s, the package 10 s).
   mkdirSync(join(seed, "scripts"));
   writeFileSync(join(seed, "scripts/test-budget.ts"), readFileSync(join(real, "test-budget.ts")));
@@ -251,6 +259,30 @@ describe("scripts/box-test limits", () => {
     expect(await quick.p.exited).toBe(0);
     expect(quick.text.out).toContain("test-budget: within test budget");
     expect(quick.text.out).toMatch(/outline-core +0\.7 s of 10\.0 s \(7%\)/);
+  }, 360_000);
+
+  test("native is a package: its check, then cargo test in packages/native, the build kept in a folder that outlives the run (no gate ran cargo)", async () => {
+    const dir = worktree("wt-native"), kept = join(root, "native-target");
+    const env = { PATH: `${join(root, "bin")}:${process.env.PATH}`, EP0CH_BOX_CARGO_TARGET: kept };
+    const r = box(dir, "native1", [], env, ["native"]);
+    expect(await r.p.exited, r.text.err + r.text.out).toBe(0);
+    expect(r.text.out).toContain("━━ native: bun run check");
+    expect(r.text.out).toContain("━━ native: cargo test");
+    const said = Object.fromEntries(lines(join(out, "native1.native")).filter(l => l.includes("=")).map(l => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+    // The crate's own folder (its toolchain file is read from where cargo runs), the whole suite, headless Rune's
+    // software renderer, and a build folder outside the run dir, which is removed with the run: the next run finds it warm.
+    expect(said).toMatchObject({ cwd: "packages/native", args: "test", target: kept, icd: "/usr/share/vulkan/icd.d/lvp_icd.json" });
+    expect(said.home, "the box's own cargo home, not the run's private one").toBe(join(process.env.HOME!, ".cargo"));
+    expect(lines(join(out, "native1.native"))[0]).toBe("checked");
+    expect(existsSync(kept)).toBe(true);
+    // A red suite is the run's exit code, as any package's.
+    const red = box(dir, "native2", [], { ...env, FIX_CARGO_EXIT: "101" }, ["native"]);
+    expect(await red.p.exited).toBe(101);
+    // Not part of `all`, and a boxd fork has nowhere to keep a build: refused with where it runs.
+    const usage = Bun.spawnSync([join(dir, "scripts/box-test"), "--help"], { cwd: dir, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+    expect(usage).toContain("native");
+    const boxd = Bun.spawnSync([join(dir, "scripts/box-test"), "--on", "boxd", "native"], { cwd: dir, stdout: "pipe", stderr: "pipe", env: { ...process.env, XDG_STATE_HOME: join(root, "state") } });
+    expect([boxd.exitCode, boxd.stderr.toString()]).toEqual([2, expect.stringContaining("native runs on float-box")]);
   }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {

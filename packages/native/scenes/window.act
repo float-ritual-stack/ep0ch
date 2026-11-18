@@ -1,0 +1,5 @@
+# A tile torn out of the window into one of its own, over the same store: `--torn reader` after the second `--`
+# draws that second window (a headless run opens none, so it draws the state the act made for it).
+bar.open scope=search query="Potting shed"
+bar.pick n=1
+tile.tear tile=reader

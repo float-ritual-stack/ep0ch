@@ -2587,10 +2587,14 @@ List views should not fetch full documents to show titles and metadata.
 order, reduced to `fields`: `id` (always), `parent` (`parentId`, `position`),
 `title` (first content line without property tokens), `properties` (block
 scope), `revision`, `timestamps` (`createdAt`, `updatedAt`), `author` (with any
-actor/session/task provenance), `hasChildren`, opt-in `text` and opt-in
+actor/session/task provenance), `hasChildren` (any block under it outside
+Trash: a comment on it and an edit proposed beside it count), opt-in `hasNotes`
+(a note under it, by outline-core `isNoteUnder`: a comment, a reply and a
+proposed edit are none; what a list of notes folds by, `notes-under.ts`),
+opt-in `text` and opt-in
 `excerpt` (the words after the title as one line, outline-core `noteExcerpt`:
 a list row's preview, PIE-1443). Omitting `fields` returns everything except
-`text` and `excerpt`. Every other id appears once in
+`hasNotes`, `text` and `excerpt`. Every other id appears once in
 `unavailable` as `missing` or `trashed` (with its `deletedRootId`); one absent
 id never fails the batch. Duplicate ids collapse to their first occurrence.
 `blocks.query` accepts the same optional `fields` and then returns

@@ -1,0 +1,10 @@
+# A way out, in this window's own keys (wave F3; scenes/parts.seed.ts writes the note into a scratch outline). A
+# block is being written in the reader, and the reader is asked to close: the layout refuses, and names the way out
+# as an act (`edit`). The window says it by the key its own table binds to that act, never a key of the door's.
+# Then an agent tries to resize under the person's typing: it is told the act that gets their attention here.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit
+draft.paste text=" Peg it at the corners."
+layout.resize split=s1 border=0 share=0.6 as=tidy-agent
+tile.close tile=reader

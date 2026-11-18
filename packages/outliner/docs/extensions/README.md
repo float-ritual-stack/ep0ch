@@ -1612,13 +1612,14 @@ secret reference.
 
 **What it is.** A tile of its own kind (`tarot.reading`, `what-changed.list`), registered in the door's open
 tile-kind registry (PIE-505), which makes, binds and saves it like any built-in kind; the engine never switches on
-its name. A tile is one of three things (PIE-507, PIE-1506), exactly one per `tiles[]` entry:
+its name. A tile is one of four things (PIE-507, PIE-1506), exactly one per `tiles[]` entry:
 
 | Form | `tiles[]` field | What the door makes |
 |---|---|---|
 | a program | `"run": ["bun", "tile.ts"]` | a terminal tile running it (like nvim or the daily agent), its args appended as `--name=value` |
 | drawn rows | `"render": "<a script in scripts[]>"` | a service-drawn tile: the service runs that `// ep0ch-script mode=render` file with the tile's args as `props` and the door draws its view with its own primitives; a `list` in it is the door's one list (j k ⏎ alt+⏎, a click, the wheel, `/` filters, `list.*` for agents), the picked row's note the tile's subject |
 | a view | `"view": "<a query in the views' grammar>"` | the door's query tile (PIE-511) under this kind: the notes the query lists as cards, j k ⏎ r, `query.*`; `view=<a saved view's id>` at open time lists that instead |
+| a kind a door draws | `"drawer": "list"` (or `"page"`), with `"fields": { "from": "children" }` | a kind a door draws itself with the drawer named: `list` is one list over `lists.read` (what it lists is its `from`; `group`, `sort`, `columns` and `arrange` name properties and an arrangement), `page` a note's page. `fields` is what a tile of the kind starts with, where its own spec says nothing. The [screens](../../extensions/screens) extension's kinds are all this: the native window draws each from its row, and the door's own kinds answer to the names those rows serve (`screens.reader` is its `reader`). A door with no such drawer says so on the tile |
 
 **The contract.** A `tiles[]` entry:
 
@@ -1749,7 +1750,10 @@ line draws the same list in a note. No door code draws the rows.
 **What it is.** `screens[]` (PIE-1525) ships whole screens for the door: each a screen spec as data, the same shape a
 screen note holds (`name`, `title`, `layout`, and the optional `keys`, `hint`, `lands`…). The door registers each
 while the extension is served and forgets it when it stops: uninstalling takes the screen, installing brings it back,
-with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O.
+with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O. The screens every door ships
+(the desk a window opens on, the navigator, the board, last callers, who's online) are one extension's too,
+[screens](../../extensions/screens): `start: true` marks the screen a window with no arrangement of its own opens on,
+and `target: { "arg": "query", "fills": "facets.query" }` says which tile's field what a screen is opened on becomes.
 
 ```json
 "screens": [{
@@ -2336,8 +2340,8 @@ What changed in the outline after `sequence` (a cursor you keep), oldest first: 
 
 | Field | Type | |
 |---|---|---|
-| `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
 | `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
+| `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
 | `machinery?` | `MachineryMode` | `hide` leaves out changes to notes tools stamped `[machine::…]`; `only` holds just those; `show` (the default here: the feed is how a client catches up, so it holds everything unless asked) everything. Each change says `machinery: true` when its note is stamped (PIE-867). |
 
 Answers `ChangeFeedPage`.
@@ -2555,16 +2559,18 @@ Answers `RenderedNote`.
 | `properties?` | `Readonly<Record<string, string \| readonly string[]>>` | Its own properties, open (`kind`, `tags`, `color` as a theme tone, any key): `annotations.list` answers them, and a view's `where=` finds them. |
 | `passage?` | `BlockCommentPassage` | Omit only for an intentional whole-block comment. |
 
-**`BlockCommentPassage`**: A quote is exact source text; optional context must identify one occurrence.
+**`BlockCommentPassage`**: A quote is exact source text, or (`drawn`) the words as a reader drew them; optional context must identify one occurrence.
 
 | Field | Type | |
 |---|---|---|
-| `quote` | `string` | The words, exactly as the block's text has them. |
+| `quote` | `string` | The words: exactly as the block's text has them, or (with `drawn`) as a reader draws them. |
 | `start?` | `number` | Where the quote starts in the block's text, when you know. |
 | `near?` | `number` | Among repeats, the one nearest this offset (an agent's `near=`). |
 | `prefix?` | `string` | Text just before the quote, to tell repeats apart. |
 | `suffix?` | `string` | Text just after the quote, to tell repeats apart. |
 | `itemId?` | `string` |  |
+| `drawn?` | `boolean` | The words were selected in what a reader drew (a link's label, bold without its marks, two paragraphs): the service finds the source they were drawn from. |
+| `within?` | `{ readonly start: number; readonly end: number; }` | Only within this span of the block's text (UTF-16), when the reader knows which part of it the words were drawn from. |
 
 **`AnnotationReplyInput`**
 

@@ -2,6 +2,8 @@ import { wrapReturn, type ReturnShell } from "./return-place";
 import { besideAttempt, closeHeir, landing, personsTile, readerTakes } from "./landing"; export { heirTakes } from "./landing";   // the desk asks it of a heir across an edge (PIE-1772)
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
+import { ids, nodeOf, pinnedWhy, refuse, Refused, saidBy, turnsOn, unlockWays, way, whyNot, SCREEN_SELF, type LandedWhy, type LayoutSelf, type Way, type Why } from "./layout-refusal";
+export { landedSaid, lockChipText, saidBy, SCREEN_SELF, unlockWays, type LayoutSelf, type Way, type Why } from "./layout-refusal";
 import type { AltRule } from "./layout";
 // A screen layout changes only through apply(state, op, ctx): one actor, one operation, the new state or a refusal.
 //
@@ -100,9 +102,9 @@ export interface LayoutState<I = number> {
 }
 
 export type AcrossWire<I = number> = { from: I; to: string; verb: WireVerb; rule?: AltRule };
-export type WireVerb = "select" | "open" | "alt" | "hover";
+export { WIRE_VERBS, type WireVerb } from "@ep0ch/outline-core/screen-spec";
 export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule };
-export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt", "hover"];
+import type { WireVerb } from "@ep0ch/outline-core/screen-spec";
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
 /** Only a float opened by the door is a peek; a person's select-wired reader stays theirs. */
@@ -193,17 +195,13 @@ export interface Ctx<I = number> {
   /** The screen's home tile (its spec's `home`): where the keys go when nothing else takes them. */ home?: I;
   /** What this layout is called to the person (PIE-1346): its lock's refusals and answers name it. Left out, the screen. */
   self?: LayoutSelf;
+  /**
+   * How a refusal is said to whoever asked, in the door that asks (its one sayer, surface/way-out.ts: a way out by the
+   * door's own key for the person, as an act line for an agent). The layout names a way out as an act and knows no key.
+   * Left out (a test's, the contract tables'), a refusal is said by its reason alone.
+   */
+  says?(why: Why): string;
 }
-
-/** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"); a group has none. */
-export interface LayoutSelf {
-  name: string; chip?: string;
-  /** Its chip is drawn, but something lies over it now (PIE-1455): the drawer open over the hint row, or a drawer tile lifted over the screen. */
-  covered?: "drawer" | "lift";
-}
-export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
-/** A locked layout's ▣ chip, padded as a chip is drawn (the hint row's, the drawer frame's): what its refusals tell the person to click. */
-export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? self.name} locked `;
 
 /** A new or moved tile's place, with any containers lost on close. */
 export type At<I = number> = (Place<I>
@@ -271,20 +269,8 @@ export type Op<I = number> =
 /** The answer: the new state (and where the person's keys are now), or the refusal and its reason, nothing done. */
 export type Result<I = number> =
   | { ok: true; state: LayoutState<I>; focus: I; changed: boolean; answer: Record<string, unknown>; base: LayoutState<I> }
-  | { ok: false; refused: string };
-
-/** How a locked layout is unlocked, said with every refusal it causes (no key: the lock is rare, PIE-1346). */
-export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => {
-  const chip = lockChipText(self).trim();
-  // A refusal names a control the person can see (PIE-1455): one under the drawer or a lifted tile is reached past it.
-  if (self.chip && self.covered === "drawer") return `alt+a puts your drawer away, then a click on ${chip} unlocks it (or ^W P with the keys in ${self.name})`;
-  if (self.chip && self.covered === "lift") return `✦a (agent.lift) drops the lifted tile, then a click on ${chip} unlocks it`;
-  return self.chip ? `a click on ${chip} (or ^W P) unlocks it` : `^W P in it, or the power bar's "unlock ${self.name}", unlocks it`;
-};
-
-/** A refusal inside an operation: caught by `apply`, which answers it with nothing changed. */
-class Refused extends Error {}
-const refuse = (why: string | null | undefined): void => { if (why) throw new Refused(why); };
+  /** `refused`: the refusal as the asker's door says it (`Ctx.says`); `why`: its reason and its ways out, each an act. */
+  | { ok: false; refused: string; why: Why };
 
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
@@ -361,10 +347,10 @@ export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; 
 }
 
 /** `expected=<rev>`: why it's refused (the shape changed since the revision the caller read), or null. */
-export function revisionRefusal<I>(s: LayoutState<I>, expected: unknown): string | null {
+export function revisionRefusal<I>(s: LayoutState<I>, expected: unknown): Why | null {
   const e = typeof expected === "number" ? expected : typeof expected === "string" && /^\d+$/.test(expected) ? Number(expected) : NaN;
-  if (!Number.isInteger(e)) return `expected is the revision layout.get gave (a number), not ${JSON.stringify(expected)}`;
-  if (e !== s.rev) return `the layout changed since revision ${e} (it is ${s.rev} now): nothing was done; read layout.get again, or name splits and tiles by id`;
+  if (!Number.isInteger(e)) return whyNot(`expected is the revision the layout was read at (a number), not ${JSON.stringify(expected)}`, way("layout.get", "gives it"));
+  if (e !== s.rev) return whyNot(`the layout changed since revision ${e} (it is ${s.rev} now): nothing was done; an act that names splits and tiles by id needs no revision`, way("layout.get", "reads it again"));
   return null;
 }
 
@@ -387,7 +373,7 @@ function wideOpens<I>(tree: LNode<I>, collapsed: Map<I, Fold>) {
 
 export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   const d = attempt(s, op, ctx);
-  if (typeof d === "string") return { ok: false, refused: d };
+  if ("reason" in d) return { ok: false, refused: saidBy(ctx, d), why: d };
   const taken = new Set(ctx.otherNames ?? []);
   const renamed: { from: string; to: string }[] = [];
   for (const [id, name] of d.names) {
@@ -414,11 +400,11 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
  */
 export function refusal<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): string | null {
   const d = attempt(s, op, ctx);
-  return typeof d === "string" ? d : null;
+  return "reason" in d ? saidBy(ctx, d) : null;
 }
 
 /** `op` run on a draft of `s`: the draft, or why it was refused. Every refusal `apply` gives is one of these. */
-function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | string {
+function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | Why {
   if (op.op === "open" && "at" in op && op.at.kind === "beside") return besideAttempt(s, op, op.at, ctx, attempt);
   if (ctx.expected !== undefined) { const why = revisionRefusal(s, ctx.expected); if (why) return why; }
   const d = draftOf(s, ctx.person.focus);
@@ -437,10 +423,10 @@ function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | strin
     const after = before && rects({ ...d, zoom: null }, ctx.area, holds).get(typing!);
     // (A cell either way is the rounding of other borders as the screen re-lays out, not a resize.)
     if (before && (!after || Math.abs(after.cols - before.cols) > 1 || Math.abs(after.rows - before.rows) > 1)) {
-      refuse(typingIn(String(s.names.get(typing!)), "resize it", op.op === "open" ? `an open goes beside another tile (to=), or ${MARK_THEM}` : MARK_THEM));
+      refuse(typingIn(String(s.names.get(typing!)), "resize it", op.op === "open" ? [way("tile.open", "opens beside another tile (to=)"), MARK_THEM] : [MARK_THEM]));
     }
   } catch (e) {
-    if (e instanceof Refused) return e.message;
+    if (e instanceof Refused) return e.why;
     throw e;
   }
   return d;
@@ -519,12 +505,11 @@ export interface PlacementRequest<I = number> {
   /** Only asked where it lands (a header, a hint row, a wire's words, every frame): a spine's room isn't measured. */
   inspect?: true;
 }
-export type NotePlacement<I = number> = {
-  destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true; screen?: true } | { kind: "action"; action: string } | { kind: "none"; reason: string; refused?: true };
+export type NotePlacement<I = number> = LandedWhy & {
+  destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true; screen?: true } | { kind: "action"; action: string } | { kind: "none"; reason: string; ways?: Way[]; refused?: true };
   keep?: { tile: I; at: At<I> };
   merge?: I;
   reuse?: { reveal: boolean };
-  why?: string;
   /** The person's open (their standing): the outline's cursor goes to the note too. An agent's never moves it. */
   reveal: boolean;
   route: ReturnType<typeof landing<I>>;
@@ -538,7 +523,7 @@ export type NotePlacement<I = number> = {
 };
 
 /** The drawer's hand-off to the screen shown (`Ctx.screen`), or its refusal when that screen has no tiles. */
-const handOut = (screen: string | null): NotePlacement<never>["destination"] => screen === null ? { kind: "none", reason: "this screen has no tiles to open it in · q goes back to one", refused: true } : { kind: "across", target: screen, rule: "tile", source: true, screen: true };
+const handOut = (screen: string | null): NotePlacement<never>["destination"] => screen === null ? { kind: "none", reason: "this screen has no tiles to open it in", ways: [way("screen.back", "goes back to one")], refused: true } : { kind: "across", target: screen, rule: "tile", source: true, screen: true };
 /** The reader opened beside tile `id` last (`Ctx.beside`), while it's here and can take an open. */
 function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): I | undefined {
   const at = ctx.beside?.get(id);
@@ -694,11 +679,11 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       // Reuse an idle reader, empty first, before splitting the pinned one's space (PIE-1207).
       const idle = visible(s.tree).filter(id => id !== target && takesOpen(s, ctx, id) && ctx.tile(id).held);
       const free = idle.find(id => !ctx.tile(id).showing) ?? idle[0];
-      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
+      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, ...pinnedWhy(name, `in ${String(s.names.get(free))}`) };
       // A floating one has no split beside it: a float near it takes the open.
       result.destination = { kind: "new", at: isFloat(s, target) ? { kind: "float", near: target } : { kind: "split", target, dir: "right" } };
       result.besideOf = target;
-      result.why = `${name} is pinned: opened beside it · p in ${name} unpins it`;
+      Object.assign(result, pinnedWhy(name, "beside it"));
       return result;
     }
     // Following a wire into a preview leaves the invoking reader's keys where they are.
@@ -717,7 +702,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
         const reader = shownHere.find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.editing && !f.holds && !f.pinned && !f.deliberate; });
         if (reader !== undefined) return { ...placement(s, { ...request, keys: false, default: false, to: reader }, ctx), route };
         const other = shownHere.find(id => !ctx.tile(id).editing && !ctx.tile(id).holds);
-        if (other === undefined) { result.destination = { kind: "none", reason: typingIn(String(s.names.get(target)), "open beside it", `make room with tile.open to=<another tile>, or ${MARK_THEM}`) }; return result; }
+        if (other === undefined) { result.destination = { kind: "none", ...typingIn(String(s.names.get(target)), "open beside it", [way("tile.open", "makes room beside another tile (to=)"), MARK_THEM]) }; return result; }
         result.destination = { kind: "new", at: { kind: "split", target: other, dir: "right" } };
         result.giveNewKeys = false;
         return result;
@@ -909,12 +894,12 @@ class Step<I> {
 
   // ── the rules, each in one place ──
 
-  private lockedWhy(e: Effective, what: string): string {
-    return e.by.locked === "screen" ? `${this.self.name} is locked: ${what} is refused · ${unlockHow(this.self)}` : `${e.by.locked} is locked: ${what} is refused · ^W P (or layout.policy node=${e.by.locked} locked=false) unlocks it`;
+  private lockedWhy(e: Effective, what: string): Why {
+    return e.by.locked === "screen" ? whyNot(`${this.self.name} is locked: ${what} is refused`, ...unlockWays(this.self)) : whyNot(`${e.by.locked} is locked: ${what} is refused`, way("layout.policy", "unlocks it", { args: { ...nodeOf(e.by.locked), locked: false } }));
   }
   /** The container a policy came from, as a person reads it: its key (the lanes), else its id. */
   /** The refusal for tile `id` kept by layer `by`: its kind's own words when its kind's policy is what keeps it, else `said`. */
-  private kept(id: I, by: string | undefined, said: string): string {
+  private kept(id: I, by: string | undefined, said: Why): string | Why {
     const f = this.facts(id);
     return f.stays && by === `${f.kind} tiles` ? f.stays : said;
   }
@@ -927,7 +912,7 @@ class Step<I> {
   private shape(id: I, what: string) { const e = this.policyAt(id); refuse(e.locked && !this.yolo ? this.lockedWhy(e, what) : null); }
   /** A float has no place in the tree: whatever needs one waits until it's back in the layout. */
   private notFloat(id: I, what: string) {
-    refuse(this.isFloat(id) ? `${this.name(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ puts it back first` : null);
+    if (this.isFloat(id)) refuse(`${this.name(id)} is a float: ${what} needs a tile in the layout`, way("tile.float", "puts it back first", { args: { on: false }, tile: this.name(id), on: "its ⧉" }));
   }
   /** An agent never moves, floats or pins the tile the person is typing in. */
   private guard(id: I, what: string) {
@@ -956,7 +941,7 @@ class Step<I> {
   private drag(id: I) {
     const e = this.policyAt(id);
     if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `moving ${this.name(id)}`));
-    if (!e.draggable) refuse(this.kept(id, e.by.draggable, `${this.name(id)} stays where it is: ${this.whose(e.by.draggable)} keeps its tiles in place · ^W P there turns draggable on`));
+    if (!e.draggable) refuse(this.kept(id, e.by.draggable, whyNot(`${this.name(id)} stays where it is: ${this.whose(e.by.draggable)} keeps its tiles in place`, turnsOn("draggable", e.by.draggable))));
   }
   /**
    * A tile of `kind` can't go where `to` says: the container there is locked, takes no drops, or takes only other
@@ -991,19 +976,19 @@ class Step<I> {
     }
     if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `putting ${label} by ${there}`));
     if (to.kind === "float") return;
-    if (!e.droppable) refuse(`${this.whose(e.by.droppable)} takes no drops: ${label} can't go by ${there} · ^W P there turns droppable on`);
+    if (!e.droppable) refuse(`${this.whose(e.by.droppable)} takes no drops: ${label} can't go by ${there}`, turnsOn("droppable", e.by.droppable));
     if (e.accepts && !e.accepts.includes(kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${label} (${kind})`);
     const t = to.kind === "tabs" ? this.facts(to.target) : undefined;
     if (t?.tabs && !t.tabs.includes(kind)) refuse(`${there} (${t.kind}) takes only ${t.tabs.join(", ") || "no tiles"} as tabs: not ${label} (${kind})`);
   }
   /** A border of container `n` can't move: locked, not resizable, a kid beside it with a fixed size, or a flow. */
-  private resizeWhy(n: Container<I>, border?: number): string | null {
+  private resizeWhy(n: Container<I>, border?: number): Why | null {
     const e = this.ofNode(n);
     if (e.locked && !this.yolo) return this.lockedWhy(e, "resizing");
-    if (!e.resizable) return `${this.whose(e.by.resizable)} keeps its sizes · ^W P there turns resizable on`;
-    if (n.t === "flow") return `${n.id ?? "the flow"} sizes its columns itself: ^W W (tile.widen) gives one the wide place`;
-    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.resizable === false) return `${k.id ?? k.t} keeps its size · ^W P there turns resizable on`;
-    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.fixed !== undefined) return `${k.id ?? k.t} is fixed at ${k.policy.fixed} cells: layout.policy node=${k.id} clear=fixed frees it (or ⏎ on its fixed size in ^W P)`;
+    if (!e.resizable) return whyNot(`${this.whose(e.by.resizable)} keeps its sizes`, turnsOn("resizable", e.by.resizable));
+    if (n.t === "flow") return whyNot(`${n.id ?? "the flow"} sizes its columns itself`, way("tile.widen", "gives one the wide place"));
+    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.resizable === false) return whyNot(`${k.id ?? k.t} keeps its size`, turnsOn("resizable", k.id));
+    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.fixed !== undefined) return whyNot(`${k.id ?? k.t} is fixed at ${k.policy.fixed} cells`, way("layout.policy", "frees it", { args: { ...nodeOf(k.id), clear: "fixed" } }));
     return null;
   }
 
@@ -1156,7 +1141,7 @@ class Step<I> {
         const was = effective(layersWith((c === "screen" ? this.d.policy : c.policy)?.agents)).agents;
         const now = effective(layersWith(op.set.agents)).agents;
         const by = c === "screen" ? "screen" : c.id ?? c.t;
-        refuse(AGENT_ORDER[now] < AGENT_ORDER[was] ? agentRefusal(was, by === "screen" ? "the screen" : by, "loosening its default", { by, command: `^W P, or layout.policy node=${by} agents=free` }) : null);
+        refuse(AGENT_ORDER[now] < AGENT_ORDER[was] ? agentRefusal(was, by === "screen" ? "the screen" : by, "loosening its default", { by, command: way("layout.policy", "loosens it", { args: { ...nodeOf(by), agents: "free" }, theirs: true }) }) : null);
         return;
       }
     }
@@ -1199,7 +1184,7 @@ class Step<I> {
     if ("placement" in op) {
       const plan = placement(this.d, op.placement, this.ctx);
       const dest = plan.destination;
-      if (dest.kind === "none") refuse(dest.reason);
+      if (dest.kind === "none") refuse(dest.reason, ...(dest.ways ?? []));
       if (plan.keep) {
         const before = rects({ ...this.d, zoom: null }, this.ctx.area);
         this.open({ op: "open", tile: op.tile, name: op.name, kind: "reader", at: plan.keep.at, keys: false }, true);
@@ -1304,13 +1289,13 @@ class Step<I> {
       // A tile that stays says so first, to anyone: its container's rule, not who asked.
       this.shape(id, `closing ${name}`);
       const e = this.policyAt(id);
-      const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
+      const fold = e.collapsible ? [way("tile.collapse", "folds it to a spine", { args: { on: true }, tile: name })] : [];
       // An edit in it is said first: it's what the person would lose.
-      if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
+      if (f.editing) refuse(`not closed: it holds ${f.editing}`, way("edit", "enters it", { tile: name, theirs: true }));
       // A tab set of one holding the rule is the tile's own place (the board's preview, the river's library).
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
-      if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
-      if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
+      if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? whyNot(`${name} stays: its place (${own.id}) keeps it`, ...fold, turnsOn("closable", own.id)) : this.kept(id, e.by.closable, whyNot(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles`, ...fold, turnsOn("closable", e.by.closable))));
+      if (f.keeps) refuse(`${name} stays: ${f.keeps}`, ...fold);
       this.leaveTheirs(id, "close it");
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
@@ -1329,12 +1314,12 @@ class Step<I> {
     if (this.all().includes(op.with)) refuse(`${this.name(op.with)} is in the layout already`);
     const name = this.name(id), f = this.facts(id);
     this.shape(id, `replacing ${name}`);
-    if (f.editing) refuse(`${name} holds ${f.editing} · e or ⏎ enters it`);
-    if (f.running) refuse(`${name} is running ${f.running}: ^W x ends it first`);
-    if (f.holds) refuse(`${name} holds work: ^W x closes it first`);
+    if (f.editing) refuse(`${name} holds ${f.editing}`, way("edit", "enters it", { tile: name, theirs: true }));
+    if (f.running) refuse(`${name} is running ${f.running}`, way("tile.close", "ends it first", { tile: name }));
+    if (f.holds) refuse(`${name} holds work`, way("tile.close", "closes it first", { tile: name }));
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     const e = this.policyAt(id);
-    if (!e.closable) refuse(this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles · ^W P there turns closable on`));
+    if (!e.closable) refuse(this.kept(id, e.by.closable, whyNot(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles`, turnsOn("closable", e.by.closable))));
     if (e.accepts && !e.accepts.includes(op.kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not a ${op.kind} tile`);
     // The person's keys on it: an agent replaces only a place holder (the blank tile), and never where they're typing.
     if (this.agent && id === this.d.focus && !f.placeholder) refuse(this.theirs(id, "replace it"));
@@ -1366,7 +1351,7 @@ class Step<I> {
     // stays: taken away, the screen's save would come back without it. A kind that only doesn't close (its `stays`)
     // still leaves whole.
     const e = this.policyAt(id), f = this.facts(id);
-    if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
+    if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it`, turnsOn("closable", e.by.closable));
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     if (!heir && !this.ctx.empties && !this.ctx.goes && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     this.leaveTheirs(id, "take it away");
@@ -1401,12 +1386,12 @@ class Step<I> {
       this.guard(t, "move");
       this.drag(t);
       const e = this.policyAt(t), f = this.facts(t);
-      if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
+      if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it`, turnsOn("closable", e.by.closable));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
       this.leaveTheirs(t, "gather it into a group");
     }
     // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.
-    if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
+    if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered`, way("tile.open", "mounts the screen's part instead (part=)", { args: { kind: "screen" } }));
     const had = all.includes(this.d.focus);
     // The tiles taken beside it leave first; then the gathered place becomes the group tile.
     for (const t of extra) { const fl = this.isFloat(t); const next = fl ? this.d.tree : remove(op.room && op.tile !== undefined ? giveRoom(this.d.tree, t, op.tile, op.room) : this.d.tree, t); if (!next) refuse(`${this.name(t)} is the screen's last tile`); this.d.tree = normalise(next!); this.d.floats = this.d.floats.filter(f => f.id !== t); }
@@ -1438,7 +1423,7 @@ class Step<I> {
     const strip = (n: LNode<I>) => { if (n.t !== "leaf") { delete (n as { id?: string }).id; kidsOf(n).forEach(strip); } };
     strip(tree);
     const had = this.d.focus === op.tile;
-    if (tabsOf(this.d.tree, op.tile) && tree.t !== "leaf") refuse(`${name} is a tab: a tab holds one tile or a group, so it stays a group there · move it out of the tab set first (^W T)`);
+    if (tabsOf(this.d.tree, op.tile) && tree.t !== "leaf") refuse(`${name} is a tab: a tab holds one tile or a group, so it stays a group there`, way("layout.move", "moves it out of the tab set first", { args: { to: name, where: "right" }, tile: name }));
     if (tree.t === "leaf") swapLeaf(this.d.tree, op.tile, tree.id);
     else this.d.tree = replaceNode(this.d.tree, findLeaf(this.d.tree, op.tile)!, tree);
     this.d.tree = normalise(this.d.tree);
@@ -1563,12 +1548,12 @@ class Step<I> {
     const e = effective([{ by: "screen", policy: this.d.policy }]);
     if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `putting ${this.name(id)} back`));
     const kind = this.facts(id).kind, name = this.name(id);
-    const why = (next: LNode<I>): string | null => {
-      if (!has(next, id)) return `there's no place for ${name} in the layout`;
+    const why = (next: LNode<I>): Why | null => {
+      if (!has(next, id)) return whyNot(`there's no place for ${name} in the layout`);
       const e = effective([{ by: "screen", policy: this.d.policy }, ...chainOf(next, id).map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
       if (e.locked && !this.yolo) return this.lockedWhy(e, `putting ${name} back`);
-      if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops: ${name} doesn't land there · ^W P there turns droppable on`;
-      if (e.accepts && !e.accepts.includes(kind)) return `${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`;
+      if (!e.droppable) return whyNot(`${this.whose(e.by.droppable)} takes no drops: ${name} doesn't land there`, turnsOn("droppable", e.by.droppable));
+      if (e.accepts && !e.accepts.includes(kind)) return whyNot(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`);
       return null;
     };
     // Where the float would land at `to`, the tree as it is left alone.
@@ -1581,7 +1566,7 @@ class Step<I> {
     const base = this.isFloat(focus) || focus === id || !has(this.d.tree, focus) ? (pinnedTiles(this.d.tree).at(-1) ?? leaves(this.d.tree).at(-1)!) : focus;
     const first = tryAt(at ?? (base === undefined ? { kind: "edge", dir: "right" } : { kind: "split", target: base, dir: "right" }));
     const refused = why(first);
-    if (at?.kind === "split" && refused) refuse(`${refused} · tile.float on=false puts it back where it was opened`);
+    if (at?.kind === "split" && refused) refuse(refused, way("tile.float", "puts it back where it was opened", { args: { on: false }, tile: name }));
     let next: LNode<I> | null = refused ? null : first;
     if (!next) {
       // Beside a pinned tile only: one in a dock would put the float where it isn't shown (a shut dock).
@@ -1599,7 +1584,7 @@ class Step<I> {
     const focus = this.d.focus;
     const id = op.tile !== undefined ? op.tile : this.isFloat(focus) ? focus : this.d.floats.at(-1)?.id;
     const f = id !== undefined ? this.d.floats.find(x => x.id === id) : undefined;
-    if (id === undefined || !f) refuse(`${id !== undefined ? this.name(id) : "no tile"} isn't a float; tile.float (o on the board) pops a tile out as one`);
+    if (id === undefined || !f) refuse(`${id !== undefined ? this.name(id) : "no tile"} isn't a float`, way("tile.float", "pops a tile out as one"));
     this.guard(id!, "move");
     // Moving or sizing a float changes the screen's shape: refused while it's locked (as any move is).
     this.shape(id!, `moving ${this.name(id!)}`);
@@ -1623,7 +1608,7 @@ class Step<I> {
     // on=true puts it back pinned outright.
     if (this.isFloat(id)) {
       if (this.agent && id === this.d.focus) refuse(this.theirs(id, "move it"));
-      if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.dock without container= puts it in a dock of its own`);
+      if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it`, way("tile.dock", "puts it in a dock of its own", { tile: this.name(id) }));
       this.land(id);
       if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }
       on = false;
@@ -1632,7 +1617,7 @@ class Step<I> {
     // A whole container (a split of tiles: the board's outline and its preview) goes into a dock as one.
     if (container !== undefined && on !== true) {
       const c = nodeById(this.d.tree, container);
-      if (!c || c.t === "dock") refuse(`no container ${container} to put in a dock; layout.get gives each one's id`);
+      if (!c || c.t === "dock") refuse(`no container ${container} to put in a dock`, ids("gives each one's id"));
       if (!leaves(c!).includes(id)) refuse(`${container} doesn't hold ${name}`);
       if (leaves(c!).includes(focus)) this.guard(focus, "move");
       const inDock = dockOf(this.d.tree, id);
@@ -1683,16 +1668,16 @@ class Step<I> {
   private slide(id: I, open: boolean | undefined, container?: string, beside = false) {
     this.present(id);
     const name = this.name(id), nd = container ? nodeById(this.d.tree, container) : null;
-    if (container && (nd?.t !== "dock" || !leaves(nd.kid).includes(id))) refuse(nd?.t === "dock" ? `${name} isn't in dock ${container}: tile.slide container=${container} open=true slides that dock's own tile` : `no dock ${container} in the layout; layout.get gives each dock's id (d<n>)`);
+    if (container && (nd?.t !== "dock" || !leaves(nd.kid).includes(id))) refuse(nd?.t === "dock" ? whyNot(`${name} isn't in dock ${container}`, way("tile.slide", "slides that dock's own tile", { args: { container, open: true } })) : whyNot(`no dock ${container} in the layout`, ids("gives each dock's id (d<n>)")));
     const dr = nd?.t === "dock" ? nd : dockOf(this.d.tree, id);
-    if (!dr) refuse(`${name} isn't docked · tile.dock (^W p) docks it`);
+    if (!dr) refuse(`${name} isn't docked`, way("tile.dock", "docks it", { tile: name }));
     const want = open ?? !(dr!.open && visible(dockBody(dr!)).includes(id));
     if (want && this.ctx.screenHost === "none" && has(this.d.tree, HOST_SCREEN as unknown as I)) refuse("the screen shown keeps the whole screen (its host policy is none): the host layer comes back on another screen");
-    if (!want && !this.ofNode(dr!).collapsible) refuse(`${dr!.id ?? "the dock"} stays open: it doesn't slide shut · ^W P there turns collapsible on`);
+    if (!want && !this.ofNode(dr!).collapsible) refuse(`${dr!.id ?? "the dock"} stays open: it doesn't slide shut`, turnsOn("collapsible", dr!.id));
     // A swap inside one dock can hide the person's tile just as shutting that dock does.
     if (leaves(dr!.kid).includes(this.d.focus) && (!want || !beside && id !== this.d.focus)) this.mayMoveKeys(want ? "swap the dock they have" : "shut the dock they have");
     // The last dock showing anything stays open: shut, the screen would be blank (every tile in a dock).
-    if (!want && dr!.open) { dr!.open = false; const none = !visible(this.d.tree).length; dr!.open = true; if (none) refuse(`${dr!.id ?? "the dock"} is all the screen shows: shut, nothing would be left · ^W p on a tile in it undocks it`); }
+    if (!want && dr!.open) { dr!.open = false; const none = !visible(this.d.tree).length; dr!.open = true; if (none) refuse(`${dr!.id ?? "the dock"} is all the screen shows: shut, nothing would be left`, way("tile.dock", "undocks it", { args: { on: false }, at: "on a tile in it" })); }
     if (want && !beside) for (const other of docks(this.d.tree).filter(d => d !== dr && d.edge === dr!.edge && d.open && d.policy?.overlay !== false && this.ofNode(d).collapsible)) {
       if (leaves(other.kid).includes(this.d.focus)) this.mayMoveKeys("swap the dock they have");
       other.open = false;
@@ -1720,7 +1705,7 @@ class Step<I> {
   private collapse(id: I, on: boolean | undefined, dir?: "v" | "h") {
     this.present(id);
     const name = this.name(id), was = this.d.collapsed.get(id), want = on ?? !was;
-    if (dir !== undefined && dir !== "v" && dir !== "h") refuse(`tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
+    if (dir !== undefined && dir !== "v" && dir !== "h") refuse(`dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
     if (!want && !was) { this.d.changed = false; this.d.answer = { collapsed: false, changed: false }; return; }
     // A column of a flow (PIE-1392): folded, it stays a spine however much room there is; open, it squeezes as any column.
     const column = this.flowColumn(id);
@@ -1743,13 +1728,13 @@ class Step<I> {
     this.shape(id, `folding ${name}`);
     if (column) return this.foldColumn(id, column);
     if (!foldsBeside(this.d.tree, id) || !foldFits(fold, axis)) {
-      refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)`
-        : !p ? `${name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine`
+      if (p?.parent.t === "flow") refuse(`${name} is a column of a flow: it squeezes to a spine by itself as it recedes`, way("tile.widen", "widens it", { tile: name }));
+      refuse(!p ? `${name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine`
         : fold.dir === "h" ? `${name} isn't stacked with other tiles: a horizontal spine needs a tile above or below it (dir=v folds it to a vertical one)`
         : `${name} isn't side by side with other tiles: a vertical spine needs a tile beside it (dir=h folds it to a horizontal one)`);
     }
     const e = this.policyAt(id);
-    if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
+    if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold`, turnsOn("collapsible", e.by.collapsible));
     if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
@@ -1767,12 +1752,12 @@ class Step<I> {
    */
   private foldColumn(id: I, f: { flow: Flow<I>; ci: number }) {
     const e = this.policyAt(id);
-    if (!e.collapsible) refuse(`${this.name(id)} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
+    if (!e.collapsible) refuse(`${this.name(id)} stays open: ${e.by.collapsible} doesn't fold`, turnsOn("collapsible", e.by.collapsible));
     if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const open = (i: number) => leaves(f.flow.kids[i]!).some(t => !this.d.collapsed.has(t));
     if (columnOf(f.flow, f.flow.anchor) === f.ci) {
       const to = [...f.flow.kids.keys()].filter(i => i !== f.ci && open(i)).sort((a, b) => Math.abs(a - f.ci) - Math.abs(b - f.ci) || a - b)[0];
-      if (to === undefined) refuse(`${this.name(id)} is the only open column of its flow: open another first (^W W widens one)`);
+      if (to === undefined) refuse(`${this.name(id)} is the only open column of its flow: open another first`, way("tile.widen", "widens one"));
       f.flow.anchor = tileOfColumn(f.flow, to!);
     }
     const by = byOf(this.ctx.actor);
@@ -1909,9 +1894,9 @@ class Step<I> {
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {
-    if ((op.path === undefined) === (op.split === undefined)) refuse("layout.resize names its split by split=<id> (layout.get gives each one), or by path=<p>");
+    if ((op.path === undefined) === (op.split === undefined)) refuse("a split is named by split=<id>, or by path=<p>", ids("gives each split's id"));
     const n0 = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path!);
-    if (!n0 || !isLine(n0)) refuse(op.split !== undefined ? `no split ${op.split} in the layout (it's gone: its tiles were moved or closed); layout.get gives each split's id` : `no split at path ${JSON.stringify(op.path)}; layout.get gives each split's path`);
+    if (!n0 || !isLine(n0)) refuse(op.split !== undefined ? whyNot(`no split ${op.split} in the layout (it's gone: its tiles were moved or closed)`, ids("gives each split's id")) : whyNot(`no split at path ${JSON.stringify(op.path)}`, ids("gives each split's path")));
     const n = n0 as Line<I>;
     if (!Number.isInteger(op.border) || op.border < 0 || op.border >= n.kids.length - 1) refuse(`split ${n.id} has borders 0-${n.kids.length - 2}`);
     refuse(this.resizeWhy(n, op.border));
@@ -1931,7 +1916,7 @@ class Step<I> {
   /** Every share of a split at once (a screen sizing its own preset to the terminal: the welcome's columns). */
   private shares(split: string, shares: number[]) {
     const n = nodeById(this.d.tree, split);
-    if (!n || !isLine(n) || n.t === "flow") refuse(`no split ${split} in the layout; layout.get gives each split's id`);
+    if (!n || !isLine(n) || n.t === "flow") refuse(`no split ${split} in the layout`, ids("gives each split's id"));
     const line = n as Line<I>;
     if (shares.length !== line.kids.length || !shares.every(x => Number.isFinite(x) && x > 0)) refuse(`split ${split} has ${line.kids.length} kids: shares are that many positive numbers`);
     refuse(this.resizeWhy(line));
@@ -1948,14 +1933,14 @@ class Step<I> {
   }
 
   private even() {
-    if (this.d.policy.locked && !this.yolo) refuse(`${this.self.name} is locked: evening it out is refused · ${unlockHow(this.self)}`);
+    if (this.d.policy.locked && !this.yolo) refuse(`${this.self.name} is locked: evening it out is refused`, ...unlockWays(this.self));
     // A split that keeps its sizes (locked, resizable off) keeps them.
     even(this.d.tree, n => !!this.resizeWhy(n));
   }
 
   /** Who set or took away lock `key`: an agent undoes only a lock it set. */
   private lockedBy(key: string, lock: boolean) {
-    if (this.agent && !lock && !this.d.locks.has(key)) refuse(`${key === "screen" ? this.self.name : key} was locked by the person; an agent doesn't unlock it (block.mark gets their attention)`);
+    if (this.agent && !lock && !this.d.locks.has(key)) refuse(`${key === "screen" ? this.self.name : key} was locked by the person; an agent doesn't unlock it`, MARK_THEM);
     if (lock && this.agent) this.d.locks.add(key); else this.d.locks.delete(key);
   }
   private lock(on: boolean | undefined) {
@@ -1964,15 +1949,15 @@ class Step<I> {
     this.lockedBy("screen", want);
     const { locked: _l, ...rest } = this.d.policy;
     this.d.policy = want ? { ...rest, locked: true } : rest;
-    this.d.answer = { locked: want, changed: true, layout: this.self.name, unlock: unlockHow(this.self) };
+    this.d.answer = { locked: want, changed: true, layout: this.self.name, unlock: unlockWays(this.self) };
   }
 
   private setPolicy(op: Extract<Op<I>, { op: "policy" }>) {
     const chain = op.tile !== undefined ? chainOf(this.d.tree, op.tile) : [];
     const c: Container<I> | "screen" | null = op.node === "screen" ? "screen" : op.node ? nodeById(this.d.tree, op.node) : chain.at(-1) ?? "screen";
-    if (!c) refuse(`no container ${op.node} in the layout; layout.get gives each one's id (s<n> a split, g<n> a tab set, d<n> a dock, f<n> a flow), or node=screen`);
+    if (!c) refuse(`no container ${op.node} in the layout (s<n> is a split, g<n> a tab set, d<n> a dock, f<n> a flow; node=screen is the screen)`, ids("gives each one's id"));
     const bad = op.clear.filter(k => !(POLICY_KEYS as readonly string[]).includes(k));
-    if (bad.length) refuse(`layout.policy: clear names ${POLICY_KEYS.join(", ")}, not ${bad.join(", ")}`);
+    if (bad.length) refuse(`clear names ${POLICY_KEYS.join(", ")}, not ${bad.join(", ")}`);
     const name = c === "screen" ? "screen" : c!.id ?? c!.t;
     const before: Policy = c === "screen" ? this.d.policy : c!.policy ?? {};
     const e = c === "screen" ? effective([{ by: "screen", policy: this.d.policy }]) : this.ofNode(c!);
@@ -1982,7 +1967,7 @@ class Step<I> {
       if (to === undefined && !node(this.d.tree, op.set.opensInto)) refuse(`no tile or container ${op.set.opensInto} for opens to land in`);
       if (to !== undefined && !this.facts(to).notes) refuse(`${op.set.opensInto} is a ${this.facts(to).kind} tile: opens land in a tile that takes notes`);
     }
-    if (op.set.accepts && this.ctx.kinds) { const unknown = op.set.accepts.filter(k => !this.ctx.kinds!.all.includes(k)); if (unknown.length) refuse(`layout.policy: accepts names tile kinds (${this.ctx.kinds.all.join(", ")}), not ${unknown.join(", ")}`); }
+    if (op.set.accepts && this.ctx.kinds) { const unknown = op.set.accepts.filter(k => !this.ctx.kinds!.all.includes(k)); if (unknown.length) refuse(`accepts names tile kinds (${this.ctx.kinds.all.join(", ")}), not ${unknown.join(", ")}`); }
     const locking = op.set.locked === true ? true : (op.set.locked === false || op.clear.includes("locked")) && before.locked ? false : null;
     if (locking !== null && locking !== !!before.locked) this.lockedBy(name, locking);
     const next: Policy = { ...before, ...op.set };
@@ -2113,12 +2098,12 @@ class Step<I> {
 
   /** Permission to lay the screen out again (the new layout comes in through `init`). */
   private load(name: string) {
-    if (this.d.policy.locked) refuse(`${this.self.name} is locked: loading ${name} would change its shape · ${unlockHow(this.self)}`);
+    if (this.d.policy.locked) refuse(`${this.self.name} is locked: loading ${name} would change its shape`, ...unlockWays(this.self));
     // A layout loaded drops every container's lock with it: an agent doesn't, over a lock the person set.
     if (this.agent) {
       const locks = (n: LNode<I>): string[] => (n.t === "leaf" ? [] : [...(n.policy?.locked ? [n.id ?? n.t] : []), ...kidsOf(n).flatMap(locks)]);
       const theirs = locks(this.d.tree).find(k => !this.d.locks.has(k));
-      if (theirs) refuse(`${theirs} was locked by the person; loading ${name} would undo it, and an agent doesn't (block.mark gets their attention)`);
+      if (theirs) refuse(`${theirs} was locked by the person; loading ${name} would undo it, and an agent doesn't`, MARK_THEM);
     }
     this.mayMoveKeys("lay the desk out under them");
     this.d.changed = false;
@@ -2168,7 +2153,7 @@ class Step<I> {
   }
 
   private source(container: string, source: string) {
-    if (this.agent) refuse("where a columns container's tiles come from is the screen's (the board's hub: board.hub)");
+    if (this.agent) refuse("where a columns container's tiles come from is the screen's", way("board.hub", "says which hub fills it"));
     const c = nodeById(this.d.tree, container);
     if (!c || c.t !== "columns") refuse(`no columns ${container} in the layout`);
     (c as Extract<Container<I>, { t: "columns" }>).source = source;
@@ -2203,7 +2188,7 @@ class Step<I> {
    * last left; it widens only if it's covered, so the text comes back where it was. The person's keys only.
    */
   private travel(id: I, dir: -1 | 1) {
-    if (this.agent) refuse("back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead");
+    if (this.agent) refuse("back and forward in a flow move the person's keys between columns; an agent opens beside instead", way("open", "opens a note beside"), way("link.follow", "follows a link beside"));
     const f = this.flowOf(id);
     const to = travelTarget(f.flow, f.ci, dir);
     if (to < 0) refuse(dir < 0 ? "nothing to go back to: this column wasn't opened from one still open" : "nothing ahead: go back first");

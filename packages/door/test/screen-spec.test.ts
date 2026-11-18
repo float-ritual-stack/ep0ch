@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import "../src/screens";
 import { Desk } from "../src/desk/desk";
-import { newNoteRule, readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
+import { extensionScreen, newNoteRule, readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
+import { SHIPPED_EXTENSION } from "../src/desk/shipped";
 import { openScreen } from "../src/desk/screen-specs";
 import { keyName } from "../src/surface/actions";
 import { leaf, place, splitOf } from "../src/desk/layout";
@@ -18,7 +19,10 @@ describe("a screen is a spec", () => {
     for (const name of screenNames()) {
       const spec = screenSpec(name)!;
       const data = JSON.parse(JSON.stringify(specData(spec)));
-      expect(readSpec(data, true)).toEqual(spec);
+      // A screen of the door's own names only kinds the door has. One it holds from the screens extension is every
+      // door's: it may name a kind this door has no drawer for (the lists about a note on the kitchen screen), and
+      // such a tile says so in its place (shipped-screens.test.ts names those kinds).
+      expect(readSpec(data, extensionScreen(name) !== SHIPPED_EXTENSION)).toEqual(spec);
     }
   });
 

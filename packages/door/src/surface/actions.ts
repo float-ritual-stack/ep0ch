@@ -24,74 +24,9 @@ export function shownLine(action: string, args: Record<string, unknown> = {}, ti
   return [action, ...(tile !== undefined ? [`tile=${said(tile)}`] : []), ...Object.entries(args).filter(([, v]) => v !== undefined).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map(x => `${k}=${said(String(x))}`))].join(" ");
 }
 
-export type ArgType = "string" | "number" | "boolean";
-/**
- * What kind of thing in the system an argument's value names (PIE-1031), so the power bar's form offers the values
- * there are (src/bar/arg-kinds.ts answers each from the system: the layout, the service), and `actions` says it:
- * - `tile`: a tile on the screen shown (`to=`); the dispatcher reads it with `tile=`'s one grammar, so the action is
- *   given that tile's name.
- * - `note`: a note, by the service's search (an id, a `((ref))`, a Work ID). `page`: a page's name (`[[name]]`).
- * - `screen`: a screen by name (screen.list). `view`: a saved view (a virtual branch's block id).
- * - `key`: a property's key; `value`: a value of the key the argument `of` names (the outline's property index).
- * - `tile-kind`: a kind of tile (the tile-kind registry). `agent`: a persona of the agents here (src/bar/ask-agent.ts).
- * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
- */
-export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout" | "agent" | "script";
-/**
- * One argument: its type, whether it may be left out, and what it means; `kind`: the kind of thing it names (ArgKind);
- * `choices`: the values it takes, when they are a fixed list (`where=left|right|…`), offered first (with a kind, the
- * kind's values follow them: `inbox`, `root`, then any note).
- */
-export interface ArgSpec {
-  type: ArgType; optional?: boolean; about: string;
-  kind?: ArgKind;
-  /** `kind: "tile"`: the tile a program runs in (`open from=`), which a program names by what it was told (EP0CH_TILE, EP0CH_TILE_ID), not only by `tile=`'s grammar. */
-  program?: true;
-  choices?: readonly string[];
-  /** At least one combination must hold; null means the argument is present. */
-  implies?: readonly Readonly<Record<string, string | number | boolean | null>>[];
-  /** These arguments cannot accompany this one, even when false. */
-  conflicts?: readonly string[];
-  /** `kind: "value"`: the argument naming the property whose values it takes. */
-  of?: string;
-  /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */
-  default?: string;
-  /**
-   * The host binds it (the block in front, a passage, the button that pressed it): an agent's `act` names it, and a
-   * person is never asked it, so no form or completion offers it (PIE-1076).
-   */
-  context?: true;
-  /**
-   * The door's own word on a request (an extension action's `door:via`, `door:asked`): its presses pass it and `act`
-   * still takes it, but it isn't the part's argument, so what describes the action (`list`: `ep0ch actions`, its docs
-   * page, the bar's form) leaves it out and names it only in `doorWords` (PIE-1705).
-   */
-  doorWord?: true;
-  /** A word written more than once reaches the action as a list (a script's slot, `props.page`); every other argument takes the last. */
-  many?: true;
-}
+export { actionRow, isKeyName, keysText, type ActionDescription, type ActionExample, type ActionMenuRow, type ActionRow, type AnswerField, type ArgKind, type ArgSpec, type ArgType, type KeyRow, type Keys, type Touches } from "@ep0ch/outline-core/action-row";
+import { MOUSE_KEYS as MOUSE, NAMED_KEYS as NAMED, type ActionDescription, type ActionExample, type ActionMenuRow, type ArgSpec, type Keys, type Touches } from "@ep0ch/outline-core/action-row";
 
-/**
- * A real call of an action and what it does (PIE-1032): its page shows one or two, as `act` lines. `act` is the line
- * after `ep0ch act`, the action's name first (`layout.move tile=notes to=right`); `does` says what happens, in a few
- * words. `safe`: an agent may run it without asking (it only reads or changes the door's own view); left out, it is
- * read from the action's declarations (`touches: "nothing"`, `replay: "safe"`, not the person's), and `false` unmarks one.
- */
-export interface ActionExample { act: string; does: string; safe?: boolean }
-
-/**
- * What an action touches of the person's (PIE-514). The dispatcher (src/surface/dispatch.ts) checks it once, against
- * where the person is (src/whereabouts.ts), before the action runs; the action never asks who acts for this.
- * - `nothing`: a read; a mark; what the service writes and attributes (an extension's action, a refresh). Anyone, any time.
- * - `tile`: the tile it runs in: its view, cursor, selection or input. An agent's is refused in the tile that has the
- *   person's keys (`while: "typing"`: only while they type in it), with the agent's own way said (`way`).
- * - `shape`: the screen's layout. The layout engine decides each operation (src/desk/screen-layout.ts) from the same
- *   answer about where the person is (`ctx.person`).
- * - `draft`: a note the person may have open in a draft. The draft session's rule decides (`draftRule`).
- * - `screen`: what the person looks at, or where their keys go (another screen, their focus, a list's lit row, the
- *   board shown). An agent's waits until they aren't typing anywhere and have been idle `SHELL_IDLE_MS`.
- */
-export type Touches = "nothing" | "tile" | "shape" | "draft" | "screen";
 /**
  * Whether a door that restarts (PIE-418) may run the action again by itself: `safe` (it changes only the door's own
  * view or layout, or reads), or `ask` (it writes to the outline, types into a program, or reaches outside the door).
@@ -113,33 +48,10 @@ export type RecordStep<A = Record<string, unknown>> = (step: RecordedStep<A>) =>
 export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
 
 /**
- * One way to run an action (PIE-1048): `keys` in the keycap grammar `::graph-keys` reads (`alt+h`, `^W c`, `g then d`,
- * `j k`), or a mouse gesture (`click`, `double-click`, `drag`, `wheel`); `does`, what this way does, in a few words
- * (`on a spine opens it`). `via`, instead of keys: a way that is no key at all (the tile menu's "fold", the power bar).
+ * An action: what it says about itself (outline-core's ActionDescription: summary, keys, touches, while, args, answer,
+ * examples, menu: the row every client reads) and what runs it.
  */
-/**
- * One row of an action's keys: the keys and what they do under the action's heading (its page, `::graph-keys`), and
- * `says`, the whole sentence the keys window lists where `does` would read as a fragment after the action's words (PIE-1425).
- * `on`, the one screen or tile these keys are that place's own, by the name `in:` filters it (`menu`: the main menu's
- * letters, matched by its own key code; `tune`): the keys window then never says they take a key anywhere else (PIE-1439).
- */
-/**
- * One way to press an action: its keys and what they do. `args`: the arguments that key presses it with, when the action's
- * keys differ by them (backlinks.view's K is step=kind): so a part answering "how do I group by kind" names that key alone
- * (yo, PIE-1712).
- */
-export type KeyRow = { keys: string; does: string; says?: string; on?: string; args?: Readonly<Record<string, string | number | boolean>> } | { via: string };
-/** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
-export type Keys = string | readonly KeyRow[];
-/** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
-export function keysText(keys: Keys | undefined): string | undefined {
-  if (keys === undefined || typeof keys === "string") return keys;
-  return keys.map(r => ("via" in r ? r.via : r.does ? `${r.keys}: ${r.does}` : r.keys)).join("; ") || undefined;
-}
-
-export interface ActionDef<A, H> {
-  /** What the action does, in the words `actions` and the README use. */
-  summary: string;
+export interface ActionDef<A, H> extends ActionDescription<{ [K in keyof A]-?: ArgSpec }, MenuEntry<A, H>> {
   /**
    * What it does as a person reads it, a whole sentence without act's arguments (`fold this tile to a spine`, not
    * `fold tile=<tile> to a spine`): the keys window's rows. Left out, the summary's first clause is it.
@@ -148,13 +60,6 @@ export interface ActionDef<A, H> {
   hint?: Hint | ((args: A, host: H) => Hint | null);
   /** A mode-owned hint keeps its mode identity when an action opens it. Otherwise the action name is its id. */
   hintId?: string;
-  /**
-   * Every way to press it (PIE-1048): rows of keys and what each does (KeyRow), or, for a key list that reads cleanly as
-   * keycaps, one line of them ("j k ↓ ↑, or a click on a row"). `test/key-rows.test.ts` fails on a line that doesn't.
-   */
-  keys?: Keys;
-  /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
-  touches: Touches;
   /**
    * An agent's run of it only reads (PIE-1772): it answers what is there and changes nothing, on screen or in the outline
    * (layout.get, view.get, marks.list). So it says nothing on the person's screen: every other agent action is said there
@@ -182,8 +87,6 @@ export interface ActionDef<A, H> {
    * and `tile`: the tile the request named (tile=), when it named one (the desk's open: a reader named is moved).
    */
   touchesWith?(args: A, tile?: string): Touches;
-  /** `touches: "tile"`: refused in the tile with the person's keys (`focused`, the default), or only while they type in it. */
-  while?: "focused" | "typing";
   /** `touches: "draft"`: what it does to a draft (DraftUse); default `write`. */
   draft?: DraftUse;
   /**
@@ -215,12 +118,8 @@ export interface ActionDef<A, H> {
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
    */
   ownGate?: true;
-  /**
-   * The person's own: an agent's is refused with this, which says why and what an agent does instead. Their press of a
-   * script invites its run (src/surface/invite.ts), and a pressed run is their keystroke (PIE-1186), so an invitation
-   * lifts it; yolo never does.
-   */
-  person?: string;
+  // `person` (the person's own: an agent's is refused with it) is the row's, outline-core's ActionDescription: their
+  // press of a script invites its run (src/surface/invite.ts) and lifts it; yolo never does.
   /**
    * The person's alone, never lifted (PIE-1294): not by their press's invitation, not by yolo. For what is theirs to
    * decide rather than their keys (what agents may reach, handing the door over, ending their session): a script an
@@ -243,12 +142,6 @@ export interface ActionDef<A, H> {
   confirms?: true;
   /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
   places?: readonly string[];
-  args: { [K in keyof A]-?: ArgSpec };
-  answer?: Readonly<Record<string, { type: string; about: string; kind?: ArgKind }>>;
-  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
-  examples?: readonly ActionExample[];
-  /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
-  menu?: MenuEntry<A, H> | readonly MenuEntry<A, H>[];
   run(args: A, host: H, actor: Actor): Promise<unknown> | unknown;
 }
 
@@ -257,13 +150,7 @@ export interface ActionDef<A, H> {
  * the def's `keys`: the menu's accelerator too), and the arguments the row runs it with. The menu is generated from these:
  * the dispatcher lists each one the tile's sets have, as it would run it there.
  */
-export interface MenuEntry<A, H> {
-  label: string;
-  /** "Tile", "Note", "Terminal", "Board": rows are grouped by it, in the order the dispatcher finds their sets. */
-  group: string;
-  /** Its keycap; left out, the first key the def's `keys` declares; `""`, none (an action with no key: layout.lock). */
-  key?: string;
-  args?: Partial<A>;
+export interface MenuEntry<A, H> extends ActionMenuRow<Partial<A>> {
   /**
    * The row as the tile is now: `hide` (it isn't this tile's now: back with nothing to go back to), `refused` (dimmed,
    * with why), another `label` (unzoom), or `args` for this tile (its lane's name). Asked without running anything.
@@ -491,26 +378,8 @@ export function traceActions(f: (r: ActionRun) => void): () => void {
 
 // ── key names (PIE-506): one spelling for a key, from a Key or from the words that name it ──
 
-/** Named keys as the README, hints and `keys` write them, to the one name `keyName` gives. */
-const NAMED: Record<string, string> = {
-  "⏎": "enter", enter: "enter", return: "enter", esc: "esc", escape: "esc", tab: "tab", backtab: "shift+tab", "shift+tab": "shift+tab",
-  ctrl: "ctrl",
-  space: "space", backspace: "backspace", "⌫": "backspace", delete: "delete", del: "delete",
-  pgup: "pgup", pgdn: "pgdn", pageup: "pgup", pagedown: "pgdn", home: "home", end: "end",
-  up: "up", down: "down", left: "left", right: "right", "↑": "up", "↓": "down", "←": "left", "→": "right",
-  "alt+⏎": "alt+enter", "alt⏎": "alt+enter", "alt+enter": "alt+enter", "shift+enter": "shift+enter", "shift+⏎": "shift+enter", "ctrl+enter": "ctrl+enter",
-  "alt+←": "alt+left", "alt+→": "alt+right", "alt+left": "alt+left", "alt+right": "alt+right",
-  "alt+↑": "alt+up", "alt+↓": "alt+down", "alt+up": "alt+up", "alt+down": "alt+down",
-  hover: "hover", click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
-};
 /** A key held with modifiers by its exact name (`exactKeyName`): `super+shift+left`, `ctrl+home`. */
 const HELD_NAME = /^(?:ctrl\+)?(?:alt\+)?(?:super\+)?(?:shift\+)?(?:left|right|up|down|home|end|pgup|pgdn|delete|backspace)$/;
-/** Whether `s` is a key's one name (what `keyName` gives; never `exactKeyName`'s, which no screen matches): a screen's key map names its keys so. */
-export const isKeyName = (s: unknown): s is string =>
-  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
-/** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
-const MOUSE = new Set(["click", "drag", "wheel"]);
-
 /** The one name of a key: `q`, `Q`, `space`, `enter`, `ctrl+w`, `alt+l`, `shift+tab`, `click`; null for a paste. */
 export function keyName(k: Key): string | null {
   switch (k.kind) {

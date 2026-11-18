@@ -12,6 +12,9 @@
 // host's clock.
 
 const demoOnly = props.demo?.[0] === "only";
+// How long a wait may be before it is drawn as a warning: this extension's own setting (`warn-days`, three when unset),
+// which the service hands a script its extension ships as a prop.
+const warnDays = Math.max(1, Number(props["warn-days"]?.[0]) || 3);
 // The demo's made-up asks carry [demo::waiting] and no outbox type, so no real view (an outbox board, a kanban) lists
 // them; only a demo line asks for them.
 const where = demoOnly ? "demo=waiting" : "type=outbox-item outbox=waiting NOT demo=waiting";
@@ -52,8 +55,8 @@ const rows = ordered.flatMap(g => g.items.map(item => {
   return {
     id: item.id, group: g.key,
     label: `${ago(at).padStart(4)} ${ticketWidth ? `${ticket.padEnd(ticketWidth)} ` : ""}${waitingOn(item).what}`,
-    // Waited past three days: drawn as a warning.
-    ...(Date.now() - at > 3 * 86_400_000 ? { tone: "warn" } : {}),
+    // Waited past the days its setting says: drawn as a warning.
+    ...(Date.now() - at > warnDays * 86_400_000 ? { tone: "warn" } : {}),
     do: { open: item.id },
   };
 }));

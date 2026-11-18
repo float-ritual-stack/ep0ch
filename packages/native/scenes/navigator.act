@@ -1,0 +1,6 @@
+# The navigator, opened from the bar's Screens: the facets, what they leave, and a reader. A facet picked narrows
+# the question, the matches beside it list what is left, and a match opens in the reader.
+bar.open scope=screens query=navigator
+bar.pick n=1
+facets.set key=type value=bed tile=facets
+list.pick n=1 tile=matches

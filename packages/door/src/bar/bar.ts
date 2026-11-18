@@ -30,7 +30,7 @@ import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, m
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
 import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
-import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
+import { RowView, wheelRows, pressFresh } from "../scroll";
 import { previewPlace } from "./list-preview";
 import { wholeLines, wholeRow } from "../status-whole";
 import { C, chip, dim, drawEllipsized, ellipsize, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
@@ -389,7 +389,7 @@ export class PowerBar {
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
       if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
-      this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
+      this.alt = pressFresh(k);
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
       if (k.action === "down" && k.button === 2) {
         const hit = this.picker.itemAt(at.y);

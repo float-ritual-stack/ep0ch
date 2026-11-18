@@ -1,0 +1,5 @@
+# A row's note on a hover (wave A1). The outline's first note is opened and unfolded in the tree, then the pointer
+# is said to rest on the tree's second row: the note that row opens is read once from the service and shown in a
+# card beside the row, its title and how it starts. Nothing opens: the reader keeps its note.
+list.pick n=1 tile=tree
+glance n=2 tile=tree

@@ -1,0 +1,5 @@
+# A note with figures, a box, a live list and buttons (scenes/parts.seed.ts writes it into a scratch outline),
+# found by its title and opened; then its first button pressed: its act line runs here and says so under it.
+bar.open scope=search query="Bed plan"
+bar.pick n=1
+button.press label="Fold the side away"

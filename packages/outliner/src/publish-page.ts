@@ -31,7 +31,7 @@ import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { onItsPage, plainBody } from "./publish-marginalia";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { findDrawnPassage, type ShownBlock } from "./publish-passage";
+import { findPagePassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, QuoteReceipt, ProjectedBlockCollection } from "./types";
 import { CHECKLIST_STATUSES, isChecklistStatus, statusWord, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
@@ -324,7 +324,7 @@ export class PageMarginalia {
     const view = await this.host.view(text(input.page), text(input.view) === "full", share);
     if (!view) return refused(404, "no such note here");
     const quote = text(input.quote).trim();
-    const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    const found = quote ? findPagePassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
     const placed = !!found?.ok || (!share && !!quote);
     if (share && !(await share.active())) return ended();
     const title = plainBody(firstLineWithoutPropertyTokens(view.root.text) ?? "").replace(/^\s*#{1,6}\s+/, "").trim();
@@ -390,7 +390,7 @@ export class PageMarginalia {
     const quote = text(input.quote).trim();
     // A row's menu names its row (PIE-1639): the words are looked for there alone, so a row whose words another row repeats is still the one marked.
     const among = text(input.block) ? view.blocks.filter((shown) => shown.id === text(input.block)) : view.blocks;
-    const found = quote ? findDrawnPassage(among, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    const found = quote ? findPagePassage(among, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
     if (found && !found.ok) return [404, { ok: false, error: "those words aren't on this page now: select them again" }];
     const block = found?.ok ? found.block.id : text(input.block) || view.root.id;
     const span = found?.ok ? { start: found.passage.start, end: found.passage.end, revision: found.block.revision } : undefined;
@@ -810,7 +810,7 @@ export class PageMarginalia {
         home = { id: mark.id, revision: mark.revision, text: mark.text };
         blocks = [{ ...home, text: ownWords(mark.text) }];
       }
-      const drawn = findDrawnPassage(blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
+      const drawn = findPagePassage(blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
       // Found in the mark's words alone; its passage is read in its whole text, so the words around it are its own.
       const found = drawn.ok && inside ? { ok: true as const, block: home, passage: passageAt(home.text, drawn.passage.start, drawn.passage.end, home.id, home.revision) } : drawn;
       let defining = false;

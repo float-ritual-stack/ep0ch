@@ -146,6 +146,30 @@ export function withoutStylingTokens(line: string): string {
   return /^\s*(?:[-*+]|\d+[.)])$/.test(kept) ? kept + " " : kept;
 }
 
+/**
+ * Whether `line`, under `prev`, is that line's setext underline and no rule: dashes under a line of prose. Under a
+ * heading or a blank line they are a rule, and `***` and `___` always are.
+ */
+export const underlinesLineAbove = (line: string, prev: string): boolean => /^ {0,3}-/.test(line) && !!prev.trim() && !ATX.test(prev);
+
+/**
+ * `lines` as a reader that draws no style shows them (a Markdown view of a note: `notes.page`'s prose): each without
+ * the properties that style it. A heading or a rule loses the style it names and its own fields (`styledLine`), a
+ * line that declares a style its declaration (`headingStyleDeclaration`), any line its `style.*`
+ * (`withoutStylingTokens`); a property that says something stays the note's words. `literal`: the lines that are code,
+ * left as written.
+ */
+export function unstyledLines(lines: readonly string[], literal: (i: number) => boolean = () => false): string[] {
+  return lines.map((line, i) => {
+    if (literal(i)) return line;
+    const declared = headingStyleDeclaration(line);
+    if (declared) return declared.text;
+    const styled = styledLine(line);
+    if (styled && (styled.kind === "heading" || !underlinesLineAbove(line, i ? lines[i - 1]! : ""))) return styled.text;
+    return withoutStylingTokens(line);
+  });
+}
+
 const ROOM = /^\s*(\d+)(?:\s+(\d+))?\s*$/;
 const MARGIN = /^\s*(\d+)(?:\s+(\d+))?(?:\s+(\d+))?\s*$/;
 

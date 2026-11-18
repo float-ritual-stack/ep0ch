@@ -16,207 +16,24 @@
 // screen a person made, PIE-565: src/desk/screen-notes.ts), which can't hold an override.
 import { useScreenTables, type KeyTable } from "../surface/keymap";
 import { isTileKind } from "./tile-kinds";
-import { canonKind } from "./layout";
-import type { LayoutSpec } from "./tiles";
-import { isKeyName } from "../surface/actions";
-
-/** One key of a screen's key map: the key by its one name (`keyName`: `L`, `,`, `alt+c`, `esc`, `alt+left`), the action it runs, and with what. */
-export interface KeyBinding {
-  key: string;
-  action: string;
-  label?: string;
-  /** The whole sentence the keys window lists for it (TableRow.says). */
-  says?: string;
-  args?: Record<string, unknown>;
-  /** The tile it runs in (by name); left out, the action's own default (the focused tile, or the one tile of its kind). */
-  tile?: string;
-  /** Not while the focused tile is one of these kinds (a tree's own `L`). */
-  unless?: string[];
-  /** Only while the focused tile is one of these kinds. */
-  only?: string[];
-}
+import { readSpec as readSpecData, savedNodes, screenNameProblem, screenSlug, type KeyBinding, type MenuRow, type ScreenSpec } from "@ep0ch/outline-core/screen-spec";
+// What a screen is as data (ScreenSpec, its keys and new-note rules, the walk over a saved tree, a part of a screen, a
+// group) is outline-core's (screen-spec.ts): every client that opens a screen reads the same spec. This module keeps
+// what is the door's own: the check against its tile kinds, and the screens it knows by name.
+export {
+  containerKeys, groupSpec, leafNames, menuRowProblem, NEW_NOTE_OPENS, newNoteRule, partSpec, savedNodes, screenNameProblem, screenParts, screenSlug, slotNames, specData,
+  type KeyBinding, type MenuRow, type NewNoteOpens, type NewNoteRule, type ScreenSpec,
+} from "@ep0ch/outline-core/screen-spec";
 
 /** x closes a reader or a preview where the screen lets it close (a detail, a float): the board's and the river's one key (PIE-1403). */
 export const CLOSE_KEY: KeyBinding = { key: "x", label: "close", action: "tile.close", only: ["preview", "reader"] };
 
 /**
- * Where a new note opens (PIE-591): `float`, a draft floating over the screen (each one more, cascaded); `tab`, a new tab
- * on the focused tile; `drawer`, a tab in your drawer; `lands`, where the screen's opens land (a reader beside the one
- * you're in, the board's readers row, the river's next column).
- */
-export type NewNoteOpens = "float" | "tab" | "drawer" | "lands";
-export const NEW_NOTE_OPENS: readonly NewNoteOpens[] = ["float", "tab", "drawer", "lands"];
-/**
- * One rule of a screen's new notes (PIE-591): while the focused tile is (`only`) or isn't (`unless`) one of these kinds,
- * ctrl+n runs `action` instead of making a note (the board's lanes: `card.new`, a card born with the lane's
- * properties), or opens the note where `opens` says. The first rule that matches wins; none: a float.
- */
-export interface NewNoteRule {
-  opens?: NewNoteOpens;
-  action?: string;
-  args?: Record<string, unknown>;
-  only?: string[];
-  unless?: string[];
-}
-
-export interface ScreenSpec {
-  /** What the screen is (`desk`, `welcome`): `peek`'s kind, and how `openScreen` and the menu's items name it. */
-  name: string;
-  /** Its title (the status bar), until a tile of it names it otherwise. */
-  title: string;
-  /** Its containers with their policy and its tiles by kind: the layout tree as saved (PIE-474). */
-  layout: LayoutSpec;
-  /** Its keys: each names an action, run as the person, before the focused tile's own keys. */
-  keys?: KeyBinding[];
-  /**
-   * Its hint row while nothing else is going on (`|NN` colours, as the BBS's): one for the whole screen, or one per
-   * focused tile's kind (`query`, `backlinks`; `float` for a float, `spine` after a folded tile's name, `*` the rest).
-   */
-  hint?: string | Record<string, string>;
-  /** The tile (by name) whose kind draws a band across the top of the screen (the welcome's logo and tabs). */
-  band?: string;
-  /** The glyphs its tiles' frames are drawn with: `dotted` (the welcome's `::....::`), or the desk's lines. */
-  frame?: "dotted";
-  /** `false`: the digits are the screen's own (its key map's), so tiles aren't numbered and 1-9 don't focus them. */
-  digits?: false;
-  /**
-   * Where the keys go back to (a tile's name or a container's key: the board's lanes): `Esc` and `q` step back there
-   * before they leave the screen, and the keys land there when the dock they were in shuts.
-   */
-  home?: string;
-  /** Where an agent's open naming no tile lands (`ep0ch open <id>`): a tile, by name, that takes the note its way (or a container's key); when neither is on the screen now (closed, gathered, in the drawer), the reader its opens land in (PIE-1775). */
-  lands?: string;
-  /** What an "open fresh" (alt+⏎, a ctrl- or alt-click) from its tiles runs, with `id`: an action's name. */
-  fresh?: string;
-  /** Where it keeps its layout between runs (a file in the door's state); left out, it opens as its spec says each time. */
-  saves?: string;
-  /** It loads and saves named layouts (alt+d, ^W r, ^W w): its tiles are the person's own, any kind in any place. */
-  layouts?: true;
-  /** Its programs keep running when it's left, and opening it again brings the same one back (the desk). */
-  stays?: true;
-  /** What ctrl+n (`note.new`) does here (PIE-591): the first rule matching the focused tile's kind; none, a float. */
-  newNote?: NewNoteRule[];
-  /**
-   * Its row on the main menu (PIE-1525): the key that opens it there (one character), the label the row shows, and what
-   * the help screen says of it. Any screen may name one: a built-in's, an extension's (`screens[]`), one a person made
-   * (`screen.menu`). A key another row holds leaves this row keyless, said.
-   */
-  menu?: MenuRow;
-}
-
-/** A screen's row on the main menu (PIE-1525). */
-export interface MenuRow { key: string; label: string; about?: string }
-
-/** Why `m` can't be a menu row, or null: a key is one printable character, a label a few words. */
-export function menuRowProblem(m: { key?: unknown; label?: unknown; about?: unknown }): string | null {
-  if (typeof m.key !== "string" || [...m.key].length !== 1 || !/^[\x21-\x7e]$/.test(m.key)) return `a menu row's key is one character you can type (a letter, a digit, + ! …), not ${JSON.stringify(m.key ?? "")}`;
-  if (typeof m.label !== "string" || !m.label.trim() || m.label.trim().length > 16 || /[\n\r]/.test(m.label)) return `a menu row's label is one to 16 characters on one line, not ${JSON.stringify(m.label ?? "")}`;
-  if (m.about !== undefined && (typeof m.about !== "string" || m.about.length > 200)) return "a menu row's about is a line of up to 200 characters";
-  return null;
-}
-
-/** The rule of `spec`'s new notes for a focused tile of `kind` (PIE-591), or null: a float. */
-export function newNoteRule(spec: Pick<ScreenSpec, "newNote">, kind: string | undefined): NewNoteRule | null {
-  return spec.newNote?.find(r => (!r.only || (kind !== undefined && r.only.includes(kind))) && (!r.unless || kind === undefined || !r.unless.includes(kind))) ?? null;
-}
-
-const NAME = /^[A-Za-z][\w.-]{0,39}$/;
-const kinds = (x: unknown): string[] | undefined => (Array.isArray(x) && x.every(k => typeof k === "string") ? x.map(canonKind) : undefined);
-
-/**
- * A spec as data (what a note would hold): its fields as they are, nothing that isn't data. A spec is already plain
- * data; this is the copy that goes out (the layout's own tree as it was given).
- */
-export function specData(s: ScreenSpec): unknown { return JSON.parse(JSON.stringify(s)); }
-
-/**
  * A spec read back from data (a note's, a saved one's): checked field by field, a bad one refused with what's
- * wrong. The tiles' kinds are checked against the registry only by `known` (a kind an extension hasn't loaded yet
- * is a tile that says so, as in any saved layout).
+ * wrong (outline-core's `readSpec`). The tiles' kinds are checked against the registry only by `known` (a kind an
+ * extension hasn't loaded yet is a tile that says so, as in any saved layout).
  */
-export function readSpec(x: unknown, known = false): ScreenSpec {
-  const o = (x && typeof x === "object" ? x : null) as Record<string, unknown> | null;
-  if (!o) throw new Error("a screen spec is an object");
-  const name = o.name, title = o.title, layout = o.layout as LayoutSpec | undefined;
-  if (typeof name !== "string" || !NAME.test(name)) throw new Error(`a screen's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(name)})`);
-  if (typeof title !== "string" || !title.trim()) throw new Error(`screen ${name}: title is the words its status bar shows`);
-  if (!layout || typeof layout !== "object" || !layout.root || typeof layout.root !== "object") throw new Error(`screen ${name}: layout is a layout as saved, with a root`);
-  const keys = o.keys === undefined ? undefined : Array.isArray(o.keys) ? o.keys.map((b: any, i: number) => {
-    if (!b || typeof b !== "object" || !isKeyName(b.key)) throw new Error(`screen ${name}: key ${i + 1} names no key (a character, enter, esc, space, shift+tab, alt+left, alt+<c>, ctrl+<c>…)`);
-    if (typeof b.action !== "string" || !b.action) throw new Error(`screen ${name}: key ${b.key} names no action`);
-    return {
-      key: b.key, action: b.action,
-      ...(typeof b.label === "string" ? { label: b.label } : {}),
-      ...(typeof b.says === "string" ? { says: b.says } : {}),
-      ...(b.args && typeof b.args === "object" && !Array.isArray(b.args) ? { args: { ...b.args } } : {}),
-      ...(typeof b.tile === "string" ? { tile: b.tile } : {}),
-      ...(kinds(b.unless) ? { unless: kinds(b.unless)! } : {}),
-      ...(kinds(b.only) ? { only: kinds(b.only)! } : {}),
-    } satisfies KeyBinding;
-  }) : (() => { throw new Error(`screen ${name}: keys is a list`); })();
-  const newNote = o.newNote === undefined ? undefined : Array.isArray(o.newNote) ? o.newNote.map((r: any, i: number) => {
-    if (!r || typeof r !== "object") throw new Error(`screen ${name}: newNote rule ${i + 1} is an object (opens= or action=)`);
-    if (r.opens !== undefined && !NEW_NOTE_OPENS.includes(r.opens)) throw new Error(`screen ${name}: newNote rule ${i + 1} opens ${JSON.stringify(r.opens)}; it opens ${NEW_NOTE_OPENS.join(", ")}`);
-    if (r.action !== undefined && (typeof r.action !== "string" || !r.action)) throw new Error(`screen ${name}: newNote rule ${i + 1} names no action`);
-    if ((r.opens === undefined) === (r.action === undefined)) throw new Error(`screen ${name}: newNote rule ${i + 1} gives one of opens= or action=`);
-    return {
-      ...(r.opens !== undefined ? { opens: r.opens as NewNoteOpens } : {}), ...(r.action !== undefined ? { action: r.action as string } : {}),
-      ...(r.args && typeof r.args === "object" && !Array.isArray(r.args) ? { args: { ...r.args } } : {}),
-      ...(kinds(r.unless) ? { unless: kinds(r.unless)! } : {}),
-      ...(kinds(r.only) ? { only: kinds(r.only)! } : {}),
-    } satisfies NewNoteRule;
-  }) : (() => { throw new Error(`screen ${name}: newNote is a list of rules`); })();
-  let menu: MenuRow | undefined;
-  if (o.menu !== undefined) {
-    const m = (o.menu && typeof o.menu === "object" && !Array.isArray(o.menu) ? o.menu : {}) as Record<string, unknown>;
-    const bad = menuRowProblem(m);
-    if (bad) throw new Error(`screen ${name}: ${bad}`);
-    menu = { key: (m.key as string).toUpperCase(), label: (m.label as string).trim(), ...(typeof m.about === "string" && m.about.trim() ? { about: m.about.trim() } : {}) };
-  }
-  const str = (k: string) => (typeof o[k] === "string" && o[k] ? { [k]: o[k] as string } : {});
-  const spec: ScreenSpec = {
-    name, title, layout,
-    ...(keys ? { keys } : {}),
-    ...(newNote ? { newNote } : {}),
-    ...(menu ? { menu } : {}),
-    ...str("hint"), ...hintMap(o.hint), ...str("band"), ...str("home"), ...str("lands"), ...str("fresh"), ...str("saves"),
-    ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
-    ...(o.digits === false ? { digits: false as const } : {}),
-    ...(o.layouts === true ? { layouts: true as const } : {}),
-    ...(o.stays === true ? { stays: true as const } : {}),
-  };
-  if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(canonKind(k))) throw new Error(`screen ${name}: no tile kind ${k} here`);
-  // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
-  const tiles = new Set(slotNames(layout.root)), places = new Set([...tiles, ...containerKeys(layout.root)]);
-  // `all`: every tile (tile.collapse on=false tile=all reopens every spine); a container by its key: the tile last in it.
-  for (const b of spec.keys ?? []) if (b.tile !== undefined && b.tile !== "all" && !places.has(b.tile)) throw new Error(`screen ${name}: key ${b.key} runs in tile ${b.tile}, which its layout hasn't`);
-  if (spec.band !== undefined && !tiles.has(spec.band)) throw new Error(`screen ${name}: its band is drawn by tile ${spec.band}, which its layout hasn't`);
-  for (const k of ["lands", "home"] as const) if (spec[k] !== undefined && !places.has(spec[k]!)) throw new Error(`screen ${name}: ${k} names ${spec[k]}, neither a tile nor a container of its layout`);
-  return spec;
-}
-
-/**
- * Every node of a saved or spec'd tree, outermost first: the one walk over a layout as data (either form; anything in
- * it that isn't a node is skipped).
- */
-export function savedNodes(n: any): any[] {
-  if (!n || typeof n !== "object") return [];
-  if (n.t === "leaf") return [n];
-  return [n, ...[...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(savedNodes)];
-}
-const leafField = (n: unknown, f: "name" | "kind" | "slot"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
-/** The names of a saved tree's tiles, the kinds of them, and the keys of its containers. */
-export const leafNames = (n: unknown) => leafField(n, "name");
-/** The public names and preserved spec slots of the tiles in a layout. */
-export const slotNames = (n: unknown): string[] => [...leafNames(n), ...leafField(n, "slot")];
-const leafKinds = (n: unknown) => leafField(n, "kind");
-export const containerKeys = (n: unknown): string[] => savedNodes(n).flatMap(x => (x.t !== "leaf" && typeof x.key === "string" ? [x.key] : []));
-/** A hint per focused kind, as data: its strings only. */
-const hintMap = (x: unknown): { hint?: Record<string, string> } => {
-  if (!x || typeof x !== "object" || Array.isArray(x)) return {};
-  const out = Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, v]) => typeof v === "string") as [string, string][]);
-  return Object.keys(out).length ? { hint: out } : {};
-};
+export function readSpec(x: unknown, known = false): ScreenSpec { return readSpecData(x, known ? k => isTileKind(k) : undefined); }
 
 // ── the screens the door knows by name ──────────────────────────────────────────
 
@@ -238,15 +55,6 @@ const registrations = new Map<string, ScreenRegistration>();
 /** Goes up with every screen registered or forgotten: what a reader of the registry (the menu's rows) keys its copy on. */
 let version = 0;
 export const screensVersion = (): number => version;
-/** Why `name` can't be a screen's name, or null. */
-export const screenNameProblem = (name: string): string | null => (NAME.test(name) ? null : `a screen's name is a letter, then letters, digits, . - _, at most 40 (not ${JSON.stringify(name)})`);
-
-/**
- * The name a title is kept under: lowercase, runs of spaces to `-`, anything but letters, digits, `.` `-` `_` dropped,
- * at most 40. "Daily test" is `daily-test`. It may still not be a name (it must start with a letter): `screenTitleProblem`.
- */
-export const screenSlug = (title: string): string =>
-  title.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").replace(/-{2,}/g, "-").slice(0, 40).replace(/-+$/, "");
 
 /**
  * Why a screen can't be saved as `title` (what a person typed: spaces and capitals are fine), or null. The reason says
@@ -258,7 +66,7 @@ export function screenTitleProblem(title: string): string | null {
   if (/[\[\]\n\r]/.test(t)) return `a screen's name has no [ ], and is one line (${JSON.stringify(t)}) · try ${JSON.stringify(t.replace(/[\[\]]/g, "").replace(/\s+/g, " ").trim() || "my screen")}`;
   if (t.length > 60) return `a screen's name is at most 60 characters (this is ${t.length}) · try ${JSON.stringify(t.slice(0, 60).trim())}`;
   const slug = screenSlug(t);
-  if (!NAME.test(slug)) {
+  if (screenNameProblem(slug)) {
     const tail = slug.replace(/^[^a-z]+/, "");
     return slug
       ? `a screen's name starts with a letter (${JSON.stringify(t)} would be ${slug})${tail ? ` · try ${JSON.stringify(tail)}` : ""}`
@@ -381,40 +189,3 @@ export function mountProblem(chain: readonly string[], screen: string, part = fa
   return null;
 }
 
-/**
- * The part of a screen named `key` (a container's key, or a tile's name) as a screen of its own: its layout is that
- * subtree, and what the spec names outside it is left out (a key bound to a tile that isn't there, its band, where its
- * opens land and its keys go home), so a mount of the board's lanes is the lanes alone. A container whose tiles come from
- * data (the lanes) holds a place holder until its source fills it: a screen is never blank. Throws when there's no such part.
- */
-export function partSpec(spec: ScreenSpec, key: string): ScreenSpec {
-  const found = savedNodes(spec.layout.root).find(n => (n.t === "leaf" ? n.name === key : n.key === key));
-  if (!found) throw new Error(`the ${spec.name} screen has no part ${key}; its parts: ${screenParts(spec).join(", ") || "none"}`);
-  let root = JSON.parse(JSON.stringify(found.t === "dock" ? found.kid : found));
-  if (!leafNames(root).length && root.t === "columns") root = { ...root, kids: [{ t: "leaf", kind: "filling", name: `${key}-filling`, label: `${key} · filling from its source…` }], weights: [1] };
-  const tiles = new Set(leafNames(root)), places = new Set([...tiles, ...containerKeys(root)]);
-  const inside = (name: string | undefined) => name === undefined || name === "all" || places.has(name);
-  const { saves: _saves, band, home, lands, keys, ...rest } = spec;
-  const policy = spec.layout.policy ? { ...spec.layout.policy } : undefined;
-  if (policy?.opensInto && !places.has(policy.opensInto)) delete policy.opensInto;
-  const focus = typeof spec.layout.focus === "string" && tiles.has(spec.layout.focus) ? spec.layout.focus : leafNames(root)[0];
-  return {
-    ...rest,
-    title: `${spec.title} · ${key}`,
-    layout: { root, ...(focus ? { focus } : {}), ...(spec.layout.rule ? { rule: spec.layout.rule } : {}), ...(policy && Object.keys(policy).length ? { policy } : {}) },
-    ...(keys ? { keys: keys.filter(b => inside(b.tile)) } : {}),
-    ...(band && tiles.has(band) ? { band } : {}),
-    ...(home && places.has(home) ? { home } : {}),
-    ...(lands && places.has(lands) ? { lands } : {}),
-  };
-}
-/** The parts of a screen a mount can name (`part=`): its containers' keys, then its tiles' names. */
-export const screenParts = (spec: ScreenSpec): string[] => [...containerKeys(spec.layout.root), ...leafNames(spec.layout.root)];
-
-/**
- * A group (PIE-651): tiles gathered into one tile, laid out as a screen of their own (a tab's split, "splits in my
- * tabs"). Its spec is its tree; it has no screen elsewhere, no keys of its own and no file: the tile holding it saves it.
- */
-export function groupSpec(root: unknown, label?: string): ScreenSpec {
-  return { name: "group", title: label || "group", digits: false, layout: { root: root as LayoutSpec["root"] } };
-}

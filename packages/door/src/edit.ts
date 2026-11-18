@@ -8,24 +8,24 @@ import { DraftStatus, UNDO_ASK_PAUSE_MS, type DraftArm } from "./draft-status";
 // the revision the draft started from, and a stale one is refused, never overwritten.
 import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
-import { pageTitleLine } from "@ep0ch/outline-core/page-title";
-import { COMPONENT_OPEN, componentBlocks, noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, exactKeyName, keyName, type ArgsOfSet } from "./surface/actions";
-import { Gesture, wordIn } from "./surface/selection";
+import { Gesture } from "./surface/selection";
 import { lineCompletionHooks } from "./surface/line-hooks";
 import { stateDir } from "./state";
 import { width } from "./style";
 import { pageRows } from "./scroll";
 import type { Key } from "./term";
 import { escByHint } from "./esc-rule";
-import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { applyLocated, locateSpans, mapOffset, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { mapCursor, patchedSpans, placeDraftPatch, revertSpans, type PatchedSpan } from "@ep0ch/outline-core/draft-patch-place";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { indentShifts, listLead, shiftedCol, tabTakes, type ListLead } from "@ep0ch/outline-core/draft-indent";
+import { WRAPS, lineOpText, newlineText, selectText, typedMarker, wrapText, type LineOp } from "@ep0ch/outline-core/draft-keys";
 import { ANSWERED_ASK_STATES, ASK_AT_CURSOR } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
@@ -49,7 +49,7 @@ export const BIG_PASTE_LINES = 20, BIG_PASTE_BYTES = 2048;
  * An agent's patch applied to a draft (PIE-501): one undo unit. Each span is where its replacement sits in
  * the text just after it, with the text it replaced and a little text either side for undo's own compare.
  */
-interface PatchUnit { group?: string; patchIds?: string[]; patchId: string; by: Actor; spans: { start: number; text: string; was: string; before: string; after: string }[] }
+interface PatchUnit { group?: string; patchIds?: string[]; patchId: string; by: Actor; spans: PatchedSpan[] }
 /**
  * One step of a draft's history (PIE-621): the whole text before and after one change, who made it and what it was
  * (`typing`, `the paste (340 lines)`, `tidy's edit`). Typing runs on into one step until a pause, a space or a jump
@@ -82,12 +82,6 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  */
 export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
 
-/**
- * What wraps a selection when typed over it (PIE-1607), as VS Code's Markdown does, with its closer: the inner text stays
- * selected, so `[[`, `((` and `**` are the key twice. Not `<` and `$` (VS Code's too): no Blockdown form uses them, and typing
- * one over a word mostly means to replace it.
- */
-const WRAPS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "`": "`", "*": "*", "_": "_", "~": "~" };
 /** A motion's rows: its keys, and the same with the selection following. */
 const go = (to: string, words: string, move: string[], select: string[]): ModeKey[] => [
   ...move.map(key => ({ key, action: "draft.go", args: { to }, label: `go ${words}`, says: `move the cursor ${words}` })),
@@ -103,7 +97,7 @@ const go = (to: string, words: string, move: string[], select: string[]): ModeKe
 export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a person types: a note's edit, a comment, the composer, an inspector field, the power bar, a line field", [
   { key: "ctrl+s", action: "edit.save", label: "save", says: "save or send what's written" },
   { key: "esc", action: "edit.close", label: "done", says: "let go of a selection; then close what you're writing (on changed text a second press puts it aside as unsent, never dropped)" },
-  { key: "tab", action: "draft.indent", label: "indent", says: "indent the line, or the selected lines, one level (a list item goes under the item above)" },
+  { key: "tab", action: "draft.indent", label: "indent", says: "indent the list item the cursor is on, or the selected lines, one level (an item goes under the item above); any other line only from its start: in the middle of a paragraph Tab moves nothing" },
   { key: "shift+tab", action: "draft.outdent", label: "out", says: "outdent the line, or the selected lines, one level" },
   { key: "ctrl+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
   { key: "ctrl+y", action: "draft.redo", label: "redo", says: "put back the change you undid (ctrl+shift+z too)" },
@@ -803,8 +797,8 @@ export class Draft {
       case "char":
         // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place (a paste goes in as it came).
         if (k.ch === " " && this.col === this.line.length) {
-          const m = TYPED_MARKER.exec(this.line);
-          if (m) { L[this.row] = m[1]! + m[2]!; this.col = L[this.row]!.length; }
+          const made = typedMarker(this.line);
+          if (made !== null) { L[this.row] = made; this.col = made.length; }
         }
         this.insert(k.ch);
         break;
@@ -933,85 +927,13 @@ export class Draft {
     // ⏎ at the end of an answered ask: the answer stays under its ask and the words go on below it (PIE-1585).
     const answer = this.line.slice(this.col) ? undefined : this.answerFolds().find(p => p.line === this.row + 1);
     if (answer) ({ row: this.row, col: this.col } = this.placeOf(this.offsetOf(answer.end, 0) - 1));
-    // ⏎ at the end of a first line of only `[page::x]` titles it `x` (PIE-544), outline-core's rule, the one the service
-    // saves by. Anywhere else on the line (before it, inside the token) it's a plain break: the save titles it later.
-    if (this.titlesPages && this.row === 0 && this.col >= this.lines[0]!.trimEnd().length) {
-      const titled = pageTitleLine(this.lines[0]!);
-      if (titled !== null) { this.lines[0] = titled; this.col = titled.length; }
-    }
-    const line = this.line, L = this.lines;
-    const lead = plain ? null : listLead(line);
-    // The cursor on the item's marker (a click lands there): the break goes before the item, which stays whole.
-    const col = lead && this.col < lead.length ? 0 : this.col;
-    const rest = line.slice(col);
-    if (lead && col >= lead.length) {
-      if (!line.slice(lead.length).trim()) {
-        // An empty item: up to the parent item's level (continuing its numbering), or out of the list.
-        const up = this.parentOf(this.row, lead.indent.length);
-        const next = up ? up.indent + nextMarker(up.marker) + up.gap + (lead.box ? "[ ] " : "")
-          : lead.indent ? outdentBy(lead.indent) + lead.marker + lead.gap + lead.box : "";
-        L[this.row] = next;
-        this.col = next.length;
-        return;
-      }
-      const next = lead.indent + nextMarker(lead.marker) + lead.gap + (lead.box ? "[ ] " : "");
-      L[this.row] = line.slice(0, col);
-      L.splice(this.row + 1, 0, next + rest.replace(/^[ \t]+/, ""));
-      this.row++; this.col = next.length;
-      return;
-    }
-    const indent = plain ? "" : /^[ \t]*/.exec(line)![0];
-    if (indent && !line.trim() && col === line.length) {
-      // A line of spaces: Enter takes it up a level, as on an empty item.
-      L[this.row] = outdentBy(indent);
-      this.col = L[this.row]!.length;
-      return;
-    }
-    const keep = indent && col >= indent.length ? indent : "";
-    const closes = !plain && !rest.trim() && this.opensComponent(this.row);
-    L[this.row] = line.slice(0, col);
-    L.splice(this.row + 1, 0, keep + (keep ? rest.replace(/^[ \t]+/, "") : rest));
-    // ⏎ after a component's opening line that nothing closes yet (`::box{list.gap="2"}`): its `::` comes with it, as an
-    // editor closes a bracket, so what's written between reads as the component and not as plain text (PIE-1392).
-    if (closes) L.splice(this.row + 2, 0, indent + "::");
-    this.row++; this.col = keep.length;
-  }
-
-  /** Whether line `row` opens a component with a body (not a one-line call) that no `::` closes yet, outside code. */
-  private opensComponent(row: number): boolean {
-    const open = COMPONENT_OPEN.exec(this.lines[row]!);
-    if (!open || open[2] !== undefined) return false;
-    if (noteCodeFences(this.lines).some(f => row > f.start && row <= f.end)) return false;
-    // Unclosed when a `::` after it closes one more component than the note has now: a closer already below may be an
-    // inner component's (a box typed inside a box), so whether this line is paired isn't asked alone.
-    const closer = [...this.lines.slice(0, row + 1), "::", ...this.lines.slice(row + 1)];
-    return componentBlocks(closer).length > componentBlocks(this.lines).length;
-  }
-
-  /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */
-  private parentOf(row: number, than: number): ListLead | null {
-    for (let r = row - 1; r >= 0; r--) {
-      const l = this.lines[r]!;
-      if (!l.trim()) continue;
-      const lead = listLead(l);
-      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
-      if (ind < than) return lead;
-      if (ind === 0) return null;
-    }
-    return null;
-  }
-
-  /** The nearest list item above `row` at exactly `indent`: the one this item follows. */
-  private siblingOf(row: number, indent: number): ListLead | null {
-    for (let r = row - 1; r >= 0; r--) {
-      const l = this.lines[r]!;
-      if (!l.trim()) continue;
-      const lead = listLead(l);
-      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
-      if (ind < indent) return null;
-      if (lead && ind === indent) return lead;
-    }
-    return null;
+    // The rest is outline-core's rule (`newlineText`, the one the native window is held to): a first line of only
+    // `[page::x]` titled at its end (PIE-544), a list item continued or ended, an indent kept, and a component's
+    // opening line that nothing closes yet given its `::` (PIE-1392).
+    const at = this.offsetOf(this.row, this.col);
+    const did = newlineText(this.text, at, at, { plain, titles: this.titlesPages, components: true });
+    this.lines = did.text.split("\n");
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
   }
 
   /** The lines a Tab acts on: the selection's, else the cursor's. */
@@ -1021,38 +943,30 @@ export class Draft {
   }
 
   /**
-   * Indent (`dir` 1) or outdent (-1) lines `from`..`to` by one level. A list item goes under the item above
-   * it (its text's column), or back to its parent's level; anything else moves two spaces. Every line
-   * moves by the first line's step, so the nesting inside a selection is kept. The cursor stays on its text.
+   * Indent (`dir` 1) or outdent (-1) lines `from`..`to` by one level. Which lines move, and by how much, is
+   * outline-core's rule (`indentShifts`: a list item under the item above it or back to its parent's level, anything
+   * else two spaces, every line by the first line's step), the one the native window is held to. The cursor stays on its text.
    */
   indent(dir: 1 | -1, from = this.span()[0], to = this.span()[1]): number {
     const L = this.lines;
-    from = Math.max(0, Math.min(L.length - 1, from)); to = Math.max(from, Math.min(L.length - 1, to));
-    const first = L[from]!, lead = listLead(first);
-    const ind = lead ? lead.indent : /^[ \t]*/.exec(first)![0];
-    const tabs = ind.includes("\t");
-    let step: number;
-    if (dir > 0) {
-      const sib = lead ? this.siblingOf(from, ind.length) : null;
-      step = sib && !tabs ? sib.marker.length + sib.gap.length : tabs ? 1 : 2;
-    } else {
-      const up = lead ? this.parentOf(from, ind.length) : null;
-      step = up && !tabs ? ind.length - up.indent.length : Math.min(ind.length, tabs ? 1 : 2);
+    const { put, shifts } = indentShifts(L, dir, from, to);
+    for (const { row, by } of shifts) {
+      const l = L[row]!;
+      L[row] = by > 0 ? put + l : l.slice(-by);
+      if (row === this.row) this.col = shiftedCol(this.col, by);
+      if (this.anchor && row === this.anchor.row) this.anchor.col = shiftedCol(this.anchor.col, by);
     }
-    if (step <= 0) return 0;
-    let moved = 0;
-    for (let r = from; r <= to; r++) {
-      const l = L[r]!;
-      if (!l.trim() && from !== to) continue;
-      const have = /^[ \t]*/.exec(l)![0].length;
-      const d = dir > 0 ? step : -Math.min(step, have);
-      if (!d) continue;
-      L[r] = dir > 0 ? (tabs ? "\t" : " ".repeat(step)) + l : l.slice(-d);
-      moved++;
-      if (r === this.row) this.col = Math.max(0, this.col + d);
-      if (this.anchor && r === this.anchor.row) this.anchor.col = Math.max(0, this.anchor.col + d);
-    }
-    return moved;
+    return shifts.length;
+  }
+
+  /**
+   * Tab's own: the lines at the cursor one level in, where Tab can mean that (outline-core's `tabTakes`: a list item
+   * from any column, several selected lines, any other line from its start or inside its indent). In the middle of a
+   * paragraph it moves nothing. Lines an act names outright go through `indent`.
+   */
+  tab(): number {
+    const [from, to] = this.span();
+    return tabTakes(this.lines, from, to, this.col) ? this.indent(1, from, to) : 0;
   }
 
   // ── an agent's patch (PIE-501): compare-and-swap on a span, while the person types ──
@@ -1088,49 +1002,12 @@ export class Draft {
    */
   applyPatch(p: DraftPatchRequest, by: Actor): DraftPatchAnswer {
     const no = (reason: string): DraftPatchAnswer => ({ applied: false, reason });
-    if (this.busy) return no("the draft is being saved");
-    if (!p.force && p.revision !== this.base) return no(`the draft is on revision ${this.base}, not the ${p.revision} it was read at`);
-    const text = this.text;
-    const located = locateSpans(text, p.patches, !!p.force);
-    if (!located.ok) return no(located.reason);
-    // An answer leaves its ask line word for word (the service checks): what it changes is below that line, so the ask's
-    // own text is out of the patch: the cursor may be on it (PIE-1585), and the undo unit is the answer alone.
-    const askEnd = p.replyTo ? located.spans[0]!.start + p.replyTo.length : -1;
-    // The whole line, as it was read: typed on since (`?` after it), it is a new ask, and the next quiet asks it.
-    if (p.replyTo && ((askEnd < text.length && text[askEnd] !== "\n") || (located.spans[0]!.start > 0 && text[located.spans[0]!.start - 1] !== "\n"))) return no("the ask was typed on since it was read");
-    if (p.replyTo) located.spans = [{ ...located.spans[0]!, start: askEnd, replacement: located.spans[0]!.replacement.slice(p.replyTo.length) }];
-    if (p.force && p.mark !== undefined) {
-      // A mark line the person took out holds nothing back: the passage is placed by its own text.
-      const mark = markStart(text, p.mark);
-      if (mark >= 0 && located.spans.some(sp => sp.end > mark)) return no("it reaches the mark or below it; a patch changes only text above the mark");
-    }
-    // The person's own write into the draft they're typing in (a part they dropped there, PIE-1357) is theirs to place:
-    // no cursor or typing guard, as their own keys have none. An agent's patch keeps them; proposals are for it.
-    const own = by.kind === "user";
-    if (!p.force && !p.output && !own) {
-      const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
-      if (p.replyTo && located.spans.some(sp => sp.start < c && c <= sp.end)) return no("the cursor is in the answer");
-      if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
-      // With a mark: above it; and when the person went back up above the mark to write, above the block they're in.
-      if (p.mark !== undefined) {
-        const mark = markStart(text, p.mark);
-        if (mark < 0) return no("the mark isn't in the draft");
-        const at = Math.min(c, a);
-        const limit = at > mark ? mark : blockStartAt(text, at);
-        if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
-      } else if (!p.replyTo) {
-        const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
-        // A chip changed on another line of that block (a stamp under the title while the person types below it,
-        // PIE-1756) leaves the words being typed alone: only the cursor's own line holds it back.
-        // Judged on the whole draft, so a chip inside a code fence is the fence's text, never a property (CodeRabbit on #1458).
-        const stamp = (sp: LocatedSpan) => chipsOnly(text, text.slice(0, sp.start) + sp.replacement + text.slice(sp.end)) && [c, a].every(at => sp.end < lineStartAt(text, at) || sp.start > lineEndAt(text, at));
-        // A paragraph of its own added at the very end (a restore's dated line, PIE-1760) changes nothing typed: it
-        // opens below the cursor, which stays where it is.
-        if (located.spans.some(sp => !stamp(sp) && !belowAll(text, sp) && typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
-          return no("it changes the block being typed in");
-        }
-      }
-    }
+    // Whether it may land, and where, is outline-core's one decision (draft-patch-place.ts): the service asks the same
+    // of a draft held by a window that reads no Blockdown.
+    const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
+    const placed = placeDraftPatch({ text: this.text, base: this.base, cursor: c, anchor: a, busy: this.busy }, p, by.kind === "user");
+    if (!placed.ok) return no(placed.reason);
+    const located = { spans: placed.spans };
     // Said at once, for the first line saying it when none has said more (which of them it is, the service's progress says).
     if (p.replyTo && !p.replyGroup && !this.asks.has(p.replyTo)) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
     this.record(USER, "a change");
@@ -1150,10 +1027,8 @@ export class Draft {
         rebased.push({ step, before, after });
       }
     }
-    // A cursor at the ask's end stays there, on the line it was typing: the answer opens below it.
-    // A paragraph added at the end opens below the cursor: an offset at the end stays put (PIE-1760).
-    const above = located.spans.filter(sp => !belowAll(text, sp));
-    this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : above.length < located.spans.length ? o => mapOffset(o, above) : undefined);
+    // A cursor at the ask's end stays there, and a paragraph added at the very end opens below the cursor: each span says (`mapCursor`).
+    this.commitPatch(located.spans, by, p.patchId, o => mapCursor(o, placed.spans));
     const latest = this.undos.at(-1);
     if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
@@ -1206,18 +1081,10 @@ export class Draft {
     const i = this.patches.findIndex(u => u.patchId === patchId);
     if (i < 0) return false;
     const u = this.patches[i]!;
-    // Undo is a compare-and-swap too: the patched text (and a little either side) must still be there.
-    const spans: DraftPatchSpan[] = u.spans.map(sp => {
-      const start = sp.start - sp.before.length;
-      const observed = sp.before + sp.text + sp.after;
-      return { observed, replacement: sp.before + sp.was + sp.after, range: { start, end: start + observed.length } };
-    });
-    // Typing since may have moved it further than the compare looks from its range: then its one copy anywhere,
-    // with the text either side, and failing that the patched text alone when it is in the draft just once.
-    const located = [spans, spans.map(({ range: _, ...sp }) => sp), u.spans.map(sp => ({ observed: sp.text, replacement: sp.was }))]
-      .map(tried => tried.some(sp => !sp.observed) ? null : locateSpans(this.text, tried))
-      .find(r => r?.ok);
-    if (!located?.ok) return false;
+    // Undo is a compare-and-swap too (outline-core's `revertSpans`): what it wrote must still be there.
+    const spans = revertSpans(this.text, u.spans);
+    if (!spans) return false;
+    const located = { spans };
     this.patches.splice(i, 1);
     this.commitPatch(located.spans, by, null, undefined, u);
     this.flashes = this.flashes.filter(f => !u.spans.some(sp => f.start === sp.start));
@@ -1263,12 +1130,9 @@ export class Draft {
     this.anchor = anchor === null ? null : this.placeOf(anchor);
     this.flashes = flashes;
     if (patchId !== null) {
-      let delta = 0;
-      const unit: PatchUnit = { patchId, by, spans: [] };
-      for (const sp of spans) {
-        const start = sp.start + delta;
-        delta += sp.replacement.length - (sp.end - sp.start);
-        unit.spans.push({ start, text: sp.replacement, was: before.slice(sp.start, sp.end), before: after.slice(Math.max(0, start - 8), start), after: after.slice(start + sp.replacement.length, start + sp.replacement.length + 8) });
+      const unit: PatchUnit = { patchId, by, spans: patchedSpans(before, after, spans) };
+      for (const [i, sp] of spans.entries()) {
+        const start = unit.spans[i]!.start;
         const lit = sp.replacement.replace(/^\n/, "");
         this.flashes.push({ start: start + (sp.replacement.length - lit.length), end: start + sp.replacement.length, label: `${patchLabel(by)} · just now`, until: Date.now() + PATCH_FLASH_MS });
       }
@@ -1362,47 +1226,37 @@ export class Draft {
 
   /** The word under the cursor, its line (again: the next line too) or the whole text selected. */
   selectWhat(what: "word" | "line" | "all") {
-    if (what === "all") { this.place(0, 0); this.place(this.lines.length - 1, Infinity, true); return; }
-    if (what === "word") { const w = wordIn(this.line, this.col); this.place(this.row, w.start); this.place(this.row, w.end, true); return; }
-    const s = this.selection(), first = s ? s[0].row : this.row, last = !s ? this.row : s[1].col === this.endOf(s[1].row) && s[0].col === 0 ? s[1].row + 1 : s[1].row;
-    this.place(first, 0);
-    this.place(Math.min(last, this.lines.length - 1), Infinity, true);
+    const did = selectText(this.text, ...this.ends(), what);
+    const a = this.placeOf(did.anchor), c = this.placeOf(did.cursor);
+    this.place(a.row, a.col);
+    this.place(c.row, c.col, true);
   }
 
-  /** The whole lines a line key acts on: the selection's (one ending at a line's very start leaves that line out), else the cursor's. */
-  private wholeLines(): [number, number] {
-    const s = this.selection();
-    if (!s) return [this.row, this.row];
-    return [s[0].row, s[1].col === 0 && s[1].row > s[0].row ? s[1].row - 1 : s[1].row];
+  /** The selection's two ends as offsets of the text: where it started, and the cursor (the same place with nothing selected). */
+  private ends(): [number, number] {
+    const cursor = this.offsetOf(this.row, this.col);
+    return [this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : cursor, cursor];
+  }
+
+  /** A line key's work, by outline-core's rule (`lineOpText`, the one the native window is held to). Whether anything changed. */
+  private lineOp(op: LineOp): boolean {
+    const [anchor, cursor] = this.ends();
+    const did = lineOpText(this.text, anchor, cursor, op);
+    if (!did.spans.length && did.anchor === anchor && did.cursor === cursor) return false;
+    this.lines = did.text.split("\n");
+    this.anchor = this.anchor && op !== "delete" ? this.placeOf(did.anchor) : null;
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
+    return true;
   }
 
   /** The lines at the cursor moved a line up or down, the cursor and the selection with them. How many rows they moved. */
-  moveLines(by: -1 | 1): number {
-    const [a, b] = this.wholeLines(), L = this.lines;
-    if (a + by < 0 || b + by > L.length - 1) return 0;
-    const moving = L.splice(a, b - a + 1);
-    L.splice(a + by, 0, ...moving);
-    this.row += by;
-    if (this.anchor) this.anchor.row += by;
-    return by;
-  }
+  moveLines(by: -1 | 1): number { return this.lineOp(by < 0 ? "up" : "down") ? by : 0; }
 
   /** The lines at the cursor written again above (`up`: the cursor stays on the upper) or below them (it goes to the copy). */
-  copyLines(where: "up" | "down") {
-    const [a, b] = this.wholeLines(), n = b - a + 1;
-    this.lines.splice(b + 1, 0, ...this.lines.slice(a, b + 1));
-    if (where === "down") { this.row += n; if (this.anchor) this.anchor.row += n; }
-  }
+  copyLines(where: "up" | "down") { this.lineOp(where === "up" ? "copy-up" : "copy-down"); }
 
   /** The lines at the cursor taken out; the cursor stays at its column on what comes up to its row. */
-  deleteLines() {
-    const [a, b] = this.wholeLines();
-    this.anchor = null;
-    this.lines.splice(a, b - a + 1);
-    if (!this.lines.length) this.lines.push("");
-    this.row = Math.min(a, this.lines.length - 1);
-    this.col = Math.min(this.col, this.endOf(this.row));
-  }
+  deleteLines() { this.lineOp("delete"); }
 
   /** The selection, else from the cursor back or on to `to`, taken out. Word-back is what ctrl+w always erased: the word and the spaces after it. */
   erase(to: "word-back" | "word-forward" | "line-start" | "line-end", by: Actor = USER): boolean {
@@ -1441,14 +1295,12 @@ export class Draft {
     const s = this.selection();
     if (!s) throw new ActionRefused("nothing is selected in the draft · select text (shift+arrows, a drag, draft.place extend=true), then type [ or ( to wrap it");
     this.record(USER, "a change");
-    const close = [...open].reverse().map(c => WRAPS[c] ?? c).join("");
-    const forward = this.anchor!.row === s[0].row && this.anchor!.col === s[0].col, text = this.text;
-    const a = this.offsetOf(s[0].row, s[0].col), b = this.offsetOf(s[1].row, s[1].col);
-    this.lines = (text.slice(0, a) + open + text.slice(a, b) + close + text.slice(b)).split("\n");
-    const start = this.placeOf(a + open.length), end = this.placeOf(b + open.length);
-    this.anchor = forward ? start : end;
-    const cursor = forward ? end : start;
-    this.row = cursor.row; this.col = cursor.col; this.goal = null;
+    // Outline-core's rule (`wrapText`): the closer is the opener's mirror, and the inner text stays selected.
+    const did = wrapText(this.text, ...this.ends(), open)!;
+    this.lines = did.text.split("\n");
+    this.anchor = this.placeOf(did.anchor);
+    ({ row: this.row, col: this.col } = this.placeOf(did.cursor));
+    this.goal = null;
     this.wrote(by, "the wrap");
   }
 
@@ -1660,23 +1512,7 @@ const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "
 
 export { hangOf, wrapRows, type VRow } from "./draft-view";
 
-/** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
-export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
-const LIST_LEAD = new RegExp(`^([ \\t]*)([-*+]|\\d{1,9}[.)])([ \\t]+)(${STEP_BOX}(?:[ \\t]+|$))?`);
-
-/** The list item `line` starts, or null. `- ` with nothing after it is an (empty) item; `-` alone isn't. */
-export function listLead(line: string): ListLead | null {
-  const m = LIST_LEAD.exec(line);
-  return m ? { indent: m[1]!, marker: m[2]!, gap: m[3]!, box: m[4] ?? "", length: m[0].length } : null;
-}
-
-/** An empty item with a marker typed after it: `- -`, `  1. 2.`, `- [ ] *` (indent, the typed marker). */
-const TYPED_MARKER = new RegExp(`^([ \\t]*)(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?([-*+]|\\d{1,9}[.)])$`);
-
-/** The marker after `m`: the same bullet, or the next number with the same closer. */
-export const nextMarker = (m: string) => (/^\d/.test(m) ? `${Number.parseInt(m, 10) + 1}${m.at(-1)}` : m);
-/** An indent one level less: a tab, or two spaces. */
-const outdentBy = (ind: string) => (ind.endsWith("\t") ? ind.slice(0, -1) : ind.slice(0, Math.max(0, ind.length - 2)));
+export { listLead, type ListLead };
 
 /** A path as the person would type it: their home as `~`. */
 export const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
@@ -1720,14 +1556,14 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   }),
   "draft.indent": def({
-    summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: rowKeys("draft.indent"),
+    summary: "indent one level: the list item the cursor is on (it goes under the item above), the selection's lines, any other line from its start or inside its indent (in the middle of a paragraph the key moves nothing), or lines from..to outright", keys: rowKeys("draft.indent"),
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     examples: [
       { act: "draft.indent", does: "indents the cursor's line, or the selected lines, one level" },
       { act: "draft.indent from=3 to=5", does: "indents lines 3 to 5 one level" },
     ],
-    run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
+    run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.tab(); if (n) d.wrote(actor); return { lines: n }; },
   }),
   "draft.outdent": def({
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: rowKeys("draft.outdent"),
@@ -1917,11 +1753,6 @@ const stripWith = (who: Actor): Actor => { const { with: _, ...me } = who; retur
 type Edit = { at: number; removed: number; text: string };
 /** `edits` (in order, apart) made to `from`. */
 const applyEdits = (from: string, edits: Edit[]) => { let out = "", i = 0; for (const e of edits) { out += from.slice(i, e.at) + e.text; i = e.at + e.removed; } return out + from.slice(i); };
-/** A text's words with its property chips taken out (the shared property grammar), spacing folded. */
-const wordsOf = (text: string) => { let out = "", at = 0; for (const p of parsePropertyRecords(text)) { out += text.slice(at, p.start); at = p.end; } return (out + text.slice(at)).replace(/\s+/g, " ").trim(); };
-const chipsIn = (text: string) => parsePropertyRecords(text).map(p => text.slice(p.start, p.end)).join("\u0000");
-/** A change of property chips alone (a stamp, PIE-1756): the chips differ, and the words around them are the same. */
-const chipsOnly = (before: string, after: string) => chipsIn(before) !== chipsIn(after) && wordsOf(before) === wordsOf(after);
 /** `props` with the chips `before` held and `after` doesn't taken out, and the ones `after` adds put in. */
 const chipsMoved = (props: PropertyList, before: string, after: string): PropertyList => {
   const chips = (text: string) => parsePropertyRecords(text).map(p => `${p.key}\u0000${p.value}`);
@@ -1930,11 +1761,6 @@ const chipsMoved = (props: PropertyList, before: string, after: string): Propert
   for (const gone of less(was, now)) { const i = out.findIndex(p => `${p.key}\u0000${p.value}` === gone); if (i >= 0) out.splice(i, 1); }
   return [...out, ...less(now, was).map(c => { const [key, value] = c.split("\u0000") as [string, string]; return { key, value }; })];
 };
-/** A paragraph of its own added at the very end of `text`, in place of nothing or of its trailing blank lines. */
-const belowAll = (text: string, sp: LocatedSpan) => sp.end === text.length && !text.slice(sp.start).trim() && sp.replacement.startsWith("\n");
-/** Where the line holding `offset` starts and ends in `text`. */
-const lineStartAt = (text: string, offset: number) => text.lastIndexOf("\n", offset - 1) + 1;
-const lineEndAt = (text: string, offset: number) => { const end = text.indexOf("\n", offset); return end < 0 ? text.length : end; };
 /**
  * Step `s` as the spans its agent patch changed, in the text undoing (`back`) or redoing it starts from; null for a step
  * with no patch, or one that took a patch back (its spans were where the patch was, not where it was taken back).

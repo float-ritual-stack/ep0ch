@@ -335,6 +335,48 @@ describe("the watch registry", () => {
     watches.stop();
   });
 
+  test("a slow awaited watch holds nobody else's news back: the pass tells the plain watches at once, and the awaited one when it lands", async () => {
+    const turns = new Turns();
+    let value = 0, slow = 0, releases: Array<() => void> = [];
+    const watches = new QueryWatches({ answer: r => ({ id: r.id, ok: true, result: { value }, sequence: 1 }), sequence: () => 1, settleMs: 5, turn: action => turns.next(action, "watches") });
+    // A window's page, answered over a turn of its own (a note's page asks the service a question a component).
+    const later = (r: { id: string }) => { slow += 1; const now = value; return new Promise<{ id: string; ok: true; result: { value: number }; sequence: number }>(resolve => releases.push(() => resolve({ id: r.id, ok: true, result: { value: now }, sequence: 1 }))); };
+    const release = async () => { const all = releases; releases = []; for (const go of all) go(); await Bun.sleep(5); };
+    const window = conn(), other = conn(), door = conn();
+    const page = watches.askLater(window, { id: "x", action: "notes.page", blockId: "bed", watch: "page" }, later);
+    const same = watches.askLater(other, { id: "x", action: "notes.page", blockId: "bed", watch: "bed" }, later);
+    await release();
+    expect(await page).toMatchObject({ ok: true, result: { value: 0, generation: 0 } });
+    expect(await same).toMatchObject({ ok: true, result: { value: 0, generation: 0 } });
+    watches.ask(door, { id: "x", action: "blocks.query", query: { where: "type=bed" }, watch: "beds" });
+    slow = 0;
+    value = 1;
+    watches.flush();
+    // The door hears while the window's page is still on its way.
+    const started = Date.now();
+    while (changesOf(door).length === 0 && Date.now() - started < 400) await Bun.sleep(5);
+    expect(changesOf(door)).toEqual([[{ key: "beds", generation: 1 }]]);
+    expect(changesOf(window)).toEqual([]);
+    // One answer a question: the page two windows watch is asked once.
+    expect(slow).toBe(1);
+    // What changes while it is on its way asks no second copy; it is asked again once this one has landed.
+    value = 2;
+    watches.flush();
+    while (changesOf(door).length < 2 && Date.now() - started < 800) await Bun.sleep(5);
+    expect(changesOf(door)[1]).toEqual([{ key: "beds", generation: 2 }]);
+    expect(slow).toBe(1);
+    await release();
+    expect(changesOf(window)).toEqual([[{ key: "page", generation: 1 }]]);
+    expect(changesOf(other)).toEqual([[{ key: "bed", generation: 1 }]]);
+    expect(slow).toBe(2);
+    await release();
+    // The newest answer is the one kept: asked again, the watch answers from it.
+    expect(changesOf(window)[1]).toEqual([{ key: "page", generation: 2 }]);
+    expect(await watches.askLater(window, { id: "y", action: "notes.page", blockId: "bed", watch: "page" }, later)).toMatchObject({ result: { value: 2, generation: 2 } });
+    expect(slow).toBe(2);
+    watches.stop();
+  });
+
   test("changes coalesce: one pass after the burst settles, and one at least every maxWaitMs under steady writes", async () => {
     let passes = 0;
     const watches = new QueryWatches({ answer: r => { passes += r.id === "watch" ? 1 : 0; return { id: r.id, ok: true, result: {}, sequence: 1 }; }, sequence: () => 1, settleMs: 40, maxWaitMs: 100 });

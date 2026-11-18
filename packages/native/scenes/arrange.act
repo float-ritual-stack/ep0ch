@@ -1,0 +1,6 @@
+# The outline's first note opened (a press on its row), the reader split, and the tree put in a tab with the
+# backlinks, in their dock.
+list.pick n=1 tile=tree
+tile.split
+layout.move to=backlinks where=tabs tile=tree
+tile.focus tile=reader

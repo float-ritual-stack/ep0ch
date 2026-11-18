@@ -14,17 +14,9 @@ import { AGENT_VARS, DOOR_START_VARS, PLACE_VAR, outerClaudeVar } from "./agent-
 /** An hc terminal name: 1–32 lowercase letters, digits, underscores or hyphens. */
 export const HC_NAME = /^[a-z0-9_-]{1,32}$/;
 
-/** One row of `.ep0ch/agents.toml`. `machine` empty: this machine (`hc run` omits `--on`). */
-export interface NamedAgent {
-  persona: string;
-  machine: string;
-  folder: string;
-  program: string;
-  outline: string;
-  outlineMachine?: string;
-  /** A restored card resolves this folder's declaration again before starting a program. */
-  declarationFolder?: string;
-}
+/** One row of `.ep0ch/agents.toml`. `machine` empty: this machine (`hc run` omits `--on`). A tile keeps it (TileSpec.namedAgent), so its shape is outline-core's. */
+export type { NamedAgent } from "@ep0ch/outline-core/screen-spec";
+import type { NamedAgent } from "@ep0ch/outline-core/screen-spec";
 
 export interface HcListTerm {
   address: string;

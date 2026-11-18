@@ -26,6 +26,7 @@ import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import type { PlacedSpan } from "@ep0ch/outline-core/draft-patch-place";
 import type { Block, MutationProvenance } from "./types";
 import { actorName } from "@ep0ch/outline-core/attribution";
 import { valueOf } from "@ep0ch/outline-core/block-record";
@@ -155,17 +156,31 @@ export type DraftHolderRequest =
        */
       standsOn?: DraftStandsOn;
     }
-  | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string };
+  | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string }
+  /**
+   * The spans to replace in a draft whose holder places none itself (`HeldDraft`, src/draft-place.ts): found by the
+   * service in the text the holder said it has (`version`), so a holder that typed since refuses and says what it has now.
+   * `revert`: the patch `patchId` taken back. `did`: what it did, as the person is told.
+   */
+  | { kind: "place"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string; version: string; spans: PlacedSpan[]; mutation?: MutationProvenance; did?: string; revert?: boolean; standsOn?: DraftStandsOn };
 
 /** What a draft stands on once a patch the saved note also took has landed (PIE-1756). */
 export interface DraftStandsOn { revision: number; text: string }
+
+/**
+ * A live draft as a holder that places no patch says it has it (a client that reads no Blockdown: the native window).
+ * It answers a `patch`, a `revert` or a `place` it can't take with this, and the service places the patch in it
+ * (src/draft-place.ts). Offsets are UTF-16 units of `text`; `version` names this text, for the `place` that follows.
+ */
+export interface HeldDraft { text: string; revision: number; version: string; cursor: number; anchor: number; busy?: boolean }
 
 export type DraftHolderAnswer =
   /** `cursorLine`: the line of `text` the person's cursor is on (PIE-1743), so an ask being written waits for them. */
   | { text: string; revision: number; cursorLine?: number }
   | { applied: true; inverse?: { before: string; text: string; revision: number } }
-  | { applied: false; reason: string }
-  | { reverted: boolean };
+  /** `draft`: the holder places no patch itself; this is what it holds, for the service to place it in. */
+  | { applied: false; reason: string; draft?: HeldDraft }
+  | { reverted: boolean; draft?: HeldDraft };
 
 // ── the policy ───────────────────────────────────────────────────────────────
 

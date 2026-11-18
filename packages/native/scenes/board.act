@@ -1,0 +1,4 @@
+# The board, opened from the bar's Screens as a person does: lanes grouped by the property its screen names.
+bar.open scope=screens query=board
+bar.pick n=1
+list.pick n=1 tile=lanes

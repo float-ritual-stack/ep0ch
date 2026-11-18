@@ -123,6 +123,9 @@ export interface ExtensionTileKind {
   readonly render?: string;
   /** A list tile (PIE-1506): the query its rows are, drawn as the door's query tile. */
   readonly view?: string;
+  /** A kind a door draws itself: the drawer it draws with (`list`, `page`), and what a tile of it starts with. */
+  readonly drawer?: string;
+  readonly fields?: Readonly<Record<string, string | number | boolean>>;
   readonly actions: readonly ExtensionActionEntry[];
   readonly policy: NonNullable<ExtensionTile["policy"]>;
   readonly accepts: readonly string[];
@@ -514,6 +517,12 @@ export class ExtensionRegistry {
     return slot && (slot.state === "active" || slot.state === "failed") ? slot.serving : undefined;
   }
 
+  /** The extension that ships a script's file (its manifest's `scripts[]`), as loaded: whose settings that script reads. */
+  shipperOf(script: { file?: string }): LoadedExtension | undefined {
+    const slot = script.file ? this.slots.find((candidate) => candidate.partOf && (candidate.script ?? candidate.serving?.script)?.file === script.file) : undefined;
+    return slot?.partOf ? this.loaded(slot.partOf) : undefined;
+  }
+
   /** The copy an extension's folder last loaded, whatever its state (a disabled one's too); none when shadowed or never loaded. */
   loaded(id: string): LoadedExtension | undefined {
     return this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed")?.serving;
@@ -553,6 +562,7 @@ export class ExtensionRegistry {
       ...(tile.run ? { command: tile.run[0] === "bun" ? [process.execPath, ...tile.run.slice(1)] : [...tile.run] } : {}),
       ...(tile.render ? { render: tile.render } : {}),
       ...(tile.view ? { view: tile.view } : {}),
+      ...(tile.drawer ? { drawer: tile.drawer, ...(tile.fields ? { fields: { ...tile.fields } } : {}) } : {}),
       cwd: extension.directory,
       host: hostname(),
       env: programEnv({

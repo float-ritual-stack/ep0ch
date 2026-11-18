@@ -6,6 +6,13 @@
   "description": "Everything you're waiting on others for, grouped by who, the longest wait first. Every outbox item still waiting for an answer; the main menu's O opens it beside a reader.",
   "defaultOn": true,
   "demo": "demo",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "warn-days": { "type": "integer", "minimum": 1, "default": 3, "description": "A wait longer than this many days is drawn as a warning" }
+    },
+    "additionalProperties": false
+  },
   "scripts": [
     {
       "name": "waiting",

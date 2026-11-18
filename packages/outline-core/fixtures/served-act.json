@@ -1,0 +1,29 @@
+{
+  "about": "What the service answers `extensions.act` as the native window asks it: the default-on what-changed extension's `change`, about a made-up note, on a scratch service. `asks` is everything such an answer may ask of the client beyond saying its words (the outliner's ACT_ASKS_OF_A_CLIENT): a client does each or says it isn't done there. Written by packages/outliner/test/list-extensions.test.ts (EP0CH_WRITE_FIXTURES=1), never by hand; packages/native/src/tests read it.",
+  "asks": [
+    "confirmation",
+    "open",
+    "compare",
+    "copy",
+    "insert",
+    "runbook"
+  ],
+  "asked": {
+    "action": "extensions.act",
+    "extension": "what-changed",
+    "extensionAction": "change",
+    "args": {},
+    "blockId": "north-bed",
+    "mutation": {
+      "author": "user"
+    }
+  },
+  "answered": {
+    "extension": "what-changed",
+    "action": "change",
+    "message": "the change, beside the note",
+    "written": [],
+    "open": "north-bed",
+    "compare": true
+  }
+}

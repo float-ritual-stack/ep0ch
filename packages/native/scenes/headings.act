@@ -1,0 +1,5 @@
+# A note whose headings and rule name a style, and a line that declares one (scenes/parts.seed.ts writes it): the
+# page draws them without the properties that style a line, and keeps the ones that say something. Its properties
+# are listed beside it: a table whose rows scroll under a line below its column header.
+bar.open scope=search query="Hazel fence plan"
+bar.pick n=1

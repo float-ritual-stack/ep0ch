@@ -1,0 +1,5 @@
+# An extension, used and configured: Waiting's own screen (its tile is what its script draws, built through the
+# primitive registry; the reader beside is where its picks land), and the form its settings schema makes, over both
+# (scenes/parts.seed.ts writes the asks it lists into a scratch outline).
+screen.open name=waiting
+extensions.configure id=waiting

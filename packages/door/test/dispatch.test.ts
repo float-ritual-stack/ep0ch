@@ -217,7 +217,7 @@ describe("the draft rule, for the person's draft and an agent's (round 3, deferr
 
   test("invited, the actor rule lets the draft rule decide even while the person types; uninvited it refuses first", () => {
     const def = { touches: "draft" as const, draft: "text" as const };
-    expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, draft: () => null })).toMatch(/^the person is typing in middle; an agent doesn't replace their text · block.mark gets their attention/);
+    expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, draft: () => null })).toMatch(/^the person is typing in middle; an agent doesn't replace their text until it's sent or closed · block\.mark gets their attention/);
     expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, invited: true, draft: () => null })).toBeNull();
     expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, invited: true, draft: () => "no open invitation" })).toBe("no open invitation");
   });

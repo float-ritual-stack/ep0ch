@@ -1,0 +1,8 @@
+# A fold's mark opens onto notes (scenes/about.seed.ts writes the notes and saves the screen): the bean rows have a
+# comment thread and a proposed edit under them and no note, so their row has no mark; the seed list is opened, and
+# the way to it unfolds (the screens' folder, whose mark opens onto its notes). The second reader was told no note:
+# it is empty, and says what it is in its kind's own words.
+bar.open scope=screens query=two-beds
+bar.pick n=1
+bar.open scope=search query="Seed list"
+bar.pick n=1

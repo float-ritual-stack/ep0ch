@@ -1,4 +1,5 @@
 import { SETTINGS_TILE } from "./settings";
+import { shippedAbout, shippedKinds } from "./shipped";
 import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
@@ -21,7 +22,7 @@ import { mountKinds } from "./screen-tile";
 import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
-import { kindOf, registerTileKind, registerTileSource, terminalFacts, tileKind, tileSource, type TileKind } from "./tile-kinds";
+import { aliasTileKind, kindOf, registerTileKind, registerTileSource, terminalFacts, tileKind, tileSource, type TileKind } from "./tile-kinds";
 import { dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
@@ -103,7 +104,7 @@ export const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
 const builtins = (): TileKind[] => [
   SETTINGS_TILE,
   {
-    kind: "tree", previews: true, handsKeys: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
+    kind: "tree", previews: true, handsKeys: true, about: shippedAbout("tree"), keys: [{ key: "t", label: "outline" }],
     make: () => new TreePane(), actions: TREE_ACTIONS,
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
@@ -112,7 +113,7 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   {
-    kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+    kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: shippedAbout("reader"),
     // ^W o d names it a detail (`mode: held` reads as no pin); ^W o r a reader. They're the same tile (PIE-1207).
     keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
     make: s => readerFromSpec(s, new ReaderPane(true)),
@@ -191,13 +192,13 @@ const builtins = (): TileKind[] => [
       return t.isNvim ? `tile:${name}` : `file:${t.file}`;
     },
   },
-  { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
-  { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
+  { kind: "activity", about: shippedAbout("activity"), keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
+  { kind: "who", about: shippedAbout("who"), keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
   // A screen mounted in a tile (PIE-651): any screen, a part of one, a group (the board and river among them).
   ...mountKinds(),
   {
-    kind: "query", openArgs: ["view", "query", "source", "mode"], previews: true, about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
+    kind: "query", openArgs: ["view", "query", "source", "mode"], previews: true, about: shippedAbout("query"),
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
     make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null, s.mode === "held"); }, actions: QUERY_ACTIONS,
@@ -229,7 +230,7 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", openArgs: ["source", "linkGroups", "subject"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+    kind: "backlinks", openArgs: ["source", "linkGroups", "subject"], about: shippedAbout("backlinks"),
     // The thread tile was this one with Children alone (PIE-693): a layout saved with one opens it so (canonSpec), and saves it so.
     replaces: ["thread"],
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
@@ -257,4 +258,7 @@ const builtins = (): TileKind[] => [
 export function registerBuiltinTiles(): void {
   for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, ACCESS_MATRIX_KIND, AGENTS_KIND, FACETS_KIND, COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE, ANSWER_TILE, TRAIL_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
+  // The names the screens extension serves these kinds under are the door's own kinds: a screen `screens.list` serves
+  // with `screens.reader` opens the door's reader, and saves as it.
+  for (const k of shippedKinds()) for (const own of k.names) aliasTileKind(k.served, own);
 }

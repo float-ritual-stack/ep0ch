@@ -4,6 +4,7 @@
 // over an image, so the clipboard is read on this machine: pbpaste's cousins on macOS, wl-paste or xclip on Linux.
 import { createHash } from "node:crypto";
 import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
+import { artifactLine, imageLine, isImageName, keptMediaName } from "@ep0ch/outline-core/media-keep";
 import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { shellWords } from "@ep0ch/outline-core/shell-words";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -14,8 +15,6 @@ import type { SocketBoard } from "./socket";
 import { def } from "./surface/actions";
 import type { On } from "./surface/note";
 
-/** The picture formats a paste takes: what the reader draws. */
-const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic"]);
 
 /** Tests and other platforms say how the clipboard is read; null: this platform's way. */
 export const clipboardImageReader: { read: (() => Promise<Buffer | null>) | null } = { read: null };
@@ -93,7 +92,6 @@ function droppedFile(text: string, wanted: (name: string) => boolean = isDropNam
   try { return statSync(r.path).isFile() ? r.path : null; } catch { return null; }
 }
 
-const isImageName = (name: string) => IMAGE_EXT.has(extname(name).toLowerCase());
 /** A file a drop turns into a line: a picture, or an artifact (a page claude.ai runs: `.html`, `.jsx`, `.svg`, …; PIE-1656). */
 const isDropName = (name: string) => isImageName(name) || !!artifactKind(name);
 const isPathWord = (word: string) => /^(?:\/|~\/)/.test(word);
@@ -151,18 +149,18 @@ export function keepImage(folder: string, image: Buffer | string, now = new Date
   if (!folder || !existsSync(folder)) throw new Error(`the outline's folder isn't on this machine (${folder || "none"}): pictures go there`);
   const bytes = typeof image === "string" ? readFileSync(image) : image;
   const ext = typeof image === "string" ? extname(image).toLowerCase() || extOf(bytes) : extOf(bytes);
-  const day = now.toISOString().slice(0, 10), hash = createHash("sha256").update(bytes).digest("hex").slice(0, 8);
+  const day = now.toISOString().slice(0, 10), hash = createHash("sha256").update(bytes).digest("hex");
   const dir = join(folder, "media");
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${day}-${hash}${ext}`);
+  // (The name is outline-core's rule, which the service's media.keep asks too: both keep one file for one picture.)
+  const path = join(dir, keptMediaName(day, hash, ext));
   if (!existsSync(path)) { if (typeof image === "string") copyFileSync(image, path); else writeFileSync(path, bytes); }
   return path;
 }
 
-/** The media line for a kept picture: brackets in its path are the line's own grammar's to read. */
-export const imageLine = (path: string) => `[img::${path}]`;
-/** The media line for a dropped artifact (PIE-1656): its path as the file's, spaces and all; the line's grammar reads it whole. */
-export const artifactLine = (path: string) => `[artifact::${path}]`;
+// The media lines for a kept picture and a dropped artifact are outline-core's (`media-keep.ts`), which the service's
+// media.keep writes too.
+export { artifactLine, imageLine };
 
 /** The folders this outline's notes name for dropped files: `[drop-folder::<folder>]` on any note. */
 async function dropFolders(board: Pick<SocketBoard, "request">): Promise<string[]> {

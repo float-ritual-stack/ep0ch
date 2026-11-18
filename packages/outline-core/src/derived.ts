@@ -11,6 +11,19 @@ const KIND_OF_TYPE: Record<string, DerivedKind> = { "draft-proposal": "proposal"
 /** What a block's `type` makes it, when it only exists because of another block: a proposal, a comment or a delivery. */
 export const derivedKindOf = (type: string | undefined): DerivedKind | undefined => (type && Object.hasOwn(KIND_OF_TYPE, type) ? KIND_OF_TYPE[type] : undefined);
 
+/**
+ * The types of a block that sits under a note and is no note of it: a comment on it, a reply in a thread, an edit
+ * proposed beside it. (A delivery is listed: it is a note somebody was sent.)
+ */
+export const BESIDE_TYPES: readonly string[] = ["annotation", "annotation-reply", "draft-proposal"];
+
+/**
+ * Whether a block under a note is one of its notes, by its `type`: the one answer to "what are the notes under this
+ * note", whoever lists them (the outline as a tree, a page's own list, a `::links` Children group, a figure block's
+ * rows, a published page). `CHILDREN_QUERY` (figure-live.ts) is the same reading written as a question.
+ */
+export const isNoteUnder = (type: string | null | undefined): boolean => !BESIDE_TYPES.includes(type?.trim().toLowerCase() ?? "");
+
 /** How many derived blocks a note holds, by kind. */
 export interface ChangeCounts { count: number; proposals: number; comments: number; deliveries: number }
 

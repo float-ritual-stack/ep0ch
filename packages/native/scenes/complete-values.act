@@ -1,0 +1,8 @@
+# A property's values, each with its look (scenes/parts.seed.ts writes the note into a scratch outline): a heading
+# pattern's values listed, every row drawing its glyph track beside its name, and the card of the lit row drawing
+# that pattern as a band over an example heading. Nothing is said to be "as drawn" that is words.
+bar.open scope=search query="Frost fleece"
+bar.pick n=1
+edit
+draft.paste text=" [heading-pattern::"
+complete.move by=1

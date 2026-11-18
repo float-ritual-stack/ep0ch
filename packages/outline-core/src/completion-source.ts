@@ -91,6 +91,13 @@ export interface SourceRow {
    * type), with the declaring note it needs, for a client to draw beside the list; `inline` draws a glimpse after the label too.
    */
   example?: { use: string; note?: string; inline?: boolean };
+  /**
+   * How what it writes looks, when a primitive draws it (a schema value's `sample` and `shown`): `sample` one line
+   * high, drawn in the row beside its label; `shown` on an example, for the card of the lit row. A client draws both
+   * with the parts it draws a page with.
+   */
+  sample?: import("./primitive").Primitive;
+  shown?: import("./primitive").Primitive;
   /** The component (its schema id) the row writes: a client that draws its properties table finds it by this. */
   component?: string;
   /** What the row opens into (→): its variations and arguments, each a row of its own. */
@@ -260,4 +267,52 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
     if (opts.limit !== undefined && out.length >= opts.limit) break;
   }
   return out;
+}
+
+/** What of a source's answer a merged list's own words are made from. */
+export interface SaidAnswer { rows: readonly unknown[]; source: { title: string }; problem?: string; truncated?: number | null; empty?: string; partial?: string; heading?: string }
+
+/**
+ * What a merged list says of itself, in its sources' own words: its heading, and the line under it (that it is
+ * partial or cut, what failed; or, with nothing to show, why). `failed`: the lookup itself failed. Every client that
+ * shows the list says this.
+ */
+export function completionSaid(all: readonly SaidAnswer[], shown: number, failed?: string): { heading: string; message: string; truncated: number | null } {
+  const truncated = all.find(a => a.truncated)?.truncated ?? null;
+  const partial = all.map(a => a.partial).find(Boolean) ?? "";
+  const problems = [failed, ...all.map(a => a.problem)].filter(Boolean).join(" · ");
+  const empty = all.map(a => a.empty).filter(Boolean).join(" · ");
+  const message = shown ? [partial || (truncated ? `showing the first ${truncated} matches` : ""), problems].filter(Boolean).join(" · ")
+    : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
+  const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
+  return { heading, message, truncated };
+}
+
+/**
+ * Whether a list asks again once a row of it is chosen, when the cursor is then in a token (a folder leaves
+ * `[file::notes/` open and its entries come next; a property's key its values). Not after words offered for a
+ * question, a filter's value (the cursor is still in its word, which would offer the same value again), or a
+ * component, unless what was chosen there is one of its properties. The one rule: the door's completer asks it with
+ * the token it then finds, and the service says the answer on each row of the text-and-cursor form (`next`).
+ */
+export const asksAgain = (kind: CompletionKind, row: Pick<SourceRow, "kind" | "querySuggestion">): boolean =>
+  !row.querySuggestion && kind !== "filter-value" && (kind !== "component" || row.kind === "property");
+
+/** What the Return rule reads of the lit row: what it would write, and what it says of itself. */
+export interface EnterRow { insertion: string; enter?: "new line" | "applies"; newPage?: unknown; querySuggestion?: unknown }
+
+/**
+ * Whether Return is the field's rather than the completion list's, and what it does there (null: it takes the lit row,
+ * as Tab does). The one rule, asked by every completer: the door's, the Detail's, and the service's text-and-cursor
+ * form of `completion.rows`, which says the answer on each row (`enter`) for a window that reads no Blockdown.
+ *
+ * Return is the field's for a row that says so (`enter`: a figure's YAML, a property offered before anything is
+ * typed, a filter's words), a page nobody has written yet, words offered for a question, and a row that would leave the
+ * line as it is typed. A deliberate choice (`chosen`: an arrow, a click, Tab) makes Return take the row. In a one-line
+ * field that applies what is typed (`applies`), that is what Return does there.
+ */
+export function enterKeeps(row: EnterRow | undefined, at: { chosen: boolean; line: string; start: number; end: number; applies?: boolean }): "new line" | "applies" | null {
+  if (at.chosen || !row) return null;
+  const unchanged = at.line.slice(0, at.start) + row.insertion + at.line.slice(at.end) === at.line;
+  return row.enter || row.newPage || row.querySuggestion || unchanged ? (at.applies ? "applies" : row.enter ?? "new line") : null;
 }

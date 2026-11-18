@@ -365,6 +365,8 @@ function candidateRow(schemas: readonly ComponentSchema[], c: PropertyCandidate,
   return {
     label: c.label, kind, docs: c.detail, insert: ask.headingShort ? `[heading::${c.insertion}` : c.insertion,
     ...(v ? { example: { use: v.use, ...(v.note ? { note: v.note } : {}), inline: true } } : {}),
+    // How the value looks, when its schema drew it: a primitive for the row, and one for the lit row's card.
+    ...(c.sample ? { sample: c.sample } : {}), ...(c.shown ? { shown: c.shown } : {}),
   };
 }
 

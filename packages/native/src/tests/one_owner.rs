@@ -1,0 +1,1092 @@
+//! The source, scanned: each decision has one place, and this fails when a second one appears.
+//!
+//! What the compiler already holds is not scanned again: `App`'s state is private to `actions/` (its fields are
+//! `pub(in crate::actions)` and it derefs, read-only, to `State`), so a view cannot assign a field. The scans
+//! are for the ways round that, and for the parts with one owner by agreement.
+use std::path::Path;
+
+/// Every source file of the app but its tests: (path under src/, text).
+fn sources() -> Vec<(String, String)> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()) {
+            let name = entry.strip_prefix(root).unwrap().to_str().unwrap().to_string();
+            if entry.is_dir() { if name != "tests" { walk(&entry, root, out) } } else if name.ends_with(".rs") { out.push((name, std::fs::read_to_string(&entry).unwrap())) }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut out = Vec::new();
+    walk(&root, &root, &mut out);
+    out.sort();
+    out
+}
+
+/// The lines of code that hold `needle`, outside the files allowed to: `path:line: text`.
+fn strays(needle: &str, allowed: impl Fn(&str) -> bool) -> Vec<String> {
+    sources().iter().filter(|(path, _)| !allowed(path)).flat_map(|(path, text)| {
+        text.lines().enumerate().filter(|(_, line)| !line.trim_start().starts_with("//") && line.contains(needle)).map(|(n, line)| format!("{path}:{}: {}", n + 1, line.trim())).collect::<Vec<_>>()
+    }).collect()
+}
+
+fn none(what: &str, found: Vec<String>) { assert!(found.is_empty(), "{what}:\n{}", found.join("\n")) }
+
+#[test]
+fn a_key_is_bound_and_a_chord_is_read_only_in_keys_rs() {
+    none("a key handler outside keys.rs: bind the key in its action's row", strays(".on_key(", |path| path == "keys.rs"));
+    none("a chord read outside keys.rs", strays("Chord::parse", |path| path == "keys.rs"));
+    // The window's own handler is the table's, named once.
+    let named: Vec<String> = strays("on_key:", |_| false).into_iter().map(|found| found.splitn(3, ':').enumerate().filter(|(i, _)| *i != 1).map(|(_, part)| part.to_string()).collect::<Vec<_>>().join(":")).collect();
+    assert_eq!(named, ["main.rs: on_key: Some(keys::press),"]);
+    none("a key matched by hand: bind it in its action's row", strays("Key::", |path| path == "keys.rs"));
+}
+
+#[test]
+fn where_the_keys_are_is_said_once_and_a_hint_row_reads_it() {
+    // Which layer has the keys is `App::person` (and `App::writing` for a block's draft and the list over it): a
+    // drawer that names a layer of its own shows another layer's keys (the editor's hint row did, under an open list).
+    none("a layer named by a drawer: ask App::writing or App::person", strays("Layer::", |path| !path.starts_with("tiles/")));
+    // The bar and the form draw their own hint rows, each under the one field it is the keys of.
+    let named: Vec<String> = strays("Layer::", |path| path == "keys.rs").into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert!(named.iter().all(|path| path == "bar.rs"), "a layer named outside keys.rs and the bar's own two hint rows: {named:?}");
+    // A screen's own keys are read off its spec in one place, and bound in keys.rs with the rows'.
+    none("a screen's keys read outside the spec's own reader", strays("[\"keys\"]", |path| path == "screen.rs"));
+    none("a screen's keys bound outside keys.rs", strays(".keys()", |path| path == "keys.rs").into_iter().filter(|found| found.contains("spec")).collect());
+    // Which kinds a rule of a screen holds on (`only`, `unless`) is read once, for a key and for a new-note rule alike.
+    none("the kinds a screen's rule holds on matched outside the spec's own reader (`screen::holds_on`)", ["\"only\"", "\"unless\""].iter().flat_map(|key| strays(key, |path| path == "screen.rs")).collect());
+}
+
+#[test]
+fn state_changes_only_under_actions_and_the_store() {
+    let texts = sources();
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("the App is defined under actions/").1;
+    // The compiler's half: the state and the store are private to actions/, and nothing hands them out to write.
+    assert!(app.contains("pub(in crate::actions) st: State,") && app.contains("pub(in crate::actions) store: Store,"));
+    none("App handed out to write: only Deref", strays("DerefMut", |_| false));
+    none("the state handed out to write", strays("&mut State", |_| false));
+    none("the store handed out to write", strays("&mut Store", |path| path == "store.rs"));
+    // (The store's hub is behind one: the windows of a run share it, and a window's views read the answers as that
+    // window last took them, never the hub itself.)
+    none("state behind a cell, where a view could write it", strays("RefCell", |path| path == "store.rs").into_iter().chain(strays("Cell<", |path| path == "store.rs")).collect());
+    // The ways in that are not acts are the kit's own hands and the link's life, each with the callers named here.
+    for (hand, callers) in [
+        (".field(", vec!["keys.rs"]),
+        (".typed(", vec!["keys.rs"]),
+        (".held()", vec!["keys.rs"]),
+        (".resized(", vec!["shell.rs"]),
+        // How many rows a list's view shows is told by the one drawer of a list as its scroll is laid out, as the
+        // window's size is told by the shell: what a page of its cursor is.
+        (".list_room(", vec!["tiles/list.rs"]),
+        (".revealed()", vec!["keys.rs"]),
+        (".take()", vec!["main.rs", "store.rs", "client.rs"]),
+        (".reconnect()", vec!["main.rs"]),
+        (".beat()", vec!["main.rs"]),
+        (".start()", vec!["main.rs"]),
+        (".settle()", vec!["main.rs"]),
+        (".script(", vec!["main.rs"]),
+    ] {
+        // The layout is pure (it holds no App: `a_layout_is_pure` below), so a word that is also a hand's name there is its own.
+        none(&format!("{hand} called from somewhere new"), strays(hand, |path| path.starts_with("actions/") || path.starts_with("layout") || callers.contains(&path)));
+    }
+    // Everywhere else, a handler that gets the App does one thing with it: runs an act line.
+    for (path, text) in texts.iter().filter(|(path, _)| !path.starts_with("actions/") && !["store.rs", "keys.rs", "control.rs", "main.rs"].contains(&path.as_str())) {
+        for (n, line) in text.lines().enumerate().filter(|(_, line)| line.contains("&mut App") && !line.trim_start().starts_with("//")) {
+            // (`act_in` is an act line run from the tile it was pressed in, and `pressed_in` the same for a press, which
+            // gives its tile the keys first: the dispatcher's own, as `act` is.)
+            let hands_on = line.contains(".act(") || line.contains(".act_in(") || line.contains(".pressed_in(") || line.contains("s.resized(") || line.contains("s.list_room(") || line.contains("pick(s)") || line.contains("run(s)") || line.contains("impl Fn(&mut App)");
+            assert!(hands_on, "{path}:{}: a handler that doesn't run an act line: {}", n + 1, line.trim());
+        }
+    }
+}
+
+#[test]
+fn a_write_and_a_read_go_through_the_store_and_a_row_through_the_one_list() {
+    none("a request built outside the store", strays("link.send(", |path| path == "store.rs"));
+    none("a wire write outside an action", strays(".write(", |path| path.starts_with("actions/") || path == "store.rs"));
+    none("a one-off request outside an action", strays(".request(", |path| path.starts_with("actions/") || path == "store.rs"));
+    none("an attribution written outside the store", strays("\"actorId\"", |path| path == "store.rs"));
+    none("rows built by index outside list.rs", strays("virtual_rows(", |path| path == "list.rs"));
+}
+
+#[test]
+fn a_label_and_a_keycap_come_from_the_rows() {
+    // No keycap is written out: a view asks the table.
+    none("a keycap written by hand: ask keys::cap", ["⌘", "⌥", "⌃", "⇧", "Ctrl+", "Cmd+"].iter().flat_map(|cap| strays(cap, |path| path == "keys.rs")).collect());
+    // A button names its act line and nothing else; what it is called is the row's.
+    none("a button with a label of its own: name its act line", strays("Button::new(\"", |_| false));
+    // The spike's parts that decided on their own are gone.
+    for gone in ["enum Finder", "enum Tag", "Notice::Trashed", "fn palette(", "fn scene_", "fn on_key("] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+}
+
+/// The lines of code that call the function `name` (the word, not the end of a longer one), outside the files allowed to.
+fn calls(name: &str, allowed: impl Fn(&str) -> bool) -> Vec<String> {
+    let needle = format!("{name}(");
+    strays(&needle, allowed).into_iter().filter(|found| {
+        let line = found.splitn(3, ':').nth(2).unwrap_or("");
+        line.match_indices(&needle).any(|(at, _)| !line[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'))
+    }).collect()
+}
+
+/// The arrangement has one decider. `layout.rs` and what is under it are pure: no Rune, no socket, no App. Only an
+/// action issues an operation, only `reshape`'s file asks `apply`, and only the open action's asks `place`.
+#[test]
+fn the_layout_is_pure_and_only_an_action_changes_it_or_places_an_open() {
+    let texts = sources();
+    let layout: Vec<&(String, String)> = texts.iter().filter(|(path, _)| path.starts_with("layout")).collect();
+    assert!(layout.len() >= 4, "layout.rs and its parts: {:?}", layout.iter().map(|(path, _)| path).collect::<Vec<_>>());
+    for (path, text) in &layout {
+        for word in ["rune::", "rune_kit", "crate::store", "crate::client", "crate::actions", "crate::keys", "UnixStream", "App"] {
+            let found: Vec<String> = text.lines().enumerate().filter(|(_, line)| !line.trim_start().starts_with("//") && line.contains(word)).filter(|(_, line)| word != "App" || line.split(|c: char| !c.is_alphanumeric()).any(|w| w == "App")).map(|(n, line)| format!("{path}:{}: {}", n + 1, line.trim())).collect();
+            none(&format!("the layout is pure: {word} in it"), found);
+        }
+    }
+    none("an operation issued outside an action: run an act line", strays("Op::", |path| path.starts_with("actions/") || path.starts_with("layout")));
+    none("the layout applied outside the one place an action reshapes it (actions/layout.rs)", calls("apply", |path| path == "actions/layout.rs" || path.starts_with("layout")));
+    // (`client::place` is where the outline is: another word.)
+    none("an open placed outside the open action (actions/nav.rs)", ["layout::place(", "layout::placement(", "layout::{place", "layout::place;", "placement::place"].iter().flat_map(|call| strays(call, |path| path == "actions/nav.rs" || path.starts_with("layout"))).collect());
+    assert_eq!(calls("place", |path| !path.starts_with("actions/")).len(), 1, "one call of place( under actions/: the open action's");
+    // A drawer is handed a TileCx and speaks by act lines: nothing under tiles/ is handed the layout to change, or the wire.
+    none("a drawer handed the layout to change", strays("&mut Layout", |path| !path.starts_with("tiles/")));
+    none("a drawer that reaches the wire", ["crate::client", ".write(", ".request(", "UnixStream"].iter().flat_map(|word| strays(word, |path| !path.starts_with("tiles/"))).collect());
+    // The parts the spike decided the window's shape with are gone, and the shell uses none of the kit's fixed panes.
+    for gone in ["SplitView", "PaneState", "fn sidebar(", "fn toolbar(s: &App, k: &Kit) -> Toolbar", "pub back: Vec<String>", "mod view;"] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/view.rs").exists(), "view.rs is split into shell.rs and tiles/");
+}
+
+/// Whether the arrangement changes has one decider, `layout::apply`, for a step undone and a screen opened as for
+/// a split: nothing but `actions/layout.rs` holds the arrangement to write, issues a load, or keeps a rule of the
+/// layout's beside it (the last tile staying, a share's limits, what unsaved text blocks).
+#[test]
+fn nothing_beside_the_layout_decides_whether_the_arrangement_changes() {
+    none("the arrangement written outside the one place that asks the layout (actions/layout.rs)", strays("st.layout =", |path| path == "actions/layout.rs"));
+    none("a load issued outside actions/layout.rs: `App::replace` asks the layout", strays("Op::Load", |path| path == "actions/layout.rs" || path.starts_with("layout")));
+    none("the last tile staying, said outside the layout", strays("last tile", |path| path.starts_with("layout")));
+    none("a share's limits outside the layout (layout/step.rs keeps them)", [".clamp(0.08", "0.92)"].iter().flat_map(|limit| strays(limit, |path| path.starts_with("layout"))).collect());
+    // What unsaved text blocks is the layout's to say, from the fact it is handed (`App::facts`): the draft's own
+    // actions ask whether there is any, and nothing else does.
+    none("a rule about unsaved text outside the layout, the draft session and its own actions", strays(".unsaved()", |path| ["draft.rs", "actions/draft.rs", "tiles/page.rs"].contains(&path)));
+}
+
+/// What Esc does is the key table's rows (`keys::esc_steps`): nothing turns an Escape into an act line by hand. A
+/// border's drag has its own way back (a resize to where it was), never the undo of some other change.
+#[test]
+fn esc_is_the_key_table_s_and_a_drag_s_way_back_is_not_the_undo() {
+    none("layout.undo run from outside its own row (a key, its bar row)", strays("\"layout.undo\"", |path| path == "actions/layout.rs"));
+    none("Escape read outside the key table", ["Key::Escape", "ChordKey::Escape"].iter().flat_map(|key| strays(key, |path| path == "keys.rs")).collect());
+    let texts = sources();
+    let shell = &texts.iter().find(|(path, _)| path == "shell.rs").expect("shell.rs").1;
+    assert!(shell.contains("d.cancelled() && d.data < 0.0).then(|| line(-d.data))"), "a border's drag let go with Escape says layout.resize, back to the share at the press");
+}
+
+/// Which tile has the keys is `Layout.focus`, changed only in `apply`; Rune's focus follows it through the one
+/// reconciler in keys.rs, the only caller of `Tx::focus`, and a tile's root is made to hold the keys there too.
+#[test]
+fn rune_s_focus_follows_the_layout_s_through_keys_rs_alone() {
+    none("Rune's focus set outside keys.rs: `keys::follow` is the one reconciler", ["tx.focus(", ".return_focus(", "tx.blur("].iter().flat_map(|call| strays(call, |path| path == "keys.rs")).collect());
+    none("the layout's focus written outside the layout", strays(".focus = ", |path| path.starts_with("layout")));
+    // A field's own flag is set where a draft or the bar opens, and by the arrangement settling: nowhere else.
+    // A field's own flag is the field's (`keys::Text`): given where a draft or the bar opens, and by the arrangement settling.
+    none("a field's focus flag set outside the field's own type", strays(".focused = ", |path| path == "keys.rs"));
+    none("a field given or denied the keys outside the arrangement's own file", strays(".give_keys(", |path| ["actions/layout.rs", "keys.rs"].contains(&path)));
+    none("a field made with the keys outside the draft's own file", strays("Text::focused(", |path| ["actions/draft.rs", "keys.rs"].contains(&path)));
+    let texts = sources();
+    let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
+    assert!(text("shell.rs").contains("keys::tile("), "each tile's root is made to hold the keys by keys::tile");
+    assert!(text("main.rs").contains("keys::follow(s, tx)"), "the window's poll runs the reconciler");
+    assert!(text("keys.rs").contains("self.draft_on(&self.layout.focus)"), "the person's layer is read from the tile with the keys");
+}
+
+/// Which tile an address names is `Layout::resolve` (layout/address.rs, held to the door's resolver by
+/// address-contract.json): nothing else reads the address grammar or looks an argument's tile up by name.
+#[test]
+fn an_address_is_read_by_the_layout_s_resolver_alone() {
+    none("an address read outside the grammar's file and the layout's resolver", strays("Address::", |path| path == "actline.rs" || path == "layout/address.rs"));
+    none("an argument's tile looked up by name: ask `App::tile_named`", ["named(to)", "named(tile)", "named(&name)"].iter().flat_map(|call| strays(call, |path| path.starts_with("layout") || path == "actions/layout.rs")).collect());
+    // Its callers: an act's tile (`App::tile_named`), and in app.rs a follower's source.
+    none("the resolver asked from somewhere new", calls("resolve", |path| path.starts_with("layout") || path == "client.rs" || path == "actions/mod.rs" || path == "actions/app.rs"));
+    let texts = sources();
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").unwrap().1;
+    assert_eq!(app.matches(".resolve(").count(), 1, "app.rs asks the resolver for a follower's source alone: where a screen's opens land is the layout's `lands`");
+}
+
+/// Who acts, and whether, is `rule()` in actions/mod.rs, from what the row declares (`touches`, `while`, `person`).
+/// No action's run refuses an agent for whose the thing is: the two left are named, each with why it is not the
+/// row's to say. (The editor is the person's on every row that opens, types in, saves or closes a draft: W5.)
+#[test]
+fn no_action_refuses_an_agent_in_its_own_run_but_the_ones_named() {
+    let found: Vec<String> = sources().iter().filter(|(path, _)| path.starts_with("actions/") && path != "actions/mod.rs").flat_map(|(path, text)| {
+        text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains("refused(") && (line.contains("an agent") || line.contains("person's"))).map(|line| format!("{path}: {}", line.split("refused(").nth(1).unwrap_or("").chars().take(40).collect::<String>())).collect::<Vec<_>>()
+    }).collect();
+    assert_eq!(found, [
+        // An agent's pick is its own (it runs the row as itself); what it must name is the request's shape.
+        "actions/bar.rs: \"an agent's pick names its row: source= ",
+        // Which row an agent may fold depends on the note the person has open: no row can say that ahead.
+        "actions/tree.rs: \"the person's note is under that row: an",
+    ], "an action refuses an agent in its own run: say whose it is on its row (`ActionRow::person`), and `rule()` refuses");
+}
+
+/// What a tile's kind is and what a screen is are the service's rows (`screens.list`); what a list's rows are is the
+/// service's answer (`lists.read`). The window keeps no catalogue, compiles no screen in, asks no other read for a
+/// list and builds no act line for a row: a second place that knows any of these is a second vocabulary.
+#[test]
+fn kinds_screens_and_a_list_s_rows_are_the_service_s_and_the_window_keeps_no_copy() {
+    // No catalogue and no screen compiled in; the drawers the two lists replaced are gone.
+    for gone in ["static KINDS", "static SOURCES", "fn shipped(", "From::Shipped", "screen::default(", "struct Hits", "struct Matches", "struct TreeLine", "fn tree_of(", "fn level_ask(", "fn inspector("] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!manifest.join("screens").exists(), "the window ships no screens: they are the screens extension's");
+    for gone in ["src/tiles/tree.rs", "src/tiles/about.rs"] { assert!(!manifest.join(gone).exists(), "{gone}: a tree and what is about a note are lists, drawn by tiles/list.rs") }
+    none("a screen or a kind catalogue compiled in", strays("include_str!(", |path| path == "main.rs"));
+    // Rows come from one read. The reads the window mapped to rows itself are asked by nobody here.
+    none("a list read that isn't lists.read: the service lists rows, the window maps none", ["\"tree.search\"", "\"blocks.query\"", "\"blocks.read\"", "\"references.backlinks\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    none("lists.read asked from somewhere new (`App::ask_of` makes every one: a tile's and the bar's)", strays("\"lists.read\"", |path| path == "actions/app.rs"));
+    none("the screens asked from somewhere new", strays("\"screens.list\"", |path| path == "actions/app.rs"));
+    // What the extensions add is held as the service lists it (`ext.rs`: a setting's schema for its form, an
+    // action's name), asked in one place; the bar's rows about extensions are a list the service answers.
+    none("the extensions asked from somewhere new", strays("\"extensions.list\"", |path| path == "actions/app.rs"));
+    none("a bar row made from the extensions here: `lists.read from=extensions` lists them", strays("BarRow {", |path| path == "bar.rs"));
+    // A row's act line is the row's own: nothing anywhere writes an open for a row, a child or a link.
+    none("an act line written for a row: run the row's own (`act`)", ["format!(\"open id=", "fn open_line(", "tile.emit"].iter().flat_map(|line| strays(line, |_| false)).collect());
+    // A kind is found by the service's row (`App::kind_row`), never compared by name.
+    none("a tile's kind compared with a name: ask its row (`App::kind_row`, `App::drawer_of`)", ["spec.kind == \"", "s.kind == \"", "kind: \""].iter().flat_map(|test| strays(test, |path| path.starts_with("layout"))).collect());
+    none("a drawer looked up by a name written here: a kind's row names it", calls("drawer", |path| path == "tiles/mod.rs"));
+    // What a list tile sends is what its source says it reads: no list of parameters, and no property key, lives here.
+    let texts = sources();
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").unwrap().1;
+    assert!(app.contains("for name in self.source_params(from)?") && app.matches("source_params(from)?").count() == 1, "a list's parameters are read from its source's own row, in the one place a list is asked");
+    none("a property a list is grouped, sorted or filtered by, named in the window", ["work-stage", "work-id", "\"outbox\"", "\"stage\""].iter().flat_map(|key| strays(key, |_| false)).collect());
+}
+
+/// The renderer seam: Rune is the shell's, the drawers', the bar's, the one list's, the key table's, the control
+/// socket's and main's. Everything else is the model (the layout, the actions and the window's state, the store
+/// and the link, the screens and kinds, the act-line grammar, the wire's shapes, a page's walk, a question's
+/// terms) and names no Rune type, so another renderer could draw the same state. What the state holds of a
+/// renderer's (a field's text as its editor has it, a decoded picture) is a type of the seam's own (`keys::Text`,
+/// `tiles::picture::Pictures`), and a waker is the link's own word for one (`client::Waker`).
+#[test]
+fn rune_is_named_only_behind_the_renderer_seam() {
+    let seam = |path: &str| ["shell.rs", "bar.rs", "list.rs", "keys.rs", "control.rs", "main.rs"].contains(&path) || path.starts_with("tiles/");
+    none("Rune named in the model: draw it in a drawer, the shell or the bar, or hold it behind a type of the seam's", ["rune::", "rune_kit", "use rune", "TextEdit", "ImageCache", "&mut Tx"].iter().flat_map(|word| strays(word, seam)).collect());
+    // The model, by name: each is there, and none of them is in the seam's list by another route.
+    let texts = sources();
+    for path in ["actions/app.rs", "actions/mod.rs", "actions/draft.rs", "actions/script.rs", "draft.rs", "store.rs", "client.rs", "screen.rs", "actline.rs", "page.rs", "parts.rs", "query.rs", "layout.rs"] {
+        assert!(texts.iter().any(|(p, _)| p == path) && !seam(path), "{path} is the model's");
+    }
+    // What the state holds of a renderer's is made and reached only through the seam's own types.
+    none("a decoded picture named outside the tiles: the state holds `Pictures`, a builder draws a `Shown`", strays("Shown::", |path| path.starts_with("tiles/")));
+    none("the editor behind a field's text reached outside keys.rs", [".0.text", ".0.focused", "field(field).0"].iter().flat_map(|reach| strays(reach, |path| path == "keys.rs")).collect());
+}
+
+/// The second sweep's owners, each held by a scan of the source: the deciders that were folded can't come back
+/// without one of these naming the line. (`sweep2.rs` holds the same by what the window does.)
+#[test]
+fn the_second_sweep_s_deciders_each_have_one_place() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+
+    // How a request is written as an act line: `actline::word`, which every line written here goes through.
+    none("a second writer of an act line's word", strays("pub fn word(value", |path| path == "actline.rs"));
+    none("a value quoted for an act line by hand (JSON's quoting reads back as another value)", ["json!(value).to_string()", "json!(s).to_string()"].iter().flat_map(|quote| strays(quote, |_| false)).collect());
+    none("a request written as a line outside the grammar's own file (build a `Request` and call `act_request`)", calls("line_of", |path| path == "actline.rs" || path == "parts.rs" || path == "tiles/page.rs" || path == "tiles/prim.rs"));
+    assert!(!code("actions/script.rs").contains("app.act(") && code("actions/script.rs").matches("act_from(").count() == 1 && code("actions/script.rs").matches("act_invited(").count() == 1, "a button's act and a script's call are requests handed to the dispatcher from the tile they were pressed in, never a line read again");
+    // Who a script's act runs as: the script, always. The person is made an actor only by their own hands (a key, a
+    // press, a drag) and by what the window does for itself; no action turns an agent into the person. What an
+    // agent may do on the person's press is one answer, `App::stands`, from the invitation that press minted.
+    none("the person made the actor of somebody else's act: a script's call runs as the script, and `App::stands` says how it stands", strays("Actor::Person", |path| !["actions/script.rs", "actions/ext.rs", "actions/review.rs", "actions/note.rs", "actions/nav.rs", "actions/bar.rs", "actions/list.rs", "actions/tile.rs", "actions/tree.rs", "actions/screen.rs", "actions/outline.rs", "actions/window.rs", "actions/shell.rs", "control.rs"].contains(&path)));
+    none("who asked for a run read to say how its script stands: standing comes from a press's invitation", strays("requestedBy", |_| false));
+    none("an act invited outside the one place a script's call is run", calls("act_invited", |path| path == "actions/script.rs" || path == "actions/mod.rs"));
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("self.st.invited").count()).sum::<usize>(), 3, "whether the act being run is invited is set by `act_invited` and read by `App::stands`, and by nothing else");
+    // Where a press happened is no name for a tile: what comes from a tile goes through `App::act_from`, the one place
+    // that says whether it is about that tile, and nothing writes a `tile=` onto a line or a request for it.
+    // (The shell's drag names the tile dragged, and the grammar's own file writes a request's `tile` back as its word.)
+    none("a tile written onto a line for where it was pressed (hand the request to `App::act_from`)", ["{} tile={}", "{line} tile={}", "{act} tile={}"].iter().flat_map(|written| strays(written, |path| path == "shell.rs" || path == "actline.rs")).collect());
+    none("a request aimed at the tile it comes from outside the dispatcher (`App::act_from`)", ["request.tile = Some(", "tile: Some(app.layout.name("].iter().flat_map(|aimed| strays(aimed, |_| false)).collect());
+    assert_eq!(code("actions/mod.rs").matches("req.tile = Some(").count(), 1, "the dispatcher's `act_from` is the one place a request takes the tile it comes from");
+
+    // What a list is, and how its rows sit under headers: one port of `listSections`, one drawer of a row.
+    none("a second copy of a list's sections", strays("fn sections(", |path| path == "page.rs"));
+    // (Asked by the drawer, and by the list's own actions for the order the keys move a cursor through its rows.)
+    none("a list's sections asked outside the list drawer and the list's own actions", strays(".sections()", |path| path == "tiles/list.rs" || path == "actions/list.rs"));
+    for gone in ["fn rows(", "fn line(", "[\"groups\"]", "\"headers\"", "[\"group\"]"] { assert!(!code("tiles/prim.rs").contains(gone), "tiles/prim.rs has `{gone}`: a list on a page is drawn by the list drawer (`list::on_page`)") }
+    assert!(code("tiles/prim.rs").contains("super::list::on_page("));
+    assert!(!code("parts.rs").contains("page.children"), "parts.rs makes no rows: the notes under a note are the list the service answered (`under`)");
+
+    // What a press runs: the act line the service wrote on the row or the primitive (`act`), and nothing else.
+    for path in ["parts.rs", "tiles/prim.rs", "tiles/list.rs", "tiles/page.rs", "tiles/mod.rs"] {
+        for read in ["[\"do\"]", "[\"link\"]", "[\"links\"]", "\"link\")", "\"do\")", "fn opens(", "fn runs(", "fn says(", "fn emit("] { assert!(!code(path).contains(read), "{path} has `{read}`: a press is the `act` the service wrote, by the one rule (outline-core's actOf)") }
+    }
+
+    // Which tile an act is about: `App::target`, asked by the dispatcher for every act; an action runs in `App::about`.
+    none("a tile chosen for an act outside `App::target`", ["aimed.clone().filter(", "aimed.clone().or_else("].iter().flat_map(|chain| strays(chain, |path| path == "actions/app.rs")).collect());
+    none("the aimed tile read by an action (ask `App::about`; an open reads where it comes from, a focus the tile it names)", strays("app.aimed", |path| ["actions/nav.rs", "actions/tile.rs"].contains(&path)));
+    for path in ["actions/list.rs", "actions/tree.rs", "actions/script.rs"] { assert!(!code(path).contains("layout.focus"), "{path} reads the keys' tile itself: `App::about` is the tile the dispatcher found") }
+    assert_eq!(code("actions/mod.rs").matches("self.target(action.about)").count(), 1, "the dispatcher asks the one rule, once an act");
+
+    // Which action picks a row: `list::pick`, under both names.
+    assert!(code("actions/tree.rs").contains("run: super::list::pick") && !code("actions/tree.rs").contains("fn pick("), "tree.pick is list.pick's run");
+    assert!(!code("tiles/list.rs").contains("tree.pick"), "the list drawer says one pick for every list");
+
+    // Where a screen's `lands` points: `Layout::lands`, read by placement and by `App::landing`.
+    none("a screen's `lands` read outside `App::landing` and the layout's context", strays(".lands()", |path| ["actions/app.rs", "actions/layout.rs", "screen.rs"].contains(&path)));
+    assert_eq!(code("actions/app.rs").matches(".lands()").count(), 1, "app.rs reads `lands` in `landing` alone");
+    none("`lands` looked up as a tile's name beside the layout's own reading", ["named(lands)", "named(&lands)"].iter().flat_map(|call| strays(call, |path| path == "layout.rs")).collect());
+    assert_eq!(code("layout.rs").matches("named(lands)").count(), 1, "layout.rs reads `lands` as a name in `Layout::lands` alone");
+
+    // Which new-note rule applies: `Spec::new_note`, asked once.
+    none("a screen's new-note rules read outside the one reader and its one asker", calls("new_note", |path| ["screen.rs", "actions/note.rs"].contains(&path)));
+    assert_eq!(code("actions/note.rs").matches(".new_note(").count(), 1, "the rule is asked once, with the kind the tile is");
+
+    // Which kind a name is: the service's rows, by the kind a tile carries or the name the row says it serves.
+    for gone in ["fn is(&self, kind", "fn saved(&self)", ".replaces.iter()"] { none(&format!("{gone}: which kind serves a name is the service's word (`serves`)"), strays(gone, |_| false)) }
+    none("the kind an open makes, named in the layout: whoever asks says it (`Ctx.sprout`)", ["k == \"reader\"", "unwrap_or(\"reader\")"].iter().flat_map(|kind| strays(kind, |_| false)).collect());
+
+    // What a follower's subject is when unsaid: `follows` reads `subject` alone, under what somebody chose for the
+    // tile here (K2: `tile.hold`, an aim), and nothing else makes a tile follow.
+    assert!(code("actions/app.rs").contains("pub fn follows(&self, tile: &str) -> bool { self.ui(tile).follows.unwrap_or_else(|| self.field_of(tile, \"subject\").and_then(Value::as_str) == Some(\"follows\")) }"), "a tile follows only when it says so, or the person does");
+
+    // What the bar lists, and what a facet pick adds to a question.
+    none("a bar source found by how its row is drawn: a source says `bar` of itself", ["group.as_deref() == Some(\"bar\")", "mark.as_deref() == Some(\"main\")"].iter().flat_map(|mark| strays(mark, |_| false)).collect());
+    none("the source a question is asked of, named here: the service says which carries facets (`bar::questions`)", ["const QUESTIONS", "scope=query query="].iter().flat_map(|name| strays(name, |path| path == "actions/bar.rs")).collect());
+    assert!(!code("actions/bar.rs").contains("const QUESTIONS"));
+    none("a picked value written as a term outside `query.rs`", ["format!(\"{key}={}\"", "fn term("].iter().flat_map(|term| strays(term, |path| path == "query.rs")).collect());
+
+    // What a screen is while it is open: the service's row (`App::spec_now`); the file keeps no copy of its spec.
+    assert!(!code("actions/layout.rs").contains("\"spec\""), "the arrangement's file holds the screen's name and its note's revision, never its spec");
+    none("the open screen's own copy of its spec read where the service's row is the word (`App::spec_now`)", strays("screen.spec", |path| ["actions/app.rs", "actions/screen.rs", "screen.rs"].contains(&path)));
+}
+
+/// Which host and outline the window opens, and where its control socket is, is the door's rule (`resolveTarget`
+/// and `placeFor`, asked through resolve.ts): the window reads no outline or host setting itself, and the socket's
+/// name is the door's own (`DOORS`), so `--door native` looks where the window serves.
+#[test]
+fn which_outline_and_host_is_the_door_s_rule_asked_every_time() {
+    none("the outline or the host read from the environment here: resolve.ts asks the door's rule", ["EP0CH_SOCKET\"", "EP0CH_WS\"", "EP0CH_MACHINE\"", "\"--machine\""].iter().flat_map(|word| strays(word, |_| false)).collect());
+    let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("resolve.ts")).unwrap();
+    assert!(script.contains("DOORS.native") && !script.contains("\"native.sock\""), "resolve.ts names the control socket by the door's DOORS");
+    assert!(script.contains("resolveTarget(named)") && script.contains("placeFor(named)"));
+}
+
+/// Before `run`, Rune has published no headless run (`headless_run()` is None until the app's state is made), so
+/// what `main` decides before it is asked of `rune::is_headless()`, which reads the arguments: a headless render
+/// (`--snap`, `--tree`) serves no control socket beside a window's.
+#[test]
+fn main_asks_whether_the_run_is_headless_the_way_that_answers_before_run() {
+    let texts = sources();
+    let main = &texts.iter().find(|(path, _)| path == "main.rs").expect("main.rs").1;
+    let body = main.split("fn main()").nth(1).expect("main.rs has main");
+    assert!(!body.contains("headless_run()"), "main asks headless_run() before run, where it is always None");
+    assert!(body.contains("rune::is_headless()"), "main asks rune::is_headless() whether to serve the control socket");
+}
+
+/// A page's parts have one drawer, the registry: a primitive is built by its type in `tiles/prim.rs`, and nothing
+/// under `tiles/` reads what a part was written as (a figure's kind, a component's name) to decide what to draw.
+#[test]
+fn a_primitive_is_built_by_the_registry_and_no_drawer_reads_what_a_part_was_written_as() {
+    none("a primitive built outside the tiles", strays("prim::build(", |path| path.starts_with("tiles/") || path.starts_with("tests/")));
+    none("a registry beside PRIMS", strays("&[Prim]", |path| path == "tiles/prim.rs"));
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    // The page drawer walks: the spike's own drawings of a component, a figure, the note and its chips are gone.
+    for gone in ["fn component(", "fn stat_tiles(", "fn note(", "fn chips(", "Part::", "Frame", "Markdown::new", "Badge::new"] {
+        assert!(!text("tiles/page.rs").contains(gone), "tiles/page.rs has `{gone}`: a part is drawn by the registry");
+    }
+    assert!(text("tiles/page.rs").contains("prim::build(part,") && text("tiles/page.rs").contains("parts::around(page)"), "the page drawer walks its parts through the registry");
+    // No builder and no drawer matches a figure's kind or a component's name: what to draw is the primitive's type.
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    for path in ["tiles/prim.rs", "tiles/page.rs", "parts.rs"] {
+        for read in ["[\"figure\"]", "\"graph-", "\"figure\")"] { assert!(!code(path).contains(read), "{path} reads `{read}`: a figure is the primitives the service lowered it to") }
+        for kind in ["stat", "meter", "rank", "spark", "check", "timeline", "decision", "tabs", "compare", "links", "fields", "view", "use", "box"] {
+            for read in [format!("[\"kind\"] == \"{kind}\""), format!("[\"name\"] == \"{kind}\""), format!("Some(\"{kind}\") =>")] {
+                // A primitive's own type is `stat` and `box` too, matched once, in the registry's table (`ty: "stat"`).
+                assert!(!code(path).contains(&read), "{path} has `{read}`: it decides by what a part was written as");
+            }
+        }
+    }
+    assert!(!code("tiles/prim.rs").contains("[\"kind\"]"), "a builder reads no part's kind");
+    // The wire of a press has one owner each way: the script noun asks, the store reads the call and answers it.
+    none("a button run asked outside its action", strays("\"scripts.sequence\"", |path| path == "actions/script.rs" || path.starts_with("tests/")));
+    none("a script's act answered outside the store", strays("\"scripts.answer\"", |path| path == "store.rs" || path.starts_with("tests/")));
+    none("the window registered outside the store", strays("\"events.subscribe\"", |path| path == "store.rs" || path.starts_with("tests/")));
+    // (That the page's model and the script noun hold no Rune is `rune_is_named_only_behind_the_renderer_seam`.)
+}
+
+/// A block being written (W5): one session a block, held by the App; the holder's side of the service's draft
+/// protocol asked by the draft's own actions and answered by the store; what completes a word asked in one place,
+/// with the text and the caret; and nothing in the window that finds a passage, a token or a block of the text.
+#[test]
+fn a_block_being_written_has_one_session_and_the_window_finds_no_passage_and_no_token() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // The spike's whole-note editor is gone, and so is a field with a scroll of its own inside the page's.
+    for gone in ["struct Editing", "pub editor: Text", "pub editing: Option<Editing>", "st.editing", "Field::Draft =>", "editor-scroll", ".auto_grow("] { none(&format!("{gone} is back: a block is written in place, a session each"), strays(gone, |_| false)) }
+    // The hold: asked for, renewed, touched and let go by the draft's own actions; what the service asks of it is
+    // landed and answered by the store.
+    none("a draft's hold asked outside the draft's own actions", ["\"drafts.hold\"", "\"drafts.heartbeat\"", "\"drafts.touch\"", "\"drafts.release\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/draft.rs")).collect());
+    none("a holder's answer sent outside the store", strays("\"drafts.answer\"", |path| path == "store.rs"));
+    none("a patch sent to the service outside the draft's own action", strays("\"draft.patch\"", |path| path == "actions/draft.rs" || path == "store.rs"));
+    // Where a patch goes, and whether it may, is the service's (outline-core's placeDraftPatch): the window compares no
+    // passage and knows no paragraph. It hands over its text and takes back ranges.
+    none("a passage named outside the action that sends one to the service", strays("observed", |path| path == "actions/draft.rs"));
+    for path in ["draft.rs", "actions/draft.rs", "tiles/page.rs", "keys.rs"] {
+        for read in [".find(observed", "split(\"\\n\\n\")", "starts_with(\"- \")", "starts_with('#')", "\"[[\"", "\"((\"", "\"::\"", "::]"] { assert!(!code(path).contains(read), "{path} has `{read}`: the window reads no Blockdown; a token and a block of the text are the service's to find") }
+    }
+    none("a second map of an offset through placed spans (`draft::map_cursor`, held by core-contract.json)", strays("fn map_cursor(", |path| path == "draft.rs"));
+    // Completions: one ask, made by the session from the text and the caret; the rows are drawn and written as served.
+    none("what completes a word asked outside the session", strays("\"completion.rows\"", |path| path == "draft.rs"));
+    assert!(code("draft.rs").contains("\"text\": text, \"cursor\": utf16_of(text, self.buf.ends().1)") && !code("draft.rs").contains("\"target\""), "the service is handed the text and the caret, never a token found here");
+    none("a completion row made here: the list is the service's rows, drawn and written as served", ["CompletionRow {", "insert: format!"].iter().flat_map(|made| strays(made, |path| path == "page.rs")).collect());
+    // What is typed is kept by one writer, in one file beside the arrangement's.
+    none("what is being written kept outside the session's own file", strays(".drafts.json", |path| path == "draft.rs"));
+    // The guards in open() are gone: where an open lands beside a draft is the layout's rule, from the one fact.
+    for word in ["drafts", "unsaved", "draft_on", "draft_of"] { assert!(!code("actions/nav.rs").contains(word), "actions/nav.rs reads `{word}`: an open asks the layout, which reads the tile's fact (`Facts.editing`)") }
+    assert_eq!(texts.iter().filter(|(_, text)| text.lines().any(|line| !line.trim_start().starts_with("//") && line.contains("editing = self.draft_on(tile)"))).count(), 1, "the one fact the layout reads of a draft is made in `App::facts`");
+    // The block's source is one field, built in one place, through the key table's adapter.
+    none("a block's field built outside the page drawer", strays("keys::area(", |path| path == "tiles/page.rs"));
+}
+
+/// About the note (W6): what is listed of a note's comments, proposals and revisions is the service's, and so is
+/// what changed (a `diff`); the window writes each through one action, writes no act line for a row's own press,
+/// compares no two texts, and has one session type for everything written. The keys screen has no table of its
+/// own: the window hands the service its rows, in one place.
+#[test]
+fn what_is_about_a_note_is_listed_and_diffed_by_the_service_and_written_by_one_action_each() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // Each write about a note is asked by its own action, in the one file, and nowhere else.
+    for write in ["\"annotations.batch\"", "\"annotations.reply\"", "\"annotations.lifecycle\"", "\"draft.proposal.apply\"", "\"draft.proposal.dismiss\"", "\"block.revisions\""] {
+        none(&format!("{write} asked outside the action that writes it (actions/review.rs; the store records who made a block)"), strays(write, |path| path == "actions/review.rs" || path == "store.rs"));
+    }
+    // The reads that list them are asked by nobody here: a tile asks `lists.read`, as for any list.
+    none("a note's threads, proposals or revisions read by the window itself: they are lists the service answers", ["\"annotations.list\"", "\"draft.proposals.list\"", "\"proposals.outcomes\"", "\"components.schemas\""].iter().flat_map(|read| strays(read, |_| false)).collect());
+    // A row's own press is the act line its cell carries: no drawer and no model writes one for it.
+    none("an act line written for a row's own press: run the cell's own (`act`)", ["\"proposal.apply id=", "\"proposal.dismiss id=", "\"reply thread=", "\"resolve thread=", "\"revision.restore revision=", "\"revision.restore of=", "format!(\"reply ", "format!(\"proposal."].iter().flat_map(|line| strays(line, |path| path == "actions/review.rs")).collect());
+    for path in ["tiles/list.rs", "tiles/diff.rs", "tiles/page.rs", "tiles/prim.rs"] { for word in ["\"Apply\"", "\"Dismiss\"", "\"Reply\"", "\"Resolve\"", "\"Restore\""] { assert!(!code(path).contains(word), "{path} has {word}: a press is called what its row's cell says") } }
+    // A change is drawn as served: one builder, in the registry, which compares nothing.
+    assert!(code("tiles/prim.rs").contains("ty: \"diff\"") && code("tiles/prim.rs").contains("build: super::diff::build"), "the diff primitive is the registry's, built in tiles/diff.rs");
+    none("a second drawer of a change", strays("\"del\"", |path| path == "tiles/diff.rs"));
+    none("two texts compared in the window: the service finds what changed (`diff`)", ["fn diff(", "diff_lines", "DiffState", "FileDiff", "similar::", "from_texts"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    for compared in [".lines()", ".zip(", "split('\\n')", "char_indices"] { assert!(!code("tiles/diff.rs").contains(compared), "tiles/diff.rs has `{compared}`: it draws the lines it is given") }
+    // One session type, whatever is written: a comment and a reply are a `DraftSession` that says what it writes,
+    // shown by the one field the page drawer builds, kept in the one file.
+    assert_eq!(texts.iter().map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains("struct ") && line.contains("Session")).count()).sum::<usize>(), 1, "one session type: `draft::DraftSession`");
+    none("a second editor: a comment's words are a draft's, in the field the page drawer builds", ["Composer", "CommentDraft", "ReplyDraft", "struct Comment"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    assert_eq!(code("tiles/page.rs").matches("keys::area(").count(), 1, "one field, for a block's text and for what is written about it");
+    none("what a draft writes decided outside the session, its actions and the drawer that shows it", strays("Writes::", |path| ["draft.rs", "actions/draft.rs", "actions/review.rs"].contains(&path)));
+    // A selection is told to the window by the reader that shows the words, as an act line; nothing else reads one.
+    none("a selection read outside the page drawer", ["on_selection_change", ".text_selection()", "SelectionChange"].iter().flat_map(|word| strays(word, |path| path == "tiles/page.rs")).collect());
+    none("the words selected written outside the action that hears them", strays(".passage = ", |path| path == "actions/review.rs" || path == "actions/app.rs"));
+    // A press leaves a selection as it is in one place, the toolbar (its button that comments is pressed for the words
+    // selected), and the words are let go without the reader saying so in one, the bar put away.
+    // (Since H4, one more: the row of the picked words' own actions the page drawer puts by them. Each is one row.)
+    none("a press that keeps the selection outside the toolbar and the row of a selection's own actions", strays("keeps_text_selection", |path| path == "shell.rs" || path == "tiles/page.rs"));
+    assert_eq!((code("shell.rs").matches("keeps_text_selection").count(), code("tiles/page.rs").matches(".keeps_text_selection()").count()), (1, 1), "one row each keeps the selection through a press");
+    none("the words selected let go outside the bar's own actions", calls("unselect", |path| path == "actions/bar.rs" || path == "actions/app.rs"));
+    // One name a send: made in one place, and a request is named by it in one.
+    none("a send named outside the session and the action that sends", calls("send_name", |path| path == "draft.rs" || path == "actions/review.rs"));
+    none("a request about a note named outside the action that sends it", calls("request_id", |path| path == "actions/review.rs"));
+    // Which reader a press in a list about a note means: the dispatcher's `act_from`, asking `App::home_of`.
+    none("the reader a list follows chosen for an act outside the dispatcher", calls("home_of", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    // Which reader a list speaks for is that one function, whoever asks (its subject when it follows, the note it
+    // marks as open, where its opens land, the reader a press in it acts in): the tile its source names and the
+    // reader its selection feeds are read there and nowhere else, so no two of them can name different readers.
+    // (K2: a select wire is delivered in one place, `App::picked`, and said in one, `App::wire_words`: both in the
+    // file of what opens where, which reads where a tile's cursor shows and decides nothing about a reader.)
+    none("the reader a list's selection feeds read outside `App::home_of` (and the layout's own rule for a float)", calls("select_targets", |path| path == "actions/app.rs" || path == "actions/wires.rs" || path.starts_with("layout")));
+    assert_eq!(code("actions/app.rs").matches(".select_targets(").count(), 1, "`App::home_of` is the one reader of where a list's selection goes");
+    // (A source that is itself a list is another question, with its own one reader: whose question a list asks, `question_of`.)
+    assert_eq!(code("actions/app.rs").matches("self.source_of(").count(), 2, "the tile a list names as its source is read by `App::home_of` (a reader: who it speaks for) and `question_of` (a list: whose question it asks)");
+    none("the tile a list names as its source decided on outside `App::home_of` (a drawer says it in `peek`, and decides nothing by it)", calls("source_of", |path| path == "actions/app.rs" || path == "tiles/list.rs"));
+    none("a second answer to which note a list is about: `App::home_note`", ["fn followed_by(", "fn selected_in("].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // What an agent the dispatcher holds back does instead is an action this window has, named from its row
+    // (`actions::attention`, the one namer: the actor rule says it and the layout's rules are told it). The door's own
+    // way (`block.mark`) is spelled nowhere in this window: the layout names the act whoever asks it says (wave F3).
+    none("the door's way to get the person's attention named in this window", strays("block.mark", |_| false));
+    none("what gets the person's attention named outside the dispatcher (`actions::attention`)", strays("ATTENTION", |path| path == "actions/mod.rs" || path == "actions/review.rs"));
+    // What a close leaves of the closed reader's note is the layout's to say (`close_heir`, beside the rule for where
+    // an open lands, both the door's by contract): the close asks it, and the action only shows the note where it says.
+    none("who keeps a closed reader's note decided outside the layout", calls("close_heir", |path| path.starts_with("layout")).into_iter().chain(calls("heir_takes", |path| path == "layout/placement.rs")).collect());
+    assert!(code("actions/tile.rs").contains("heir: true") && !code("actions/tile.rs").contains(".showing") && !code("actions/tile.rs").contains("facts("), "tile.close asks the layout who keeps the note, and reads no tile's facts to decide it");
+    // What a reader shows is one answer, `App::note_of`: the note it was told and no other (never the outline's first
+    // while it is told none). The layout's rules read that answer (`Facts.showing`) and the page drawer draws it, so
+    // what a tile draws and what a close or an open finds there can't differ.
+    assert!(code("actions/app.rs").contains("pub fn note_of(&self, tile: &str) -> Option<String> { self.ui(tile).note.clone() }"), "a reader shows the note it was told: `note_of` reads nothing else");
+    assert!(code("actions/app.rs").contains("let showing = if notes { self.note_of(tile) } else { None };"), "`Facts.showing` is `note_of`, the one answer");
+    none("a note given to a reader that was told none (a list's first row read as a note to show)", ["rows_of(&tree).first()", ".first().map(|row| row.id.clone())"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // A tile with nothing to draw yet says what it is in its kind's own words (`tiles::waiting`, the service's row):
+    // no drawer words a kind or what an empty tile waits for.
+    none("an empty tile worded by its drawer: `tiles::waiting` says the kind's own row", ["Pick a note", "starts a note", "Nothing is open to list"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    assert!(code("tiles/mod.rs").contains("cx.row.about") && code("tiles/page.rs").contains("super::waiting(") && code("tiles/list.rs").contains("super::waiting("), "a reader told no note and a list with no note to be about draw their kind's own description");
+    // Whether a row folds is the row's own word (`folds`, the service's: in a list of notes, that a note is under
+    // it, by outline-core's `isNoteUnder`). The mark is drawn from it in one place, and nothing else here says a
+    // note has something under it (a page's `hasChildren` is read to decide nothing).
+    none("a fold's mark drawn outside the list drawer's one row", strays("TRIANGLE_RIGHT", |_| false).into_iter().filter(|found| !found.starts_with("tiles/list.rs:")).collect());
+    assert_eq!(strays("TRIANGLE_RIGHT", |_| false).len(), 1, "the mark is drawn once, for a tree's row and any other row that folds");
+    none("something under a note decided by anything but its row's `folds`", strays(".has_children", |_| false));
+    // Whether Return is the field's or the completion list's is the service's word on the row (`enter`, outline-core's
+    // `enterKeeps`): the window reads it and what it holds itself (a row was chosen), and compares no text to know.
+    assert!(code("actions/draft.rs").contains("row.enter.is_some() && !moved"), "Return is the field's for a row that says so, until a row is chosen");
+    none("a row's writing compared with the text to say whose Return is: the service says it on the row", ["insert == ", "== row.insert", "== &row.insert"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    // The keys screen: the rows are handed over where a list is asked, and the window keeps no list of its keys for a screen.
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("super::rows()").count()).sum::<usize>(), 1, "the window's action rows are handed to the service in the one place a list is asked (`App::ask_of`)");
+    assert!(code("actions/app.rs").contains("ROWS => Some(super::rows().clone())"));
+    // A screen's own keys: read from its spec by the key table alone, each key's name read as a chord by one reader.
+    none("a screen's keys read outside the key table (`keys::screen_binds`, through `Spec::keys`)", strays("[\"keys\"]", |path| path == "screen.rs").into_iter().chain(calls("screen_binds", |path| path == "keys.rs")).collect());
+    none("a key's name read as a chord outside the key table", calls("chord_named", |path| path == "keys.rs"));
+    none("a keys screen drawn from a table of the window's own: it is a list tile over `lists.read from=actions`", ["fn keys_screen(", "fn keys_tile(", "fn library("].iter().flat_map(|word| strays(word, |_| false)).collect());
+}
+
+/// F1: where in a note's source a passage the reader drew is, is the service's to say (outline-core's
+/// `findDrawnPassage`, asked by `annotations.batch` through `findQuoted`). The window sends the words as drawn and
+/// says that they are, with the span the service gave the part they were selected in; it reads no source to know
+/// what a link or a bold run was written as, and looks no quote up.
+#[test]
+fn where_a_drawn_passage_is_in_the_source_is_the_service_s_to_find() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.as_str()).unwrap_or_else(|| panic!("{path} is there"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // The passage a comment sends is the quote's own form of it, made in one place and sent from one.
+    none("a comment's passage built outside the quote's own form (`Quoted::passage`)", ["[\"drawn\"]", "[\"within\"]", "\"within\":"].iter().flat_map(|key| strays(key, |path| path == "draft.rs")).collect());
+    // (Since H4 it is also asked about, once, by the action that hears words picked: `passages.find`.)
+    assert_eq!(texts.iter().map(|(_, text)| text.matches("quoted.passage()").count()).sum::<usize>(), 2, "the passage is sent by the one action that sends a comment, and asked about by the one that hears words picked");
+    assert!(code("actions/review.rs").contains("input[\"passage\"] = quoted.passage()") && code("actions/review.rs").contains("json!({ \"blockId\": note, \"passage\": quoted.passage() })"));
+    // How the words were read is said by the two ways there are to name them: a selection in a reader (as drawn),
+    // an act's `quote=` (as the note's text has them, which the service reads as drawn when they aren't there).
+    none("how a quote was read said outside the action that hears a selection and the one that takes quote=", ["Quoted::drawn(", "Quoted::written("].iter().flat_map(|made| strays(made, |path| path == "actions/review.rs" || path == "draft.rs")).collect());
+    assert_eq!((code("actions/review.rs").matches("Quoted::drawn(").count(), code("actions/review.rs").matches("Quoted::written(").count()), (1, 1));
+    // The span a selection was drawn within is the service's frame of the part, read by the model's one reader for
+    // the page drawer alone: the drawer knows a part by its place, and nothing of what the part was written as.
+    none("a part's span read outside the model's one reader (`parts::span_of`)", strays("[\"span\"]", |path| path == "parts.rs"));
+    none("a part's span asked outside the page drawer", calls("span_of", |path| path == "tiles/page.rs" || path == "parts.rs"));
+    // Nothing in the window finds the words: no search of a note's text for a quote, no markup taken off one.
+    for path in ["actions/review.rs", "tiles/page.rs", "draft.rs", "actions/app.rs", "parts.rs"] {
+        for looked in ["text.find(", "text.contains(", "text.matches(", "find(&quote", "find(quote", ".replace(\"**\"", "trim_matches('*')", "strip_prefix(\"- \")"] { assert!(!code(path).contains(looked), "{path} has `{looked}`: where a passage is in the note is the service's to find") }
+    }
+    // The owner, on the service's side: one module reads a text as drawn, the exact lookup is the one it calls, and
+    // the service's comment asks through one function. (The published page's finder is held to the same in the
+    // outliner's own test.)
+    let beside = |path: &str| std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let owner = beside("outline-core/src/drawn-passage.ts");
+    assert!(owner.contains("export function findDrawnPassage(") && owner.contains("findPassage(drawn.text, words"), "the drawn reading is asked of the one quote lookup");
+    assert!(!owner.contains(".indexOf(quote") && !owner.contains("levenshtein") && !owner.contains("distance("), "nothing fuzzy beside the exact matcher");
+    let service = beside("outliner/src/block-comments.ts");
+    assert!(service.contains("findQuoted(text, passage") && !service.contains("findPassage(") && !service.contains("drawnText("), "the service's comment asks where a quote is through one function");
+}
+
+/// W7: a window, an outline and an extension each have one owner.
+#[test]
+fn a_window_an_outline_and_an_extension_each_have_one_owner() {
+    // A window is opened by the shell, over the state an act made for it, and taken from the turn's own poll.
+    none("a window opened outside the shell", strays("open_window(", |path| path == "shell.rs"));
+    none("the windows an act asked for taken somewhere new", strays(".born()", |path| path == "main.rs"));
+    // One store a run: a window's is a face on the first window's hub, made by the action that tears a tile out.
+    none("a second store made: `Store::beside` shares the hub", strays("Store::new()", |path| ["actions/app.rs", "store.rs"].contains(&path)));
+    none("a window's face on the store made outside the action that tears a tile", strays(".beside(", |path| ["actions/window.rs", "store.rs"].contains(&path)));
+    // Which window a request is for is the control socket's to say, by the one registry of them.
+    none("the windows' registry kept outside control.rs", strays("AppHandle<", |path| path == "control.rs"));
+    // An outline is reached by the rule every client opens one by, asked through one function; which outlines there
+    // are is the service's list, asked by the switch itself; and only the switch moves a window to another.
+    none("the way to an outline asked outside the one place", strays("client::way(", |path| path == "main.rs"));
+    none("the outlines asked from somewhere new", strays("\"outlines.known\"", |path| path == "actions/outline.rs"));
+    none("a window moved to another outline outside its action", strays("st.at =", |path| path == "actions/outline.rs"));
+    // An extension is installed, removed, configured and run by its own actions, which nothing else names; a
+    // rendered tile is asked in one place.
+    none("an extension changed outside its own actions", ["\"extensions.install\"", "\"extensions.uninstall\"", "\"extensions.configure\"", "\"extensions.act\""].iter().flat_map(|ask| strays(ask, |path| path == "actions/ext.rs")).collect());
+    none("a rendered tile asked from somewhere new", strays("\"tiles.view\"", |path| path == "actions/app.rs"));
+    // What the service answers an extension's action with is read where the action was asked, whole: a note to open
+    // goes through the open action's own row (never a line written for it), words for the clipboard are the
+    // window's hands' to copy, asked for by that answer alone.
+    let ext = &sources().into_iter().find(|(path, _)| path == "actions/ext.rs").expect("actions/ext.rs").1;
+    // (Everything such an answer may ask of a client is the service's list, written down with a real answer:
+    // outline-core's served-act.json, `asks`.)
+    let acted = ext.split("fn acted(").nth(1).expect("actions/ext.rs has `acted`");
+    for asks in super::support::served_act()["asks"].as_array().expect("the fixture lists what an answer may ask") { let key = format!("\"{}\"", asks.as_str().unwrap()); assert!(acted.contains(&key), "actions/ext.rs's `acted` reads no {key}: what an extension's action answers is done here or said not done") }
+    assert!(acted.contains("super::nav::OPEN.id"), "a note an extension's action asks to have opened goes through the open action's own row");
+    none("a second reader of what is written as a Resource ref (`ext::resource_ref`, held to outline-core's rows)", strays("\"resource:\"", |path| path == "ext.rs"));
+    none("the clipboard written outside the window's hands (`keys::effects`)", strays("tx.copy(", |path| path == "keys.rs"));
+    // (Since A1: and a note's address the person copies, `note.copy-ref`. An agent's copy is answered and never put there.)
+    none("words put on the clipboard for somebody other than an extension's answer for the person, or the address of a note they copy", strays("st.copying =", |path| path == "actions/ext.rs" || path == "actions/menu.rs"));
+    // A machine's name belongs to the machine that says it: whether the host asked may speak for an outline is one
+    // rule, asked before anybody is asked the way, and the launch that opens one from here is written once.
+    none("a second rule for whose a machine's name is", strays("fn vouched(", |path| path == "actions/outline.rs"));
+    let outline = &sources().into_iter().find(|(path, _)| path == "actions/outline.rs").expect("actions/outline.rs").1;
+    let switch = outline.split("fn switch(").nth(1).and_then(|rest| rest.split("\nfn ").next()).expect("the switch's run");
+    assert!(switch.find("vouched(").zip(switch.find("\"outlines.known\"")).is_some_and(|(rule, ask)| rule < ask), "outline.switch asks whose the machine's name is before it asks which outlines there are");
+    none("the window's launch line written somewhere new (`launch` in actions/outline.rs)", strays("ep0ch-native -- ", |path| path == "actions/outline.rs"));
+    // Whose a script's act or a draft's ask is, the store is told by the action that knows; it reads no request to guess.
+    none("the store told whose an event is from somewhere new", [".pressing(", ".holding("].iter().flat_map(|call| strays(call, |path| ["actions/script.rs", "actions/draft.rs", "store.rs"].contains(&path))).collect());
+    let texts = sources();
+    let store = &texts.iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
+    assert!(!store.contains("\"scripts.sequence\"") && !store.contains("\"drafts.hold\""), "the store sniffs no request for whose its answer's events are");
+    // The form holds what is typed; what a field is comes from the schema each time it is drawn.
+    let app = &texts.iter().find(|(path, _)| path == "actions/app.rs").expect("app.rs").1;
+    let field = app.split("pub struct FormField {").nth(1).and_then(|rest| rest.split('}').next()).expect("FormField");
+    assert!(!field.contains("description") && !field.contains("choices") && !field.contains("default"), "a form's field keeps no copy of its schema: {field}");
+}
+
+// ── wave F3: a way out is an act, said in one place ───────────────────────────────────────────────────────────
+
+/// The text of each string literal on the code lines of a source: what a sentence would be written in.
+fn literals(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines().filter(|line| !line.trim_start().starts_with("//")) {
+        let (mut inside, mut escaped, mut word) = (false, false, String::new());
+        for c in line.chars() {
+            match (inside, escaped, c) {
+                (true, true, _) => { word.push(c); escaped = false }
+                (true, false, '\\') => escaped = true,
+                (true, false, '"') => { out.push(std::mem::take(&mut word)); inside = false }
+                (true, false, _) => word.push(c),
+                (false, _, '"') => inside = true,
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// A key spelled out: a chord after `^`, a modifier with its key, a keycap's glyph.
+fn spells_a_key(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let caret = chars.windows(2).enumerate().any(|(i, pair)| pair[0] == '^' && pair[1].is_ascii_uppercase() && chars.get(i + 2).is_none_or(|next| !next.is_ascii_alphanumeric()));
+    let held = ["ctrl+", "alt+", "shift+", "super+", "hyper+", "cmd+", "mod+"].iter().any(|held| text.match_indices(held).any(|(at, _)| text[at + held.len()..].chars().next().is_some_and(|next| !next.is_whitespace())));
+    // A key that is one letter (the door's `p`, `q`, `e`) is spelled where a way would start: a clause that begins
+    // with a word of one character, after the reason's separator or a way before it ("· p in bed unpins it").
+    let bare = [" · ", ", or ", ", then ", "(or "].iter().any(|lead| text.match_indices(lead).any(|(at, _)| {
+        let mut rest = text[at + lead.len()..].chars();
+        matches!((rest.next(), rest.next()), (Some(key), Some(' ')) if (key.is_ascii_alphabetic() && !"aAI".contains(key)) || "?!".contains(key))
+    }));
+    caret || held || bare || text.chars().any(|c| "⏎⌫✦⌘⌥⌃⇧".contains(c))
+}
+
+/// The actions a sentence spells: every dotted name in it that is an action of this window's or of the door's.
+fn spells_an_action(text: &str, actions: &[String]) -> bool {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')).map(|word| word.trim_matches('.')).any(|word| word.contains('.') && actions.iter().any(|id| id == word))
+}
+
+/// Every action there is to spell, by its dotted name: this window's rows and the door's (`action-rows.json`). A
+/// name of one word (`open`, `edit`) is a word like any other and isn't scanned.
+fn dotted_actions() -> Vec<String> {
+    let door: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../outline-core/fixtures/action-rows.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    crate::actions::all().map(|action| action.row.id.to_string()).chain(door["rows"].as_array().unwrap().iter().filter_map(|row| row["id"].as_str().map(str::to_string))).filter(|id| id.contains('.')).collect()
+}
+
+/// A refusal of the layout's names its way out as an act (`Way::new(<action>, <what it does>)`): no sentence in the
+/// layout's files spells a key (a key is a door's own, read from its table when the refusal is said) or an action
+/// (so a window without the action says nothing of it, and none is named that is no row).
+#[test]
+fn no_sentence_in_the_layout_spells_a_key_or_an_action() {
+    let actions = dotted_actions();
+    let spelled: Vec<String> = sources().iter().filter(|(path, _)| path == "layout.rs" || path.starts_with("layout/")).flat_map(|(path, text)| {
+        literals(text).into_iter().filter(|text| text.contains(char::is_whitespace) && (spells_a_key(text) || spells_an_action(text, &actions))).map(|text| format!("{path}: {}", text.chars().take(90).collect::<String>())).collect::<Vec<_>>()
+    }).collect();
+    none("a sentence in the layout that names a key or spells an action: name the way out as an act", spelled);
+    // The scan finds what it is for, and passes what a reason and an act are.
+    for sentence in ["reader stays: s3 keeps its tiles · ^W P there turns closable on", "log is running water: ctrl+w x ends it first", "s2 is locked · layout.policy node=s2 locked=false unlocks it", "the person is typing; block.mark gets their attention", "it holds an edit · e or ⏎ enters it", "mod+i shows the dock", "no split s7; layout.get gives each split's id", "bed is pinned: opened beside it · p in bed unpins it", "this screen has no tiles to open it in · q goes back to one"] {
+        assert!(spells_a_key(sentence) || spells_an_action(sentence, &actions), "the scan misses: {sentence}");
+    }
+    for fine in ["reader stays: s3 keeps its tiles", "turns closable on", "the person is typing in bed; an agent doesn't resize it", "peek reads it", "no container s9 in the layout (s<n> is a split, g<n> a tab set)", "{} is a float: {what} needs a tile in the layout", "bed is pinned: opened beside it", "tools is hands off for agents: closing it is refused · peek reads it", "there's already a tile named bed here · pick another name"] {
+        assert!(!spells_a_key(fine) && !spells_an_action(fine, &actions), "the scan takes a reason for a way: {fine}");
+    }
+    assert_eq!(literals("let x = no(format!(\"a \\\"b\\\" c\"), \"d\");\n    // \"a comment's words\""), ["a \"b\" c", "d"], "a literal is read whole, escapes and all; a comment's line is no code");
+}
+
+/// How a way out is said is the dispatcher's alone (`actions::says`): the key is read from the key table in one
+/// place, the ways are joined in one, and the layout is told who asks, and what it remembers, in one.
+#[test]
+fn a_way_out_is_said_in_one_place_and_the_layout_is_told_what_it_asks_in_one() {
+    none("a way's key read outside the one sayer (`actions::way_said`)", calls("cap_of", |path| path == "actions/mod.rs" || path == "keys.rs"));
+    none("a way out worded outside the one sayer", ["way_said", "ways_said"].iter().flat_map(|name| calls(name, |path| path == "actions/mod.rs")).collect());
+    // A refusal of the layout's reaches the person and an agent through `says`, never by its reason alone.
+    none("a layout refusal shown by its reason alone: say it with `actions::says`", strays("why.reason", |path| path == "layout.rs" || path.starts_with("layout/") || path == "actions/mod.rs"));
+    // What the layout's rules are told beside the layout (who asks, where the person is, how this arrangement is
+    // named, its home, what placement remembers, what gets the person's attention) is `App::asked`'s to say.
+    none("the layout's rules told something outside `App::asked`", ["ctx.own", "ctx.home", "ctx.here", "ctx.beside", "ctx.opened", "ctx.attention", "ctx.lands"].iter().flat_map(|field| strays(&format!("{field} ="), |path| path == "actions/layout.rs")).collect());
+    let asked = sources().into_iter().find(|(path, _)| path == "actions/layout.rs").expect("actions/layout.rs").1;
+    for field in ["ctx.own =", "ctx.home =", "ctx.here =", "ctx.beside =", "ctx.opened =", "ctx.attention ="] { assert!(asked.contains(field), "`App::asked` tells the layout's rules {field}") }
+    // What placement remembers is written where an open lands and let go where the arrangement settles.
+    none("what placement remembers written outside the open's own file and the arrangement's", ["memory.go_beside(", "memory.opened_into(", "memory.keep_only("].iter().flat_map(|call| strays(call, |path| path == "actions/nav.rs" || path == "actions/layout.rs")).collect());
+    // One namer of a split's id: the read `layout.get`, which the resize's row and the layout's refusal both point at.
+    let layout_actions = sources().into_iter().find(|(path, _)| path == "actions/layout.rs").expect("actions/layout.rs").1;
+    assert!(layout_actions.contains("ActionRow::new(\"layout.get\"") && !layout_actions.contains("peek gives"), "layout.resize's row names the read that gives a split's id, as the refusal's way out does");
+}
+
+/// W8, programs in terminal tiles: each question has one owner.
+/// - The terminal's crates are named in one file (`pty/moonframe.rs`) and herdr-core's protocol is spoken in one
+///   (`pty/hc.rs`): the model, the drawer and the actions know a `Term` and a `Host`, never which crate drew a cell.
+/// - A program is started and ended through the run's registry, by the terminal's own actions; what a host keeps
+///   is ended only by the key this window's programs are kept under.
+/// - Whose the keys are in a terminal is `App::in_program`, which `App::person` asks: the drawer and the actions
+///   read that answer and decide none of their own.
+/// - What keeps a program, and for how long, is worded once; a list of programs is handed over in one place.
+#[test]
+fn a_terminal_s_deciders_each_have_one_place() {
+    none("the terminal's crates named outside pty/moonframe.rs", ["moonframe_terminal", "moonframe_mux"].iter().flat_map(|krate| strays(krate, |path| path == "pty/moonframe.rs")).collect());
+    none("herdr-core's protocol spoken outside pty/hc.rs", ["\"terminal.run\"", "\"terminal.list\"", "\"terminal.kill\"", "HC_SOCKET"].iter().flat_map(|word| strays(word, |path| path == "pty/hc.rs")).collect());
+    none("a host asked outside the registry and the hosts themselves: ask `Programs`", [".host.open(", ".host.end(", ".host.listed("].iter().flat_map(|call| strays(call, |path| path == "pty.rs")).collect());
+    none("a program started or ended outside the terminal's own actions", ["program_start(", "program_end(", "program_release("].iter().flat_map(|call| strays(call, |path| path == "actions/terminal.rs" || path == "store.rs")).collect());
+    // The drawer draws the model's grid: it names no emulator, and asks whose the keys are of the one answer.
+    let drawer = sources().into_iter().find(|(path, _)| path == "tiles/pty.rs").expect("tiles/pty.rs").1;
+    assert!(!drawer.contains("moonframe") && !drawer.contains("Session"), "the pty drawer draws `pty::Grid`, whatever made it");
+    none("whose the keys are in a terminal decided outside `App::in_program`", strays(".out_of", |path| path == "actions/terminal.rs" || path == "actions/layout.rs" || path == "actions/app.rs"));
+    none("the program layer named outside the key table", strays("Layer::Program", |path| path == "keys.rs"));
+    // What keeps a program is worded once (`pty::kept_said`), for its tile and for the list alike.
+    none("what keeps a program worded outside `pty::kept_said`", ["outlives this window", "ends with this window"].iter().flat_map(|words| strays(words, |path| path == "pty.rs")).collect());
+    // The programs are handed to the service's list in one place, as the action rows are.
+    none("the programs handed over outside `App::ask_of`", strays("programs_said()", |path| path == "actions/app.rs" || path == "store.rs"));
+    // A row of the list is the service's: the window writes no jump for one (its pick runs the row's `act`). The
+    // one line it writes for a program is the way back in a detach's notice, by the action that undoes it.
+    none("a jump written by the window: a row's pick is the service's `act`", strays("terminal.jump key={", |_| false));
+    // The model holds no renderer's type: `rune_is_named_only_behind_the_renderer_seam` scans pty.rs and pty/ with
+    // the rest. And it holds the programs where every window of a run finds them: in the store's hub.
+    let store = sources().into_iter().find(|(path, _)| path == "store.rs").expect("store.rs").1;
+    assert!(store.contains("programs: Programs,"), "the run's programs are the hub's, so a tile torn into another window keeps its program");
+}
+
+/// Wave H3, small things: each has one place.
+/// - How long something said stays up is one port of outline-core's rule (`actions::stays`), and the status line
+///   goes by the clock in one place (`App::fade`); a notice is put away by the dispatcher alone, beside the person's
+///   own dismiss.
+/// - What the window's own buttons take of the toolbar is asked of Rune once, in the shell, and the frame a window
+///   asks for is said once.
+/// - What an empty tile offers to do next is worded by the action rows through one builder (`tiles::way`).
+/// - Which decoded pictures are kept is the picture cache's own.
+#[test]
+fn what_h3_added_has_one_owner_each() {
+    none("the time something said stays up written outside `actions::stays`", ["30_000", "from_millis(4000", "from_secs(4)"].iter().flat_map(|number| strays(number, |path| path == "actions/app.rs")).collect());
+    none("what the status line says taken away outside `App::fade`", strays("agent_said = None", |path| path == "actions/app.rs"));
+    none("since when something has been said kept outside the App", strays("st.heard.", |path| path == "actions/app.rs"));
+    none("a read notice put away outside the dispatcher", strays(".put_away(", |path| path == "actions/mod.rs" || path == "actions/app.rs"));
+    none("the window's own buttons asked about outside the shell", strays("titlebar_inset()", |path| path == "shell.rs"));
+    none("a window's frame said outside `shell::frame`", strays("Chrome", |path| path == "shell.rs"));
+    let framed: Vec<String> = strays(".chrome(", |_| false).into_iter().map(|found| found.split(':').next().unwrap_or_default().to_string()).collect();
+    assert_eq!(framed, ["main.rs", "shell.rs"], "every window of the run is given the one frame: the first, and one torn out");
+    // What to do next in an empty tile is a line its action's row words, built by one builder: no drawer keys one.
+    none("a way to fill an empty tile built by a drawer: `tiles::way` builds it from the action's row", strays("empty/find", |_| false));
+    none("which pictures are kept decided outside the picture cache", ["pictures.held", ".behind"].iter().flat_map(|word| strays(word, |path| path == "tiles/picture.rs")).collect());
+}
+
+/// H4, a comment in place: each of its questions has one answerer. Where picked words are, and that a passage is
+/// whole words, is the service's (`passages.find`, asked by the one action that hears words picked): the window
+/// widens no selection and reads no text for a word's end. What is attached to a note's words is the service's
+/// marks, read by the model's one reader (`parts::marks`), tinted by the one builder of prose and shown beside the
+/// words as the row of the list each mark names, drawn by the list drawer. Where what is written stands is asked of
+/// what is written and of the page's parts. And the note's comments come forward by one action, run for the person.
+#[test]
+fn where_words_are_and_what_is_attached_to_them_has_one_answerer() {
+    let texts = sources();
+    let code = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| panic!("{path} is there"));
+    let count = |needle: &str| texts.iter().map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//") && line.contains(needle)).count()).sum::<usize>();
+    // Asked in one place, of the service; its answer taken in one.
+    assert_eq!((count("\"passages.find\""), code("actions/review.rs").matches("\"passages.find\"").count()), (1, 1), "where picked words are is asked once, by the action that hears them");
+    assert_eq!(count(".found("), 1, "the service's passage is taken where its answer lands, and nowhere else");
+    // Nothing here widens a selection or looks for a word's end in what was picked or drawn.
+    for path in ["actions/review.rs", "tiles/page.rs", "tiles/prim.rs", "parts.rs"] {
+        for reading in ["is_alphanumeric", "is_alphabetic", "unicode_words", "split_word", "char_indices"] { assert!(!code(path).contains(reading), "{path} reads words itself (`{reading}`): a passage as whole words is the service's") }
+    }
+    assert!(!code("draft.rs").contains("is_alphanumeric"), "what shortens a quote for one line cuts at blanks: it reads no word");
+    // The marks: read by one reader, off the part; a range of them painted by one builder; nothing else names one.
+    none("a part's marks read outside the model's one reader (`parts::marks`)", strays("\"marks\")", |path| path == "parts.rs"));
+    none("a mark painted outside the one builder of prose", strays("Highlight::", |path| path == "tiles/prim.rs"));
+    none("a mark's range cut into lines outside the model", calls("lines_of", |path| path == "parts.rs" || path == "tiles/prim.rs"));
+    // What stands beside the words is the row of the list the mark names, asked in one place and drawn by the list
+    // drawer: the page builds no row of its own, and names no list.
+    none("the list a mark's thing is a row of asked outside the App's one ask", calls("beside_ask", |path| path == "actions/app.rs"));
+    assert_eq!(code("tiles/page.rs").matches("super::list::card(").count(), 1, "a card is the list drawer's row, built once");
+    for built in ["ListRow {", ".cells", "\"threads\"", "from=threads"] { assert!(!code("tiles/page.rs").contains(built) && !code("tiles/prim.rs").contains(built), "a drawer builds or names a thread's row itself (`{built}`)") }
+    // Where what is written stands: asked of what is written (`Writes::ends_at`, `Writes::answers`) and of the page's
+    // parts, by the drawer that shows it.
+    none("where a comment's field stands decided outside the page drawer", calls("part_holding", |path| path == "parts.rs" || path == "tiles/page.rs").into_iter().chain(calls("part_marked", |path| path == "parts.rs" || path == "tiles/page.rs")).collect());
+    // Inside a part (a run of prose is one part, however long): where the words are in the part's own text is the
+    // service's word, asked with the part by the one action that asks where words are and kept as an anchor; the
+    // page drawer hands what is written to the part's builder with that place, and the one builder of prose cuts
+    // its text where the renderer's own reading says two pieces are drawn as the whole is. Nothing reads Markdown
+    // for a block's end, and nothing looks for the words.
+    none("the part picked words end in named outside the action that asks where they are", calls("drawn_from", |path| path == "parts.rs" || path == "actions/review.rs"));
+    assert_eq!(count("quoted.at = "), 1, "where words are in a part's own text is taken where the service's answer lands");
+    none("something stood inside a part outside the page drawer and the builder of prose", calls("inset", |path| path == "tiles/page.rs" || path == "tiles/prim.rs").into_iter().chain(calls("stands_at", |path| path == "draft.rs" || path == "tiles/page.rs")).collect());
+    none("a part's text cut outside the one builder of prose", calls("cut_after", |path| path == "tiles/prim.rs"));
+    assert!(code("tiles/prim.rs").contains("head.iter().chain(rest.iter()).eq(whole.iter())"), "a cut is safe where the kit's own reading of the two pieces is its reading of the whole");
+    for reading in ["\"\\n\\n\"", "starts_with(\"- \")", "starts_with('#')", "```"] { assert!(!code("tiles/prim.rs").contains(reading) && !code("tiles/page.rs").contains(reading), "a drawer reads Markdown itself for where a block ends (`{reading}`)") }
+    // The comments come forward by one action's own step, run by the dispatcher for the person's send alone.
+    // (The person brings a tab forward themselves by the tile's own action, `tab.select`: a press on a tab, a key.)
+    // (K2: a preview that is there already is shown by `tile.preview`, and a list aimed at a note comes forward by
+    // `tile.aim`: both in the one file of what opens where, both by the layout's own step.)
+    none("a tab brought forward outside the one action that shows a note's comments and the tile's own tab.select", strays("Op::Tab", |path| path == "actions/review.rs" || path == "actions/tile.rs" || path.starts_with("layout")).into_iter().chain(strays("Op::Reveal", |path| path == "actions/review.rs" || path == "actions/wires.rs" || path.starts_with("layout"))).collect());
+    assert_eq!(code("actions/tile.rs").matches("Op::Tab").count(), 1, "tab.select is the one place a tile's actions bring a tab forward");
+    assert!(code("actions/review.rs").contains("if reply.by.is_person() && let Some(reader) = reader.filter(|reader| listing(app, reader).is_some())") && code("actions/review.rs").contains("app.act_in(SHOW.id, &name, reply.by.clone());"), "the person's send runs `threads` as theirs; nobody else's runs it");
+    // The actions of picked words are the key table's rows for where the keys are then: offered by one reading.
+    // (Since A1: a tile's menu lists the same rows for the words picked in it, from the same reader.)
+    none("what is offered by picked words read outside the key table (`App::offered`)", calls("offered", |path| path == "keys.rs" || path == "tiles/page.rs" || path == "actions/menu.rs"));
+    assert!(code("keys.rs").contains("if self.ui(&self.layout.focus).passage.is_some() { Layer::Selection }"), "the layer of picked words is said by `App::person`");
+}
+
+/// Wave H2: where a tile held by its title lands has one decider, the layout's drop rule (`layout/drop.rs`, the
+/// door's `desk/drop.ts` cell for cell by `drop-contract.json`). It is asked by the hold's own actions and nobody
+/// else; the shell draws what the model holds of a hold and says only where the pointer is and that it let go.
+#[test]
+fn where_a_held_tile_lands_is_the_layout_s_drop_rule_and_the_shell_draws_what_it_answers() {
+    none("the drop rule asked outside the hold's own actions (actions/carry.rs)", ["drop_at(", "zones_of(", "handle_drop(", "float_landing(", "drop_op(", "drop_args(", "drop_action(", "on_layout("].iter().flat_map(|call| calls(call.trim_end_matches('('), |path| path == "actions/carry.rs" || path == "layout/drop.rs")).filter(|found| !found.contains(".on_layout(")).collect());
+    // The spike's own geometry (a centre third, else the nearest edge) is gone, and so is its act.
+    for gone in ["fn drop_side(", "fn dropped(", "1.0 / 3.0", "\"tile.move", "tile.move "] { none(&format!("{gone} is back"), strays(gone, |_| false)) }
+    // A place's words are the rule's own: nothing else writes one, so what is drawn in a zone is what the rule answered.
+    none("a place's words written outside the drop rule", ["drop here", "split >", "< split", "full-height column", "full-width row", "reorder tab", "docked here"].iter().flat_map(|words| strays(words, |path| path == "layout/drop.rs")).collect());
+    // The act a drop runs is the place's own (`drop_action`, `drop_args`), run by `layout.drop`: the shell writes
+    // neither a move nor a swap nor a tear, and no side of a tile.
+    none("an act of a drop written by the shell: it says where the pointer is (layout.carry) and that it let go (layout.drop)", ["layout.move", "layout.swap", "float.place", "tile.tear t", "where=", "index="].iter().flat_map(|act| strays(act, |path| path != "shell.rs")).collect());
+    let texts = sources();
+    let text = |name: &str| &texts.iter().find(|(path, _)| path == name).unwrap_or_else(|| panic!("{name}")).1;
+    assert!(text("shell.rs").contains("\"layout.carry col={} row={}{} tile={}\"") && text("shell.rs").contains("\"layout.drop cancel=true\"") && text("shell.rs").contains("\"layout.drop\""), "the shell's two lines for a held title");
+    // What is held is the model's (`State.moving`), written by the hold's own actions alone, and free of the renderer.
+    none("what is held written outside the hold's own file", strays("st.moving", |path| path == "actions/carry.rs"));
+    for word in ["rune::", "rune_kit", "&mut Tx"] { assert!(!text("actions/carry.rs").contains(word) && !text("layout/drop.rs").contains(word), "{word} in the model of a hold") }
+    // A shut dock's strip and a tab's label sit where the model says, in cells: one answer for what is drawn and
+    // for the drag, so a tile let go on one lands where it was seen.
+    assert!(text("shell.rs").contains("s.dock_strips()") && text("shell.rs").contains("s.tab_cells("), "the shell draws the model's strips and tab labels");
+    none("a strip's or a label's place decided by the shell", ["DOCK_STRIP", "fn dock_strip(side"].iter().flat_map(|own| strays(own, |_| false)).collect());
+    // The key that lets go of a held tile is the key table's row, on the layer `App::person` says a hold is.
+    assert!(text("keys.rs").contains("self.moving.is_some()") && text("actions/carry.rs").contains("KeyRow::with(\"escape\", Some(\"moving\")"));
+    // A tile goes between windows as it is: what it shows is handed over whole (the window's own record of it), so
+    // its fields are written out only where the arrangement is kept; and the saved tile is read by the layout's
+    // own reader, torn out and put back alike, so what the layout keeps of a tile is never taken for a field of it.
+    none("what a tile shows written out as fields outside where the arrangement is kept", strays("\"narrowed\": ui.narrowed", |path| path == "actions/layout.rs"));
+    none("a saved tile's fields read outside the layout's own reader", ["leaf[\"", "leaf.get(\""].iter().flat_map(|read| strays(read, |path| path == "layout.rs" || path.starts_with("layout/"))).collect());
+    assert!(text("store.rs").contains("Handed { leaf: Value, shown: TileUi,") && text("actions/window.rs").contains("Layout::read(&json!({ \"root\": leaf }))"), "a tile handed to a window: what it shows as it is, the tile by the layout's reader");
+}
+
+/// H1, typing: a level in or out is one rule's (outline-core's `indentText`, ported once), a paste enters a draft by
+/// one hand, and what a completion row says of itself is the service's word.
+#[test]
+fn a_draft_s_level_its_pastes_and_what_a_completion_row_says_each_have_one_place() {
+    // The rule is ported once, and asked by the one action that runs both keys.
+    none("a level in or out worked out beside `draft::indent`", ["list_lead(", "fn indent("].iter().flat_map(|word| strays(word, |path| path == "draft.rs" || path == "actions/draft.rs")).collect());
+    none("the indent rule asked outside the draft's own actions", strays("draft::indent(", |path| path == "actions/draft.rs" || path.starts_with("tests/")));
+    // Words that come in by a paste have their line ends made plain in one function, called where a paste goes in
+    // and nowhere else; no other file reads or writes a carriage return in a draft's words.
+    none("line ends made plain outside `App::paste_in`", strays("plain_ends(", |path| path == "draft.rs" || path == "actions/draft.rs"));
+    let actions = sources().into_iter().find(|(path, _)| path == "actions/draft.rs").expect("actions/draft.rs").1;
+    assert_eq!(actions.matches("plain_ends(").count(), 1, "one caller: `App::paste_in`");
+    none("a paste put in a draft outside `App::paste_in`", strays("paste_in(", |path| path == "actions/draft.rs" || path == "actions/terminal.rs"));
+    // The field hands a paste to the window before its editor takes it, in the one place fields are built; the
+    // clipboard is read for a paste in one place, and asked for only by the two paste actions.
+    none("a field's paste taken outside keys.rs", strays("on_input_paste(", |path| path == "keys.rs"));
+    none("the clipboard read outside `keys::effects`", strays("read_clipboard(", |path| path == "keys.rs"));
+    none("a paste asked of the clipboard outside the paste actions", strays("st.pasting = ", |path| path == "actions/draft.rs" || path == "actions/terminal.rs"));
+    // A block's field is built in one place (with its keys through the table and its paste through the window).
+    none("a field of lines built outside keys.rs", ["text_input(", "TextArea"].iter().flat_map(|word| strays(word, |path| path == "keys.rs")).collect());
+    // What a row of a completion list says of itself, and what choosing it makes, are read off the service's row:
+    // the drawer builds both through the registry, and the model asks for the lit row's drawing in one place.
+    none("the lit row's drawing asked outside the session", strays("ask[\"lit\"]", |path| path == "draft.rs" || path.starts_with("tests/")));
+    let page = sources().into_iter().find(|(path, _)| path == "tiles/page.rs").expect("tiles/page.rs").1;
+    assert!(page.contains("completing_lit(cx.id)") && page.contains("\"type\": \"blockdown\", \"text\": docs"), "the lit row's docs are its own words, built as Blockdown by the registry");
+    for kind in ["heading-pattern", "property", "component", "callout"] { none("a completion row's kind read by the window", strays(&format!("\"{kind}\""), |path| path.starts_with("tests/"))) }
+}
+
+/// Wave A1: what the window takes from Rune and the platform has one place each, and so has what the wave added
+/// to the model. The window's title bar and what its own controls take of the toolbar are the shell's; the
+/// platform's menu, the clipboard and the window's title are the window's hands' (`keys::effects`); a tile's menu is
+/// made by one function, from the actions' rows, and drawn by the platform or by the bar; a file is kept by one
+/// asker, whoever hands it over; a note's card is asked for in one place; a story stands on a recording, made
+/// where the stories are.
+#[test]
+fn what_the_window_takes_from_the_platform_and_a_tile_s_menu_have_one_place_each() {
+    none("the window's own title bar asked for in a second place (`shell::titlebar`)", strays("Titlebar::new(", |path| path == "shell.rs"));
+    none("what the window's own controls take of the toolbar read outside the shell", strays("chrome_insets()", |path| path == "shell.rs"));
+    none("the window's own controls measured the old way, beside the title bar's insets", strays("titlebar_inset()", |path| path == "shell.rs"));
+    none("the platform's menu opened outside the window's hands (`keys::effects`)", strays("popup_menu(", |path| path == "keys.rs"));
+    none("the window named outside its hands (`keys::effects`, from `App::window_title`)", strays("set_title(", |path| path == "keys.rs"));
+    none("a tile's menu row made in a second place (`App::menu_rows`)", strays("MenuItem {", |path| path == "actions/menu.rs"));
+    none("the open menu put or put away outside its own actions and the bar's", strays("st.menu", |path| path == "actions/menu.rs" || path == "actions/bar.rs"));
+    none("what a right-click says written in a second place (`shell::menu_lines`)", ["\"tile.menu at=", "\"tile.point link={", "\"list.press button={"].iter().flat_map(|written| strays(written, |path| path == "shell.rs")).collect());
+    none("a label written for a menu's row (the action's own `menu` row says it; a cell's words are the service's)", strays("label: Some(\"", |path| path != "actions/menu.rs"));
+    none("a file kept by a second asker (`App::keep_file`)", strays("\"media.keep\"", |path| path == "actions/draft.rs"));
+    none("dropped files heard outside the page drawer", strays("on_drop_files(", |path| path == "tiles/page.rs"));
+    none("a paste read in a second place (`keys::hand_over`)", calls("pasted_picture", |path| path == "keys.rs" || path == "actions/draft.rs"));
+    none("a media line written by the window (the service writes it: `media.keep`'s `line`)", ["\"[img::", "\"[artifact::"].iter().flat_map(|written| strays(written, |_| false)).collect());
+    none("the row whose note is glanced at written outside its action", strays("st.glance", |path| path == "actions/menu.rs"));
+    none("a note's page asked for a card in a second place (`App::glance_ask`)", calls("glance_ask", |path| path == "actions/menu.rs" || path == "actions/app.rs"));
+    none("a recording answered outside the stories", strays("Recorded::new(", |path| path == "stories.rs" || path == "client.rs"));
+    none("the playground built in a second place (`main.rs`, where every window is made)", strays("Playground::<", |path| path == "main.rs"));
+    // The menu's rows are read from the action table: nothing in the menu's file names an action's label, and the
+    // three words it has of its own are what the pointer was on, never an action's group.
+    let code = |path: &str| std::fs::read_to_string(format!("{}/src/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap().lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    let menu = code("actions/menu.rs");
+    assert!(menu.contains("action.row.menu.iter()") && menu.contains("super::label(&line)"), "a menu's rows and their labels are the actions' own");
+    // Which row a list's menu is about is the list's cursor (K1's, moved by the list's own actions alone): a
+    // right-click puts it on the row, and nothing remembers a second row for the menu.
+    assert!(menu.contains("self.ui(tile).cursor") && menu.contains("pub struct Pointed { pub link: Option<String> }"), "a list's menu reads the cursor's row, and keeps none of its own");
+    assert!(code("shell.rs").contains("Under::Row(id) => Some(format!(\"list.press button={} id={}\", crate::press::RIGHT"), "a right-click on a row is the list's own press, with the right button");
+    // A story is data: the model's file names no renderer, and its lines are the recording's.
+    assert!(!code("stories.rs").contains("rune") && !code("stories.rs").contains("include_str!"), "stories.rs is the model's, and compiles nothing of a host's answers in: a story is drawn by the window's own view");
+}
+
+/// H5: what completes a word is one list with one row, hung by one surface; what a row is, what it has left to
+/// write and what choosing it leaves next are the service's words on the row; and nothing drawn over the window
+/// builds a list the way a page does.
+#[test]
+fn the_list_that_completes_a_word_is_the_one_list_and_reads_its_rows_as_served() {
+    let all = sources();
+    let text = |path: &str| all.iter().find(|(found, _)| found == path).unwrap_or_else(|| panic!("{path}")).1.clone();
+    // One row anatomy: the bar's rows and the completion list's are `list::line`, built nowhere else; the kit's own
+    // popup list (rows of its own, no foot, a fixed width) is named nowhere.
+    none("a list row laid out beside `list::line`", strays("list::line(", |path| path == "bar.rs" || path == "tiles/page.rs"));
+    assert!(text("bar.rs").contains("list::line(list::Line {") && text("tiles/page.rs").contains("list::line(list::Line {"), "the bar and the completion list draw the one row");
+    // (`rune::PopupItem` is another thing: an item of the platform's own menu, which the window's hands build for a
+    // tile's menu since A1.)
+    none("the kit's popup list beside the one list", ["PopupList", "rune_kit::PopupItem"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    none("an item of a popup named outside the window's hands, where it is the platform's menu's", strays("PopupItem", |path| path == "keys.rs"));
+    // Whatever is drawn over the window (a drawer's `over`) is in no scroll of the page's: every primitive built
+    // there is built as one under a row is (`in_row`), so a list in it is built whole and never as virtual rows,
+    // which Rune allows only in a scroll's own stack ("virtual stack must be inside a scroll viewport").
+    let page = text("tiles/page.rs");
+    let over = &page[page.find("\nfn over(").expect("the page drawer's overlay")..];
+    assert!(over.matches("PrimCx::of(cx)").count() >= 2 && over.matches("PrimCx::of(cx)").count() == over.matches("PrimCx::of(cx).in_row()").count(), "a primitive built over the window is built in_row");
+    none("rows built in view outside a scroll of their own in the overlay", over.lines().filter(|line| line.contains("list::rows(") || line.contains("list::bounded(")).map(str::to_string).collect());
+    // The window finds no token and measures no match: where the token starts, which letters matched, what is still
+    // to come, whether more follows and what is made first are fields of the served row and its answer.
+    none("a token looked for in the draft's words", ["rfind(\"[[\")", "rfind('[')", "strip_prefix(\"::\")", "find(\"::\")"].iter().flat_map(|word| strays(word, |_| false)).collect());
+    none("letters matched here: the service says which", ["to_lowercase().find(", "fuzzy"].iter().flat_map(|word| strays(word, |path| path == "bar.rs")).collect());
+    for field in ["row.rest", "row.next", "row.makes", "row.slots"] { none(&format!("{field} read outside the draft's own actions and the model"), strays(field, |path| path == "actions/draft.rs" || path == "actions/app.rs")) }
+    // A choice is counted in one request, made where a row is written and where the person typed the row out.
+    none("a choice counted somewhere new", strays("\"completion.picked\"", |path| path == "actions/draft.rs" || path == "actions/app.rs"));
+    // One key, three layers, each a row of the table: Tab writes the lit row while the list is open, steps the
+    // stops while a skeleton is being filled in, and indents the line otherwise. Return and Escape the same way.
+    let bound = |chord: &str, layer: &str| crate::keys::table().iter().find(|bind| bind.spec == chord && bind.layer.map(crate::keys::Layer::name) == Some(layer)).map(|bind| bind.action);
+    assert_eq!((bound("tab", "complete"), bound("tab", "stops"), bound("tab", "draft")), (Some("complete.accept"), Some("snippet.next"), Some("draft.indent")));
+    assert_eq!((bound("shift+tab", "stops"), bound("shift+tab", "draft"), bound("enter", "complete")), (Some("snippet.previous"), Some("draft.outdent"), Some("complete.enter")));
+    assert_eq!((bound("escape", "said"), bound("escape", "stops"), bound("escape", "draft")), (Some("complete.dismiss"), Some("snippet.end"), Some("edit.close")));
+    // A key that chooses pressed while the list on screen is a letter behind is kept in one place and run in one:
+    // nothing is written from a held list. And a row is lit by a pointer that moves, never by one a list opened under.
+    none("a choice kept for later somewhere new", strays("completing.later", |path| path == "actions/draft.rs" || path == "actions/app.rs"));
+    assert!(text("actions/draft.rs").matches("completing_behind(&tile)").count() == 2 && text("actions/draft.rs").contains("fn choose(app: &mut App"), "both keys that choose ask whether the list has caught up");
+    none("a completion row lit by a hover a resting pointer gets", over.lines().filter(|line| line.contains(".on_hover(")).map(str::to_string).collect());
+    // A heading style's cells are worked out in the model, once, and painted by the one builder of a band.
+    none("a glyph track's cells worked out beside `band.rs`", strays("band::cell(", |path| path == "band.rs"));
+    none("a track painted beside the band's builder", ["Ink::Shade", "Ink::Double", "band::Ink"].iter().flat_map(|word| strays(word, |path| path == "band.rs" || path == "tiles/band.rs")).collect());
+}
+
+/// K1, keys everywhere: where the keys are in a tile is state only its own actions move, the rules for a step and
+/// for a stop are the ports of outline-core's and nobody else works one out, and what the hint row says is read
+/// from the key table by one function.
+#[test]
+fn a_cursor_a_reading_line_and_a_tab_stop_each_have_one_mover_and_the_hint_row_one_reader() {
+    // (Code alone: a comment may name what it explains.)
+    let texts = sources();
+    let code = |path: &str| texts.iter().find(|(p, _)| p == path).map(|(_, text)| text.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| panic!("no {path}"));
+    // A list's cursor is put on a row by the list's own actions (a step, a pick, a tree's fold or climb), by its id.
+    none("a list's cursor moved outside the list's and the tree's own actions", strays(".cursor = Some(", |path| path == "actions/list.rs" || path == "actions/tree.rs" || path.starts_with("pty")));
+    none("a list's cursor kept by its place and not by its row's id", strays("cursor: Option<usize>", |_| false));
+    // A reader's reading line: its own action moves it, and showing another note lets it go.
+    none("a reading line moved outside the reader's own action", strays("reading = ", |path| path == "actions/nav.rs" || path == "actions/app.rs"));
+    none("a reader's way forward written outside its own actions", strays("ui.ahead", |path| path == "actions/nav.rs" || path == "actions/app.rs" || path == "tiles/page.rs"));
+    // Where a step lands, a row's parent and which tiles are one stop: one port each, held by the contract table.
+    for rule in ["fn stepped(step", "fn parent_row(", "fn tab_stops(", "fn next_stop(", "fn page_rows("] { none(&format!("a second {rule}…): the rule is cursor.rs's, by outline-core's"), strays(rule, |path| path == "cursor.rs" || (rule == "fn tab_stops(" && path == "actions/layout.rs"))) }
+    // (Which folder a note is listed in is the same question as the row a tree's cursor climbs to: one answer.)
+    none("a row's parent asked outside a tree's fold and the folder a note is listed in", strays("cursor::parent_row(", |path| ["actions/tree.rs", "actions/app.rs"].contains(&path)));
+    none("the row a tree's row is under worked out beside the rule (`cursor::parent_row`)", strays("depth + 1 ==", |_| false));
+    assert!(code("actions/app.rs").contains("cursor::parent_row("), "`App::parent_of` asks the rule for the row a note's row is under");
+    none("where a step lands asked outside the list's and the reader's own actions", strays("cursor::stepped(", |path| ["actions/list.rs", "actions/nav.rs"].contains(&path)));
+    none("a page of rows worked out outside the rule", strays("page_rows(", |path| path == "cursor.rs"));
+    none("the stops worked out outside `App::tab_stops`", strays("cursor::tab_stops(", |path| path == "actions/layout.rs"));
+    none("the stops asked for a move of the keys outside the tile's own actions", strays("next_stop(", |path| path == "cursor.rs" || path == "actions/tile.rs"));
+    assert!(!code("cursor.rs").contains("rune") && !code("cursor.rs").contains("App"), "the cursor's rules are pure: no renderer and no window");
+    // A scroll moved by an act is asked of the next frame, where the window's hands are.
+    none("a scroll moved outside `keys::effects`", ["scroll_page(", "scroll_to_y(", "scroll_to_bottom("].iter().flat_map(|hand| strays(hand, |path| path == "keys.rs")).collect());
+    none("a scroll asked of the next frame outside the reader's own action", strays("st.scroll = ", |path| path == "actions/nav.rs"));
+    // What the tile with the keys adds to the key table is the person's whereabouts, read by `person` alone; the
+    // hint row is the table read by one function, drawn by the shell, which spells no key.
+    assert_eq!(code("keys.rs").matches("self.tile_layers()").count(), 1, "what a tile adds to the keys is asked by `App::person` alone");
+    none("the hint row's lines read outside the shell's foot", calls("hinted", |path| path == "shell.rs" || path == "keys.rs"));
+    let foot = code("shell.rs");
+    let foot = &foot[foot.find("fn foot(").expect("the shell draws the hint row")..];
+    let foot = &foot[..foot.find("\n}\n").unwrap()];
+    assert!(foot.contains("s.hinted()") && !foot.contains("\"Esc") && !foot.contains("Tab") && !foot.contains("does: \""), "the hint row spells no key and words none: {foot}");
+    // A row's two marks are drawn by the one drawer of a list, from the tile's own state.
+    none("a cursor's row marked outside the list drawer", strays("ui.cursor", |path| path == "tiles/list.rs"));
+    // Escape's steps on a tile are rows on the layers `person` reports, in one order.
+    for (layer, line) in [("noticed", "notice.dismiss"), ("zoomed", "tile.zoom on=false"), ("docked", "dock.toggle"), ("tile", "keys.home")] {
+        assert!(crate::keys::table().iter().any(|bind| bind.layer.map(crate::keys::Layer::name) == Some(layer) && bind.spec == "escape" && bind.line == line), "Escape on {layer} is {line}");
+    }
+}
+
+/// K2, what opens where: each question has one owner, and the shell words none of it.
+#[test]
+fn a_press_a_select_a_wire_a_pin_and_a_held_list_each_have_one_owner() {
+    let texts = sources();
+    let text = |path: &str| texts.iter().find(|(found, _)| found == path).map(|(_, text)| text.clone()).unwrap_or_else(|| panic!("{path} is a source"));
+    let code = |path: &str| text(path).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    // What a press on a row asks for: the one port of outline-core's `rowGesture`, pure, asked by `list.press` alone.
+    assert!(!code("press.rs").contains("rune") && !code("press.rs").contains("App"), "the press rule is pure: no renderer and no window");
+    none("what a press on a row is, asked outside `list.press`", strays(".presses.press(", |path| path == "actions/list.rs"));
+    none("whether a press opens fresh asked outside the words of a pressed line (`keys::pressed`) and the bar's row", strays("press::fresh(", |path| path == "keys.rs" || path == "bar.rs"));
+    none("a press's modifiers read outside `keys::held_bits`", strays("tx.mods()", |path| path == "keys.rs"));
+    assert!(code("tiles/list.rs").contains("list.press id=") && !code("tiles/list.rs").contains("list.pick id="), "a row's press says `list.press`: the drawer decides no gesture");
+    // The verb of an open fresh: held where a gesture becomes one, read by the one open.
+    none("the fresh verb held outside the acts that are one (`list.open`, `tree.pick`, `fresh`, `bar.pick alt=`)", strays("app.st.fresh", |path| ["actions/list.rs", "actions/nav.rs", "actions/bar.rs"].contains(&path)));
+    none("the fresh verb read outside the pick and the open", strays("app.fresh", |path| ["actions/list.rs", "actions/nav.rs"].contains(&path)));
+    // A select wire is delivered in one place, asked by the cursor's own actions (and a preview's first showing).
+    none("a select delivered outside the list's own actions and a preview made for it", calls("picked", |path| path == "actions/list.rs" || path == "actions/wires.rs"));
+    // A wire is the layout's: one action issues the step, and one mode picks its tile.
+    none("a wire changed outside `tile.link` (and the layout's own steps)", strays("Op::Link", |path| path == "actions/wires.rs" || path.starts_with("layout")));
+    none("the wire being set written outside `wire.pick` and `tile.link`", strays("st.linking", |path| path == "actions/wires.rs"));
+    // Where a tile's verbs land is said by one function over placement's own answer, asked in the open's own file.
+    none("where a wire lands worded outside `App::wire_words`", ["\"in place\".into()", "\"next column\".into()", "\"nowhere\".into()"].iter().flat_map(|words| strays(words, |path| path == "actions/wires.rs")).collect());
+    none("placement asked for a title's words outside `nav::planned`", calls("asked_shown", |path| path == "actions/nav.rs" || path == "actions/layout.rs"));
+    // What the person set on a tile: each written by its own action and read back from the arrangement's file.
+    for (field, owners) in [(".pinned = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".follows = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".home = ", vec!["actions/wires.rs", "actions/layout.rs"]), (".trail", vec!["actions/wires.rs", "actions/layout.rs"]), (".arrived = ", vec!["actions/wires.rs", "actions/tile.rs"]), (".walk = ", vec!["actions/wires.rs", "actions/nav.rs"]), (".deliberate = ", vec!["actions/wires.rs", "actions/nav.rs", "actions/tile.rs", "actions/layout.rs"])] {
+        none(&format!("a tile's `{}` written somewhere new", field.trim()), strays(field, |path| owners.contains(&path) || path.starts_with("layout") || path.starts_with("pty")));
+    }
+    // What the layout's rules read of a pin, a held reader and a list that hands its keys on is said in `App::facts`.
+    for fact in ["pinned: self.pinned(tile)", "hands_keys", "deliberate: self.ui(tile).deliberate"] { assert!(code("actions/app.rs").contains(fact), "`App::facts` says {fact}") }
+    // The shell draws what the model says: the words on a title and over the tiles are `App`'s, and each control is an act line.
+    let shell = code("shell.rs");
+    for read in ["s.wire_words(", "s.held_on(", "s.pinned(", "s.arrival(", "s.link_offer(", "s.linking_said()"] { assert!(shell.contains(read), "the shell reads {read}") }
+    for line in ["wire.pick verb=", "wire.pick to=", "reader.pin tile=", "tile.hold tile="] { assert!(shell.contains(line), "the shell's control runs {line}") }
+    none("a wire's verb worded in the shell (the words are `App::wire_words`)", ["\"beside ", "\"tab of "].iter().flat_map(|words| strays(words, |path| path != "shell.rs")).collect());
+    // The keys of the mode are rows of the one action that picks, on its own layer.
+    assert!(crate::keys::table().iter().filter(|bind| bind.layer.map(crate::keys::Layer::name) == Some("linking")).all(|bind| bind.action == "wire.pick"));
+    for (layer, key, line) in [("rows", "alt+enter", "list.open where=new"), ("bar", "alt+enter", "bar.pick alt=true"), ("page", "p", "reader.pin"), ("page", "b", "tile.aim"), ("rows", "b", "tile.aim"), ("rows", "shift+b", "tile.hold"), ("tile", "shift+o", "tile.preview"), ("tile", "alt+l then o", "wire.pick verb=open")] {
+        assert!(crate::keys::table().iter().any(|bind| bind.layer.map(crate::keys::Layer::name) == Some(layer) && bind.spec == key && bind.line == line), "{key} on {layer} is {line}");
+    }
+}
+
+/// K3, the editor's keys: each rule is outline-core's, ported once (`edit.rs`, no Rune) and asked by the one file of
+/// the editor's actions; a key's change enters a field by one hand; a character is asked of the rules in one place
+/// before it is typed; and what is the field's own to do is handed to it in one place.
+#[test]
+fn an_editor_s_key_has_one_rule_one_way_into_the_field_and_one_hand_that_sends_the_field_its_own() {
+    // The rules: ported in one file, which names no renderer, no action and no socket, and asked by one.
+    let edit = sources().into_iter().find(|(path, _)| path == "edit.rs").expect("edit.rs").1;
+    for other in ["rune", "crate::actions", "crate::store", "crate::keys", "serde_json"] { assert!(!edit.lines().filter(|line| !line.trim_start().starts_with("//")).any(|line| line.contains(other)), "edit.rs is a text and two offsets in and out: it names no {other}") }
+    none("an editor's rule asked outside the editor's actions", ["edit::newline(", "edit::line_op(", "edit::wrap(", "edit::typed(", "edit::select(", "edit::go(", "edit::erase(", "edit::check("].iter().flat_map(|rule| strays(rule, |path| path == "actions/editor.rs")).collect());
+    // What a list item's lead is, and which item above is its parent or the one it follows, is read once, for
+    // these rules and for Tab's.
+    none("a list item's lead read beside `edit::lead`", ["fn lead(", "fn list_lead(", "fn parent(", "fn sibling(", "fn tab_takes("].iter().flat_map(|reader| strays(reader, |path| path == "edit.rs")).collect());
+    none("whether Tab moves a line asked outside the indent rule", strays("tab_takes(", |path| path == "edit.rs" || path == "draft.rs"));
+    // A line is broken by the rule, wherever Return comes from: the draft's row, the list's row that leaves it to
+    // the field, and the field's adapter. Nothing types a bare newline.
+    none("a line break typed beside the rule", strays("insert(\"\\n\")", |_| false));
+    none("Return broken outside the rule's three askers", calls("break_line", |path| ["keys.rs", "actions/editor.rs", "actions/draft.rs"].contains(&path)));
+    // One way in for a key's change, one place a character is asked before it is typed, one place an undo's step
+    // is cut and the field's way back walked.
+    none("a key's change put in a field outside `App::ruled`", strays("buf.put(", |path| path == "actions/editor.rs"));
+    none("a character asked of the rules outside the field's adapter", calls("types", |path| path == "keys.rs" || path == "actions/editor.rs" || path.starts_with("pty/")));
+    none("the field's way back cut or walked outside the editor's actions", ["buf.rest(", "buf.undo(", "buf.redo("].iter().flat_map(|call| strays(call, |path| path == "actions/editor.rs")).collect());
+    // What is the field's own (a motion by word, a copy) is asked for by the editor's actions and sent by the
+    // window's hands, as a paste is read by them.
+    none("a key handed to a field's editor outside `keys::effects`", strays("send_key(", |path| path == "keys.rs"));
+    none("a key asked for a field's editor outside the editor's actions", strays("st.sending", |path| path == "actions/editor.rs"));
+    // The rows: every action of the editor is the person's, and a row that lists the field's own key is a draft's.
+    for action in crate::actions::all().filter(|action| action.row.id.starts_with("draft.") && action.row.id != "draft.patch") { assert!(action.row.person.is_some(), "{} is the person's: an agent's way into a draft is draft.patch", action.row.id) }
+    let own: Vec<&crate::keys::Bind> = crate::keys::table().iter().filter(|bind| bind.own).collect();
+    assert!(own.len() >= 10 && own.iter().all(|bind| bind.layer == Some(crate::keys::Layer::Draft) && bind.from == "field"), "the field's own keys are listed where a block is written, and say whose they are");
+    // Whether what is selected is what the window selected for typing over (a chosen row's value, a skeleton's
+    // stop) is one answer, asked where a character is asked of the rules; what of a lit row is still to come, and
+    // which closers stand after the caret, is one reading, drawn once.
+    none("a filled selection read beside `DraftSession::filled_in`", strays("filled == ", |path| path == "draft.rs"));
+    none("whether a selection is filled asked outside `App::types`", calls("filled_in", |path| path == "draft.rs" || path == "actions/editor.rs"));
+    none("the rest of a lit row read outside the page drawer's overlay", calls("completing_rest", |path| path == "actions/app.rs" || path == "tiles/page.rs"));
+    // What holds only now is offered first by the one reader of a layer's keys.
+    none("a hint row's rows chosen beside `keys::offered`", strays("bind.quiet", |path| path == "keys.rs"));
+    // A chord that is the platform's own for a word or a line's edge is read in one place.
+    none("a platform's word or line key named outside the key table", ["\"word+", "\"line+"].iter().flat_map(|named| strays(named, |path| path == "keys.rs" || path == "actions/editor.rs")).collect());
+}

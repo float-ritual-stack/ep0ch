@@ -30,6 +30,19 @@ function fieldType(p: PropertySchema): ExtensionSettingField["type"] {
   return "json";
 }
 
+/**
+ * An extension's settings as the props a script it ships reads (`props.<field>[0]`): each field its schema names, as
+ * config.json has it, else its default; a field with neither is left out. What a tile's fields or a line's own words
+ * say comes over these, so a setting is what a script uses when nobody said otherwise.
+ */
+export function settingProps(extension: { manifest: ExtensionManifest; config: Record<string, unknown> } | undefined): Record<string, string[]> {
+  if (!extension) return {};
+  return Object.fromEntries((namedFields(extension.manifest.configSchema) ?? []).flatMap(([name, p]) => {
+    const value = Object.hasOwn(extension.config, name) ? extension.config[name] : p.default;
+    return value === undefined ? [] : [[name, [typeof value === "string" ? value : JSON.stringify(value)]]];
+  }));
+}
+
 /** A secret reference in words: where its value is, never the value. */
 export function referenceWords(ref: ExtensionSecretReference): string {
   if ("env" in ref) return `env ${ref.env}`;

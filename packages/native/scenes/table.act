@@ -1,0 +1,4 @@
+# A list arranged as a table and grouped, by property names typed here: the board's lanes as rows a column a property.
+bar.open scope=screens query=board
+bar.pick n=1
+list.layout layout=table tile=lanes

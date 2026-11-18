@@ -80,7 +80,8 @@ Before a PR claims a change works:
      investigate", a ticket listing the files that grew since the last green night) and writes a warning under the
      build log at 80%. Only Evan raises it: the repo mod refuses an agent's change to the file.
    - **Whole suites** (loki's merge batch, the nightly run on main) go through
-     `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`: float-box when it
+     `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]` (and `native`,
+     below): float-box when it
      answers, else a boxd fork of the golden box (`--refresh-golden` rebuilds it after a `bun.lock` change). It runs
      your commit (unpushed goes up as a bundle) in a private dir it removes, exits with the first failing suite's
      code, and logs each run in `~/.local/state/ep0ch/box-test.tsv`. On float-box `scripts/box-test-guard` owns each
@@ -88,6 +89,11 @@ Before a PR claims a change works:
      each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone, the
      showcase's `test/showcase/*.test.ts` included (`sh scripts/test-each.sh --list` names them): a file that loads
      only because another loaded a module first passes in one process and fails alone (#204).
+   - **The native window's suite is cargo's, and no bun gate runs it.** A diff under `packages/native` or
+     `packages/outline-core/fixtures` (the contract tables the window's Rust is held to: the door's own test only
+     makes them again) runs `cargo test` in `packages/native` as part of the builder's gate, and the merge batch that
+     carries it runs `scripts/box-test native` (float-box only, the build kept there between runs; never part of
+     `all`). [The window's README](packages/native/README.md#check-it) has the environment.
    - **A focused run under load waits longer, never goes red for it** (PIE-1504): `scripts/agent-env --test` sets
      `EP0CH_TEST_SLACK=2` when float-box's load at start is over 6 (box-test always does: its files run eight at once), and the tests' `until` (the door's
      `test/scratch.ts`, the outliner's `test/script-harness.ts`) scales every deadline by it. Each run leaves one row

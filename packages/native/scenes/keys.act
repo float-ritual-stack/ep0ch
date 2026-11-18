@@ -1,0 +1,4 @@
+# The keys screen, opened from the bar's Screens: every way to press an action, a list the service makes from the
+# rows this window hands it. The window keeps no second table for it.
+bar.open scope=screens query=keys
+bar.pick n=1

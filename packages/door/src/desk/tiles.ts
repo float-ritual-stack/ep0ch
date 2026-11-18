@@ -10,144 +10,25 @@ import { join } from "node:path";
 import { stateDir } from "../state";
 import { screenNote, screenNotes } from "./screen-notes";
 import { resolveScreen } from "./screen-spec";
-import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
+import { leaf, serializeTree, splitOf, type LNode } from "./screen-layout";
 import { type Pane } from "./panes";
-import { isTileHeader, type TileHeader } from "../surface/note";
+import { isTileHeader } from "../surface/note";
 import { nowPage } from "../hub/now";
 import { isTileKind, missingKind, resolveKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
 import { tileRegistry } from "./tile-registry";
 
-/** One tile as saved: what it is, its name, and what it needs to be built again. */
-export interface TileSpec {
-  namedAgent?: import("./named-agent").NamedAgent;
-  t: "leaf";
-  /** Its kind: a name in the tile-kind registry (an extension's too). */
-  kind: TileKindName;
-  /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
-  name?: string;
-  /** The slot this tile fills on its screen (a spec's tile name), kept when its public name changes: the place, whatever fills it. */
-  slot?: string;
-  /** What the tile is for (`agent`, `reader`), set by what made it and kept with its id; absent, its kind's (`tileRole`). */
-  role?: string;
-  /** The tile that opened this one (`t-<uuid>`): `^` names it. */
-  openedFrom?: string;
-  /** The tile this one was copied from (`t-<uuid>`), when a copy of a saved arrangement gave it a fresh id. */
-  copiedFrom?: string;
-  writtenTitle?: string;
-  systemTitle?: boolean;
-  /** Its own header (PIE-1248): full, title or none; absent, the note's `[header::…]` decides. */
-  header?: TileHeader;
-  /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
-  id?: string;
-  /** A reader's note (block id): it starts on it and keeps it. */
-  note?: string;
-  outline?: string;
-  machine?: string;
-  /**
-   * A reader's pin (PIE-1207): `pinned` keeps `note` (or the page named by `page`) and every open aimed at it lands
-   * beside it. A saved `held` reads as no pin; `follows` (the hidden current note, gone) as `wasFollowing`. A query
-   * list's `held` (PIE-855) keeps what it lists.
-   */
-  mode?: "pinned" | "held";
-  /** Saved following the current note (PIE-1207: gone): it loads on the note it showed, and the desk wires a list to it once. */
-  wasFollowing?: boolean;
-  /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
-  nav?: unknown;
-  /** A reader's margin when it isn't trim (PIE-873): "off" (marks only) or "full". */
-  margin?: "full" | "off";
-  /** A reader pinned to a page (`mode: pinned`): the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
-  page?: string;
-  /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
-  cmd?: string[];
-  cwd?: string;
-  file?: string;
-  /**
-   * The key its program runs under in a session's terminal host, when that isn't `<home>:<its id>`: a terminal tile moved
-   * between screens or into the drawer (PIE-498) adopts its own program after a restart by it.
-   */
-  kept?: string;
-  /** A terminal started as an agent session (PIE-737): its program, persona and config. */
-  session?: { program: string; persona?: string; config?: string };
-  /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
-  source?: string;
-  /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */
-  preview?: boolean;
-  /** A mount (PIE-651): the screen it mounts, by its registered name (`board`), and what that screen opens with (its target: the hub). */
-  screen?: string;
-  args?: Record<string, unknown>;
-  /** A mount of a part of its screen: the container's key (or tile's name) it holds alone (`lanes`). */
-  part?: string;
-  /** A mount's own layout, as its desk saves it (a group's whole tree): the mount comes back as it was, never as its full screen was. */
-  inner?: unknown;
-  /** Where this tile's opens land: another tile's name (PIE-473). */
-  altReader?: boolean;
-  deliberate?: boolean;
-  wires?: { verb: import("./screen-layout").WireVerb; to: string; rule?: import("./layout").AltRule }[];
-  selectFrom?: string;
-  link?: string;
-  /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */
-  linkRole?: "preview" | "target";
-  /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
-  state?: Record<string, unknown>;
-  /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */
-  view?: string;
-  /** A query tile's query in the views' grammar, with no saved view (`#garden`, PIE-800). */
-  query?: string;
-  /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
-  collapsed?: true | "h";
-  /** What an agent may do to this tile (PIE-639): `edit` or `off`; left out, the container's or the screen's `agents` says, else `free`. */
-  agents?: "free" | "edit" | "off";
-  /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, over the page's, under a list's. */
-  look?: Record<string, string>;
-  /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
-  label?: string;
-  /** A river column's filter (its clauses, as `/` takes them). */
-  filter?: string;
-  /** The glass extension's post-it and shelf (ext/glass): sticky, from a hover, pinned by; a shelf's refs, layout and colour. */
-  sticky?: boolean; hover?: boolean; by?: string | null;
-  refs?: { ref: string; title: string; by: string | null }[];
-  shelfLayout?: "list" | "grid";
-  colour?: keyof typeof import("../theme").TONE_INDEX;
-  /** A backlinks tile whose groups start open (the welcome's). */
-  groups?: "open";
-  /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */
-  linkGroups?: string;
-  /** A links tile's stage values, in order (`next,doing,waiting`, PIE-819): what its headers and Stage control name. */
-  stages?: string;
-  /** A links tile's subject (PIE-794): `held` (the default) keeps the note it lists until `b`; `follows` lists what its home shows. */
-  subject?: "held" | "follows";
-}
-export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
+// A tile as saved (TileSpec), a layout as saved (LayoutSpec) and the rule for a tile's name are outline-core's
+// (screen-spec.ts): what every client that reads a screen shares.
+export { ID_SHAPE, tileNameProblem, type LayoutSpec, type SavedFloat, type SavedTree, type TileSpec } from "@ep0ch/outline-core/screen-spec";
+import { canonLeaf, type LayoutSpec, type SavedTree, type TileSpec } from "@ep0ch/outline-core/screen-spec";
 
 /**
  * Where an open from a tile goes when it has no link: the first reader that isn't pinned, (`next`) a new column after
  * its own in its flow, or (`beside`) a reader beside it. A layout's `rule` is read into its screen policy's `opens` (PIE-513: the open rule is policy now).
  */
 export type { OpenRule } from "./screen-layout";
-import type { OpenRule } from "./screen-layout";
 import { words } from "../text";
-/**
- * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
- * (the outermost container's: `locked` there locks the whole screen, PIE-505).
- */
-export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy; floats?: SavedFloat[] }
-/** A float as saved (PIE-511): its tile, and its rectangle. */
-export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number }; peekOf?: string }
-
-/**
- * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the
- * shape of an id (`t4` a tile, `s2` a split, `g1` a tab set: one of those letters, then digits). So a name is
- * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
- * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
- */
-export const ID_SHAPE = /^(?:[tsgk]\d+|t-[0-9a-f][0-9a-f-]{7,})$/i;
-export function tileNameProblem(name: string): string | null {
-  if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
-  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g or k and digits are tile, split, tab set and drawer tile ids)`;
-  if (/^[A-Za-z][\w.-]{0,39}$/.test(name)) return null;
-  return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
-}
 
 /** The kinds a tile can be: every kind in the registry, built-ins first. */
 export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
@@ -178,15 +59,19 @@ export { isTileKind };
 export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: string; note?: string; nav?: unknown; wasFollowing?: boolean; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
-  if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
+  // `detail` and `pinned` are readers, with what each name said as fields: outline-core's one reading of the two
+  // (canonLeaf), which `screens.list` serves a screen note's tiles by too. A `pinned` that names no page is pinned to
+  // this door's "now" page.
+  const was = out.kind;
+  Object.assign(out, canonLeaf(out));
+  if (was === "pinned") out.page ??= nowPage().address;
   // The kinds that were a second copy of another (PIE-1528) keep what they were as that kind's own fields; the kind's
   // `replaces` (resolveKind, below) gives the name. thread: the links tile with Children alone; tags: the facets tile
-  // opened on the tags facet, with no calendar; board and river: the screen mount; pinned: a reader pinned to its page.
+  // opened on the tags facet, with no calendar; board and river: the screen mount.
   const o = out as typeof out & { linkGroups?: string; args?: Record<string, unknown>; screen?: string; label?: string };
   if (out.kind === "thread") o.linkGroups ??= "children";
   else if (out.kind === "tags") o.args = { open: ["tag"], calendar: false, ...o.args };
   else if (out.kind === "board" || out.kind === "river") o.screen ||= out.kind;
-  else if (out.kind === "pinned") { out.kind = "reader"; out.mode = "pinned"; out.page ??= nowPage().address; }
   // A retired kind another kind replaces (PIE-1514) reads as that kind, and saves under it.
   out.kind = resolveKind(out.kind);
   // The reader modes before the pin (PIE-1207): `held` is any reader now (it names a new tile a detail, and the reader

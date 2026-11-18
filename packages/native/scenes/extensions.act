@@ -1,0 +1,5 @@
+# The kitchen: the screen whose tiles and toolbar show what each wave added. Here the extensions and the outlines
+# are tiles (any list source is one), and the bar is open on the extensions with a name typed: the service's rows,
+# each carrying the act line a pick runs (open its page, its settings, install one, and, typed, remove one).
+screen.open name=kitchen
+bar.open scope=extensions query=waiting
