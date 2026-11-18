@@ -35,7 +35,9 @@ code=$?
 secs=$(( $(date +%s) - start ))
 # The files that failed: the file header bun prints before a run of tests, kept when a (fail) line follows it.
 # bun's summary at a suite's end repeats each (fail) under no file: it would be pinned on whichever file ran last.
-red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^[0-9]+ tests? failed:$/{f=""} /^\(fail\)/{if (f != "") print f}' "$log" | sort -u)
+# The each-file phase (scripts/test-each.sh) names a red file on its own `✗ <file>` line, with no (fail) under a header
+# (Nov 18: backup-restic red there, and the ticket said "0 files fail").
+red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^[0-9]+ tests? failed:$/{f=""} /^\(fail\)/{if (f != "") print f} /^✗ .*\.test\.ts$/{print $2}' "$log" | sort -u)
 count=$(printf '%s' "$red" | grep -c . || true)
 
 # The budget: the comparison box-test printed at the end of the log, decided here (0 within, 3 near, 4 over, 5 none).
