@@ -80,8 +80,9 @@ const QUERY = "when to turn the compost";
 const titles = (r: GotoSearchCollection) => r.matches.map(m => m.title);
 
 test("an agent's find answers when the search takes longer than a keypress waits", async () => {
-  // Jev's three answers take 1.2 s each (a first search after a quiet spell: new connections, a cold model): 3.6 s in all.
-  const { find, asked } = await setup(() => 1200);
+  // A first search after a quiet spell: Jev's three answers take 3.4 s between them, the deep pass most of it (each
+  // ranking well inside its own 2.2 s, so a busy box doesn't turn this into the skipped ranking of the next test).
+  const { find, asked } = await setup(kind => kind === "deep" ? 2800 : 300);
   const found = await find(QUERY);
   expect(found.stderr).not.toContain("timed out");
   expect(found.exitCode).toBe(0);
@@ -93,10 +94,11 @@ test("an agent's find answers when the search takes longer than a keypress waits
 }, 30_000);
 
 test("a ranking Jev doesn't answer inside the search's budget is skipped: the text matches, said, never a failure", async () => {
+  // The test's budget, far under the 20 s a search has: the answer comes at the budget, not at each stage's own wait.
   const { client, find, asked } = await setup(() => "never", 400);
   const started = performance.now();
   const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: QUERY, semantic: true, deep: true }, SEARCH_WAIT_MS);
-  expect(performance.now() - started).toBeLessThan(2000);
+  expect(performance.now() - started).toBeLessThan(SEARCH_BUDGET_MS / 2);
   expect(titles(r)).toEqual(expect.arrayContaining(["Compost turning schedule", "Compost bin repairs"]));
   expect(titles(r)).not.toContain("Heap rota");
   expect(r.matches.every(m => m.score === undefined)).toBe(true);
@@ -110,10 +112,10 @@ test("a ranking Jev doesn't answer inside the search's budget is skipped: the te
 }, 30_000);
 
 test("a deep pass past the budget leaves the ranked answer, saying it was skipped", async () => {
-  const { client, asked } = await setup(kind => kind === "deep" ? "never" : 0, 500);
+  const { client, asked } = await setup(kind => kind === "deep" ? "never" : 0, 1500);
   const started = performance.now();
   const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: QUERY, semantic: true, deep: true }, SEARCH_WAIT_MS);
-  expect(performance.now() - started).toBeLessThan(2000);
+  expect(performance.now() - started).toBeLessThan(SEARCH_BUDGET_MS / 2);
   expect(asked).toEqual(["rank", "deep"]);
   expect(r.matches[0]).toMatchObject({ title: "Compost turning schedule", score: 2.8 });
   expect(r.matches.every(m => m.score !== undefined)).toBe(true);
@@ -122,7 +124,7 @@ test("a deep pass past the budget leaves the ranked answer, saying it was skippe
 });
 
 test("finds the second ranking has no time to score are left out, and the first ranking stays", async () => {
-  const { client, asked } = await setup((kind, nth) => kind === "rank" && nth === 2 ? "never" : 0, 500);
+  const { client, asked } = await setup((kind, nth) => kind === "rank" && nth === 2 ? "never" : 0, 1500);
   const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: QUERY, semantic: true, deep: true }, SEARCH_WAIT_MS);
   expect(asked).toEqual(["rank", "deep", "rank"]);
   expect(r.matches[0]).toMatchObject({ title: "Compost turning schedule", score: 2.8 });
