@@ -36,12 +36,12 @@ import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import { grepBlocks } from "./block-grep";
 import {rankSearchWithJev} from './search-ranking';
-import { deepCandidates } from './search-deep';
+import { deepFinds, searchWithJev, type DeepSearch } from './search-deep';
 import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { getProperty, previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { rankGotoWithJev, visibleGotoResults, readGoto } from "./goto-search";
+import { visibleGotoResults, readGoto } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
@@ -1498,31 +1498,9 @@ export class OutlinerServer {
   private readonly suggestionKeeps = new SuggestionWrites();
   /** What the records' writer looked up (records.ts RecordCache): the Records page and templates, kept across keeps. */
   private recordCache: RecordCache = {};
-  /**
-   * The deep pass (search-deep.ts): asked when the ranked search isn't sure (or found nothing by its words), its finds
-   * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
-   */
-  private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
-    const found = await this.deepFinds(query, ranked.semantic, ranked.matches[0]?.exact, new Set(ranked.matches.map(m => m.block.id)));
-    if (!("ids" in found)) return { ...ranked, semantic: { ...ranked.semantic, deep: found } };
-    const added = this.store.searchMatches(found.ids, query), deep = { ...found.deep, found: added.length };
-    if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
-    // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
-    const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
-    return { ...again, semantic: { ...again.semantic, deep } };
-  }
-
-  /**
-   * The one deep pass (search-deep.ts) both searches take, `/`'s notes and `[[`'s pages (`where`): asked when the ranked
-   * search isn't sure, the ids Jev found that the words didn't (`have`), or why it wasn't asked. Counted on the day's run.
-   */
-  private async deepFinds(query: string, semantic: GotoSearchCollection["semantic"], exact: boolean | undefined, have: ReadonlySet<string>, where?: (b: Block) => boolean): Promise<{ ids: string[]; deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> } | NonNullable<GotoSearchCollection["semantic"]["deep"]>> {
-    if (query.trim().length < 3 || exact || semantic.verdict === "strong") return { status: "skipped" };
-    const found = await deepCandidates(this.store.searchPool(), query, { ...(where ? { where } : {}), jev: { promptDirectory: this.promptDirectory } });
-    if ("unavailable" in found) return { status: "unavailable", message: found.unavailable };
-    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
-    const ids = found.candidates.map(c => c.id).filter(id => !have.has(id));
-    return { ids, deep: { status: "found", windows: found.windows, found: ids.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) } };
+  /** What the searches' deep pass (search-deep.ts `deepFinds`, `searchWithJev`) reads and counts here. */
+  private get deepSearch(): DeepSearch {
+    return { pool: () => this.store.searchPool(), matches: (ids, query) => this.store.searchMatches(ids, query), promptDirectory: this.promptDirectory, tally: semantic => this.tallySearch(semantic) };
   }
 
   private readonly searchTallies = new SearchTallies();
@@ -2122,7 +2100,7 @@ export class OutlinerServer {
           // `//` reads every note, and its finds are ranked with the rest.
           if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
             const paged = this.store.pagedBlockIds();
-            const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
+            const found = await deepFinds(this.deepSearch, request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
             const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
             if (added.length) {
               const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
@@ -2146,8 +2124,7 @@ export class OutlinerServer {
         this.activeGotoRankings++;
         const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
         try {
-          result = wired(request.action, await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note }));
-          if (request.deep === true) result = wired(request.action, await this.deepen(request.query, result, note));
+          result = wired(request.action, await searchWithJev(this.deepSearch, request.query, result, note, request.deep === true));
         } finally { this.activeGotoRankings--; }
         this.tallySearch(result.semantic);
         // A model answer cannot resurrect a deleted or edited candidate.

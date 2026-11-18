@@ -19,6 +19,7 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
 import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
+import { SEARCH_WAIT_MS } from "@ep0ch/outline-core/search-wait";
 import { hasCountCandidate, SHAPE_LIMITS, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { bareIds, changedLines, headed, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
 import { houseRule } from "./work-review";
@@ -576,7 +577,9 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   if (given("text") && !["property", "hasKey", "query", "under", "this", "propertyScope"].some(key => given(key as keyof FindInput)) && (input.machinery === undefined || input.machinery === "hide")) {
     // Every candidate is ranked (as the door's / ranks them), then cut to what was asked: at most RANKED_FIND_LIMIT.
     // Deep when the ranked hits hold no sure answer (PIE-1200): notes that never use the words are found by meaning.
-    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true, deep: true });
+    // It waits as long as the search may take (outline-core's search-wait.ts, PIE-1810), not a keypress's 3 s: the
+    // service answers inside its budget with what it has, and `search` says what it skipped.
+    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true, deep: true }, SEARCH_WAIT_MS);
     const shown = Math.min(limit, RANKED_FIND_LIMIT);
     const ids = found.matches.slice(0, shown).map(m => m.block.id);
     const read = await Promise.all(ids.map(blockId => client.request<Block | null>({ action: "get", blockId }).catch(() => null)));

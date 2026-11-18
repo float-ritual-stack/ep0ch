@@ -3,8 +3,9 @@
 // The request is built and read here for the service and for the search eval alike (scripts/evals/search.ts), so the
 // eval measures exactly what search asks.
 import { prepareSearchQuery, scoreSearchDocument, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
+import { SEARCH_BUDGET_MS } from "@ep0ch/outline-core/search-wait";
 import { loadGotoPrompt, PromptFileError, type ExistsQuestion, type PromptRevision } from "./ai-prompts";
-import { askJev, jevKey, type JevAnswer, type JevOptions } from "./jev";
+import { askJev, JEV_LATE, jevKey, type JevAnswer, type JevOptions } from "./jev";
 import { jevOff } from "./work-jev";
 import type { BlockCollectionCompleteness, GotoSearchCollection, SearchCertainty } from "./types";
 export { JEV_ENDPOINT, JEV_MODEL, jevKey, resetJevKey } from "./jev";
@@ -24,6 +25,22 @@ export interface SearchCollection<T extends SearchExcerpt> {matches:T[];complete
 export const SEARCH_THRESHOLDS = { exists: { yes: 0.8, no: 0.3 }, strong: 2, match: 1.5, floor: 1 };
 /** The Noul reads the first candidates, each cut short: enough to judge "is it among these", not the whole of each. */
 export const EXISTS_CANDIDATES = 30, EXISTS_SNIPPET = 240;
+
+/** One ranking's own wait for Jev, inside the search's budget. */
+export const RANK_TIMEOUT_MS = 2200;
+/** What a ranking Jev didn't answer in time says: the search goes on as text matches, and its deep pass isn't asked. */
+export const RANKING_SKIPPED = "Jev didn't answer in time, so the ranking was skipped; showing text matches";
+
+/**
+ * One search's budget (PIE-1810): every Jev request in it (the ranking, the deep pass, the ranking again) shares one
+ * deadline, outline-core's SEARCH_BUDGET_MS, which the search's caller outwaits (SEARCH_WAIT_MS). `left()` is what
+ * remains for the next request. OUTLINER_SEARCH_BUDGET_MS is a test's shorter one.
+ */
+export function searchBudget(env: NodeJS.ProcessEnv = process.env): { left(): number } {
+  const given = Number(env.OUTLINER_SEARCH_BUDGET_MS);
+  const total = Number.isFinite(given) && given > 0 ? given : SEARCH_BUDGET_MS, started = performance.now();
+  return { left: () => Math.max(0, total - (performance.now() - started)) };
+}
 
 type Question = { instructions: string; criteria: string[] };
 type Prompt = { ranking: Question; structured?: Question; exists: ExistsQuestion; revisions: PromptRevision[] };
@@ -141,7 +158,7 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     const prompt = await loadGotoPrompt(options.promptDirectory);
     promptRevisions = prompt.revisions;
     const request = searchRequest(query, candidates.matches, prompt, options.note);
-    const asked = await askJev(request.state, request.questions, prompt.revisions, { timeoutMs: 2200, ...options, apiKey });
+    const asked = await askJev(request.state, request.questions, prompt.revisions, { timeoutMs: RANK_TIMEOUT_MS, ...options, apiKey });
     if ("unavailable" in asked) throw new Error(asked.unavailable);
     const read = readSearchAnswers(candidates.matches.length, asked.answers);
     // A title holding the words is a note asked for by name (a jump to `pie` lists the PIE tickets, PIE-1497): titles
@@ -161,7 +178,8 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     // Provider error bodies can echo request content. Keep them out of UI/logs.
     return { ...candidates, semantic: {
       status: "unavailable",
-      message: error instanceof PromptFileError ? `${error.message}; showing text matches` : "Jev unavailable; showing text matches",
+      // Late is said as late (the words are ours): the caller knows the ranking was skipped, not that Jev is down.
+      message: error instanceof PromptFileError ? `${error.message}; showing text matches` : (error as Error)?.message === JEV_LATE ? RANKING_SKIPPED : "Jev unavailable; showing text matches",
       ...(promptRevisions ? { promptRevisions } : {}),
     } };
   }

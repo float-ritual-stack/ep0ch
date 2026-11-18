@@ -128,7 +128,7 @@ test("finds the second ranking has no time to score are left out, and the first 
   expect(r.matches[0]).toMatchObject({ title: "Compost turning schedule", score: 2.8 });
   expect(r.matches.every(m => m.score !== undefined)).toBe(true);
   expect(titles(r)).not.toContain("Heap rota");
-  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "weak", deep: { status: "unavailable", message: "Jev found 1 more by meaning and didn't score them in time, so they were left out" } });
+  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "weak", deep: { status: "unavailable", message: "Jev didn't score what the deep search found (1) in time, so it was left out" } });
 });
 
 test("a search's caller waits longer than the search may take", () => {

@@ -526,6 +526,14 @@ outliner's I/O (`src/machine-forward.ts`); `createOutlinerClient` starts it befo
 before each watcher (re)connect. `EP0CH_SOCKET` names a host's socket outright. The outline is named the same way. Remote mode gives requests a network-appropriate deadline and never starts a host or makes a
 local database. `EP0CH_REQUEST_TIMEOUT_MS` raises the deadline for a batch reader: the outliner CLI and the door's bulk commands read it (outline-core's `request-timeout.ts`) and hand it to their client. Tree, Detail and a request's own wait never see it.
 
+A search with Jev (`tree.search` with `semantic`, and `deep` above all) is the one read that asks another service, up
+to three times: the ranking, the deep pass over every note, the ranking again with its finds. The service holds all of
+it to one budget (`searchWithJev` in `src/search-deep.ts`, outline-core's `SEARCH_BUDGET_MS`) and answers with what it
+has when that is spent, saying what it skipped: the text matches when the ranking was late (`semantic.status:
+unavailable`), the ranked ones when the deep pass or its second ranking was (`semantic.deep.status: unavailable`). A
+client asking for the deep pass waits `SEARCH_WAIT_MS`, the budget and a margin, never the short default: the CLI's
+`agent find` (the mod's `outline_find`) and the door's `searchBlocks` both take it from `search-wait.ts` (PIE-1810).
+
 Remote Tree and Detail registrations own their Herdr topology. They publish the
 rendering host's hostname, pane, terminal, workspace, tab, coordinates,
 visibility, and focus state, then update that runtime projection from the local

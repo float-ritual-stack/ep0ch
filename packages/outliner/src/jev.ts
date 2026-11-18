@@ -25,6 +25,8 @@ export async function jevKey(env: NodeJS.ProcessEnv = process.env): Promise<stri
 /** Forget the key looked up (a test, or after the person changes it). */
 export function resetJevKey() { found = null; }
 
+/** What a request Jev didn't answer inside its wait says. */
+export const JEV_LATE = "Jev didn't answer in time";
 export const NOT_CONFIGURED = "Jev is not configured: with-secrets --add typesafe TYPESAFE_API_KEY";
 
 export interface JevAnswer { type?: string; score?: number; choice?: string; confidence?: number; noul?: number; probabilities?: Record<string, number> }
@@ -58,6 +60,6 @@ export async function askJev(state: Record<string, unknown>, questions: Record<s
     const usage = Number.isFinite(body.usage?.input_tokens) ? { input: body.usage!.input_tokens!, output: Number.isFinite(body.usage?.output_tokens) ? body.usage!.output_tokens! : 0 } : undefined;
     return { answers: body.answers, reading: { model: body.model ?? model, prompt, questions: Object.keys(questions).length, ...(usage ? { usage } : {}) } };
   } catch (e) {
-    return { unavailable: (e as Error).name === "TimeoutError" ? "Jev didn't answer in time" : `Jev: ${(e as Error).message}` };
+    return { unavailable: (e as Error).name === "TimeoutError" ? JEV_LATE : `Jev: ${(e as Error).message}` };
   }
 }
