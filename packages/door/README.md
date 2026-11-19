@@ -1752,7 +1752,9 @@ it's the same process and the same conversation.
 - **A session running twice (PIE-1369).** A `claude --continue` started while its session runs elsewhere (Remote
   Control, a reconnect) makes two processes write one transcript. The door reads this machine's sessions and the
   outline's machine's (`ep0ch agent ls`'s reader, every 45 s while someone looks) and, while a session id is held by two
-  or more processes, shows a red `⚠ <name> ×2` chip on the status bar. A click on it (`claude.splits`) lists the
+  or more processes, shows a red `⚠ <name> ×2` chip on the status bar. A process is a row with a pid that its machine
+  says is still there (`alive` in `ep0ch agent ls --json`, checked where the pid runs; `holdsSession`): a background job
+  listed with no process, and a pid `claude agents` still lists after it exited, hold nothing (PIE-1812). A click on it (`claude.splits`) lists the
   processes in a picker under the session's heading (when its one transcript was last written): pid, machine, when
   it started, what `claude agents` says it's doing (busy, idle, waiting), older or newer, and where it runs. `a` attaches (`claude.attach`: a background job opens `claude attach <job id>` in a terminal tile, over `ssh -t`
   on another machine; an interactive one is its terminal's, refused with where it runs), `s` stops one

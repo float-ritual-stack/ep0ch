@@ -1,7 +1,7 @@
 import type { On, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { SPLIT_BLOCK, splitOf, splitStatus } from '../hooks/split-session'
+import { SPLIT_AGAIN_MS, SPLIT_BLOCK, SPLIT_SHOWN_MS, splitDue, splitOf, splitStatus } from '../hooks/split-session'
 
 tier('user')
 
@@ -127,6 +127,7 @@ describe('the warning lasts only as long as the split (PIE-1812)', () => {
     await s.clock.settle()
     expect(s.status.at(-1)).toContain('running twice')
     s.answers(1)
+    await s.clock.advance(20_000)
     await $.turn.complete(TURN)
     await s.clock.settle()
     expect(s.status.at(-1)).not.toContain('running twice')
@@ -191,6 +192,16 @@ describe('the warning lasts only as long as the split (PIE-1812)', () => {
     expect(await sent($, 'and the squash')).toEqual([])
     await s.clock.settle()
     expect(s.asked()).toBe(before + 1)
+  })
+})
+
+describe('when to ask again', () => {
+  test('a warning that shows is checked at each prompt a few seconds on; none showing, every few minutes; never asked yet, now', () => {
+    expect(splitDue(true, 0, SPLIT_SHOWN_MS - 1)).toBe(false)
+    expect(splitDue(true, 0, SPLIT_SHOWN_MS)).toBe(true)
+    expect(splitDue(false, 0, SPLIT_AGAIN_MS - 1)).toBe(false)
+    expect(splitDue(false, 0, SPLIT_AGAIN_MS)).toBe(true)
+    expect(splitDue(false, -Infinity, 0)).toBe(true)
   })
 })
 

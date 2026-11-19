@@ -36,7 +36,16 @@ export interface SessionRow {
   running: string | null; installed: string; behind: boolean;
   /** Its process, when it started (ms since the epoch) and when its transcript was last written; absent from an older `--ls`. */
   pid?: number | null; startedAt?: number | null; lastWrite?: number | null;
+  /** Whether that pid is a process on its machine now, checked there by the script (`claude agents` can list one that has exited); null with no pid. */
+  alive?: boolean | null;
 }
+
+/**
+ * A row that is a process holding its session now (PIE-1812): it has a pid, and its machine didn't say that pid is gone.
+ * A background job listed with no process, and a pid `claude agents` still lists after it exited, hold nothing. The one
+ * test of it: a split (src/claude-splits.ts `splitsOf`) and `agent stop`'s "another process still holds it" both ask here.
+ */
+export const holdsSession = (r: SessionRow): boolean => r.pid != null && r.alive !== false;
 
 const RESTART_USAGE = "ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env <VAR>] [--now] [--dry-run] [--machine <ssh-name>]";
 const LS_USAGE = "ep0ch agent ls [--machine <ssh-name>] [--json]";
@@ -192,7 +201,7 @@ export async function agentStop(argv: readonly string[], env: Env, io: FleetIO, 
     return 1;
   }
   // The split may have ended since it was shown (the other process exited): this one would end the session, not a copy.
-  if (!read.rows.some(r => r.sessionId === row.sessionId && r.pid != null && r.pid !== pid)) {
+  if (!read.rows.some(r => r.sessionId === row.sessionId && holdsSession(r) && r.pid !== pid)) {
     err(`ep0ch agent stop: pid ${pid} is the only process of session ${row.sessionId.slice(0, 8)} now (${row.name || row.id}): stopping it would end the session, so nothing stopped · /exit in its terminal${row.kind === "background" ? `, or claude stop ${row.id},` : ""} ends it on purpose`);
     return 1;
   }
