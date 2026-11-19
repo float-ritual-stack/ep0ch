@@ -5,7 +5,7 @@
 // scratch service with a made-up agent; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { cellOf, TallyDoors } from "./tally-pane";
+import { cellOf, fills, TallyDoors } from "./tally-pane";
 
 /** How long after the release the new layout must be on screen: a frame, plus tmux's own round trip. */
 const PAINTED_MS = 400;
@@ -23,14 +23,6 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a × click repaints the room a
       for (let col = 1; col < cells.length; col++) if (cells[col] === "┐" && cells[col - 1] === "x" && cells.slice(0, col).includes("┌")) return { col, row: row + 1 };
     }
     return null;
-  };
-
-  // The edit fills the room: no single-line frame is left, and its own frame reaches the room's far edge.
-  const fills = (frame: string, cols: number, rows: number) => {
-    const lines = frame.split("\n");
-    if (frame.includes("┌") || frame.includes("└")) return false;
-    const top = lines.findIndex(l => l.includes("╔")), bottom = lines.findIndex(l => l.includes("╚"));
-    return top >= 0 && bottom >= rows - 4 && [...lines[top]!].lastIndexOf("╗") >= cols - 2;
   };
 
   for (const [cols, rows] of [[44, 30], [177, 40]] as const) test(`${cols}×${rows}: ten × clicks on the answer tile, each painted at once`, async () => {

@@ -68,6 +68,12 @@ export class TallyDoors {
       type,
       /** A press and release at a cell, 1-based, as a terminal reports it (SGR); `mods` 4 is shift. */
       click: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}M`); type(`\x1b[<${mods};${at.col};${at.row}m`); },
+      /**
+       * A click's two halves apart: a busy box delivers the release late (each is a tmux of its own), and the release is
+       * what snaps a glide the press started (PIE-1769), so between them the layout is still drawing its way.
+       */
+      press: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}M`); },
+      release: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}m`); },
       /** An agent's act on this door (`walker`): ok, and what it said. */
       act: (...args: string[]) => {
         const r = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), "act", ...args, "--as", "walker"], { env, stdout: "pipe", stderr: "pipe" });
@@ -109,6 +115,19 @@ export function cellOf(frame: string, text: string): { col: number; row: number 
   }
   return null;
 }
+
+/**
+ * The edit fills the room (`cols`×`rows`, the pane's): no single-line frame is left, and its own frame reaches the room's
+ * far edge. False while a close is still drawing its way (the motion, as Evan has it): a glide's frames leave the closed
+ * tile's room beside the edit, and what they draw is not yet where a click finds it, since a click snaps the glide first
+ * (PIE-958). A cell read for a click is read from a frame this is true of (PIE-1811).
+ */
+export const fills = (frame: string, cols: number, rows: number) => {
+  const lines = frame.split("\n");
+  if (frame.includes("┌") || frame.includes("└")) return false;
+  const top = lines.findIndex(l => l.includes("╔")), bottom = lines.findIndex(l => l.includes("╚"));
+  return top >= 0 && bottom >= rows - 4 && [...lines[top]!].lastIndexOf("╗") >= cols - 2;
+};
 
 /** A tile and a layer as layout.get has them. */
 export type Tile = { tile: string; name: string; kind: string; focused: boolean; rect?: { cols: number }; showing?: { title: string } };
