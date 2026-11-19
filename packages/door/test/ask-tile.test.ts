@@ -56,10 +56,14 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the answer tile follows the as
     const close = async () => { p.click(cellOf(p.capture(), "x┐")!); await until(() => !p.capture().includes("┌─"), "the tile closed"); };
     try {
       // Shown by one click, closed at once, shown again by the next click on the same row: no tile came back before.
-      await close();
+      // This close's release comes late, as a busy box delivers it (PIE-1811, the nightly's red on Nov 14 and 19): the
+      // tile is gone and the edit still gliding into its room when the row is looked for; the release then snaps the glide.
+      const x = cellOf(p.capture(), "x┐")!;
+      p.press(x);
+      await until(() => !p.capture().includes("┌─"), "the tile closed");
       const show = cellOf(p.capture(), "show ▸")!;
+      p.release(x);
       p.click(show);
-      // Red once in the nightly's parallel run and never again alone or under load (PIE-1805): a timeout shows the pane.
       await until(() => p.capture().includes("┌─"), "the tile back").catch(e => { throw new Error(`${e.message} (clicked ${JSON.stringify(show)})\n${p.capture()}`); });
       await close();
       p.click(show);

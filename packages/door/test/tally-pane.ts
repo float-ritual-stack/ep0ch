@@ -68,6 +68,12 @@ export class TallyDoors {
       type,
       /** A press and release at a cell, 1-based, as a terminal reports it (SGR); `mods` 4 is shift. */
       click: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}M`); type(`\x1b[<${mods};${at.col};${at.row}m`); },
+      /**
+       * A click's two halves apart: a busy box delivers the release late (each is a tmux of its own), and the release is
+       * what snaps a glide the press started (PIE-1769), so between them the layout is still drawing its way.
+       */
+      press: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}M`); },
+      release: (at: { col: number; row: number }, mods = 0) => { type(`\x1b[<${mods};${at.col};${at.row}m`); },
       /** An agent's act on this door (`walker`): ok, and what it said. */
       act: (...args: string[]) => {
         const r = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), "act", ...args, "--as", "walker"], { env, stdout: "pipe", stderr: "pipe" });
