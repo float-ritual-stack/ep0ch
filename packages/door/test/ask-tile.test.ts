@@ -4,7 +4,7 @@
 // service with a made-up agent; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "./scratch";
-import { cellOf, TallyDoors, type Pane } from "./tally-pane";
+import { cellOf, fills, TallyDoors, type Pane } from "./tally-pane";
 
 /** A frame plus tmux's round trip: what "at once" is here. */
 const AT_ONCE_MS = 400;
@@ -53,14 +53,16 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("the answer tile follows the as
 
   test("a second click on show ▸ within a double click's time shows the answer; a double click on a word still selects it", async () => {
     const p = await edit("Shed rota", "@tally the hoes", "@tally the rakes");
-    const close = async () => { p.click(cellOf(p.capture(), "x┐")!); await until(() => !p.capture().includes("┌─"), "the tile closed"); };
+    // Closed, and the edit at rest across the pane (177×30): show ▸ is read for a click only from a frame the close has finished drawing.
+    const closed = () => until(() => fills(p.capture(), 177, 30), "the tile closed and the edit across the pane").catch(e => { throw new Error(`${e.message}\n${p.capture()}`); });
+    const close = async () => { p.click(cellOf(p.capture(), "x┐")!); await closed(); };
     try {
       // Shown by one click, closed at once, shown again by the next click on the same row: no tile came back before.
       // This close's release comes late, as a busy box delivers it (PIE-1811, the nightly's red on Nov 14 and 19): the
-      // tile is gone and the edit still gliding into its room when the row is looked for; the release then snaps the glide.
+      // tile is gone at the glide's first frame, the edit still on its way into the room, and the release then snaps it.
       const x = cellOf(p.capture(), "x┐")!;
       p.press(x);
-      await until(() => !p.capture().includes("┌─"), "the tile closed");
+      await closed();
       const show = cellOf(p.capture(), "show ▸")!;
       p.release(x);
       p.click(show);
