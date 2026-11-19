@@ -7,7 +7,7 @@
 // Glue only: the reader, the chip, the picker and the dispatcher are the door's own parts.
 import { isLocalMachine, localMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
-import { agentStop, readSessions, type FleetIO, type SessionRow } from "./agent-fleet";
+import { agentStop, holdsSession, readSessions, type FleetIO, type SessionRow } from "./agent-fleet";
 import { ago as agoOf } from "./text";
 import { ActionRefused, actionSet, def } from "./surface/actions";
 import { centred, confirmPicker, ListPicker, pickRow, pickRows } from "./surface/picker";
@@ -31,16 +31,17 @@ export interface MachineRead { machine: string; local: boolean; rows?: readonly 
 
 /**
  * The splits in what the machines answered: a session id with two or more processes on one machine (two machines can't
- * write one transcript). A process listed twice (the same pid) is one process.
+ * write one transcript). A process listed twice (the same pid) is one process, and a row that is no process now (no pid:
+ * a background job with none; a pid its machine says has exited) is none: `holdsSession`.
  */
 export function splitsOf(reads: readonly MachineRead[]): Split[] {
   const out: Split[] = [];
   for (const m of reads) {
     const by = new Map<string, SessionRow[]>();
     for (const r of m.rows ?? []) {
-      if (!r.sessionId) continue;
+      if (!r.sessionId || !holdsSession(r)) continue;
       const list = by.get(r.sessionId) ?? [];
-      if (r.pid != null && list.some(o => o.pid === r.pid)) continue;
+      if (list.some(o => o.pid === r.pid)) continue;
       list.push(r);
       by.set(r.sessionId, list);
     }

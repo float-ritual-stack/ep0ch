@@ -5,6 +5,14 @@
  * its one split decision, with the commands) and, when two or more processes hold this session's id, says so: with
  * this process's first prompt, and on the status line. Never a refusal: the fact and the way out.
  *
+ * The model is told once, with this process's first prompt and ahead of what else it carries, not in the first prompt's
+ * context blocks: a split is a resumed conversation, whose first prompt and its context the other process made.
+ *
+ * It asks again (PIE-1812, `splitDue`), so the status line's warning lasts only as long as the split: the line says
+ * what the last ask found and nothing older, and an ask that gets no answer is no warning. No prompt waits for an ask
+ * again but the first, and it only for the start's ask or while the warning shows (so the model isn't told of a split
+ * that has ended); with "runs once" in hand it goes at once, and the next prompt says a split the new ask finds.
+ *
  * This file is pure: the argv, and the words from what `ep0ch agent splits` answered. register.ts runs it.
  */
 
@@ -14,6 +22,13 @@ export const splitArgv = (sessionId: string) => ['ep0ch', 'agent', 'splits', '--
 export const OWN_PID_ARGV = ['/bin/sh', '-c', 'echo $PPID'] as const
 /** `ep0ch agent splits` answers in under a second; past this the check is left out. */
 export const SPLIT_TIMEOUT_MS = 8000
+
+/** While the warning shows, a prompt or a turn's end asks again when the last ask is this old: it goes when the other process does. */
+export const SPLIT_SHOWN_MS = 5000
+/** With no warning showing, a prompt asks again at most this often: a split that starts later shows within minutes. */
+export const SPLIT_AGAIN_MS = 180_000
+/** Whether to ask `ep0ch agent splits` again: `showing` the warning or not, the last ask started at `askedAt`. */
+export const splitDue = (showing: boolean, askedAt: number, now: number): boolean => now - askedAt >= (showing ? SPLIT_SHOWN_MS : SPLIT_AGAIN_MS)
 
 /** One process of the split, as `ep0ch agent splits --json` gives it. */
 export type SplitProcess = { pid: number | null; kind?: string; id?: string; status?: string; startedAt?: number | null; place?: string | null; stop: string; attach?: string }

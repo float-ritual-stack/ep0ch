@@ -108,6 +108,16 @@ def last_write(sid):
         except OSError: pass
     return max(times) if times else None'
 
+# Whether a listed pid is a process on this machine now: `claude agents` can list one that has exited (PIE-1812), and a
+# pid that is no process holds no session. None: the row has no pid (a background job with no process).
+alive_py='
+def alive(pid):
+    if not isinstance(pid, int): return None
+    try: os.kill(pid, 0)
+    except ProcessLookupError: return False
+    except OSError: return True
+    return True'
+
 # --ls: every session `claude agents --json` gives, as JSON rows, for `ep0ch agent ls`: the background ones (a job id)
 # first, then the interactive ones (a terminal owns each: this script can't restart those).
 # Its status, and what claude says beside it: `state` (a background job's working or done) and `waitingFor` (why one
@@ -119,6 +129,7 @@ if [ "$target" = --ls ]; then
 import json, sys
 $place_py
 $last_write_py
+$alive_py
 rows = json.load(sys.stdin)
 rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
@@ -126,7 +137,7 @@ for r in rows:
            'status': str(r.get('status') or ''), 'state': str(r.get('state') or '') or None, 'waitingFor': str(r.get('waitingFor') or '') or None, 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None),
            'door': None if r.get('id') else (door_folder(r.get('pid')) or None),
            'pid': r.get('pid') if isinstance(r.get('pid'), int) else None, 'startedAt': r.get('startedAt') if isinstance(r.get('startedAt'), (int, float)) else None,
-           'lastWrite': last_write(r.get('sessionId', ''))}
+           'alive': alive(r.get('pid')), 'lastWrite': last_write(r.get('sessionId', ''))}
     print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || exit 1
   while IFS=$sep read -r pid row; do
     [ -n "$row" ] || continue

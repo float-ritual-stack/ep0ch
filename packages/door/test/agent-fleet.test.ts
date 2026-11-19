@@ -374,6 +374,24 @@ echo $! > ${join(dir, "pane-kitty.pid")}
       for (let i = 0; i < 50 && alive(older); i++) await Bun.sleep(50);
       expect(alive(older)).toBe(false);
       expect(alive(newer)).toBe(true);
+      // `claude agents` still lists the stopped one (PIE-1812): a pid that is no process on its machine holds nothing,
+      // so the session runs once, here and read over ssh, and its one process is never stopped as "the other".
+      for (const where of [[], ["--machine", "far-box"]]) {
+        expect(splitOf((await ep0ch(["agent", "splits", "--json", "--session", sid, ...where])).out, sid, newer)).toBeNull();
+        const rows = JSON.parse((await ep0ch(["agent", "ls", "--json", ...where])).out) as SessionRow[];
+        expect(rows.map(r => [r.pid, r.alive])).toEqual([[older, false], [newer, true]]);
+        expect((await ep0ch(["agent", "splits", ...where])).out).toContain("no Claude session runs twice");
+        const only = await ep0ch(["agent", "stop", String(newer), "--session", sid, ...where]);
+        expect(only.code).toBe(1);
+        expect(only.err).toContain(`pid ${newer} is the only process of session ffff6666 now`);
+      }
+      expect(alive(newer)).toBe(true);
+      // A background job with no process (`claude agents` lists it without a pid) beside the one that runs: one process.
+      writeFileSync(file, JSON.stringify([
+        { id: "ffff6666", cwd: "/x", kind: "background", startedAt: 1_700_000_000_000, sessionId: sid, name: "kitty-sr-1", state: "blocked" },
+        { pid: newer, cwd: "/x", kind: "interactive", startedAt: 1_700_016_000_000, sessionId: sid, name: "kitty-sr-1", status: "busy" },
+      ]));
+      expect(splitOf((await ep0ch(["agent", "splits", "--json", "--session", sid])).out, sid, newer)).toBeNull();
       // The split is over (claude agents lists newer alone): stopping it would end the session, so it is refused.
       writeFileSync(file, JSON.stringify([{ pid: newer, cwd: "/x", kind: "interactive", startedAt: 1_700_016_000_000, sessionId: sid, name: "kitty-sr-1", status: "busy" }]));
       const last = await ep0ch(["agent", "stop", String(newer), "--session", sid]);

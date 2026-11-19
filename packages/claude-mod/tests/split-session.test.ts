@@ -1,7 +1,7 @@
 import type { On, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { SPLIT_BLOCK, splitOf, splitStatus } from '../hooks/split-session'
+import { SPLIT_AGAIN_MS, SPLIT_BLOCK, SPLIT_SHOWN_MS, splitDue, splitOf, splitStatus } from '../hooks/split-session'
 
 tier('user')
 
@@ -22,8 +22,11 @@ const splitsJson = (procs: number) => JSON.stringify({ splits: procs < 2 ? [] : 
   })),
 }] })
 
-/** A session in FOLDER bound to no outline (the split check needs none); `claude agents` answers `procs` of this session. */
-function sessionIn(on: On, procs: number | 'fails', own = 92322) {
+/** What `ep0ch agent splits` does when asked: answers this session in that many processes, fails, or never answers. */
+type Answer = number | 'fails' | 'hangs'
+
+/** A session in FOLDER bound to no outline (the split check needs none); `claude agents` answers `procs` of this session (`answers` changes it). */
+function sessionIn(on: On, procs: Answer, own = 92322) {
   const status: string[] = []
   const ran: string[][] = []
   const clock = mock.clock(on)
@@ -42,11 +45,16 @@ function sessionIn(on: On, procs: number | 'fails', own = 92322) {
   on('store.set', () => ({ value: undefined }))
   on('process.run', async ($, e) => {
     ran.push(e.argv)
-    if (e.argv.join(' ') === 'ep0ch agent splits --json --session session-1') return { value: procs === 'fails' ? result(1, '', 'no claude on PATH') : result(0, `motd from a login shell\n${splitsJson(procs)}`) }
+    if (e.argv.join(' ') === 'ep0ch agent splits --json --session session-1') {
+      if (procs === 'hangs') return new Promise<never>(() => {})
+      return { value: procs === 'fails' ? result(1, '', 'no claude on PATH') : result(0, `motd from a login shell\n${splitsJson(procs)}`) }
+    }
     if (e.argv[0] === '/bin/sh' && e.argv[2] === 'echo $PPID') return { value: result(0, `${own}\n`) }
     return { value: result(1, '', 'unexpected') }
   })
-  return { status, ran, clock }
+  /** How many times `ep0ch agent splits` was asked. */
+  const asked = () => ran.filter(a => a.slice(0, 3).join(' ') === 'ep0ch agent splits').length
+  return { status, ran, clock, asked, answers: (now: Answer) => { procs = now } }
 }
 
 const START = { surface: 'terminal', isInteractive: true, cwd: FOLDER } as const
@@ -87,6 +95,138 @@ describe('a session running twice, said at start (PIE-1369)', () => {
     await s.clock.settle()
     expect(await sent($)).toEqual([])
     expect(s.status.join('\n')).not.toContain('running twice')
+  })
+})
+
+const TURN = { reason: 'answer', answer: 'ok', durationMs: 1, isAborted: false, turnId: 'turn-1' } as const
+
+describe('the warning lasts only as long as the split (PIE-1812)', () => {
+  test('the other process ends: the next prompt asks again and the status line clears', async ($, on) => {
+    const s = sessionIn(on, 2)
+    await $.session.start(START)
+    await s.clock.settle()
+    await sent($)
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice: pid 28521 too')
+    // The person stopped pid 28521 (or its terminal closed): `ep0ch agent splits` answers one process now.
+    s.answers(1)
+    await s.clock.advance(60_000)
+    // The prompt carries nothing about it, and never waits for the answer.
+    expect(await sent($, 'and the peas')).toEqual([])
+    await s.clock.settle()
+    expect(s.status.at(-1)).not.toContain('running twice')
+    expect(s.status.at(-1)).not.toContain('28521')
+  })
+
+  test('stopped in the turn itself: the turn\'s end asks again, so the line clears without another prompt', async ($, on) => {
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    const s = sessionIn(on, 2)
+    await $.session.start(START)
+    await s.clock.settle()
+    await sent($, 'stop the other one')
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice')
+    s.answers(1)
+    await s.clock.advance(20_000)
+    await $.turn.complete(TURN)
+    await s.clock.settle()
+    expect(s.status.at(-1)).not.toContain('running twice')
+  })
+
+  test('the first prompt comes minutes after the start, the other process gone by then: the model is told nothing', async ($, on) => {
+    const s = sessionIn(on, 2)
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice')
+    s.answers(1)
+    await s.clock.advance(5 * 60_000)
+    expect(await sent($)).toEqual([])
+    await s.clock.settle()
+    expect(s.status.at(-1)).not.toContain('running twice')
+  })
+
+  test('running once: a prompt asks again at most every few minutes, and a split that starts later shows on the line', async ($, on) => {
+    const s = sessionIn(on, 1)
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(s.asked()).toBe(1)
+    await sent($)
+    await s.clock.advance(60_000)
+    await sent($, 'and the peas')
+    await s.clock.settle()
+    expect(s.asked()).toBe(1)
+    // A `claude --continue` elsewhere took this session meanwhile.
+    s.answers(2)
+    await s.clock.advance(3 * 60_000)
+    await sent($, 'and the squash')
+    await s.clock.settle()
+    expect(s.asked()).toBe(2)
+    expect(s.status.at(-1)).toContain('running twice: pid 28521 too')
+  })
+
+  test('running once, the first prompt minutes after the start: it asks again and never waits for the answer', async ($, on) => {
+    const s = sessionIn(on, 1)
+    await $.session.start(START)
+    await s.clock.settle()
+    await s.clock.advance(5 * 60_000)
+    // An ask that never answers: the prompt goes without the clock moving (no 1.5s wait).
+    s.answers('hangs')
+    expect(await sent($)).toEqual([])
+    await s.clock.settle()
+    expect(s.asked()).toBe(2)
+  })
+
+  test('running once at the start, twice by the first prompt: the prompt goes at once and the next one tells the model', async ($, on) => {
+    const s = sessionIn(on, 1)
+    await $.session.start(START)
+    await s.clock.settle()
+    await s.clock.advance(5 * 60_000)
+    s.answers(2)
+    expect(await sent($)).toEqual([])
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice: pid 28521 too')
+    expect((await sent($, 'and the peas'))[0]).toContain('running as 2 processes at once')
+    expect(await sent($, 'and the squash')).toEqual([])
+  })
+
+  test('asked again and no answer: the line says only what the last ask found, so the warning goes', async ($, on) => {
+    const s = sessionIn(on, 2)
+    await $.session.start(START)
+    await s.clock.settle()
+    await sent($)
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice')
+    s.answers('fails')
+    await s.clock.advance(60_000)
+    await sent($, 'and the peas')
+    await s.clock.settle()
+    expect(s.status.at(-1)).not.toContain('running twice')
+  })
+
+  test('an ask that never answers holds no prompt up, and no second ask starts beside it', async ($, on) => {
+    const s = sessionIn(on, 2)
+    await $.session.start(START)
+    await s.clock.settle()
+    await sent($)
+    await s.clock.settle()
+    const before = s.asked()
+    s.answers('hangs')
+    await s.clock.advance(60_000)
+    expect(await sent($, 'and the peas')).toEqual([])
+    await s.clock.settle()
+    expect(await sent($, 'and the squash')).toEqual([])
+    await s.clock.settle()
+    expect(s.asked()).toBe(before + 1)
+  })
+})
+
+describe('when to ask again', () => {
+  test('a warning that shows is checked at each prompt a few seconds on; none showing, every few minutes; never asked yet, now', () => {
+    expect(splitDue(true, 0, SPLIT_SHOWN_MS - 1)).toBe(false)
+    expect(splitDue(true, 0, SPLIT_SHOWN_MS)).toBe(true)
+    expect(splitDue(false, 0, SPLIT_AGAIN_MS - 1)).toBe(false)
+    expect(splitDue(false, 0, SPLIT_AGAIN_MS)).toBe(true)
+    expect(splitDue(false, -Infinity, 0)).toBe(true)
   })
 })
 
