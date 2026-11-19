@@ -5,6 +5,9 @@
  * its one split decision, with the commands) and, when two or more processes hold this session's id, says so: with
  * this process's first prompt, and on the status line. Never a refusal: the fact and the way out.
  *
+ * It asks again (PIE-1812), so the status line's warning lasts only as long as the split: at every prompt and turn's
+ * end while it shows, at a prompt every few minutes while it doesn't. The line says what the last ask found.
+ *
  * This file is pure: the argv, and the words from what `ep0ch agent splits` answered. register.ts runs it.
  */
 

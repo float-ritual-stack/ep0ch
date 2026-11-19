@@ -247,14 +247,22 @@ let orientGiven: string | null | undefined
 let orientsFromNow: string | null = null
 
 /**
- * This session running as two processes (hooks/split-session.ts, PIE-1369): the check in flight or done (the block's
- * text, null: it runs once, or no answer), the split found (the status line's lead), whether this process's first
- * prompt carried it, and the binding facts the status line last showed (so a split that lands later redraws it).
+ * This session running as two processes (hooks/split-session.ts, PIE-1369): the first prompt's check in flight or done
+ * (the block's text, null: it runs once, or no answer), what the last ask found (the status line's lead), when that
+ * ask started and the one in flight, whether this process's first prompt carried it, and the binding facts the status
+ * line last showed (so a split that lands, or ends, later redraws it).
  */
 let splitLoad: Promise<string | null> | undefined
 let splitNow: SessionSplit | null = null
+let splitAskedAt = -Infinity
+let splitAsking: Promise<SessionSplit | null> | null = null
 let splitSaid = false
 let statusFacts: BindingFacts | null = null
+
+/** With no warning showing, a prompt asks again at most this often: a split that starts later shows within minutes. */
+const SPLIT_AGAIN_MS = 180_000
+/** A split found longer ago than this is asked again before this process's first prompt says it. */
+const SPLIT_STALE_MS = 30_000
 
 /** The status line: the split's warning first while there is one, then where this session is bound. */
 function showStatus($: EngineInterface, facts: BindingFacts | null): void {
@@ -263,23 +271,49 @@ function showStatus($: EngineInterface, facts: BindingFacts | null): void {
 }
 
 /**
- * Asks `ep0ch agent splits` once for this session: two or more processes holding its id is a split, said with the first
- * prompt and on the status line. Never refuses anything, never throws; no answer is no warning.
+ * Asks `ep0ch agent splits` for this session (one ask at a time): two or more processes holding its id is a split. The
+ * status line says what this ask found and nothing older (PIE-1812), so no answer is no warning. Never refuses
+ * anything, never throws.
  */
+function askSplit($: EngineInterface): Promise<SessionSplit | null> {
+  if (splitAsking) return splitAsking
+  const ask: Promise<SessionSplit | null> = (async () => {
+    let found: SessionSplit | null = null
+    try {
+      splitAskedAt = await $.clock.now()
+      const id = await $.session.id()
+      const [ran, own] = await Promise.all([
+        $.process.run(splitArgv(id), { cwd: await startFolderOf($), timeoutMs: SPLIT_TIMEOUT_MS }),
+        $.process.run([...OWN_PID_ARGV], { timeoutMs: 3000 }).then(r => Number(r.stdout.trim()) || null, () => null),
+      ])
+      if (ran.exitCode === 0) found = splitOf(ran.stdout, id, own)
+    } catch { /* no answer */ }
+    const changed = splitStatus(found) !== splitStatus(splitNow)
+    splitNow = found
+    if (changed) showStatus($, statusFacts)
+    return found
+  })().finally(() => { if (splitAsking === ask) splitAsking = null })
+  splitAsking = ask
+  return ask
+}
+
+/** The ask whose answer this process's first prompt carries: the split in words for the model, null when it runs once. */
 function readSplit($: EngineInterface): Promise<string | null> {
-  const load = (async () => {
-    const id = await $.session.id()
-    const [ran, own] = await Promise.all([
-      $.process.run(splitArgv(id), { cwd: await startFolderOf($), timeoutMs: SPLIT_TIMEOUT_MS }),
-      $.process.run([...OWN_PID_ARGV], { timeoutMs: 3000 }).then(r => Number(r.stdout.trim()) || null, () => null),
-    ])
-    if (ran.exitCode !== 0) return null
-    splitNow = splitOf(ran.stdout, id, own)
-    showStatus($, statusFacts)
-    return splitNow ? splitText(splitNow, await $.clock.now()) : null
-  })().catch(() => null)
+  const load = askSplit($).then(async s => (s ? splitText(s, await $.clock.now()) : null)).catch(() => null)
   splitLoad = load
   return load
+}
+
+/**
+ * Asks again when it's due, off the caller's dispatch (a prompt never waits for it): at once while the warning shows,
+ * so it goes when the other process does; else at most every SPLIT_AGAIN_MS.
+ */
+function splitAgain($: EngineInterface): void {
+  $.clock.after(0, () => void (async () => {
+    if (splitAsking) return
+    if (!splitNow && (await $.clock.now()) - splitAskedAt < SPLIT_AGAIN_MS) return
+    await askSplit($)
+  })().catch(() => {}))
 }
 
 /**
@@ -623,15 +657,19 @@ export function register(on: On, options: PluginOptions): void {
     }
   })
 
-  // A session running twice (PIE-1369) is said with this process's first prompt, ahead of anything else it carries. Not
-  // in the first prompt's context blocks: a split is a resumed conversation (`claude --continue`), whose first prompt,
-  // and its context, were made by the process that started it.
+  // A session running twice (PIE-1369) is said to the model once, with this process's first prompt, ahead of anything
+  // else it carries. Not in the first prompt's context blocks: a split is a resumed conversation (`claude --continue`),
+  // whose first prompt, and its context, were made by the process that started it.
   // What became of this session's proposals since its last prompt rides with the next one too (PIE-1086), once each.
   on('prompt.submit', async ($, e0, next) => {
     const e = heardPending.length ? { ...e0, context: [...(e0.context ?? []), `<${HEARD_BLOCK}>\n${heardText(heardPending.splice(0))}\n</${HEARD_BLOCK}>`] } : e0
-    if (oneShot || splitSaid) return next(e)
+    if (oneShot) return next(e)
+    // Said already: every later prompt asks again when it's due, and the status line follows the answer (PIE-1812).
+    if (splitSaid) { splitAgain($); return next(e) }
     const waited = Symbol('waited')
-    const split = await Promise.race([splitLoad ?? readSplit($), $.clock.sleep(BINDING_WAIT_MS).then(() => waited)]).catch(() => null)
+    // An answer from a while ago (the start's) is asked again first: the other process may be gone by now, or have come.
+    const fresh = splitLoad && (await $.clock.now()) - splitAskedAt < (splitNow ? SPLIT_STALE_MS : SPLIT_AGAIN_MS)
+    const split = await Promise.race([fresh ? splitLoad! : readSplit($), $.clock.sleep(BINDING_WAIT_MS).then(() => waited)]).catch(() => null)
     // Still being read: the next prompt carries it, once it has landed.
     if (split === waited) return next(e)
     splitSaid = true
@@ -936,6 +974,8 @@ export function register(on: On, options: PluginOptions): void {
     if (oneShot) return result
     // The main loop's turn (a subagent's isn't the session's): done, idle when interrupted, error when it failed.
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
+    // A split stopped during the turn: its warning goes at the turn's end, not at the next prompt (PIE-1812).
+    if (e.agentId === undefined && splitNow) splitAgain($)
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
     if (!addressedStarting) $.clock.after(0, () => void startAddressedOnce($, option))
