@@ -1,5 +1,6 @@
 import { type RefusalKind, blockNotFound, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
+import { SEARCH_WAIT_MS } from "@ep0ch/outline-core/search-wait";
 import { grammarWarning, type OutlinerRequestProblem } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -848,11 +849,12 @@ export class SocketBoard implements Board {
    * The one search (`tree.search`, as Tree's Goto ranks: the rungs are outline-core's search-match.ts): the
    * service's order, best first. `semantic` asks Jev to re-order the candidates (`semantic.status` says whether it
    * did); `near` is the note the person is in (`contextBlockId`): nearer notes first inside each rung, and an empty
-   * `text` lists what's linked and edited around it.
+   * `text` lists what's linked and edited around it. With `deep` it waits as long as the search may take (outline-core's
+   * search-wait.ts): the service answers inside its budget with what it has.
    */
   searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
     // A deep search reads every note's title in windows: it gets longer than a keystroke's.
-    return this.request("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.semantic && opts.deep ? { deep: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, opts.deep ? 60_000 : undefined, opts.signal);
+    return this.request("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.semantic && opts.deep ? { deep: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, opts.deep ? SEARCH_WAIT_MS : undefined, opts.signal);
   }
 
   /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`) and its Score per hit (`scores`). */

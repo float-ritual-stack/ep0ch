@@ -1,0 +1,10 @@
+### The first outline search after a quiet spell answers, not times out (PIE-1810)
+
+- **Seen:** on Nov 18 the laptop's Claude got "Outliner request timed out after 3000ms" from `outline_find` twice, each time on the first search after several idle minutes; the retry worked.
+- **The cause:** `outline_find` asks the ranked search with its deep pass, which is up to three Jev requests in a row (the ranking, the deep pass, the ranking again), each with its own wait: 2.2 s, 20 s and 2.2 s. The CLI's `agent find` waited for all of it on a keypress's 3 s (a host on the same machine); `ep0ch find` and the MCP gateway waited 60 s for the same request. The 1.0 to 1.2 s the working searches reported is the deep pass alone, with a ranking either side of it, so a slower first answer passed 3 s.
+- **The fix, in the service:** one budget for the whole search (`searchWithJev`, 20 s). Past it the answer is what's in hand, saying what was skipped: the text matches when the ranking was late, the ranked ones when the deep pass or its second ranking was. A ranking Jev didn't give is no longer followed by a deep pass nothing could score.
+- **The fix, in the clients:** a search with the deep pass waits the budget plus 5 s, one number in outline-core's `search-wait.ts` for `agent find` and the door's `searchBlocks`. Every other request keeps its 3 s.
+- **Red first:** `search-budget.test.ts` runs the real `agent find` against a scratch service whose made-up Jev takes 3.4 s over its three answers: "timed out after 3000ms" before, the ranked rows after.
+- **Driven on a scratch host:** with 1.2 s an answer, `agent find` answered ranked in 3.8 s and `ep0ch find` in 3.9 s; with a Jev that never answers, the text matches came back in 2.4 s, `agent find` saying "the ranking was skipped".
+- **Not measured:** what was slow on the laptop that afternoon (new connections to Jev after the idle spell is the guess). The search now answers whichever stage is slow.
+- **Run:** no PROTOCOL, GRAMMAR or schema change. `ep0ch install --apply` on each machine picks it up; the laptop's is the one that hit it.
