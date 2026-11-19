@@ -164,6 +164,31 @@ describe('the warning lasts only as long as the split (PIE-1812)', () => {
     expect(s.status.at(-1)).toContain('running twice: pid 28521 too')
   })
 
+  test('running once, the first prompt minutes after the start: it asks again and never waits for the answer', async ($, on) => {
+    const s = sessionIn(on, 1)
+    await $.session.start(START)
+    await s.clock.settle()
+    await s.clock.advance(5 * 60_000)
+    // An ask that never answers: the prompt goes without the clock moving (no 1.5s wait).
+    s.answers('hangs')
+    expect(await sent($)).toEqual([])
+    await s.clock.settle()
+    expect(s.asked()).toBe(2)
+  })
+
+  test('running once at the start, twice by the first prompt: the prompt goes at once and the next one tells the model', async ($, on) => {
+    const s = sessionIn(on, 1)
+    await $.session.start(START)
+    await s.clock.settle()
+    await s.clock.advance(5 * 60_000)
+    s.answers(2)
+    expect(await sent($)).toEqual([])
+    await s.clock.settle()
+    expect(s.status.at(-1)).toContain('running twice: pid 28521 too')
+    expect((await sent($, 'and the peas'))[0]).toContain('running as 2 processes at once')
+    expect(await sent($, 'and the squash')).toEqual([])
+  })
+
   test('asked again and no answer: the line says only what the last ask found, so the warning goes', async ($, on) => {
     const s = sessionIn(on, 2)
     await $.session.start(START)

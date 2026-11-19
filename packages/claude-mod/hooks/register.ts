@@ -539,8 +539,7 @@ export function register(on: On, options: PluginOptions): void {
     $.clock.after(0, () => void readOrient($, option))
     guideGiven = undefined
     $.clock.after(0, () => void readGuide($, option))
-    // Is this session already running elsewhere (PIE-1369)?
-    splitSaid = false
+    splitSaid = false // is this session already running elsewhere (PIE-1369)?
     $.clock.after(0, () => void askSplit($))
     // The settle check, in the deployer's session only (hooks/settle.ts).
     settleStarting = undefined
@@ -628,9 +627,10 @@ export function register(on: On, options: PluginOptions): void {
   on('prompt.submit', async ($, e0, next) => {
     const e = heardPending.length ? { ...e0, context: [...(e0.context ?? []), `<${HEARD_BLOCK}>\n${heardText(heardPending.splice(0))}\n</${HEARD_BLOCK}>`] } : e0
     if (oneShot) return next(e)
-    // Asked again when it's due: the first prompt waits for the answer, briefly; a later one never does.
+    // Asked again when it's due. Only a first prompt waits, briefly: for the start's ask, or while the warning shows.
+    const once = !splitAsking && !splitNow && splitAskedAt > -Infinity
     const ask = splitAsking ?? (splitDue(!!splitNow, splitAskedAt, await $.clock.now()) ? askSplit($) : splitNow)
-    if (splitSaid) return next(e)
+    if (splitSaid || (once && ask)) return next(e)
     const split = await Promise.race([ask, $.clock.sleep(BINDING_WAIT_MS).then(() => undefined)]).catch(() => null)
     if (split === undefined) return next(e) // still being read: the next prompt carries it, once it has landed
     splitSaid = true

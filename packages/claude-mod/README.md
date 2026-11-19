@@ -229,8 +229,9 @@ ssh dropped), and then two processes write one transcript. At `session.start` th
   found, nothing older (`splitDue`). While the warning shows it asks at every prompt and at the end of every turn, once
   the last ask is 5 s old (so a stop run in the turn clears it there); while it doesn't, at a prompt at most every 3
   minutes, so a split that starts later shows too. One ask at a time, and no later prompt waits for it. The first
-  prompt asks again by the same rule and waits for that answer no longer than it did before (1.5s), so the model isn't
-  told of a split that ended since the start.
+  prompt waits (1.5s at most) only for the start's ask, as before, or for the ask again while the warning shows, so the
+  model isn't told of a split that ended since the start; with "runs once" in hand it goes at once, and the next prompt
+  tells the model of a split the new ask finds.
 - **Never a refusal,** and silent when the session runs once or `ep0ch agent splits` doesn't answer (an ask again that
   gets no answer clears the warning too). The door shows the same as a `⚠ <name> ×2` chip on its status bar (the door's
   README, "A session running twice").

@@ -9,7 +9,9 @@
  * context blocks: a split is a resumed conversation, whose first prompt and its context the other process made.
  *
  * It asks again (PIE-1812, `splitDue`), so the status line's warning lasts only as long as the split: the line says
- * what the last ask found and nothing older, and an ask that gets no answer is no warning.
+ * what the last ask found and nothing older, and an ask that gets no answer is no warning. No prompt waits for an ask
+ * again but the first, and it only for the start's ask or while the warning shows (so the model isn't told of a split
+ * that has ended); with "runs once" in hand it goes at once, and the next prompt says a split the new ask finds.
  *
  * This file is pure: the argv, and the words from what `ep0ch agent splits` answered. register.ts runs it.
  */
