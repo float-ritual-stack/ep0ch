@@ -34,10 +34,26 @@ export function watchHosts(busy: () => boolean = () => false, tick: () => void =
  */
 export function watchTerminals(exits: (p: PtyPane) => boolean) {
   const drawn = new Set<PtyPane>();
-  void exits; void livePrograms;
+  /** What the walk reaches into a tile for: its "soon" timer, the desk it asks, and its emulator. */
+  type Inside = { redrawSoon: ReturnType<typeof setTimeout> | null; desk: { redraw(): void } | null; term: { write(data: string, done: () => void): void } | null };
   return {
     drew(p: PtyPane) { drawn.add(p); },
     clear() { drawn.clear(); },
-    async settle(): Promise<boolean> { return false; },
+    async settle(): Promise<boolean> {
+      // A program that ended is taken off the live ones as the tile hears of it (PtyPane.ended), which is when it asks for its repaint.
+      for (const end = Date.now() + 3000; Date.now() < end && livePrograms().some(p => drawn.has(p) && exits(p));) await Bun.sleep(1);
+      let asked = false;
+      for (const p of drawn) {
+        const t = p as unknown as Inside;
+        if (!t.redrawSoon) continue;
+        // After the emulator has read all the program wrote: the tile's status hears of an exit only then (PtyPane.ended).
+        const term = t.term;
+        if (term) await new Promise<void>(done => term.write("", done));
+        if (t.redrawSoon) { clearTimeout(t.redrawSoon); t.redrawSoon = null; }
+        t.desk?.redraw();
+        asked = true;
+      }
+      return asked;
+    },
   };
 }

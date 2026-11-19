@@ -40,7 +40,7 @@ import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch, SEEDED_SETUP_MS } from "./scratch";
-import { watchHosts } from "./settle";
+import { watchHosts, watchTerminals } from "./settle";
 import { FakeSearchClock, useSearchClock } from "../src/search-schedule";
 import { cacheReads } from "./board-reads";
 import { ScenarioBudget } from "./parity-budget";
@@ -98,12 +98,18 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     a.flush();   // the door's own "paint now": the timer cleared, the frame made
     return true;
   };
+  // A terminal tile is on two wall clocks more (test/settle.ts watchTerminals, PIE-1811): the walk's editor, which exits by itself,
+  // has exited when the box gets to it, and the tile repaints "soon" (16 ms) after. Settled means both happened: the daily
+  // layout's draft tile runs the editor in every build, and a build looked at before its exit was drawn is another screen.
+  let editor = "true";
+  const terminals = watchTerminals(p => (p as unknown as { run: { cmd: string[] } }).run.cmd[0] === editor);
   const settle = async () => {
     for (let i = 0; ; i++) {
       const h0 = performance.now();
       await hosts.settle();
       stats.hostMs += performance.now() - h0;
-      if (!flushPaint()) return;
+      const asked = await terminals.settle();
+      if (!flushPaint() && !asked) return;
       // A paint that asked for more (a chain of loads: a list, then its rows, then their notes) is followed; one that never ends
       // (a spinner) is left, counted for the log.
       if (i === 7) { stats.unsettled++; return; }
@@ -139,7 +145,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // e arms the edit (edit.arm): a window longer than any probe, so an arm never runs out between a key and the next.
     process.env.EP0CH_EDIT_ARM = "600000";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
-    process.env.VISUAL = process.env.EDITOR = "true";
+    process.env.VISUAL = process.env.EDITOR = editor;
     // The home base looks for machines (SSH config, tailnet, ssh): none here, so it never reaches a real machine and its
     // rows don't change while it is probed. Its SSH config is the scratch HOME's, a tailscale that answers nothing, and an
     // ssh that fails (PIE-1526: it had read real outlines over ssh, and its rows arrived between a key and its look).
@@ -150,6 +156,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     process.env.HOME = join(scratch.root, "home");
     process.env.PATH = `${bin}:${process.env.PATH}`;
     process.env.EP0CH_SSH = "false";
+    // PARITY_EDITOR_MS=<n>: the editor exits n ms late, as a busy box runs `true` (PIE-1811): what the walk must find the same.
+    const late = Number(process.env.PARITY_EDITOR_MS);
+    if (late > 0) { editor = join(bin, "late-editor"); writeFileSync(editor, `#!/bin/sh\nsleep ${late / 1000}\n`, { mode: 0o755 }); process.env.VISUAL = process.env.EDITOR = editor; }
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that
     // tile's editor had exited by the time the probe looked was a race, so runs explored different input states.
     // The tile's own path is desk-tiles.test.ts's (a fake editor that waits).
@@ -158,7 +167,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     restore.push(() => { Desk.prototype.inTile = inTile; });
     // A terminal that drew may still be printing (a prompt arriving): fresh() waits for it to hold still.
     const ptyRender = PtyPane.prototype.render;
-    PtyPane.prototype.render = function (this: PtyPane, ...a: Parameters<typeof ptyRender>) { ptyDrew = true; return ptyRender.apply(this, a); };
+    PtyPane.prototype.render = function (this: PtyPane, ...a: Parameters<typeof ptyRender>) { ptyDrew = true; terminals.drew(this); return ptyRender.apply(this, a); };
     restore.push(() => { PtyPane.prototype.render = ptyRender; });
     // A paint the timer makes (App.redraw) of a screen whose render throws, as a probe can leave one (a section whose tile it
     // closed), would end the run from outside any test: snap() draws the screen too and says "render threw" about it.
@@ -376,7 +385,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // A probe's alt+t (theme.cycle) changes every screen's colours: each screen starts in the default theme.
     setTheme(DEFAULT_THEME);
     A().stack.push(new MainMenu());
-    ptyDrew = false;
+    ptyDrew = false; terminals.clear();
     const s = await make();
     let pressed = frames();
     if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s);
@@ -399,8 +408,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       await Bun.sleep(80); await settle();
       const a = snap(new Set()), b = (await Bun.sleep(150), await settle(), snap(new Set()));
       mask = new Set<number>();
-      a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask!.add(i); });
-      if (a.about !== b.about) mask.add(-1);
+      learn(label, mask, a, b);
       masks.set(id, mask);
     }
     return mask;
@@ -479,8 +487,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const a = snap(mask);
     await Bun.sleep(150); await settle();
     const b = snap(mask);
-    a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask.add(i); });
-    if (a.about !== b.about) mask.add(-1);
+    learn(label, mask, a, b);
     const base = snap(mask);
     const runs: ActionRun[] = [];
     const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
@@ -489,19 +496,32 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
     return changes(base, after) || "the screen";
   }
+  /** Where two strings first differ, and a little of each from just before it. */
+  const from = (x: string, y: string) => {
+    let i = 0;
+    while (i < x.length && x[i] === y[i]) i++;
+    const at = (z: string) => JSON.stringify(z.slice(Math.max(0, i - 16), i + 40)).slice(1, -1);
+    return `at ${i}: "${at(x)}" → "${at(y)}"`;
+  };
+  /**
+   * The rows that differ between two looks of one build with no key between them change by themselves (a clock, a meter):
+   * masked from then on. Each is said in the log as it is learned (PIE-1811): a row here that has no business moving is a
+   * look taken too soon, which is how a terminal's `exited` row came and went under the walk for weeks.
+   */
+  const learn = (label: string, mask: Set<number>, a: Snap, b: Snap) => {
+    a.lines.forEach((l, i) => {
+      if (l === b.lines[i] || mask.has(i)) return;
+      mask.add(i);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: row ${i} changes by itself, masked from here: ${from(plain(l), plain(b.lines[i] ?? ""))}\n`);
+    });
+    if (a.about !== b.about) mask.add(-1);
+  };
   /** What differs between two looks: the stack, the description, the rows (cut short). Two builds (`sameBuild` false) have their own screens: the stack differs when its kind or depth does. */
   const changes = (a: Snap, b: Snap, sameBuild = true) => {
-    /** Where two strings first differ, and a little of each from just before it. */
-    const from = (x: string, y: string) => {
-      let i = 0;
-      while (i < x.length && x[i] === y[i]) i++;
-      const at = (z: string) => JSON.stringify(z.slice(Math.max(0, i - 16), i + 40)).slice(1, -1);
-      return `at ${i}: "${at(x)}" → "${at(y)}"`;
-    };
     // The words that changed; or, the same words drawn differently (a colour, a weight), the escapes that did.
     const row = (l: string, m: string) => (plain(l) !== plain(m) ? from(plain(l), plain(m)) : `same text, drawn differently ${from(l, m)}`);
     const rows = a.lines.flatMap((l, i) => (l === b.lines[i] ? [] : [`row ${i}: ${row(l, b.lines[i] ?? "")}`]));
-    return [(sameBuild ? a.top !== b.top : a.top?.constructor !== b.top?.constructor) || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
+    return [(sameBuild ? a.top !== b.top : a.top?.constructor !== b.top?.constructor) || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", (a.bar ?? "") !== (b.bar ?? "") ? "the power bar" : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
   };
 
   /**
@@ -762,6 +782,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
     // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
     // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
+    // What each try saw differ goes in the finding (PIE-1811): `bare` below can only say the state's own row went, as every
+    // cancel's does, so the nightly's finding named the one row that was right and none of those that weren't.
+    const unlike: string[] = [];
     for (let tries = 0; tries < 3; tries++) {
       let m = mask;
       if (tries) { m = await fresh(label, make, [...setup, k1]); push(k2); await settle(); }
@@ -769,10 +792,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       await fresh(label, make, setup);
       const again = snap(m);
       if (alike(again, ended, false)) return null;
+      // Two builds' descriptions differ in their ids: the rows, the stack and what is drawn over them are what's compared.
+      unlike.push(changes({ ...again, about: "" }, { ...ended, about: "" }, false) || "nothing a look names");
       if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(k1)} ${named(k2)}: ${again.about === ended.about ? "" : "describe differs; "}${again.lines.map((l, i) => (l === ended.lines[i] ? "" : `row ${i}: ${plain(l).trim().slice(0, 100)} | ${plain(ended.lines[i] ?? "").trim().slice(0, 100)}`)).filter(Boolean).join("\n  ")}\n`);
     }
     const changed = await bare(label, make, [...setup, k1], k2);
-    return changed ? `ended an input state with a change and no action (${changed})` : null;
+    return changed ? `ended an input state with a change and no action (${changed}); a screen built without the keys → the screen after them, three builds running: ${[...new Set(unlike)].join(" | ")}` : null;
   }
 
   /**
