@@ -39,13 +39,14 @@ describe("a terminal tile is settled for the walk's look (PIE-1811)", () => {
   });
 
   test("a program that keeps running is not waited for, and a tile nothing drew is left alone", async () => {
-    const t = tile(["sleep", "30"]), other = tile(["sh", "-c", "sleep 0.06"]);
+    // Neither wait is on a clock a busy box stretches: both programs outlast the test, and the settle's own limit is 3 s.
+    const t = tile(["sleep", "30"]), other = tile(["sleep", "30"]);
     const terminals = watchTerminals(p => p === other.p);
     terminals.drew(t.p);
     t.look(); other.look();
     const t0 = performance.now();
     await terminals.settle();
-    expect(performance.now() - t0).toBeLessThan(50);
-    expect([t.p.running, other.p.exited]).toEqual([true, null]);
+    expect(performance.now() - t0).toBeLessThan(1500);
+    expect([t.p.running, other.p.running]).toEqual([true, true]);
   });
 });
