@@ -8,7 +8,7 @@ import { cpSync } from "node:fs";
 import { join } from "node:path";
 import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
 import { shellWord } from "../src/machine";
-import { lineWords } from "../src/surface/actions";
+import { declaredKeys, keyName, lineWords, traceActions, type ActionRun } from "../src/surface/actions";
 import { lineCompleter } from "../src/surface/completer";
 import { traceRequests } from "../src/surface/dispatch";
 import { ReaderPane } from "../src/desk/panes";
@@ -380,6 +380,33 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar).toMatchObject({ query: "", scope: "notes" });
     key({ kind: "esc" });
     expect(peek().bar).toBeUndefined();
+  });
+
+  // PIE-1814: ctrl+u in the bar ran bar.edit, which named none of the line's keys. The parity walk saw it only on a night
+  // the screen moved under its second look (clearing an empty line changes nothing), and said "ctrl+k ctrl+u ran bar.edit,
+  // whose keys don't name it": true every night, red on one.
+  test("the line's clear, erase-word and cut keys run bar.edit, and bar.edit names each of them (PIE-1814)", async () => {
+    const pressed = async (k: Key, before: () => void = () => {}) => {
+      closeBar();
+      key(ctrlK); type("/garden path");
+      before();
+      const was = peek().bar.query, runs: ActionRun[] = [];
+      const stop = traceActions(r => { if (r.name === "bar.edit") runs.push(r); });
+      try { key(k); await until(() => peek().bar.query !== was, `${keyName(k)} changing the line`); } finally { stop(); }
+      return { key: keyName(k), ran: runs.length, named: runs.every(r => declaredKeys(r.keys).has(keyName(k)!)) };
+    };
+    const select = () => { key({ kind: "left", shift: true }); key({ kind: "left", shift: true }); };
+    expect([
+      await pressed({ kind: "char", ch: "u", ctrl: true }),
+      await pressed({ kind: "char", ch: "w", ctrl: true }),
+      await pressed({ kind: "char", ch: "x", ctrl: true }, select),
+      await pressed({ kind: "alt", ch: "x" }, select),
+    ]).toEqual([
+      { key: "ctrl+u", ran: 1, named: true },
+      { key: "ctrl+w", ran: 1, named: true },
+      { key: "ctrl+x", ran: 1, named: true },
+      { key: "alt+x", ran: 1, named: true },
+    ]);
   });
 
   test("tab extends the common prefix and selects only the fill", async () => {
