@@ -795,6 +795,23 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
     }, 30_000);
   }
 
+  // PIE-1814: a note whose only links are its children. Their read is two asks (the notes, then their facets), so on a busy
+  // box it lands after the backlinks' one: the selection then moves onto the first child, and that show is the action's too.
+  // The parity walk's `b` filled the preview on one build and left it empty on the next ("links by id left the screen
+  // different from the key"), parity-desk's red on a busy night. A slow facets read here stands for the busy box.
+  test("PIE-1814: links shows the first child where its select wire goes, however late the children's read lands", async () => {
+    const s = await twoReaders();
+    const child = await board.createBlock(s.briefing.id, "Seed trays\nSow the peas.");
+    const off = await linksInDrawer(s);
+    const facets = board.facets;
+    try {
+      await app.dispatch.act({ action: "tile.link", tile: "backlinks", args: { to: "other", verb: "select" } }, USER);
+      (board as any).facets = async (...a: unknown[]) => { await Bun.sleep(400); return (facets as any).apply(board, a); };
+      await app.dispatch.act({ action: "links", tile: "briefing" }, USER);
+      expect(shows(s.d, "other")).toBe(child.id);
+    } finally { (board as any).facets = facets; await off(); s.done(); }
+  }, 30_000);
+
   test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
