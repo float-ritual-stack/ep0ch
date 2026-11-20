@@ -117,6 +117,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   /** The screen as the last paint drew it, while nothing has asked for another (snap reads it instead of drawing the screen again). */
   let painted: { top: Screen; lines: string[]; at: number; refused: boolean } | null = null;
+  /**
+   * PARITY_BUSY_MS=<n>: the first frame after each probe's key is drawn n ms late, as a busy box draws it (PIE-1814). Over 100 the
+   * door counts itself slow, and after a minute of it says so on the status bar (`slow: N ms to settle`, src/speed.ts): what the
+   * walk must find the same, since the nightly's box is that busy and a scenario there runs past its minute.
+   */
+  const busy = Number(process.env.PARITY_BUSY_MS) > 0 ? Number(process.env.PARITY_BUSY_MS) : 0;
+  let busyKey = false;
   /** What a paint the door made threw (the timer's, or a key's own), kept for the next look: it is the probe's finding, not an error from outside any test. */
   let paintFailed: unknown = null;
   /** Frames the door has painted: a key's own paint draws the screen as the person sees it, so a build looks again only when none came. */
@@ -181,6 +188,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         painted = { top, lines: frame.lines, at: -1, refused: !!A().refusedNow };
         return frame;
       };
+      // PARITY_BUSY_MS: a busy box gets to a key's frame late (below, `busy`).
+      if (busyKey) { busyKey = false; Bun.sleepSync(busy); }
       const t0 = performance.now();
       try { return paint.apply(this, a); } catch (e) { paintFailed = e; /* the probe says it (snap) */ }
       // Stamped with the frame the paint made: the door counts it after the screen's render, so stamped there it named the frame
@@ -453,6 +462,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const go = async (k: Key) => {
     const t0 = performance.now();
     pressedAt.set(k, Date.now());
+    busyKey = busy > 0;
     push(k);
     const t1 = performance.now();
     await settle();
@@ -777,6 +787,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const pressed = performance.now();
     try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
+    if (log && runs.length && !same(mid, after) && !declares(tokens(runs), k2, k1)) require("node:fs").appendFileSync(log, `# ${label}: ${named(k1)} ${named(k2)} on a fresh build ran ${runs.map(r => r.name).join(", ")} and changed: ${changes(mid, after)}\n`);
     if (same(mid, after)) return null;
     if (runs.length) return doubleClicked(runs, k2, k1) || declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
     if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
