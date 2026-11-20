@@ -277,10 +277,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         while (lines.length < rows - 1) lines.push("");
         const drawer = A().drawer;
         drawer.active = !top.noDrawer;
+        // The clock and the uptime are stood in for where the bar reads them (`timeShown`): they are two items now, each in its own
+        // colours, and the words this used to replace ("on 3m │ 11:13") are no longer side by side in what is drawn (PIE-1814).
         const message = A().message, speed = A().speed;
-        A().message = ""; drawer.chip = drawer.chipText = () => "agent"; speed.slow = () => null;
-        try { lines.push((A().statusBar(top, cols) as string).replace(/on \d+m │ \d\d:\d\d/, "on Nm │ hh:mm").replace(/\+\d+ (new|ext)\b/g, "+N $1")); }
-        finally { A().message = message; delete drawer.chip; delete drawer.chipText; delete speed.slow; }
+        A().message = ""; drawer.chip = drawer.chipText = () => "agent"; speed.slow = () => null; A().timeShown = () => "N|hh:mm";
+        try { lines.push((A().statusBar(top, cols) as string).replace(/\+\d+ (new|ext|machine)\b/g, "+N $1")); }
+        finally { A().message = message; delete drawer.chip; delete drawer.chipText; delete speed.slow; delete A().timeShown; }
         A().statusBar(top, cols);   // where its `+N ext` and chip are as drawn, for the clicks
         lines = lines.map((l, i) => (mask.has(i) ? "" : l.replace(FULL_MARKERS, "")));
       }
