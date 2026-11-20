@@ -144,6 +144,8 @@ Never write to a real outline or touch the person's door. Their door may be on t
   (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
   with `-t "home base, an outline missing"` instead. `PARITY_KEYS=<file>` writes each probe's key and milliseconds,
   `PARITY_LOG=<file>` each scenario's totals (builds, paints, the slowest key); a scenario that slows down shows there which.
+  A parity red seen only in the nightly: `PARITY_BUSY_MS=120` draws each probed key's frame that late, as its busy box does
+  (the door then says `slow: N ms to settle`), and `PARITY_EDITOR_MS=<n>` has the walk's editor exit n ms late; busy loops beside the run find it by luck.
 - **Tests:** the root `CONTRIBUTING.md`, "What a test must earn": it fails when
   something a person would notice breaks; a workflow with real input beats unit tests of the parts; no new file
   for an action a file already drives; a count is not a result. `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
