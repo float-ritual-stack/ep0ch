@@ -339,7 +339,7 @@ export class BacklinksPane implements Pane {
     },
   };
 
-  /** Ask the service for `m`'s backlinks and authored links (the list keeps its view options, as Detail's panel does): resolves once both are read and what they show is shown. */
+  /** Ask the service for `m`'s backlinks, authored links and children (the list keeps its view options, as Detail's panel does): resolves once they are read and what they show is shown. */
   async load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
     if (!this.travelling && this.target && m && m.id !== this.target.id) {
       this.backs.push(this.target);
@@ -357,7 +357,9 @@ export class BacklinksPane implements Pane {
     const board = m.address ? (await outlineBoards(desk.ctx).on(m.address)).board : desk.ctx.board;
     if (!turn.alive()) return;
     if (!keepSel) { this.children = { kind: "loading" }; this.parents = { kind: "loading" }; }
-    if (this.groups.includes("children")) void this.loadChildren(m, desk);
+    // Its children are read beside the rest and awaited with them (PIE-1814): theirs is two asks, so on a busy box it lands
+    // after the backlinks', and a read that answered before it left the first child selected and never shown.
+    const kids = this.groups.includes("children") ? this.loadChildren(m, desk) : Promise.resolve();
     if (this.groups.includes("parents")) void this.loadParents(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
     // The read resolves once what it shows is shown (PIE-1628): an aim answers after it, never with a show still due.
@@ -387,7 +389,7 @@ export class BacklinksPane implements Pane {
       desk.redraw();
       if (by) await this.showSelected(desk, by);
     }, (e: Error) => { if (turn.alive()) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
-    await Promise.all([authored, listed]);
+    await Promise.all([authored, listed, kids]);
   }
 
   /** The notes under `m` and their facets (the Children group), drawn as they land, the selection kept. */
@@ -395,10 +397,13 @@ export class BacklinksPane implements Pane {
     const n = ++this.kidsAsked;
     const current = () => n === this.kidsAsked && this.target?.id === m.id;
     const board = m.address ? outlineBoards(desk.ctx).peek(m.address)!.board : desk.ctx.board;
-    return readChildren(board, m.id).then(value => {
+    return readChildren(board, m.id).then(async value => {
       if (!current()) return;
+      const before = rowKey(this.rows()[this.sel]);
       this.keepSel(() => { this.children = { kind: "ready", value }; }, !this.data);
       desk.redraw();
+      // The selection moved onto a child that came with them: shown, as the authored links' is (load), while the list has the keys.
+      if (this.data && rowKey(this.rows()[this.sel]) !== before && desk.hasFocus?.(this)) await this.showSelected(desk, USER);
     }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 

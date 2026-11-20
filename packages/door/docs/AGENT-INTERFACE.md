@@ -946,7 +946,8 @@ action run is traced (`traceActions`). A key or click that changed the screen (i
 under them, `describe()`, the screen stack, the drawer being up, entered or resized, or the video mode)
 without running an action whose `keys` names it fails, as does a hint that
 names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
-with no action is checked once more on a fresh screen before it fails. The second keys of a state an action
+with no action is checked once more on a fresh screen before it fails; a second key that ran actions naming no such key
+there and in the walk fails whether or not the fresh screen changes too (clearing an empty line changes nothing). The second keys of a state an action
 opened are probed once in a file: the shell's (a picker, a new note, the drawer) on the first screen that opens it,
 a screen's own on the first scenario of that screen; a prefix no action opened, on every scenario; and within a scenario a state
 that two keys open the same way (the same action, the same screen left) once. `PARITY_ONLY=<screen,…>`,

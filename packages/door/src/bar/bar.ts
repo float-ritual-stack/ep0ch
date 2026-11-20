@@ -28,7 +28,7 @@ import { completerOf, lineCompleter } from "../surface/completer";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
-import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
+import { asBoundKey, keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
 import { previewPlace } from "./list-preview";
@@ -259,9 +259,11 @@ export class PowerBar {
     // Clear, erase a word and cut are the bar's edits (bar.edit: its masked answers and its clipboard); the keys are the
     // line field's table rows (LINE_KEYS, DRAFT_KEYS with the keymap applied), so a rebind works here as in every line
     // (PIE-1542, Nov 3 review card 1). Undo and redo are the line's own, through the same table.
+    // The table's row owns the key, so bar.edit runs as that key (asBoundKey) and never lists it again in its own keys: a
+    // rebind names the new key, and the run says which key pressed it (PIE-1814: ctrl+u ran a bar.edit that named no such key).
     const bound = this.input.binding(k);
     const op = bound?.action === "draft.clear" ? "clear" : bound?.action === "draft.cut" ? "cut" : bound?.action === "draft.erase" && bound.args?.to === "word-back" ? "delete-word" : null;
-    if (op) { void this.host.dispatch.press("bar.edit", { op }); return true; }
+    if (op) { void asBoundKey(bound!.key, () => this.host.dispatch.press("bar.edit", { op })); return true; }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
     if (k.kind === "char" && !k.ctrl && this.typedPrefix) {
       const typed = this.query.slice(0, this.input.cursor) + k.ch + this.query.slice(this.input.cursor);

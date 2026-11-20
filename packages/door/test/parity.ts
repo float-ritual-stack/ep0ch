@@ -117,6 +117,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   /** The screen as the last paint drew it, while nothing has asked for another (snap reads it instead of drawing the screen again). */
   let painted: { top: Screen; lines: string[]; at: number; refused: boolean } | null = null;
+  /**
+   * PARITY_BUSY_MS=<n>: the first frame after each probe's key is drawn n ms late, as a busy box draws it (PIE-1814). Over 100 the
+   * door counts itself slow, and after a minute of it says so on the status bar (`slow: N ms to settle`, src/speed.ts): what the
+   * walk must find the same, since the nightly's box is that busy and a scenario there runs past its minute.
+   */
+  const busy = Number(process.env.PARITY_BUSY_MS) > 0 ? Number(process.env.PARITY_BUSY_MS) : 0;
+  let busyKey = false;
   /** What a paint the door made threw (the timer's, or a key's own), kept for the next look: it is the probe's finding, not an error from outside any test. */
   let paintFailed: unknown = null;
   /** Frames the door has painted: a key's own paint draws the screen as the person sees it, so a build looks again only when none came. */
@@ -181,6 +188,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         painted = { top, lines: frame.lines, at: -1, refused: !!A().refusedNow };
         return frame;
       };
+      // PARITY_BUSY_MS: a busy box gets to a key's frame late (below, `busy`).
+      if (busyKey) { busyKey = false; Bun.sleepSync(busy); }
       const t0 = performance.now();
       try { return paint.apply(this, a); } catch (e) { paintFailed = e; /* the probe says it (snap) */ }
       // Stamped with the frame the paint made: the door counts it after the screen's render, so stamped there it named the frame
@@ -241,7 +250,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /**
    * What the door shows (`glance`: only the rows drawn): the screen's rows, and the status bar under them (its `+N ext` and the agent chip
    * take clicks). Of the bar, not what changes by itself: the clock, the uptime, how many changes came in, the
-   * agent chip's words (its agent working or not), and the message a key flashes (it runs out on a timer), with its copy
+   * agent chip's words (its agent working or not), the door's own `slow: N ms to settle` (the box's speed, never a key's: it comes
+   * after a minute of slow frames and its number moves with each, PIE-1814), and the message a key flashes (it runs out on a timer), with its copy
    * on the focused tile's frame when it was a refusal (PIE-727: Ctx.refuse), and its copy on the message log's own row for what
    * came since its rows were read (`N new · …`, PIE-1732's logNews).
    */
@@ -267,10 +277,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         while (lines.length < rows - 1) lines.push("");
         const drawer = A().drawer;
         drawer.active = !top.noDrawer;
-        const message = A().message;
-        A().message = ""; drawer.chip = drawer.chipText = () => "agent";
-        try { lines.push((A().statusBar(top, cols) as string).replace(/on \d+m │ \d\d:\d\d/, "on Nm │ hh:mm").replace(/\+\d+ (new|ext)\b/g, "+N $1")); }
-        finally { A().message = message; delete drawer.chip; delete drawer.chipText; }
+        // The clock and the uptime are stood in for where the bar reads them (`timeShown`): they are two items now, each in its own
+        // colours, and the words this used to replace ("on 3m │ 11:13") are no longer side by side in what is drawn (PIE-1814).
+        const message = A().message, speed = A().speed;
+        A().message = ""; drawer.chip = drawer.chipText = () => "agent"; speed.slow = () => null; A().timeShown = () => "N|hh:mm";
+        try { lines.push((A().statusBar(top, cols) as string).replace(/\+\d+ (new|ext|machine)\b/g, "+N $1")); }
+        finally { A().message = message; delete drawer.chip; delete drawer.chipText; delete speed.slow; delete A().timeShown; }
         A().statusBar(top, cols);   // where its `+N ext` and chip are as drawn, for the clicks
         lines = lines.map((l, i) => (mask.has(i) ? "" : l.replace(FULL_MARKERS, "")));
       }
@@ -453,6 +465,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const go = async (k: Key) => {
     const t0 = performance.now();
     pressedAt.set(k, Date.now());
+    busyKey = busy > 0;
     push(k);
     const t1 = performance.now();
     await settle();
@@ -671,7 +684,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         // from the state built again (the keys before this one may have moved it on), so a suspect is built again, as the first keys'
         // findings are made from the first look. A state typing has moved on is built again whatever ran.
         if (runs.length && declares(tokens(runs), k2, k1) && entered && alike(entered, mid)) continue;
-        const problem = await second(label, make, setup, k1, k2);
+        const problem = await second(label, make, setup, k1, k2, runs);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
     }
@@ -767,8 +780,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
   }
 
-  /** `k1` then `k2` on a fresh screen: what's wrong, or null. */
-  async function second(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k1: Key, k2: Key): Promise<string | null> {
+  /**
+   * `k1` then `k2` on a fresh screen: what's wrong, or null. `saw`: what `k2` ran in the walk, where it changed the screen from a
+   * state the keys before it had moved on (a line typed into). When it runs the same here and none of it names the key, that is
+   * the finding whether or not this build's screen changes too (PIE-1814): ctrl+k ctrl+u ran bar.edit every night, and was let go
+   * because clearing an empty line changes nothing, but on the night the screen moved between the two looks. A verdict that
+   * turns on what else moved is the box's, not the key's.
+   */
+  async function second(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k1: Key, k2: Key, saw: ActionRun[] = []): Promise<string | null> {
     stats.second++;
     const mask = await fresh(label, make, [...setup, k1]);
     const mid = snap(mask);
@@ -777,8 +796,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const pressed = performance.now();
     try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
+    const names = (rs: ActionRun[]) => rs.map(r => `${r.scope}.${r.name}`).join(", ");
+    const unnamed = runs.length > 0 && !doubleClicked(runs, k2, k1) && !declares(tokens(runs), k2, k1);
+    // What moved under an unnamed run goes in the log: with the state built again, a screen that changes here changed by itself or by the key.
+    if (log && unnamed) require("node:fs").appendFileSync(log, `# ${label}: ${named(k1)} ${named(k2)} built again ran ${names(runs)}, whose keys don't name it; the screen ${same(mid, after) ? "stayed as it was" : `changed (${changes(mid, after)})`}\n`);
+    if (unnamed && saw.length && names(saw) === names(runs)) return `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
     if (same(mid, after)) return null;
-    if (runs.length) return doubleClicked(runs, k2, k1) || declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
+    if (runs.length) return unnamed ? `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` : null;
     if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
     // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
     // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
