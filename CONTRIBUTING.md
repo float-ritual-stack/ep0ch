@@ -73,7 +73,8 @@ Before a PR claims a change works:
      root, the root `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`).
    - **The nightly run on main** is `scripts/nightly-main`, started by the float-box user timer `ep0ch-nightly.timer`
      at 04:00: `box-test --alone --each all` on origin/main's head (`--alone` holds every slot: no other box-test run goes beside it), a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
-     one high ticket in pie naming every red file.
+     one high ticket in pie naming every red file and the tests that failed in each (`scripts/nightly-red` reads the
+     log; the each-file phase keeps each failing test's assertion and `(fail)` line under its `✗ <file>`).
    - **The test-time budget** (PIE-1422) is `scripts/test-budget.json`: summed seconds per package and per test file,
      read from the JUnit each box-test run writes, so more shards or `--parallel` can't hide growth. box-test prints the
      comparison after the suites (`scripts/test-budget.ts`); the nightly goes red over it ("over test budget:

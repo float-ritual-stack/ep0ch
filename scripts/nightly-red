@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# What a nightly log says failed (scripts/nightly-main reads its log with this; packages/door/test/test-each.test.ts).
+#
+#   scripts/nightly-red <log>           the red files, each once, sorted
+#   scripts/nightly-red --tests <log>   each red file, and under it (indented) the tests that failed in it
+#
+# In a suite, a red file is the file header bun prints before a run of tests, kept when a `(fail)` line follows it. bun's
+# summary at a suite's end repeats each `(fail)` under no file: it would be pinned on whichever file ran last. The
+# each-file phase (packages/door/scripts/test-each.sh) names a red file on its own `✗ <file>` line, with the tests that
+# failed in it and their assertions indented under it (Nov 18: backup-restic red there, and the ticket said "0 files
+# fail"; Nov 21, PIE-1816: the ticket named the file and not which of its 47 tests).
+set -uo pipefail
+tests=0
+[ "${1:-}" = --tests ] && { tests=1; shift; }
+[ $# = 1 ] && [ -r "$1" ] || { echo "usage: scripts/nightly-red [--tests] <log>" >&2; exit 2; }
+# One line a finding: the file, a tab, what the log says of it (empty for a file named with nothing under it).
+found=$(awk '
+  /\.test\.ts:$/ { f = $0; sub(/:$/, "", f); each = ""; next }
+  /^[0-9]+ tests? failed:$/ { f = ""; each = ""; next }
+  /^\(fail\)/ { if (f != "") print f "\t" $0; each = ""; next }
+  /^✗ .*\.test\.ts$/ { each = $2; print each "\t"; next }
+  each != "" && /^  / { print each "\t" substr($0, 3); next }
+  { each = "" }' "$1")
+if [ $tests = 0 ]; then printf '%s\n' "$found" | cut -f1 | grep . | sort -u; exit 0; fi
+printf '%s\n' "$found" | cut -f1 | grep . | sort -u | while IFS= read -r file; do
+  printf '%s\n' "$file"
+  printf '%s\n' "$found" | awk -F'\t' -v f="$file" '$1 == f && $2 != "" && !seen[$0]++ { sub(/^[^\t]*\t/, ""); print "  " $0 }'
+done
