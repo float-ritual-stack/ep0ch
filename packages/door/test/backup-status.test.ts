@@ -10,8 +10,7 @@ import { newRanges, snapshot } from "../src/backup/jobs";
 import { plainFailure, plainReason } from "../src/backup/plain";
 import { resticChecks } from "../src/backup/setup";
 import { failedLine, relayedLine, verdict } from "../src/backup/verdict";
-import { scratchDir } from "./scratch";
-import { hostRequest } from "../src/socket";
+import { scratchDir, writeNotes } from "./scratch";
 import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-backup-status-");
@@ -204,11 +203,9 @@ describe("flags are never ignored", () => {
     await host.start();
     afterAll(() => host.close());
     // A made-up outline the host serves; its archive is already uploaded up to its newest entry.
-    await hostRequest(c.host, "outlines.create", { name: "pie" });
-    // What the host writes as it opens an outline settles first: the log stops moving.
-    const head = async () => { const l = await newRanges(c, "pie"); return { log: l, lsn: l.ranges.flatMap(r => r.entries).at(-1)!.lsn }; };
-    let { log, lsn } = await head();
-    for (let i = 0; i < 50; i++) { await Bun.sleep(100); const next = await head(); if (next.lsn === lsn) break; ({ log, lsn } = next); }
+    // What the host writes as it opens an outline is in first (scratch.ts `writeNotes`): the log stops moving.
+    await writeNotes(host, "pie");
+    const log = await newRanges(c, "pie"), lsn = log.ranges.flatMap(r => r.entries).at(-1)!.lsn;
     const s: BackupState = { repo: c.repoOf("float-hub"), outlines: { pie: { seq: lsn, logId: log.logId, schema: log.schema, at: "2026-10-08T23:33:00Z" } } };
     const quiet: string[] = [], loud: string[] = [];
     await snapshot(c, s, { say: l => quiet.push(l) });

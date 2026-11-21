@@ -22,7 +22,7 @@ import { MainMenu } from "../src/screens";
 import { hostRequest, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { writeAlert } from "../src/backup/alert";
-import { outliner, Scratch, scratchDir } from "./scratch";
+import { leaveLogTransactionOpen, outliner, Scratch, scratchDir, writeNotes } from "./scratch";
 import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-restic-test-");
@@ -49,13 +49,16 @@ const iso = (t: number) => new Date(t).toISOString();
 
 /**
  * Notes written to one of a machine's outlines, through the host that serves it (made on first use): what the job then
- * archives. Only the host opens an outline (PIE-1750), and the job asks it for the log (`log.range`).
+ * archives. Only the host opens an outline (PIE-1750), and the job asks it for the log (`log.range`). Answered once the
+ * host's own first writes to a new outline are in (scratch.ts `writeNotes`): the log the job reads next is the whole of it.
  */
-async function write(c: BackupConfig, name: string, texts: string[]): Promise<void> {
-  if (!(await hostRequest(c.host, "outlines.list", {})).outlines.some(o => o.name === name)) await hostRequest(c.host, "outlines.create", { name });
-  const board = new SocketBoard(c.host, 15_000, name);
-  try { for (const text of texts) await board.request("create", { parentId: null, text, author: "user" }); } finally { board.close(); }
-}
+const write = (c: BackupConfig, name: string, texts: string[]): Promise<void> => writeNotes(hostOf(c), name, texts);
+/** The host `served` started for a machine. */
+const hostOf = (c: BackupConfig): OutlineHost => {
+  const host = hosts.find(h => h.socketPath === c.host);
+  if (!host) throw new Error(`no host serves ${c.machine} (served() starts one)`);
+  return host;
+};
 
 /** Whether a copy of an outline holds a note with this text. */
 const holds = (path: string, text: string) => {
@@ -666,6 +669,8 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
   test("every rollback point of an old log restores from the snapshot that let it go: a chain set aside at a gap, an entry inside a transaction that ran on (Codex on #1522)", async () => {
     const c = await served(machine("croft"));
     await write(c, "beds", ["Dig the beds", "Rake the beds"]);
+    // The newest entry leaves the log's transaction open (scratch.ts): the point below is inside it.
+    await leaveLogTransactionOpen(hostOf(c), "beds");
     expect((await job(c)).ok).toBe(true);
     const was = readBackupState(c.state).outlines.beds!;
     const point = { logId: was.logId!, seq: was.seq! };
@@ -676,8 +681,8 @@ describe.skipIf(!RESTIC)("the prune finishes: forget every run, prune once a day
     const root0 = archiveRoot(c, c.machine), staged = join(root0, "beds");
     const entries = archivedRanges(root0, "beds", point.logId).flatMap(r => r.entries);
     const tail = entries.at(-1)!.lsn;
-    // The point's transaction ran on into the next write (the log's txn ids, as the host writes them): a replay that
-    // keeps whole transactions alone would stop short of it.
+    // The point's transaction ran on into the next write (the entry above, then "Edge the beds"): a replay that keeps
+    // whole transactions alone would stop short of it.
     const at = (lsn: number) => entries.find(e => e.lsn === lsn)!;
     expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
     // Set aside at a gap (`<log>~<entry>`, as the job names a chain the host compacted past), then a new log begun.

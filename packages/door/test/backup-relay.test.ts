@@ -12,9 +12,9 @@ import { backupCommand, statusLines } from "../src/backup/cli";
 import { archiveRoot, runAll, snapshot } from "../src/backup/jobs";
 import { receive, unreachable } from "../src/backup/relay";
 import { forget, runRestic, snapshots } from "../src/backup/restic";
-import { hostRequest, SocketBoard } from "../src/socket";
+import { hostRequest } from "../src/socket";
 import { archivedCursor, archivedRanges } from "@ep0ch/outliner/log-archive";
-import { outliner, scratchDir } from "./scratch";
+import { leaveLogTransactionOpen, outliner, scratchDir, writeNotes } from "./scratch";
 import { OutlineHost } from "@ep0ch/outliner/outline-host";
 
 const root = scratchDir("ep0ch-relay-test-");
@@ -25,12 +25,11 @@ const DOOR = resolve(import.meta.dir, "..");
 const DOWN = async () => "objects.example.test doesn't answer (no reply in 8s)";
 const REACHABLE = async () => null;
 
-/** Notes written to one of the laptop's outlines, through its host (made on first use): what its job archives. */
-async function write(socket: string, name: string, texts: string[]): Promise<void> {
-  if (!(await hostRequest(socket, "outlines.list", {})).outlines.some(o => o.name === name)) await hostRequest(socket, "outlines.create", { name });
-  const board = new SocketBoard(socket, 15_000, name);
-  try { for (const text of texts) await board.request("create", { parentId: null, text, author: "user" }); } finally { board.close(); }
-}
+/**
+ * Notes written to one of the laptop's outlines, through its host (made on first use): what its job archives. Answered
+ * once the host's own first writes to a new outline are in (scratch.ts `writeNotes`), so "unchanged" below is unchanged.
+ */
+const write = (name: string, texts: string[]): Promise<void> => writeNotes(host!, name, texts);
 
 describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   const dir = join(root, "world");
@@ -77,7 +76,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   });
 
   test("the repository is out of reach: the log goes through the hub, which archives it and uploads it for the laptop", async () => {
-    await write(laptop.host, "garden", ["Plant the tomatoes", "Water the beans"]);
+    await write("garden", ["Plant the tomatoes", "Water the beans"]);
     const s = readBackupState(laptop.state);
     const said: string[] = [];
     const r = await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN, verbose: true });
@@ -106,7 +105,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   }, 120_000);
 
   test("the whole job counts a relayed backup as fresh, and status says so", async () => {
-    await write(laptop.host, "garden", ["Stake the peas"]);
+    await write("garden", ["Stake the peas"]);
     const t = Date.now();
     const run = await runAll(laptop, { say, probe: DOWN, drill: false, announce: async () => {}, heartbeat: async () => {} });
     expect(run.ok).toBe(true);
@@ -122,7 +121,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   }, 120_000);
 
   test("on the work VPN: the run says it went through the hub as status, the drill runs on the hub, and waits when the hub is out of reach too (PIE-810)", async () => {
-    await write(laptop.host, "orchard", ["Prune the apples"]);
+    await write("orchard", ["Prune the apples"]);
     const t = Date.now();
     const quiet = { say, probe: DOWN, drill: true, announce: async () => {}, heartbeat: async () => {} };
     const run = await runAll(laptop, quiet);
@@ -148,14 +147,14 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     await runAll(laptop, { ...quiet, drill: undefined });
     expect(readBackupState(laptop.state).drillWaiting).toBeUndefined();
     // A direct upload ends the long way round: the route and the mark go.
-    await write(laptop.host, "orchard", ["Pick the pears"]);
+    await write("orchard", ["Pick the pears"]);
     await runAll(laptop, { ...quiet, probe: REACHABLE, drill: false });
     expect(readBackupState(laptop.state).route).toBeUndefined();
     expect(alertMark(readAlert(laptop.state), Date.now())).toBeNull();
   }, 240_000);
 
   test("restic's own failure relays too, and a direct upload later clears the mark", async () => {
-    await write(laptop.host, "garden", ["Prune the roses"]);
+    await write("garden", ["Prune the roses"]);
     const broken = laptopWith({ EP0CH_RESTIC: join(dir, "bin", "restic-blocked") });
     const s = readBackupState(laptop.state);
     const r = await snapshot(broken, s, { say, probe: REACHABLE });
@@ -164,7 +163,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(hubHolds("garden")).toBe(s.outlines.garden!.seq!);
     // The VPN is off again: the next change goes straight to the repository.
     s.repo = laptop.repoOf("laptop");
-    await write(laptop.host, "garden", ["Mulch the beds"]);
+    await write("garden", ["Mulch the beds"]);
     // (Another outline whose host wrote since goes straight there too.)
     const direct = await snapshot(laptop, s, { say, probe: REACHABLE });
     expect(direct).toMatchObject({ failed: [], relayed: [] });
@@ -173,14 +172,14 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   }, 120_000);
 
   test("a log begun again: the hub lets go of its older chain once it uploads; the laptop keeps its own until a direct upload holds it (PIE-1806)", async () => {
-    await write(laptop.host, "potting", ["Wash the pots"]);
+    await write("potting", ["Wash the pots"]);
     const s = readBackupState(laptop.state);
     expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("potting");
     const old = s.outlines.potting!.logId!;
     // Made again (a migration or an import begins a new log), and relayed: the hub's snapshot holds both chains, and
     // its old one goes; the laptop sent only its current chain, so its own old one stays.
     await hostRequest(laptop.host, "outlines.delete", { name: "potting" });
-    await write(laptop.host, "potting", ["Sieve the compost"]);
+    await write("potting", ["Sieve the compost"]);
     const said: string[] = [];
     expect((await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN })).relayed).toContain("potting");
     const now = s.outlines.potting!.logId!;
@@ -203,7 +202,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(readdirSync(join(hubRoot, "potting"))).toEqual([now]);
     expect(statusLines(hub).join("\n")).not.toContain("kept laptop's older chains");
     // Off the VPN, the next change goes straight to the repository, whose snapshot takes the whole folder: the laptop's goes too.
-    await write(laptop.host, "potting", ["Label the seedlings"]);
+    await write("potting", ["Label the seedlings"]);
     const direct = await snapshot(laptop, s, { say, probe: REACHABLE });
     expect(direct.uploaded).toContain("potting");
     expect(direct.trimmed?.find(t => t.outline === "potting")).toEqual({ outline: "potting", chains: [{ chain: old, bytes: expect.any(Number) }] });
@@ -215,11 +214,13 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     const say = () => {};
     // Uploaded straight (the rollback point), then relayed: the hub gets the laptop's ranges in one go, the point
     // between two of them.
-    await write(laptop.host, "bench", ["Oil the bench", "Sharpen the chisels"]);
+    await write("bench", ["Oil the bench", "Sharpen the chisels"]);
+    // The newest entry leaves the log's transaction open (scratch.ts): the point below is inside it.
+    await leaveLogTransactionOpen(host!, "bench");
     const s = readBackupState(laptop.state);
     expect((await snapshot(laptop, s, { say, probe: REACHABLE })).uploaded).toContain("bench");
     const point = { logId: s.outlines.bench!.logId!, seq: s.outlines.bench!.seq! };
-    await write(laptop.host, "bench", ["Sweep the shavings"]);
+    await write("bench", ["Sweep the shavings"]);
     expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
     // The point's transaction ran on into the next write: only the boundary the laptop archived at marks it.
     const entries = archivedRanges(archiveRoot(laptop, "laptop"), "bench", point.logId).flatMap(r => r.entries);
@@ -227,7 +228,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(at(point.seq).txn).toBe(at(point.seq + 1).txn);
     // A new log, relayed: the hub's snapshot holds the old chain, and the hub lets it go.
     await hostRequest(laptop.host, "outlines.delete", { name: "bench" });
-    await write(laptop.host, "bench", ["Build a new bench"]);
+    await write("bench", ["Build a new bench"]);
     expect((await snapshot(laptop, s, { say, probe: DOWN })).relayed).toContain("bench");
     expect(readdirSync(join(archiveRoot(hub, "laptop"), "bench"))).toEqual([s.outlines.bench!.logId!]);
     writeBackupState(laptop.state, s);
@@ -249,7 +250,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   }, 120_000);
 
   test("the hub unreachable too: the outline fails, with both reasons, and the hub holds nothing of it", async () => {
-    await write(laptop.host, "pantry", ["Flour"]);
+    await write("pantry", ["Flour"]);
     const down = laptopWith({ FAKE_SSH_DOWN: "1" });
     const s = readBackupState(laptop.state);
     const r = await snapshot(down, s, { say, probe: DOWN });
@@ -261,7 +262,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   }, 120_000);
 
   test("no hub named: the repository's failure fails the outline, as before", async () => {
-    await write(laptop.host, "attic", ["Maps"]);
+    await write("attic", ["Maps"]);
     const alone = laptopWith({ EP0CH_MCP_HUB: "", EP0CH_RESTIC: join(dir, "bin", "restic-blocked") });
     expect(alone.hub).toBeUndefined();
     const s = readBackupState(alone.state);
@@ -311,7 +312,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
   });
 
   test("a hub that can't upload still holds the log, and the next run tries the repository again", async () => {
-    await write(laptop.host, "cellar", ["Jam"]);
+    await write("cellar", ["Jam"]);
     // Float-2's view of the laptop's repository is a restic that can't reach it.
     const saved = hubEnv.EP0CH_RESTIC;
     hubEnv.EP0CH_RESTIC = join(dir, "bin", "restic-blocked");
