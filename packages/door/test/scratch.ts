@@ -352,3 +352,35 @@ export class ScratchHost {
 
   async dispose() { holding()?.delete(this); await this.stop(); rmSync(this.root, { recursive: true, force: true }); }
 }
+
+/**
+ * Notes written to one of an in-process host's outlines (made on first use), answered once the outline is quiet. A host
+ * goes on writing to an outline it has just opened: its extensions' pages, a moment later. A test that archives right
+ * after its own write archived whichever of those had landed, on a busy machine fewer, and "nothing moved since" then
+ * found the rest (backup-relay beside seven other files, PIE-1816). `settled` is the host's own word for that work
+ * being done; with no `texts` it only makes the outline and waits.
+ */
+export async function writeNotes(host: import("@ep0ch/outliner/outline-host").OutlineHost, name: string, texts: readonly string[] = []): Promise<void> {
+  const { hostRequest, SocketBoard } = await import("../src/socket");
+  const socket = host.socketPath;
+  if (!(await hostRequest(socket, "outlines.list", {})).outlines.some(o => o.name === name)) await hostRequest(socket, "outlines.create", { name });
+  if (texts.length) {
+    const board = new SocketBoard(socket, 15_000, name);
+    try { for (const text of texts) await board.request("create", { parentId: null, text, author: "user" }); } finally { board.close(); }
+  }
+  await (await host.open(name)).settled;
+}
+
+/**
+ * Leaves an outline's log transaction open on a new newest entry, so the next write carries its number: what a rollback
+ * point "inside a transaction that ran on" is made of (Codex on #1522). The entry is written outside any store
+ * transaction, as the host writes its record of the extensions' pages (extension-pages.ts), and stays open until a store
+ * transaction ends it. Note routing's would: 2 s after a note is made it reads its rules in one. The tests that took
+ * such a point had restic between it and their next write, so it held on a quiet machine and not beside eight files
+ * (PIE-1816). Routing is turned off for this outline; a test that calls this routes nothing in it.
+ */
+export async function leaveLogTransactionOpen(host: import("@ep0ch/outliner/outline-host").OutlineHost, name: string): Promise<void> {
+  const outline = await host.open(name);
+  outline.server.routing.stop();
+  outline.store.writeMetadata("scratch.left-open", new Date().toISOString());
+}

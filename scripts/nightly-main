@@ -6,7 +6,8 @@
 # With --alone: it waits for the box-test runs ahead and later ones wait for it (focused runs and builders still go beside
 # it). Its limits are wall-clock time, and on Nov 6 a merge batch beside it slowed every file by 1.3 to 2.1 times (PIE-1600).
 #
-#   scripts/nightly-main            test origin/main's head; green: a row in nightly.tsv; red: one ticket listing the red files
+#   scripts/nightly-main            test origin/main's head; green: a row in nightly.tsv; red: one ticket listing the red
+#                                   files and the tests that failed in each
 #
 # The test-time budget (PIE-1422, scripts/test-budget.ts against scripts/test-budget.json at main): over it, the night
 # is red and one ticket, "Over test budget: investigate", carries the files that grew since the last green night; at 80%
@@ -33,11 +34,9 @@ start=$(date +%s)
 EP0CH_PROGRAM_STATUS=0 "$repo/scripts/box-test" --on float-box --alone --ref "$sha" --each all >"$log" 2>&1
 code=$?
 secs=$(( $(date +%s) - start ))
-# The files that failed: the file header bun prints before a run of tests, kept when a (fail) line follows it.
-# bun's summary at a suite's end repeats each (fail) under no file: it would be pinned on whichever file ran last.
-# The each-file phase (scripts/test-each.sh) names a red file on its own `✗ <file>` line, with no (fail) under a header
-# (Nov 18: backup-restic red there, and the ticket said "0 files fail").
-red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^[0-9]+ tests? failed:$/{f=""} /^\(fail\)/{if (f != "") print f} /^✗ .*\.test\.ts$/{print $2}' "$log" | sort -u)
+# The files that failed, and the tests that failed in each (scripts/nightly-red: a suite's `(fail)` lines under their
+# file's header, the each-file phase's `✗ <file>` with what failed indented under it).
+red=$("$repo/scripts/nightly-red" "$log")
 count=$(printf '%s' "$red" | grep -c . || true)
 
 # The budget: the comparison box-test printed at the end of the log, decided here (0 within, 3 near, 4 over, 5 none).
@@ -97,6 +96,15 @@ body=$(mktemp)
   echo "## Red files ($count)"
   if [ "$count" -gt 0 ]; then printf '%s\n' "$red" | sed 's/^/- `/; s/$/`/'; else echo "- none named: the run failed before a test file reported (read the log's last lines)"; fi
   echo
+  # Which tests, with the assertion where the each-file phase kept it (PIE-1816): the ticket names the test, not only its file.
+  failing=$("$repo/scripts/nightly-red" --tests "$log" | cut -c1-400 | head -120)
+  if printf '%s\n' "$failing" | grep -q '^  '; then
+    echo "## Failing tests"
+    echo '```text'
+    printf '%s\n' "$failing"
+    echo '```'
+    echo
+  fi
   echo "## Done when"
   echo "- Each file above passes alone on main, fixed at its cause (the merge that changed it, by bisect), red first."
   echo "- The next night's run is green."
