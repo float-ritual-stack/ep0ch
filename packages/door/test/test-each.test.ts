@@ -20,7 +20,7 @@ test("a red file says which test failed and its assertion, and the nightly's tic
   const dir = join(root, "kitchen");
   mkdirSync(dir, { recursive: true });
   const red = join(dir, "kettle.test.ts"), green = join(dir, "teapot.test.ts");
-  writeFileSync(red, 'import { expect, test } from "bun:test";\ntest("the kettle is filled", () => { expect(1).toBe(1); });\ntest("the kettle boils two cups", () => {\n  expect(1 + 0).toBe(2);\n});\n');
+  writeFileSync(red, 'import { expect, test } from "bun:test";\ntest("the kettle is filled", () => { expect(1).toBe(1); });\ntest("the kettle boils two cups", () => {\n  expect(1 + 0).toBe(2);\n});\ntest("the kettle whistles", () => { expect("quiet").toBe("whistling"); });\n');
   writeFileSync(green, 'import { expect, test } from "bun:test";\ntest("the teapot is warmed", () => { expect(true).toBe(true); });\n');
   const each = await run(["sh", "scripts/test-each.sh", red, green]);
   expect(each.code).toBe(1);
@@ -48,6 +48,9 @@ test("a red file says which test failed and its assertion, and the nightly's tic
   expect(told[0]).toBe(red);
   expect(told).toContain("  error: expect(received).toBe(expected)");
   expect(told.some(l => l.startsWith("  (fail) the kettle boils two cups"))).toBe(true);
+  // Each test keeps its own assertion, the same words or not.
+  expect(told.filter(l => l === "  error: expect(received).toBe(expected)")).toHaveLength(2);
+  expect(told.indexOf('  Received: "quiet"')).toBeGreaterThan(told.findIndex(l => l.startsWith("  (fail) the kettle boils two cups")));
 }, 60_000);
 
 test("a red file in the whole suite is named with its failing tests too; the suite's closing list repeats none of them", async () => {

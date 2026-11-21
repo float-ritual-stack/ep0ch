@@ -24,5 +24,5 @@ found=$(awk '
 if [ $tests = 0 ]; then printf '%s\n' "$found" | cut -f1 | grep . | sort -u; exit 0; fi
 printf '%s\n' "$found" | cut -f1 | grep . | sort -u | while IFS= read -r file; do
   printf '%s\n' "$file"
-  printf '%s\n' "$found" | awk -F'\t' -v f="$file" '$1 == f && $2 != "" && !seen[$0]++ { sub(/^[^\t]*\t/, ""); print "  " $0 }'
+  printf '%s\n' "$found" | awk -F'\t' -v f="$file" '$1 == f && $2 != "" { sub(/^[^\t]*\t/, ""); print "  " $0 }'
 done
