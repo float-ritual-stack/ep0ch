@@ -26,6 +26,7 @@ import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
 import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, sessionFile, sessionFlags, sessionInfo as infoOn, sessionSocket, type Place } from "../src/session/place";
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, restoredSaying, screenSteps, type Checkpoint } from "../src/session/restore";
+import { resizeEnded } from "../src/resize";
 import { tuningOf } from "../src/look";
 import { MainMenu, SHELL_ACTIONS } from "../src/screens";
 import { controlPlace, servingSocket } from "../src/control";
@@ -460,12 +461,20 @@ describe("two clients on one session", () => {
 // FRAMES_IN_FLIGHT frames unanswered is not painted (Rows.paint diffs against what it last wrote, so the rows that
 // changed meanwhile are remembered by that) until an answer comes; then it is painted with the latest.
 describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163)", () => {
-  /** A session whose screen says which frame it is, and the frames a client's terminal was sent, by number. */
-  function counting() {
+  /**
+   * A session whose screen says which frame it is, and the frames a client's terminal was sent, by number. Its door
+   * draws only when the test says (`make`, `paint`, an answer, a key): these tests count frames one by one, and a real
+   * door also draws by itself. `now`: the clock its status bar reads.
+   */
+  function counting(now: () => number = Date.now) {
     const term = new SessionTerm();
     let n = 0;
-    const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
+    const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {}, now);
     app.push({ title: "plot board", noDrawer: true, key: () => {}, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => (i ? `row ${i}` : `frame ${n}`)) }) } as any);
+    // What it draws by itself is let go (PIE-1808, PIE-1817): its tick, which repaints the status row when the clock
+    // turns its minute (and for a backup alert or an update waiting), and the frame after a resize ends, 500 ms after a
+    // terminal of another size attached. Either one inside a test's wait was a frame the test never made.
+    clearInterval((app as any).timer); (app as any).offResize();
     const paint = () => (app as any).paint();
     const make = (to: number) => { for (; n < to; ) { n++; paint(); } };
     const frames = (l: ReturnType<typeof fakeLink>) => l.sent.filter((m): m is Extract<DaemonMsg, { t: "output" }> => m.t === "output" && m.text.includes("\x1b[?2026l"));
@@ -473,6 +482,23 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     return { term, app, paint, make, frames, numbers };
   }
   const answer = "\x1b[0n";
+
+  // PIE-1808 and PIE-1817: the nightly was red here twice, a different test each night, both green alone, each with one
+  // frame the test hadn't made. The clock turning its minute inside the test's wait gives both: the door's tick repaints
+  // the status row, with the window full one more frame skipped (200 for 199), with it open one more sent and unanswered
+  // (unacked 1 for 0, and the night's byte count).
+  test("these sessions draw only what the test makes: the clock turning its minute and a resize ending send no frame of their own", async () => {
+    let at = Date.now();
+    const { term, numbers } = counting(() => at);
+    const a = fakeLink(80, 24);
+    term.attach(a.link, hello(80, 24, { acks: true }));   // 80×24 on a session drawn at 80×25: a resize, ending by itself 500 ms on
+    const sent = a.sent.length;
+    at += 60_000; resizeEnded();                          // the next minute, and the resize over now
+    await Bun.sleep(100);                                 // three of a door's ticks
+    expect(a.sent.length).toBe(sent);
+    expect(numbers(a)).toEqual([0]);
+    expect(term.speed()[0]).toMatchObject({ unacked: 1, skipped: 0 });
+  });
 
   test("a reader that stops answering while 200 frames are made gets the latest one next when it resumes, not the backlog", async () => {
     const { term, make, numbers } = counting();
