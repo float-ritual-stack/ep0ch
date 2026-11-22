@@ -483,9 +483,10 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
   }
   const answer = "\x1b[0n";
 
-  // PIE-1808 and PIE-1817: the nightly was red here twice, a different test each night, both green alone. Each time the
-  // clock turned its minute inside the test's wait and the door's tick repainted the status row: with the window full that
-  // was one more frame skipped (200 for 199), with it open one more sent and unanswered (unacked 1 for 0).
+  // PIE-1808 and PIE-1817: the nightly was red here twice, a different test each night, both green alone, each with one
+  // frame the test hadn't made. The clock turning its minute inside the test's wait gives both: the door's tick repaints
+  // the status row, with the window full one more frame skipped (200 for 199), with it open one more sent and unanswered
+  // (unacked 1 for 0, and the night's byte count).
   test("these sessions draw only what the test makes: the clock turning its minute and a resize ending send no frame of their own", async () => {
     let at = Date.now();
     const { term, numbers } = counting(() => at);
